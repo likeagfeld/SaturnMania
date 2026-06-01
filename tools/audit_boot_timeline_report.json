@@ -1,0 +1,202 @@
+{
+  "schema_version": 1,
+  "cd_bandwidth_kbps": 150.0,
+  "seek_time_sec": 0.1,
+  "rows": [
+    {
+      "label": "setup_title_bg/TITLE.PAL",
+      "filename": "TITLE.PAL",
+      "size_kb": 0.5,
+      "seeks": 1,
+      "expected_load_sec": 0.103,
+      "mandatory_for_first_paint": true,
+      "deferable": false
+    },
+    {
+      "label": "setup_title_bg/TITLE.DAT",
+      "filename": "TITLE.DAT",
+      "size_kb": 112.0,
+      "seeks": 1,
+      "expected_load_sec": 0.847,
+      "mandatory_for_first_paint": true,
+      "deferable": false
+    },
+    {
+      "label": "title_assets/MWINGS.SPR",
+      "filename": "MWINGS.SPR",
+      "size_kb": 40.51,
+      "seeks": 1,
+      "expected_load_sec": 0.37,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "title_assets/MRIBSIDE.SPR",
+      "filename": "MRIBSIDE.SPR",
+      "size_kb": 7.88,
+      "seeks": 1,
+      "expected_load_sec": 0.153,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "title_assets/MLOGO.SPR",
+      "filename": "MLOGO.SPR",
+      "size_kb": 27.01,
+      "seeks": 1,
+      "expected_load_sec": 0.28,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "title_assets/MRIBBON.SPR",
+      "filename": "MRIBBON.SPR",
+      "size_kb": 19.26,
+      "seeks": 1,
+      "expected_load_sec": 0.228,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "title_assets/MRING.SPR",
+      "filename": "MRING.SPR",
+      "size_kb": 7.51,
+      "seeks": 1,
+      "expected_load_sec": 0.15,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "title_assets/MPRESS.SPR",
+      "filename": "MPRESS.SPR",
+      "size_kb": 82.51,
+      "seeks": 1,
+      "expected_load_sec": 0.65,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "title_assets/TSONIC.ATL",
+      "filename": "TSONIC.ATL",
+      "size_kb": 383.35,
+      "seeks": 21,
+      "expected_load_sec": 4.656,
+      "mandatory_for_first_paint": true,
+      "deferable": false
+    },
+    {
+      "label": "title_assets/ELECTRA.ATL",
+      "filename": "ELECTRA.ATL",
+      "size_kb": 66.85,
+      "seeks": 9,
+      "expected_load_sec": 1.346,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/DIGITS.SPR",
+      "filename": "DIGITS.SPR",
+      "size_kb": 1.51,
+      "seeks": 1,
+      "expected_load_sec": 0.11,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/RING.SPR",
+      "filename": "RING.SPR",
+      "size_kb": 8.01,
+      "seeks": 1,
+      "expected_load_sec": 0.153,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/SPRING.SPR",
+      "filename": "SPRING.SPR",
+      "size_kb": 18.01,
+      "seeks": 1,
+      "expected_load_sec": 0.22,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/MONITOR.SPR",
+      "filename": "MONITOR.SPR",
+      "size_kb": 2.01,
+      "seeks": 1,
+      "expected_load_sec": 0.113,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/SIGNPOST.SPR",
+      "filename": "SIGNPOST.SPR",
+      "size_kb": 24.01,
+      "seeks": 1,
+      "expected_load_sec": 0.26,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/BADNIK.SPR",
+      "filename": "BADNIK.SPR",
+      "size_kb": 36.01,
+      "seeks": 1,
+      "expected_load_sec": 0.34,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/RINGSFX.PCM",
+      "filename": "RINGSFX.PCM",
+      "size_kb": 14.39,
+      "seeks": 1,
+      "expected_load_sec": 0.196,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/JUMPSFX.PCM",
+      "filename": "JUMPSFX.PCM",
+      "size_kb": 9.37,
+      "seeks": 1,
+      "expected_load_sec": 0.162,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/BREAKSFX.PCM",
+      "filename": "BREAKSFX.PCM",
+      "size_kb": 9.68,
+      "seeks": 1,
+      "expected_load_sec": 0.165,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/STOMPSFX.PCM",
+      "filename": "STOMPSFX.PCM",
+      "size_kb": 14.36,
+      "seeks": 1,
+      "expected_load_sec": 0.196,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    },
+    {
+      "label": "entities/BOUNCESFX.PCM",
+      "filename": "BOUNCESFX.PCM",
+      "size_kb": 18.27,
+      "seeks": 1,
+      "expected_load_sec": 0.222,
+      "mandatory_for_first_paint": false,
+      "deferable": true
+    }
+  ],
+  "cumulative_total_sec": 10.92,
+  "cumulative_first_paint_sec": 5.606,
+  "cumulative_deferable_sec": 5.314,
+  "missing_assets": [],
+  "budget_threshold_sec": 5.0,
+  "verdict": "BUDGET_EXCEEDED"
+}

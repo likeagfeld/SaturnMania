@@ -1,0 +1,2901 @@
+{
+  "AIZ": {
+    "folder": "AIZ",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "AIZSetup",
+        "FXRuby",
+        "AIZTornado",
+        "AIZTornadoPath",
+        "FXFade",
+        "CutsceneSeq",
+        "Platform",
+        "Decoration",
+        "AIZEggRobo",
+        "AIZKingClaw",
+        "PhantomRuby"
+      ],
+      "sfx": [
+        "Ruby/RedCube_L.wav",
+        "Ruby/RedCube_R.wav",
+        "Ruby/Attack1_L.wav",
+        "Ruby/Attack1_R.wav",
+        "Ruby/Attack4_L.wav",
+        "Ruby/Attack4_R.wav",
+        "Stage/LedgeBreak3.wav",
+        "LRZ/WalkerLegs.wav",
+        "LRZ/Drill.wav",
+        "Stage/Clack.wav",
+        "Stage/Impact4.wav",
+        "SPZ1/HeliWooshIn.wav"
+      ]
+    }
+  },
+  "CPZ": {
+    "folder": "CPZ",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "vgN5",
+          "aJIcX",
+          "lpr"
+        ]
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "Tki",
+          "sZO",
+          "lpr"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "CPZSetup",
+        "ParallaxSprite",
+        "Decoration",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "Water",
+        "OneWayDoor",
+        "ChemicalBall",
+        "TubeSpring",
+        "SpeedBooster",
+        "Springboard",
+        "RotatingStair",
+        "Staircase",
+        "TippingPlatform",
+        "TransportTube",
+        "TwistedTubes",
+        "Spiny",
+        "Grabber",
+        "Sweep",
+        "CaterkillerJr",
+        "AmoebaDroid",
+        "ChemicalPool",
+        "ChemBubble",
+        "Syringe",
+        "Reagent",
+        "StickyPlatform",
+        "DNARiser",
+        "CollapsingPlatform",
+        "BreakableWall",
+        "PuyoBean",
+        "PuyoMatch",
+        "PuyoAttack",
+        "PuyoAI",
+        "CPZShutter",
+        "CPZBoss",
+        "ForceSpin",
+        "SpinBooster",
+        "ForceUnstick",
+        "BGSwitch",
+        "CutsceneSeq",
+        "CPZ2Outro",
+        "CPZ1Intro",
+        "FXRuby",
+        "PhantomRuby"
+      ],
+      "sfx": [
+        "Stage/Bloop.wav",
+        "Stage/Shot.wav",
+        "Stage/Warning.wav",
+        "Stage/Splash.wav",
+        "Stage/Splash2.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "CPZ/DroidGather.wav",
+        "CPZ/DroidBounce.wav",
+        "CPZ/DroidRelease.wav",
+        "CPZ/DNABurst.wav",
+        "CPZ/DNAGrab.wav",
+        "CPZ/DNAScan.wav",
+        "CPZ/DNATiny0.wav",
+        "CPZ/DNATiny1.wav",
+        "CPZ/DNATiny2.wav",
+        "CPZ/DNATiny3.wav",
+        "CPZ/DNATiny4.wav",
+        "CPZ/DNATiny5.wav",
+        "Puyo/Rotate.wav",
+        "Puyo/Land.wav",
+        "Puyo/Attack.wav",
+        "Puyo/Junk.wav",
+        "Puyo/Chain0.wav",
+        "Puyo/Chain1.wav",
+        "Puyo/Chain2.wav",
+        "Puyo/Chain3.wav",
+        "Puyo/Chain4.wav",
+        "Puyo/Chain5.wav",
+        "Puyo/Fall.wav",
+        "CPZ/ChemRed.wav",
+        "CPZ/ChemYellow.wav",
+        "CPZ/ChemChange.wav",
+        "Tube/Exit.wav",
+        "Tube/Spin.wav",
+        "Tube/Travel.wav",
+        "Ruby/Attack4_L.wav",
+        "Ruby/Attack4_R.wav",
+        "CPZ/CPZ2HitBlocks.wav",
+        "CPZ/CPZ2HitBlocksStop.wav",
+        "CPZ/ChemDrop.wav",
+        "Stage/Drown.wav"
+      ]
+    }
+  },
+  "Credits": {
+    "folder": "Credits",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "Zone",
+        "Player",
+        "Camera",
+        "Music",
+        "SaveGame",
+        "CreditsSetup",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIWaitSpinner",
+        "UICreditsText",
+        "FXFade",
+        "APICallback",
+        "Localization"
+      ],
+      "sfx": [
+        "Ruby/RedCube_L.wav",
+        "Ruby/RedCube_R.wav",
+        "Ruby/Attack1_L.wav",
+        "Ruby/Attack1_R.wav",
+        "Ruby/Attack4_L.wav",
+        "Ruby/Attack4_R.wav",
+        "Stage/LedgeBreak3.wav",
+        "LRZ/WalkerLegs.wav",
+        "LRZ/Drill.wav",
+        "Stage/Clack.wav"
+      ]
+    }
+  },
+  "DAGarden": {
+    "folder": "DAGarden",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "Music",
+        "Title3DSprite",
+        "TitleBG",
+        "DASetup",
+        "UIWidgets",
+        "UIInfoLabel",
+        "UIControl",
+        "UIButtonPrompt",
+        "UIButton",
+        "FXFade",
+        "DAControl"
+      ],
+      "sfx": [
+        "Special/Emerald.wav",
+        "Special/Medal.wav",
+        "Special/SSExit.wav"
+      ]
+    }
+  },
+  "ERZ": {
+    "folder": "ERZ",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP",
+          "ZZf"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "ERZSetup",
+        "FXRuby",
+        "FXFade",
+        "ERZStart",
+        "CutsceneSeq",
+        "PhantomRuby",
+        "ChaosEmerald",
+        "PhantomKing",
+        "KleptoMobile",
+        "ERZKing",
+        "ERZShinobi",
+        "ERZGunner",
+        "ERZMystic",
+        "ERZRider",
+        "PKingAttack",
+        "RingField",
+        "ERZOutro",
+        "RubyPortal"
+      ],
+      "sfx": [
+        "Stage/Bumper3.wav",
+        "Stage/Explosion.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Ruby/Attack1_L.wav",
+        "Ruby/Attack1_R.wav",
+        "Ruby/Attack2_L.wav",
+        "Ruby/Attack2_R.wav",
+        "Ruby/Attack3_L.wav",
+        "Ruby/Attack3_R.wav",
+        "Ruby/Attack4_L.wav",
+        "Ruby/Attack4_R.wav",
+        "Ruby/Attack5_L.wav",
+        "Ruby/Attack5_R.wav",
+        "Ruby/Attack6_L.wav",
+        "Ruby/Attack6_R.wav",
+        "Ruby/RedCube_L.wav",
+        "Ruby/RedCube_R.wav",
+        "Stage/Whack.wav",
+        "Stage/ElecPulse.wav",
+        "SSZ1/Flail.wav",
+        "Stage/Clack.wav",
+        "ERZ/FlyIn.wav",
+        "Stage/HullClose.wav",
+        "Stage/Rumble.wav",
+        "Stage/PowerUp.wav",
+        "Stage/RocketJet.wav"
+      ]
+    }
+  },
+  "Ending": {
+    "folder": "Ending",
+    "scenes": {
+      "SceneBK.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "SceneBS.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "SceneBT.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "SceneC.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "SceneG.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "SceneT.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "SceneTK.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "SaveGame",
+        "Music",
+        "MenuParam",
+        "FXFade",
+        "TryAgain",
+        "UIControl",
+        "UIButton",
+        "UICreditsText",
+        "UIVideo",
+        "ContinueSetup",
+        "ContinuePlayer",
+        "TAEmerald",
+        "AnimalHBH"
+      ],
+      "sfx": []
+    }
+  },
+  "FBZ": {
+    "folder": "FBZ",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PZt",
+          "rOW"
+        ]
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "lhrG",
+          "uK4G",
+          "kwa",
+          "GVn"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "FBZSetup",
+        "BGSwitch",
+        "ParallaxSprite",
+        "Decoration",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "ForceSpin",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "TilePlatform",
+        "HangPoint",
+        "Launcher",
+        "Blaster",
+        "Technosqueek",
+        "Clucker",
+        "Crane",
+        "TubeSpring",
+        "Button",
+        "FlameSpring",
+        "TwistingDoor",
+        "SpiralPlatform",
+        "Propeller",
+        "PropellerShaft",
+        "Mine",
+        "FoldingPlatform",
+        "ElectroMagnet",
+        "MagPlatform",
+        "MagSpikeBall",
+        "TetherBall",
+        "FBZMissile",
+        "FBZFan",
+        "Cylinder",
+        "GenericTrigger",
+        "FBZTrash",
+        "BigSqueeze",
+        "LightBarrier",
+        "Eggman",
+        "WarpDoor",
+        "ForceUnstick",
+        "Tuesday",
+        "Current",
+        "FBZSinkTrash",
+        "SpiderMobile",
+        "FBZStorm",
+        "SpinBooster",
+        "CutsceneSeq",
+        "FBZ1Outro"
+      ],
+      "sfx": [
+        "Stage/Button.wav",
+        "Stage/Launch.wav",
+        "Stage/Magnet.wav",
+        "Stage/Open.wav",
+        "Stage/Whack.wav",
+        "Stage/Flame2.wav",
+        "Stage/Chain.wav",
+        "Stage/Push.wav",
+        "Stage/Chopper.wav",
+        "Stage/Explosion2.wav",
+        "Stage/LedgeBreak3.wav",
+        "Stage/Shot.wav",
+        "Stage/BossHit.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/ElecCharge.wav",
+        "Stage/Zap.wav",
+        "Stage/Drop.wav",
+        "Tube/Exit.wav",
+        "Stage/Bumper.wav",
+        "FBZ/SpiderCharge.wav",
+        "FBZ/SpiderElecBall.wav",
+        "FBZ/SpiderFall.wav",
+        "FBZ/SpiderFlailing.wav",
+        "FBZ/SpiderHitGround.wav",
+        "FBZ/SpiderRecovery.wav",
+        "Stage/Rumble.wav",
+        "FBZ/FBZFan.wav",
+        "FBZ/Orbinaut.wav",
+        "FBZ/WarpDoor.wav",
+        "FBZ/Rain.wav",
+        "FBZ/Thunder.wav",
+        "FBZ/Magnet.wav",
+        "Stage/Impact4.wav",
+        "Stage/Rumble.wav",
+        "FBZ/Elevator.wav",
+        "Stage/HullClose.wav"
+      ]
+    }
+  },
+  "GHZ": {
+    "folder": "GHZ",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "SDFQ",
+          "lsa",
+          "P_A"
+        ]
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "FQS"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "GHZSetup",
+        "ForceSpin",
+        "Platform",
+        "CollapsingPlatform",
+        "BreakableWall",
+        "CheckerBall",
+        "Decoration",
+        "Bridge",
+        "Motobug",
+        "BuzzBomber",
+        "Crabmeat",
+        "Newtron",
+        "Splats",
+        "Chopper",
+        "Batbrain",
+        "CorkscrewPath",
+        "BGSwitch",
+        "SpikeLog",
+        "BurningLog",
+        "ZipLine",
+        "Water",
+        "DDWrecker",
+        "DERobot",
+        "Eggman",
+        "ForceUnstick",
+        "SpinBooster",
+        "CutsceneSeq",
+        "GHZ2Outro"
+      ],
+      "sfx": [
+        "Stage/LedgeBreak.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Drop.wav",
+        "Stage/Flap.wav",
+        "Stage/Splash.wav",
+        "Stage/Assemble.wav",
+        "Stage/Sharp.wav",
+        "Stage/Rotate.wav",
+        "Stage/Impact2.wav",
+        "Stage/Targeting1.wav",
+        "Stage/Buzzsaw.wav",
+        "Stage/Button2.wav",
+        "Stage/HullClose.wav",
+        "Stage/Warning.wav",
+        "Stage/Drown.wav"
+      ]
+    }
+  },
+  "GHZCutscene": {
+    "folder": "GHZCutscene",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "LsOzG",
+          "ch_"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "GHZSetup",
+        "Platform",
+        "BGSwitch",
+        "PhantomRuby",
+        "FXRuby",
+        "AIZKingClaw",
+        "GHZCutsceneST",
+        "GHZCutsceneK",
+        "CutsceneSeq",
+        "CutsceneHBH",
+        "FXFade",
+        "FXTrail",
+        "GHZ2Outro",
+        "DERobot",
+        "Eggman"
+      ],
+      "sfx": [
+        "Stage/LedgeBreak.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Drop.wav",
+        "Stage/Flap.wav",
+        "Stage/Splash.wav",
+        "Stage/Assemble.wav",
+        "Stage/Sharp.wav",
+        "Stage/Rotate.wav",
+        "Stage/Impact2.wav",
+        "Stage/Targeting1.wav",
+        "Stage/Buzzsaw.wav",
+        "Stage/Button2.wav",
+        "Stage/HullClose.wav",
+        "Ruby/Attack1_L.wav",
+        "Ruby/Attack1_R.wav",
+        "Ruby/Attack4_L.wav",
+        "Ruby/Attack4_R.wav",
+        "Ruby/RedCube_L.wav",
+        "Ruby/RedCube_R.wav",
+        "Stage/RocketJet.wav",
+        "SPZ1/HeliWooshIn.wav",
+        "PSZ/ShinobiJump.wav"
+      ]
+    }
+  },
+  "HCZ": {
+    "folder": "HCZ",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "yCwMK",
+          "gy0"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "HCZSetup",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "Bridge",
+        "Button",
+        "ForceSpin",
+        "Water",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "RotatingStair",
+        "Blastoid",
+        "Buggernaut",
+        "Jawz",
+        "MegaChopper",
+        "Pointdexter",
+        "TurboSpiker",
+        "Fan",
+        "Current",
+        "Jellygnite",
+        "PlayerProbe",
+        "HandLauncher",
+        "BreakBar",
+        "PullChain",
+        "Gondola",
+        "Spear",
+        "HangConveyor",
+        "ButtonDoor",
+        "ScrewMobile",
+        "DiveEggman",
+        "HCZOneWayDoor",
+        "Decoration",
+        "TwistingSlide",
+        "LaundroMobile",
+        "HCZSpikeBall",
+        "WaterGush",
+        "DCEvent",
+        "ForceUnstick",
+        "Whirlpool",
+        "FlingRamp",
+        "CutsceneSeq",
+        "HCZ1Intro"
+      ],
+      "sfx": [
+        "Stage/Splash.wav",
+        "Stage/Breathe.wav",
+        "Stage/Warning.wav",
+        "Stage/Drown.wav",
+        "Stage/Shot.wav",
+        "Stage/Launch.wav",
+        "Stage/LedgeBreak3.wav",
+        "HCZ/Dunkey.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/Button.wav",
+        "HCZ/BigFan.wav",
+        "HCZ/EggMobile.wav",
+        "Stage/Button2.wav",
+        "Stage/Impact5.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/HullClose.wav",
+        "HCZ/Wash.wav",
+        "Stage/Fireball.wav",
+        "Stage/Push.wav",
+        "Stage/Rumble.wav",
+        "Stage/Impact6.wav",
+        "Stage/Impact4.wav",
+        "Stage/RockemSockem.wav",
+        "Stage/PimPom.wav",
+        "HCZ/WaterLevel_L.wav",
+        "HCZ/WaterLevel_R.wav",
+        "HCZ/Whirlpool.wav",
+        "HCZ/WaterGush.wav",
+        "HCZ/HCZButtonDoor.wav",
+        "Stage/Clack.wav",
+        "HCZ/PullChain.wav",
+        "HCZ/Spear.wav",
+        "CPZ/DNAGrab.wav",
+        "CPZ/DNABurst.wav",
+        "HCZ/SmallFan.wav",
+        "HCZ/Skim.wav"
+      ]
+    }
+  },
+  "LRZ1": {
+    "folder": "LRZ1",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "I82"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "LRZ1Setup",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "PlayerProbe",
+        "BreakableWall",
+        "Bridge",
+        "Button",
+        "ButtonDoor",
+        "BuckwildBall",
+        "CollapsingPlatform",
+        "DashLift",
+        "FlingRamp",
+        "ForceUnstick",
+        "LavaFall",
+        "LavaGeyser",
+        "LRZFireball",
+        "LRZRockPile",
+        "LRZSpiral",
+        "RisingLava",
+        "RockDrill",
+        "TurretSwitch",
+        "SpikeCrusher",
+        "WalkerLegs",
+        "DrillerdroidO",
+        "Fireworm",
+        "Iwamodoki",
+        "Rexon",
+        "Toxomister",
+        "LRZConvItem",
+        "ForceSpin",
+        "SpinBooster",
+        "Drillerdroid",
+        "Stalactite",
+        "CutsceneSeq",
+        "LRZ1Outro"
+      ],
+      "sfx": [
+        "Stage/Fireball.wav",
+        "Stage/Huff.wav",
+        "Stage/Impact4.wav",
+        "Stage/Pulley.wav",
+        "Stage/Lava.wav",
+        "Stage/Shot.wav",
+        "Stage/Impact2.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Button.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/LedgeBreak3.wav",
+        "LRZ/WalkerLegs.wav",
+        "LRZ/WalkerLegs2.wav",
+        "LRZ/Drill.wav",
+        "LRZ/DrillJump.wav",
+        "Stage/Targeting1.wav",
+        "LRZ/Sizzle.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/Sharp.wav",
+        "Stage/Rumble.wav",
+        "Stage/Shoot1.wav",
+        "Stage/Drop.wav",
+        "Stage/Fail.wav",
+        "Stage/Clang2.wav",
+        "Stage/Open.wav",
+        "LRZ/LavaGeyser.wav"
+      ]
+    }
+  },
+  "LRZ2": {
+    "folder": "LRZ2",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "wb8",
+          "vPW",
+          "SwN"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "LRZ2Setup",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "LRZFireball",
+        "LRZSpiral",
+        "FlingRamp",
+        "LavaFall",
+        "Fireworm",
+        "Toxomister",
+        "Iwamodoki",
+        "Rexon",
+        "ParallaxSprite",
+        "Turbine",
+        "OrbitSpike",
+        "CollapsingPlatform",
+        "BreakableWall",
+        "ForceUnstick",
+        "Flamethrower",
+        "PlayerProbe",
+        "SpinBooster",
+        "Current",
+        "WalkerLegs",
+        "TransportTube",
+        "Button",
+        "ButtonDoor",
+        "DashLift",
+        "LRZSpikeBall",
+        "LRZConveyor",
+        "LRZConvControl",
+        "LRZConvItem",
+        "LRZConvDropper",
+        "LRZConvSwitch",
+        "LRZRockPile",
+        "LavaGeyser",
+        "CutsceneSeq",
+        "LRZ1Outro",
+        "GenericTrigger"
+      ],
+      "sfx": [
+        "Stage/Fireball.wav",
+        "Stage/Huff.wav",
+        "Stage/Impact4.wav",
+        "Stage/Pulley.wav",
+        "Stage/Lava.wav",
+        "Stage/Shot.wav",
+        "Stage/Flame2.wav",
+        "Stage/Impact2.wav",
+        "Stage/Button.wav",
+        "LRZ/WalkerLegs.wav",
+        "LRZ/WalkerLegs2.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/LedgeBreak3.wav",
+        "LRZ/Charge.wav",
+        "LRZ/Turbine.wav",
+        "Stage/Explosion2.wav",
+        "LRZ/Sizzle.wav",
+        "Stage/Open.wav",
+        "Stage/Clack.wav"
+      ]
+    }
+  },
+  "LRZ3": {
+    "folder": "LRZ3",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "LRZ3Setup",
+        "HPZEmerald",
+        "KingClaw",
+        "KingAttack",
+        "HeavyKing",
+        "ThoughtBubble",
+        "FXSpinRay",
+        "FXExpandRing",
+        "HeavyRider",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "Flamethrower",
+        "ParallaxSprite",
+        "CutsceneSeq",
+        "LRZ3Cutscene",
+        "SkyTeleporter",
+        "LRZ3OutroK",
+        "FXRuby"
+      ],
+      "sfx": [
+        "Stage/Impact4.wav",
+        "Stage/Shot.wav",
+        "Stage/Flame2.wav",
+        "Stage/Impact2.wav",
+        "Stage/Button.wav",
+        "LRZ/WalkerLegs.wav",
+        "LRZ/WalkerLegs2.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/LedgeBreak3.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "PSZ/Freeze.wav",
+        "Stage/Impact5.wav",
+        "LRZ/KingCharge.wav",
+        "LRZ/RiderCharge.wav",
+        "LRZ/RiderLaunch.wav",
+        "LRZ/RiderSkid.wav",
+        "LRZ/RiderJump.wav",
+        "LRZ/RiderCheer.wav",
+        "Stage/Bumper3.wav",
+        "Stage/Impact6.wav",
+        "Stage/Clack.wav",
+        "LRZ/RodPlant.wav",
+        "LRZ/RodShine.wav",
+        "LRZ/LaserSweep.wav",
+        "LRZ/LaserErupt.wav",
+        "LRZ/ElecOn.wav",
+        "LRZ/ElecIdle.wav",
+        "Stage/ElecPulse.wav",
+        "LRZ/TwinCharge.wav",
+        "LRZ/TwinShot.wav",
+        "LRZ/Warp.wav"
+      ]
+    }
+  },
+  "LSelect": {
+    "folder": "LSelect",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Music",
+        "Localization",
+        "LevelSelect",
+        "UIText",
+        "UIPicture"
+      ],
+      "sfx": [
+        "Stage/Fail.wav"
+      ]
+    }
+  },
+  "Logos": {
+    "folder": "Logos",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "LogoSetup",
+        "UIPicture"
+      ],
+      "sfx": [
+        "Stage/Sega.wav"
+      ]
+    }
+  },
+  "MMZ": {
+    "folder": "MMZ",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "P5x",
+          "mMY",
+          "p_S"
+        ]
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "PPP",
+          "lpY",
+          "z80x",
+          "QUWJ",
+          "xJD"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "MMZSetup",
+        "FarPlane",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "TilePlatform",
+        "CollapsingPlatform",
+        "BreakableWall",
+        "ConveyorPlatform",
+        "Piston",
+        "VanishPlatform",
+        "BuzzSaw",
+        "Button",
+        "ConveyorWheel",
+        "OneWayDoor",
+        "MatryoshkaBom",
+        "MechaBu",
+        "EggPistonsMKII",
+        "SpikeCorridor",
+        "RPlaneShifter",
+        "Gachapandora",
+        "MMZWheel",
+        "BladePole",
+        "ConveyorBelt",
+        "PlaneSeeSaw",
+        "Scarab",
+        "PohBee",
+        "SpinBooster",
+        "ForceSpin",
+        "SizeLaser",
+        "ForceUnstick",
+        "FlingRamp"
+      ],
+      "sfx": [
+        "Stage/LedgeBreak.wav",
+        "Stage/Explosion.wav",
+        "Stage/Electrify.wav",
+        "Stage/BuzzSaw.wav",
+        "Stage/Flame.wav",
+        "Stage/Button.wav",
+        "Stage/Wall.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Impact2.wav",
+        "Stage/Drop.wav",
+        "Stage/Pon.wav",
+        "Stage/Unravel.wav",
+        "Stage/Flipper.wav",
+        "MMZ/Giggle.wav",
+        "Stage/Fireball.wav",
+        "Stage/Button2.wav",
+        "MMZ/PistonPush.wav",
+        "MMZ/SawUp.wav",
+        "MMZ/SawDown.wav",
+        "MMZ/PistonLaunch.wav",
+        "MMZ/PistonLand.wav",
+        "MMZ/TicTock.wav",
+        "MMZ/SizeLaser.wav",
+        "MMZ/SawSus.wav",
+        "MMZ/Grow2.wav",
+        "MMZ/Shrink2.wav",
+        "MMZ/Indicator.wav",
+        "MMZ/Alarm.wav"
+      ]
+    }
+  },
+  "MSZ": {
+    "folder": "MSZ",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      },
+      "Scene1k.bin": {
+        "names_seen": [
+          "jzi"
+        ]
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "rYCQ",
+          "TYy",
+          "iWFL",
+          "Ij5"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "MSZSetup",
+        "GenericTrigger",
+        "ParallaxSprite",
+        "Bumpalo",
+        "Rattlekiller",
+        "Hatterkiller",
+        "RollerMKII",
+        "Vultron",
+        "Cactula",
+        "Armadiloid",
+        "Projectile",
+        "Flipper",
+        "SeeSaw",
+        "BarStool",
+        "Platform",
+        "PlatformNode",
+        "TilePlatform",
+        "SeltzerBottle",
+        "SeltzerWater",
+        "Decoration",
+        "GiantPistol",
+        "CollapsingSand",
+        "Honkytonk",
+        "LightBulb",
+        "Pinata",
+        "RotatingSpikes",
+        "PaintingEyes",
+        "SideBarrel",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "ForceUnstick",
+        "SwingRope",
+        "ForceSpin",
+        "Tornado",
+        "TornadoPath",
+        "HeavyMystic",
+        "SpinBooster",
+        "EggLoco",
+        "LocoSmoke",
+        "FlingRamp",
+        "MSZSpotlight",
+        "FXSpinRay",
+        "FXFade",
+        "UberCaterkiller",
+        "CutsceneHBH",
+        "CutsceneSeq",
+        "MSZCutsceneST",
+        "MSZ2Cutscene",
+        "MSZ1KIntro",
+        "DBTower"
+      ],
+      "sfx": [
+        "Stage/Bumper.wav",
+        "Stage/Flipper.wav",
+        "Stage/Huff.wav",
+        "Stage/Clack.wav",
+        "Stage/Jump2.wav",
+        "Stage/Bumper3.wav",
+        "Stage/BulbPop.wav",
+        "Stage/CannonFire.wav",
+        "MSZ/SandFall.wav",
+        "MSZ/StoolSpin.wav",
+        "MSZ/StoolHop.wav",
+        "MSZ/Piano00C2.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/Drop.wav",
+        "MSZ/Spray.wav",
+        "MSZ/Pinata.wav",
+        "Stage/RocketJet.wav",
+        "MSZ/MagicBox.wav",
+        "Stage/Clack.wav",
+        "Stage/Impact3.wav",
+        "Stage/PowerDown.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Transform2.wav",
+        "Stage/PowerUp.wav",
+        "Stage/Pon.wav",
+        "Stage/Explosion3.wav",
+        "MSZ/Mayday.wav",
+        "Stage/Impact5.wav",
+        "MSZ/SandSwim.wav",
+        "Stage/Assemble.wav",
+        "Stage/RocketJet.wav",
+        "Stage/RockemSockem.wav",
+        "MSZ/MysticPoof.wav",
+        "Stage/Shot.wav",
+        "MSZ/CactChopper.wav",
+        "MSZ/CactDrop.wav",
+        "MSZ/LocoSmoke.wav",
+        "MSZ/LocoWhistle.wav",
+        "MSZ/CaterJump.wav",
+        "MSZ/LocoChugga.wav",
+        "MSZ/MysticTwinkle.wav",
+        "MSZ/MysticHat.wav",
+        "MSZ/MysticHatNode.wav",
+        "MSZ/MysticAppearAct1.wav",
+        "MSZ/MysticBleeps.wav",
+        "MSZ/MysticTransform.wav",
+        "MSZ/Vultron.wav",
+        "Stage/Impact5.wav"
+      ]
+    }
+  },
+  "MSZCutscene": {
+    "folder": "MSZCutscene",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "MSZSetup",
+        "GenericTrigger",
+        "ParallaxSprite",
+        "Projectile",
+        "Platform",
+        "PlatformNode",
+        "TilePlatform",
+        "Decoration",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "ForceUnstick",
+        "SwingRope",
+        "ForceSpin",
+        "Tornado",
+        "TornadoPath",
+        "HeavyMystic",
+        "SpinBooster",
+        "FXSpinRay",
+        "FXFade",
+        "CutsceneHBH",
+        "CutsceneSeq",
+        "MSZCutsceneK"
+      ],
+      "sfx": [
+        "Stage/Bumper.wav",
+        "Stage/Flipper.wav",
+        "Stage/Huff.wav",
+        "Stage/Clack.wav",
+        "Stage/Jump2.wav",
+        "Stage/Bumper3.wav",
+        "Stage/BulbPop.wav",
+        "Stage/CannonFire.wav",
+        "MSZ/SandFall.wav",
+        "MSZ/StoolSpin.wav",
+        "MSZ/StoolHop.wav",
+        "MSZ/Piano00C2.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/Drop.wav",
+        "MSZ/Spray.wav",
+        "MSZ/Pinata.wav",
+        "Stage/RocketJet.wav",
+        "MSZ/MagicBox.wav",
+        "Stage/Clack.wav",
+        "Stage/Impact3.wav",
+        "Stage/PowerDown.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Transform2.wav",
+        "Stage/PowerUp.wav",
+        "Stage/Pon.wav",
+        "Stage/Explosion3.wav",
+        "MSZ/Mayday.wav",
+        "Stage/Impact5.wav"
+      ]
+    }
+  },
+  "Menu": {
+    "folder": "Menu",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "UIControl",
+        "UIBackground",
+        "UIWidgets",
+        "UIHeading",
+        "UISubHeading",
+        "UIPicture",
+        "UIButton",
+        "UIModeButton",
+        "UISaveSlot",
+        "UIButtonPrompt",
+        "FXFade",
+        "Music",
+        "MenuSetup",
+        "UIChoice",
+        "UICharButton",
+        "UITAZoneModule",
+        "UIDialog",
+        "UILeaderboard",
+        "UIVsCharSelector",
+        "UIVsRoundPicker",
+        "UIVsZoneButton",
+        "UIVsResults",
+        "UIInfoLabel",
+        "UIVsScoreboard",
+        "UIOptionPanel",
+        "UISlider",
+        "UIButtonLabel",
+        "UIKeyBinder",
+        "UIWaitSpinner",
+        "GameProgress",
+        "UIMedallionPanel",
+        "Announcer",
+        "UITransition",
+        "UIUsernamePopup",
+        "UIResPicker",
+        "UIWinSize"
+      ],
+      "sfx": [
+        "Special/Event.wav",
+        "VO/Sonic.wav",
+        "VO/Tails.wav",
+        "VO/Knuckles.wav",
+        "VO/NewRecordMid.wav",
+        "VO/NewRecordTop.wav",
+        "VO/TheWinnerIs.wav",
+        "VO/Player1.wav",
+        "VO/Player2.wav"
+      ]
+    }
+  },
+  "OOZ1": {
+    "folder": "OOZ1",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "mBT"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "OOZSetup",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "Platform",
+        "Aquis",
+        "Octus",
+        "Fan",
+        "GasPlatform",
+        "PushSpring",
+        "BallCannon",
+        "Valve",
+        "Sol",
+        "MeterDroid",
+        "ForceUnstick",
+        "OOZFlames"
+      ],
+      "sfx": [
+        "Stage/LedgeBreak.wav",
+        "Stage/GasPop.wav",
+        "Stage/Clang.wav",
+        "Stage/CannonFire.wav",
+        "Stage/Shot.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "OOZ/GasPop.wav",
+        "Stage/Flame2.wav",
+        "OOZ/Slide.wav",
+        "Stage/Push.wav",
+        "OOZ/OilSwim.wav",
+        "OOZ/Valve.wav",
+        "OOZ/Toss.wav",
+        "Stage/Click.wav",
+        "OOZ/Wrench.wav"
+      ]
+    }
+  },
+  "OOZ2": {
+    "folder": "OOZ2",
+    "scenes": {
+      "Scene2.bin": {
+        "names_seen": [
+          "PPP",
+          "BQy"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "OOZSetup",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "Platform",
+        "Aquis",
+        "Octus",
+        "Fan",
+        "GasPlatform",
+        "PushSpring",
+        "BallCannon",
+        "Valve",
+        "PullSwitch",
+        "Sol",
+        "WarpDoor",
+        "SwitchDoor",
+        "ParallaxSprite",
+        "Smog",
+        "MegaOctus",
+        "TilePlatform",
+        "Hatch",
+        "GenericTrigger",
+        "ForceUnstick",
+        "CutsceneSeq",
+        "OOZ1Outro"
+      ],
+      "sfx": [
+        "Stage/LedgeBreak.wav",
+        "Stage/Clang.wav",
+        "Stage/CannonFire.wav",
+        "Stage/Shot.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "OOZ/GasPop.wav",
+        "OOZ/OOZLaser.wav",
+        "OOZ/OOZBullet.wav",
+        "OOZ/OOZSurface.wav",
+        "OOZ/LaserSplash.wav",
+        "OOZ/SmogClear.wav",
+        "OOZ/SubHatchOpen.wav",
+        "OOZ/SubHatchClose.wav",
+        "OOZ/SubDescend.wav",
+        "OOZ/SubSurface.wav",
+        "Stage/Flame2.wav",
+        "Stage/Shoot1.wav",
+        "OOZ/Harpoon.wav",
+        "OOZ/Slide.wav",
+        "Stage/Push.wav",
+        "OOZ/OilSwim.wav"
+      ]
+    }
+  },
+  "PSZ1": {
+    "folder": "PSZ1",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "JBG",
+          "lJq"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "PSZ1Setup",
+        "GenericTrigger",
+        "Dragonfly",
+        "Splats",
+        "JuggleSaw",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "ForceSpin",
+        "ForceUnstick",
+        "PetalPile",
+        "Cylinder",
+        "Press",
+        "PrintBlock",
+        "SP500",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "PSZDoor",
+        "DoorTrigger",
+        "PSZLauncher",
+        "SpinBooster",
+        "Crate",
+        "Shiversaw",
+        "Ice",
+        "Turntable",
+        "PaperRoller",
+        "SP500MkII"
+      ],
+      "sfx": [
+        "Stage/LedgeBreak.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Clacker.wav",
+        "PSZ/ArrowLaunch.wav",
+        "PSZ/ArrowHit.wav",
+        "PSZ/FrostThrower.wav",
+        "Stage/Whack.wav",
+        "Stage/Fail.wav",
+        "Stage/Beep4.wav",
+        "Stage/Button2.wav",
+        "Stage/BossHit.wav",
+        "Stage/WindowShatter.wav",
+        "Stage/Targeting1.wav",
+        "Stage/RocketJet.wav",
+        "Stage/Bumper2.wav",
+        "Stage/Open.wav",
+        "Stage/Explosion3.wav",
+        "PSZ/PaperBounce.wav",
+        "PSZ/Petals.wav",
+        "PSZ/Juggle.wav",
+        "PSZ/JuggleThrow.wav",
+        "PSZ/Press.wav",
+        "Stage/Impact2.wav",
+        "PSZ/SplatsLand.wav",
+        "PSZ/SplatsSpawn.wav",
+        "PSZ/Paper.wav",
+        "PSZ/Letter.wav"
+      ]
+    }
+  },
+  "PSZ2": {
+    "folder": "PSZ2",
+    "scenes": {
+      "Scene2.bin": {
+        "names_seen": [
+          "vlQ",
+          "xdB",
+          "yHC"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "PSZ2Setup",
+        "CollapsingPlatform",
+        "BreakableWall",
+        "ForceUnstick",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "Dragonfly",
+        "IceBomba",
+        "Woodrow",
+        "JuggleSaw",
+        "ForceSpin",
+        "PetalPile",
+        "Ice",
+        "FrostThrower",
+        "Shuriken",
+        "GenericTrigger",
+        "IceSpring",
+        "WoodChipper",
+        "HeavyShinobi",
+        "Snowflakes",
+        "FlingRamp",
+        "FXFade",
+        "FXRuby",
+        "PhantomRuby",
+        "PSZEggman",
+        "CutsceneSeq",
+        "PSZ2Intro",
+        "PSZ2Outro",
+        "SpinBooster"
+      ],
+      "sfx": [
+        "Stage/LedgeBreak.wav",
+        "Stage/Explosion.wav",
+        "Stage/WindowShatter.wav",
+        "PSZ/Freeze.wav",
+        "PSZ/FrostThrower.wav",
+        "PSZ/Struggle.wav",
+        "PSZ/ArrowLaunch.wav",
+        "PSZ/ArrowHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Clacker.wav",
+        "Stage/BossHit.wav",
+        "PSZ/Peck.wav",
+        "Stage/Explosion3.wav",
+        "PSZ/ShinobiDefeat.wav",
+        "PSZ/ShinobiDropIn.wav",
+        "PSZ/ShinobiExplode.wav",
+        "PSZ/ShinobiGlitch.wav",
+        "PSZ/ShinobiJump.wav",
+        "PSZ/ShinobiParry.wav",
+        "PSZ/ShinobiSlash.wav",
+        "PSZ/ShinobiStick.wav",
+        "PSZ/ShinobiThrow.wav",
+        "PSZ/Petals.wav",
+        "PSZ/ChipperChips.wav",
+        "PSZ/ChipperWood.wav",
+        "PSZ/Juggle.wav",
+        "PSZ/JuggleThrow.wav",
+        "Ruby/Attack1_L.wav",
+        "Ruby/Attack1_R.wav",
+        "Ruby/Attack4_L.wav",
+        "Ruby/Attack4_R.wav",
+        "Ruby/RedCube_L.wav",
+        "Ruby/RedCube_R.wav"
+      ]
+    }
+  },
+  "Puyo": {
+    "folder": "Puyo",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "Zone",
+        "PuyoBean",
+        "PuyoAttack",
+        "PuyoMatch",
+        "Music",
+        "PlatformNode",
+        "PuyoGame",
+        "Debris",
+        "CollapsingPlatform",
+        "BreakableWall",
+        "PuyoIndicator",
+        "PuyoAI",
+        "FXFade",
+        "PauseMenu",
+        "PuyoScore",
+        "PuyoLabel",
+        "PuyoLevelSelect",
+        "UIWidgets",
+        "UIControl",
+        "UIButton",
+        "UIDialog"
+      ],
+      "sfx": [
+        "Puyo/Attack.wav",
+        "Puyo/Chain0.wav",
+        "Puyo/Chain1.wav",
+        "Puyo/Chain2.wav",
+        "Puyo/Chain3.wav",
+        "Puyo/Chain4.wav",
+        "Puyo/Chain5.wav",
+        "Puyo/Fall.wav",
+        "Puyo/Junk.wav",
+        "Puyo/Land.wav",
+        "Puyo/Rotate.wav",
+        "Stage/LedgeBreak.wav"
+      ]
+    }
+  },
+  "SPZ1": {
+    "folder": "SPZ1",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "vdN",
+          "p8F",
+          "JJri2u",
+          "c2N"
+        ]
+      },
+      "Scene1d.bin": {
+        "names_seen": [
+          "vdN",
+          "TwH",
+          "Tvy",
+          "j8Y"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "SPZ1Setup",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "CollapsingPlatform",
+        "BreakableWall",
+        "ParallaxSprite",
+        "ShopWindow",
+        "SpinSign",
+        "Decoration",
+        "CircleBumper",
+        "RockemSockem",
+        "LEDPanel",
+        "TVVan",
+        "PopcornMachine",
+        "PopcornKernel",
+        "Clapperboard",
+        "FilmProjector",
+        "DirectorChair",
+        "Canista",
+        "MicDrop",
+        "Shutterbug",
+        "Tubinaut",
+        "HeavyGunner",
+        "SpinBooster",
+        "SPZ1Intro",
+        "FXFade",
+        "CutsceneSeq",
+        "ForceUnstick"
+      ],
+      "sfx": [
+        "Stage/Bumper.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/RockemSockem.wav",
+        "Stage/Whack.wav",
+        "Stage/Repel.wav",
+        "Stage/Unravel.wav",
+        "Stage/Electrify.wav",
+        "Stage/Pon.wav",
+        "Stage/Click2.wav",
+        "Stage/PowerDown.wav",
+        "Stage/Landing.wav",
+        "Stage/Extend.wav",
+        "Stage/Retract.wav",
+        "Stage/WindowShatter.wav",
+        "Stage/Extend.wav",
+        "Stage/Retract.wav",
+        "Stage/FanStart.wav",
+        "Stage/Shoot1.wav",
+        "Stage/PopcornLaunch.wav",
+        "Stage/Satellite1.wav",
+        "Stage/Satellite2.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Explosion3.wav",
+        "Stage/CannonFire.wav",
+        "Stage/RocketJet.wav",
+        "Stage/BossHit.wav",
+        "SPZ1/BazookaCharge.wav",
+        "SPZ1/BazookaThrow.wav",
+        "SPZ1/EggRoboFlyIn.wav",
+        "SPZ1/HBHSurprise.wav",
+        "SPZ1/HeliProp.wav",
+        "SPZ1/HeliWooshIn.wav",
+        "SPZ1/HeliWooshOut.wav",
+        "SPZ1/RocketBurn.wav",
+        "SPZ1/RocketFlip.wav",
+        "SPZ1/Rumble.wav",
+        "SPZ/ShBugSnap.wav",
+        "OOZ/GasPop.wav"
+      ]
+    }
+  },
+  "SPZ2": {
+    "folder": "SPZ2",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "hrp",
+          "dsuz"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "ForceUnstick",
+        "SPZ2Setup",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "CollapsingPlatform",
+        "ForceSpin",
+        "SpinBooster",
+        "BreakableWall",
+        "CableWarp",
+        "CircleBumper",
+        "Clapperboard",
+        "FilmReel",
+        "GreenScreen",
+        "Letterboard",
+        "LottoMachine",
+        "LottoBall",
+        "LoveTester",
+        "PathInverter",
+        "PimPom",
+        "RockemSockem",
+        "TilePlatform",
+        "TVPole",
+        "Canista",
+        "MicDrop",
+        "Shutterbug",
+        "Tubinaut",
+        "WeatherMobile",
+        "WeatherTV",
+        "FXFade",
+        "Funnel",
+        "EggTV",
+        "CutsceneSeq",
+        "SPZ2Outro",
+        "TVFlyingBattery"
+      ],
+      "sfx": [
+        "Stage/RockemSockem.wav",
+        "Stage/Beep3.wav",
+        "Stage/Beep4.wav",
+        "Stage/Fail.wav",
+        "Stage/Click.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Drop.wav",
+        "Stage/Impact3.wav",
+        "Stage/Impact4.wav",
+        "Stage/Bumper.wav",
+        "Stage/LedgeBreak.wav",
+        "Stage/LottoBounce.wav",
+        "Stage/PimPom.wav",
+        "Stage/Bumper2.wav",
+        "Stage/PowerDown.wav",
+        "Stage/LetterTurn.wav",
+        "Stage/Win.wav",
+        "Stage/Repel.wav",
+        "Stage/Whack.wav",
+        "Stage/Landing.wav",
+        "Stage/Unravel.wav",
+        "Stage/Electrify.wav",
+        "Stage/Pon.wav",
+        "Stage/Click2.wav",
+        "Stage/ElecCharge.wav",
+        "Stage/ElecPulse.wav",
+        "Stage/LottoBounce.wav",
+        "Stage/SpewBall.wav",
+        "SPZ/ShBugSnap.wav",
+        "SPZ/Score.wav",
+        "SPZ/Funnel.wav",
+        "SPZ/Flyover.wav",
+        "SPZ/TheBuzz.wav",
+        "SPZ2/CardAppear.wav",
+        "SPZ2/CardFlip.wav",
+        "SPZ2/CardSelected.wav",
+        "SPZ2/Cloud.wav",
+        "SPZ2/Lightning.wav",
+        "SPZ2/Sun.wav",
+        "FBZ/Rain.wav",
+        "SPZ2/Wind.wav"
+      ]
+    }
+  },
+  "SSZ1": {
+    "folder": "SSZ1",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "CE_",
+          "dbM"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "SSZ1Setup",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "TilePlatform",
+        "SpinBooster",
+        "SSZSpikeBall",
+        "LaunchSpring",
+        "SpeedBooster",
+        "Kanabun",
+        "Kabasira",
+        "Dango",
+        "Hotaru",
+        "Decoration",
+        "RTeleporter",
+        "MSHologram",
+        "HiLoSign",
+        "SDashWheel",
+        "YoyoPulley",
+        "UncurlPlant",
+        "BouncePlant",
+        "RotatingSpikes",
+        "HotaruMKII",
+        "JunctionWheel",
+        "ForceUnstick",
+        "Cylinder",
+        "FlowerPod",
+        "Beanstalk",
+        "PlayerProbe",
+        "SpikeFlail",
+        "SparkRail",
+        "GenericTrigger",
+        "HotaruHiWatt",
+        "FXFade",
+        "Constellation",
+        "Fireflies",
+        "TimePost",
+        "CutsceneSeq",
+        "SSZ1Outro",
+        "FXRuby",
+        "SSZ1Intro",
+        "PhantomRuby"
+      ],
+      "sfx": [
+        "Stage/SpeedBooster.wav",
+        "Stage/Clack.wav",
+        "Stage/Pon.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Bumper3.wav",
+        "Stage/GoodFuture.wav",
+        "SSZ1/Flail.wav",
+        "Stage/Impact6.wav",
+        "Stage/BossHit.wav",
+        "SSZ1/Future.wav",
+        "SSZ1/MGZDoor.wav",
+        "SSZ1/BouncePlant.wav",
+        "SSZ1/BeanNode.wav",
+        "SSZ1/HHWAppear.wav",
+        "SSZ1/HHWFlash.wav",
+        "SSZ1/HotaruLaser.wav",
+        "SSZ1/HotaruAppear.wav",
+        "SSZ1/HotaruFly.wav",
+        "Stage/Zap.wav",
+        "SSZ1/HHWFlyUp.wav",
+        "SSZ1/HHWLaser.wav",
+        "SSZ1/HHWCharge.wav",
+        "SSZ1/HotaruCharge.wav",
+        "SSZ1/BeanChomp.wav",
+        "Ruby/Attack4_L.wav",
+        "Ruby/Attack4_R.wav"
+      ]
+    }
+  },
+  "SSZ2": {
+    "folder": "SSZ2",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "EvQK",
+          "RyI",
+          "nNy",
+          "i5U"
+        ]
+      },
+      "Scene2.bin": {
+        "names_seen": []
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "SSZ2Setup",
+        "Platform",
+        "SSZSpikeBall",
+        "LaunchSpring",
+        "SpeedBooster",
+        "Kanabun",
+        "Kabasira",
+        "Dango",
+        "Hotaru",
+        "HotaruMKII",
+        "Decoration",
+        "HiLoSign",
+        "YoyoPulley",
+        "SpinBooster",
+        "ForceUnstick",
+        "PlayerProbe",
+        "SDashWheel",
+        "GenericTrigger",
+        "SSZSpotlight",
+        "JunctionWheel",
+        "Bungee",
+        "Firework",
+        "SparkRail",
+        "MSHologram",
+        "MSPanel",
+        "MetalSonic",
+        "EggTower",
+        "MSFactory",
+        "SilverSonic",
+        "FXFade",
+        "CutsceneSeq",
+        "SSZ3Cutscene",
+        "MSOrb"
+      ],
+      "sfx": [
+        "Stage/SpeedBooster.wav",
+        "Stage/Clack.wav",
+        "Stage/Pon.wav",
+        "Stage/Explosion.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Explosion3.wav",
+        "Stage/Bumper3.wav",
+        "Stage/Flame2.wav",
+        "Stage/RocketJet.wav",
+        "SSZ2/SSJump.wav",
+        "SSZ2/SSDash.wav",
+        "SSZ2/SSBoost.wav",
+        "SSZ2/SSRebound.wav",
+        "SSZ2/SSArm.wav",
+        "Stage/MachineActivate.wav",
+        "Stage/HullClose.wav",
+        "Stage/Rumble.wav",
+        "Stage/Jump2.wav",
+        "Stage/ElecPulse.wav",
+        "SSZ2/MSBall.wav",
+        "Stage/BossHit.wav",
+        "Stage/Fireball.wav",
+        "Stage/Beep3.wav",
+        "Stage/Beep4.wav",
+        "Stage/RockemSockem.wav",
+        "SSZ2/MSShoot.wav",
+        "SSZ1/HotaruAppear.wav",
+        "SSZ1/HotaruCharge.wav",
+        "SSZ1/HotaruFly.wav",
+        "SSZ1/HotaruLaser.wav",
+        "SSZ2/Spark.wav",
+        "SSZ2/MSFireball.wav",
+        "SSZ2/MSElecPulse.wav",
+        "SSZ2/MSChargeFire.wav"
+      ]
+    }
+  },
+  "SpecialBS": {
+    "folder": "SpecialBS",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene10.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene11.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene12.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene13.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene14.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene15.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene16.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene17.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene18.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene19.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene2.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene20.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene21.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene22.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene23.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene24.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene25.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene26.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene27.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene28.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene29.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene3.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene30.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene31.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene32.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene33.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene34.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene35.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene36.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene4.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene5.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene6.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene7.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene8.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      },
+      "Scene9.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "Music",
+        "BSS_Palette",
+        "BSS_Setup",
+        "BSS_Player",
+        "BSS_Horizon",
+        "BSS_HUD",
+        "BSS_Collectable",
+        "BSS_Collected",
+        "BSS_Message",
+        "FXFade",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIDialog",
+        "UIWaitSpinner",
+        "PauseMenu"
+      ],
+      "sfx": [
+        "Special/BlueSphere.wav",
+        "Special/SSExit.wav",
+        "Special/SSJettison.wav",
+        "Stage/Bumper.wav",
+        "Special/Emerald.wav",
+        "Special/Event.wav",
+        "Special/Medal.wav",
+        "Global/Teleport.wav",
+        "Special/MedalCaught.wav"
+      ]
+    }
+  },
+  "TMZ1": {
+    "folder": "TMZ1",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP",
+          "O6bp"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "TMZ1Setup",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "RotatingSpikes",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "TilePlatform",
+        "WallBumper",
+        "GymBar",
+        "MagnetSphere",
+        "BallHog",
+        "FlasherMKII",
+        "SentryBug",
+        "ForceUnstick",
+        "CrimsonEye",
+        "TeeterTotter",
+        "PopOut",
+        "MetalArm",
+        "CrashTest",
+        "LargeGear",
+        "JacobsLadder",
+        "TurboTurtle",
+        "Decoration",
+        "SpinBooster",
+        "MonarchBG",
+        "LaunchSpring",
+        "BGSwitch",
+        "CutsceneSeq",
+        "TMZ1Outro"
+      ],
+      "sfx": [
+        "Stage/Bumper3.wav",
+        "Stage/Explosion.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "TMZ1/Hover.wav",
+        "TMZ1/Hover2.wav",
+        "TMZ1/Elevator.wav",
+        "Stage/Shot.wav",
+        "Stage/Beep4.wav",
+        "Stage/Impact2.wav",
+        "TMZ1/CyberSwarm.wav",
+        "Stage/Pon.wav",
+        "HCZ/SmallFan.wav",
+        "TMZ1/TurtleWalk.wav",
+        "TMZ1/TurtleWalk2.wav",
+        "TMZ1/Bouncer.wav",
+        "TMZ1/MetalArm.wav",
+        "TMZ1/PlasmaBall.wav",
+        "TMZ1/FlasherFlop.wav",
+        "TMZ1/FlasherZap.wav",
+        "TMZ1/JacobsLadder.wav",
+        "TMZ1/TrafficLight.wav",
+        "TMZ1/CarRev.wav",
+        "Stage/SpeedBooster.wav",
+        "TMZ1/Crash.wav",
+        "Stage/CannonFire.wav",
+        "TMZ1/HogDrop.wav",
+        "TMZ1/HogJump.wav",
+        "PSZ/ArrowHit.wav",
+        "Stage/HullClose.wav"
+      ]
+    }
+  },
+  "TMZ2": {
+    "folder": "TMZ2",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "Xcz"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "TMZ2Setup",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "RotatingSpikes",
+        "BreakableWall",
+        "CollapsingPlatform",
+        "TilePlatform",
+        "WallBumper",
+        "GymBar",
+        "MagnetSphere",
+        "BallHog",
+        "FlasherMKII",
+        "SentryBug",
+        "ForceUnstick",
+        "TeeterTotter",
+        "PopOut",
+        "MetalArm",
+        "CrashTest",
+        "LargeGear",
+        "WarpDoor",
+        "JacobsLadder",
+        "TurboTurtle",
+        "ForceSpin",
+        "SpinBooster",
+        "TMZBarrier",
+        "RubyPortal",
+        "Decoration",
+        "LaunchSpring",
+        "CutsceneSeq",
+        "TMZ1Outro"
+      ],
+      "sfx": [
+        "Stage/Bumper3.wav",
+        "Stage/Explosion.wav",
+        "Stage/Transform.wav",
+        "Ruby/Attack1_L.wav",
+        "Ruby/Attack1_R.wav",
+        "Ruby/Attack2_L.wav",
+        "Ruby/Attack2_R.wav",
+        "Ruby/Attack3_L.wav",
+        "Ruby/Attack3_R.wav",
+        "Ruby/Attack4_L.wav",
+        "Ruby/Attack4_R.wav",
+        "Ruby/Attack5_L.wav",
+        "Ruby/Attack5_R.wav",
+        "Ruby/Attack6_L.wav",
+        "Ruby/Attack6_R.wav",
+        "Stage/CannonFire.wav",
+        "TMZ1/CyberSwarm.wav",
+        "Stage/Pon.wav",
+        "HCZ/SmallFan.wav",
+        "TMZ1/TurtleWalk.wav",
+        "TMZ1/TurtleWalk2.wav",
+        "TMZ1/Bouncer.wav",
+        "TMZ1/MetalArm.wav",
+        "TMZ1/PlasmaBall.wav",
+        "TMZ1/FlasherFlop.wav",
+        "TMZ1/FlasherZap.wav",
+        "TMZ1/JacobsLadder.wav",
+        "TMZ1/TrafficLight.wav",
+        "TMZ1/CarRev.wav",
+        "Stage/SpeedBooster.wav",
+        "TMZ1/Crash.wav",
+        "TMZ1/HogDrop.wav",
+        "TMZ1/HogJump.wav",
+        "PSZ/ArrowHit.wav"
+      ]
+    }
+  },
+  "TMZ3": {
+    "folder": "TMZ3",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "TMZ3Setup",
+        "Platform",
+        "PlatformControl",
+        "PlatformNode",
+        "ForceUnstick",
+        "TeeterTotter",
+        "JacobsLadder",
+        "PopOut",
+        "Decoration",
+        "Button",
+        "TMZAlert",
+        "TMZCable",
+        "Eggman",
+        "PhantomRuby",
+        "PhantomEgg",
+        "PhantomHand",
+        "PhantomMissile",
+        "PhantomShield",
+        "PhantomGunner",
+        "PhantomShinobi",
+        "PhantomMystic",
+        "PhantomRider",
+        "FXFade",
+        "CutsceneSeq",
+        "TMZ2Outro",
+        "EscapeCar",
+        "TMZFlames",
+        "FXRuby",
+        "MonarchBG"
+      ],
+      "sfx": [
+        "Stage/Bumper3.wav",
+        "Stage/Explosion.wav",
+        "Stage/Transform.wav",
+        "Stage/BossHit.wav",
+        "Stage/Explosion2.wav",
+        "Stage/Explosion3.wav",
+        "TMZ1/Elevator.wav",
+        "Stage/RocketJet.wav",
+        "Stage/LottoBounce.wav",
+        "TMZ3/Jump.wav",
+        "TMZ3/Land.wav",
+        "TMZ3/Repel.wav",
+        "TMZ3/Shield.wav",
+        "TMZ3/Shock.wav",
+        "TMZ3/Summon.wav",
+        "TMZ3/Missile.wav",
+        "Ruby/RedCube_L.wav",
+        "Ruby/RedCube_R.wav",
+        "Ruby/Attack1_L.wav",
+        "Ruby/Attack1_R.wav",
+        "Stage/CannonFire.wav",
+        "TMZ3/BigLaser.wav",
+        "TMZ3/CupSwap.wav",
+        "Stage/Impact2.wav",
+        "PSZ/ShinobiExplode.wav",
+        "TMZ3/Alarm.wav",
+        "TMZ1/CarRev.wav",
+        "TMZ3/ShinobiBlade.wav",
+        "TMZ3/ShinobiHit.wav",
+        "Stage/Button.wav",
+        "LRZ/RiderLaunch.wav"
+      ]
+    }
+  },
+  "Thanks": {
+    "folder": "Thanks",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "ThanksSetup",
+        "UIPicture"
+      ],
+      "sfx": []
+    }
+  },
+  "TimeTravel": {
+    "folder": "TimeTravel",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": true,
+      "objects": [
+        "TimeTravelSetup",
+        "FXFade",
+        "CutsceneSeq",
+        "TTCutscene"
+      ],
+      "sfx": []
+    }
+  },
+  "Title": {
+    "folder": "Title",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "TitleSetup",
+        "TitleLogo",
+        "TitleSonic",
+        "Music",
+        "TitleBG",
+        "Title3DSprite",
+        "DemoMenu"
+      ],
+      "sfx": []
+    }
+  },
+  "UFO1": {
+    "folder": "UFO1",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "UFO_Setup",
+        "UFO_Player",
+        "UFO_Camera",
+        "UFO_HUD",
+        "UFO_Circuit",
+        "UFO_Ring",
+        "UFO_Sphere",
+        "UFO_Shadow",
+        "UFO_Message",
+        "UFO_Springboard",
+        "UFO_Decoration",
+        "UFO_SpeedLines",
+        "UFO_Dust",
+        "UFO_ItemBox",
+        "SpecialClear",
+        "Music",
+        "UIBackground",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIDialog",
+        "UIWaitSpinner",
+        "PauseMenu"
+      ],
+      "sfx": [
+        "Special/SSExit.wav",
+        "Special/Event.wav",
+        "Special/BlueSphere2.wav",
+        "Special/MachSpeed.wav",
+        "Stage/Drop.wav",
+        "Stage/Bumper.wav",
+        "Special/Skid.wav",
+        "Special/GrittyGround.wav",
+        "Stage/LedgeBreak.wav",
+        "Special/Continue.wav",
+        "Special/Emerald.wav"
+      ]
+    }
+  },
+  "UFO2": {
+    "folder": "UFO2",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP",
+          "dEX",
+          "pzDd",
+          "t6S"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "UFO_Setup",
+        "UFO_Player",
+        "UFO_Camera",
+        "UFO_HUD",
+        "UFO_Circuit",
+        "UFO_Ring",
+        "UFO_Sphere",
+        "UFO_Shadow",
+        "UFO_Message",
+        "UFO_Springboard",
+        "UFO_Decoration",
+        "UFO_SpeedLines",
+        "UFO_Dust",
+        "UFO_ItemBox",
+        "SpecialClear",
+        "Music",
+        "UIBackground",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIDialog",
+        "UIWaitSpinner",
+        "PauseMenu"
+      ],
+      "sfx": [
+        "Special/SSExit.wav",
+        "Special/Event.wav",
+        "Special/BlueSphere2.wav",
+        "Special/MachSpeed.wav",
+        "Stage/Drop.wav",
+        "Stage/Bumper.wav",
+        "Special/Skid.wav",
+        "Special/GrittyGround.wav",
+        "Stage/LedgeBreak.wav",
+        "Special/Continue.wav",
+        "Special/Emerald.wav"
+      ]
+    }
+  },
+  "UFO3": {
+    "folder": "UFO3",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": []
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "UFO_Setup",
+        "UFO_Player",
+        "UFO_Camera",
+        "UFO_HUD",
+        "UFO_Circuit",
+        "UFO_Ring",
+        "UFO_Sphere",
+        "UFO_Shadow",
+        "UFO_Message",
+        "UFO_Springboard",
+        "UFO_Decoration",
+        "UFO_SpeedLines",
+        "UFO_Dust",
+        "UFO_ItemBox",
+        "SpecialClear",
+        "Music",
+        "UIBackground",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIDialog",
+        "UIWaitSpinner",
+        "PauseMenu"
+      ],
+      "sfx": [
+        "Special/SSExit.wav",
+        "Special/Event.wav",
+        "Special/BlueSphere2.wav",
+        "Special/MachSpeed.wav",
+        "Stage/Drop.wav",
+        "Stage/Bumper.wav",
+        "Special/Skid.wav",
+        "Special/GrittyGround.wav",
+        "Stage/LedgeBreak.wav",
+        "Special/Continue.wav",
+        "Special/Emerald.wav"
+      ]
+    }
+  },
+  "UFO4": {
+    "folder": "UFO4",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "UFO_Setup",
+        "UFO_Player",
+        "UFO_Camera",
+        "UFO_HUD",
+        "UFO_Circuit",
+        "UFO_Ring",
+        "UFO_Sphere",
+        "UFO_Shadow",
+        "UFO_Message",
+        "UFO_Springboard",
+        "UFO_Water",
+        "UFO_Decoration",
+        "UFO_SpeedLines",
+        "UFO_Dust",
+        "UFO_ItemBox",
+        "SpecialClear",
+        "Music",
+        "UIBackground",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIDialog",
+        "UIWaitSpinner",
+        "PauseMenu"
+      ],
+      "sfx": [
+        "Special/SSExit.wav",
+        "Special/Event.wav",
+        "Special/BlueSphere2.wav",
+        "Special/MachSpeed.wav",
+        "Stage/Drop.wav",
+        "Stage/Bumper.wav",
+        "Special/Skid.wav",
+        "Special/GrittyGround.wav",
+        "Stage/LedgeBreak.wav",
+        "Special/Continue.wav",
+        "Special/Emerald.wav"
+      ]
+    }
+  },
+  "UFO5": {
+    "folder": "UFO5",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP",
+          "p6d"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "UFO_Setup",
+        "UFO_Player",
+        "UFO_Camera",
+        "UFO_HUD",
+        "UFO_Circuit",
+        "UFO_Ring",
+        "UFO_Sphere",
+        "UFO_Shadow",
+        "UFO_Message",
+        "UFO_Springboard",
+        "UIBackground",
+        "UFO_SpeedLines",
+        "UFO_Decoration",
+        "UFO_Dust",
+        "UFO_ItemBox",
+        "SpecialClear",
+        "Music",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIDialog",
+        "UIWaitSpinner",
+        "PauseMenu"
+      ],
+      "sfx": [
+        "Special/SSExit.wav",
+        "Special/Event.wav",
+        "Special/BlueSphere2.wav",
+        "Special/MachSpeed.wav",
+        "Stage/Drop.wav",
+        "Stage/Bumper.wav",
+        "Special/Skid.wav",
+        "Special/GrittyGround.wav",
+        "Stage/LedgeBreak.wav",
+        "Special/Continue.wav",
+        "Special/Emerald.wav"
+      ]
+    }
+  },
+  "UFO6": {
+    "folder": "UFO6",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "PPP"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "SaveGame",
+        "Localization",
+        "UFO_Setup",
+        "UFO_Player",
+        "UFO_Camera",
+        "UFO_HUD",
+        "UFO_Circuit",
+        "UFO_Ring",
+        "UFO_Sphere",
+        "UFO_Shadow",
+        "UFO_Message",
+        "UFO_Springboard",
+        "UFO_Decoration",
+        "UFO_SpeedLines",
+        "UFO_Dust",
+        "UFO_ItemBox",
+        "SpecialClear",
+        "Music",
+        "UIBackground",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIDialog",
+        "UIWaitSpinner",
+        "PauseMenu"
+      ],
+      "sfx": [
+        "Special/SSExit.wav",
+        "Special/Event.wav",
+        "Special/BlueSphere2.wav",
+        "Special/MachSpeed.wav",
+        "Stage/Drop.wav",
+        "Stage/Bumper.wav",
+        "Special/Skid.wav",
+        "Special/GrittyGround.wav",
+        "Stage/LedgeBreak.wav",
+        "Special/Continue.wav",
+        "Special/Emerald.wav"
+      ]
+    }
+  },
+  "UFO7": {
+    "folder": "UFO7",
+    "scenes": {
+      "Scene1.bin": {
+        "names_seen": [
+          "Rlgee"
+        ]
+      }
+    },
+    "stage_config": {
+      "load_globals": false,
+      "objects": [
+        "APICallback",
+        "Options",
+        "Localization",
+        "SaveGame",
+        "UFO_Setup",
+        "UFO_Player",
+        "UFO_Camera",
+        "UFO_HUD",
+        "UFO_Circuit",
+        "UFO_Ring",
+        "UFO_Sphere",
+        "UFO_Shadow",
+        "UFO_Message",
+        "UFO_Springboard",
+        "UFO_Decoration",
+        "UFO_SpeedLines",
+        "UFO_Dust",
+        "UFO_ItemBox",
+        "UFO_Plasma",
+        "SpecialClear",
+        "Music",
+        "UIBackground",
+        "UIControl",
+        "UIWidgets",
+        "UIButton",
+        "UIDialog",
+        "UIWaitSpinner",
+        "PauseMenu"
+      ],
+      "sfx": [
+        "Special/SSExit.wav",
+        "Special/Event.wav",
+        "Special/BlueSphere2.wav",
+        "Special/MachSpeed.wav",
+        "Stage/Drop.wav",
+        "Stage/Bumper.wav",
+        "Special/Skid.wav",
+        "Special/GrittyGround.wav",
+        "Stage/LedgeBreak.wav",
+        "Special/Continue.wav",
+        "Special/Emerald.wav"
+      ]
+    }
+  }
+}

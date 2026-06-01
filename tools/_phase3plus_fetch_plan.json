@@ -1,0 +1,5366 @@
+[
+  {
+    "cat": "AIZ",
+    "cls": "AIZEggRobo",
+    "kind": "c",
+    "sha": "b14c66ad90d51f670acd120ec858743506e20edb"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "AIZEggRobo",
+    "kind": "h",
+    "sha": "2468bcced995c168c7deef838d7e84c42ec3065c"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "AIZKingClaw",
+    "kind": "c",
+    "sha": "7dc870987fe900b38a2da5e0976e9d468834b2ee"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "AIZKingClaw",
+    "kind": "h",
+    "sha": "22091590185067b82b7e6efcf95a2adb27158954"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "AIZSetup",
+    "kind": "h",
+    "sha": "fdeab301523a7dbbc207169ae08f0a20c98ccc03"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "AIZTornado",
+    "kind": "c",
+    "sha": "d9853e3b4f1ef22e808100eba536e779b1fa2642"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "AIZTornado",
+    "kind": "h",
+    "sha": "e39a8b89654724c235d0545ce923e39e2de7da96"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "AIZTornadoPath",
+    "kind": "c",
+    "sha": "399455246c5f4af62aade51099a6bdb29a9e252f"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "AIZTornadoPath",
+    "kind": "h",
+    "sha": "6f42f59eb54d618003d87b16c97e372d5983c500"
+  },
+  {
+    "cat": "Global",
+    "cls": "APICallback",
+    "kind": "c",
+    "sha": "da8d1edba6f9162f8b668c7b03a7a34e56acfd68"
+  },
+  {
+    "cat": "Global",
+    "cls": "APICallback",
+    "kind": "h",
+    "sha": "e64716198702f949d18e4660d4673b600631a9fd"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "AmoebaDroid",
+    "kind": "c",
+    "sha": "c42a343ea455d4ff947d05b92257a1888ff5738e"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "AmoebaDroid",
+    "kind": "h",
+    "sha": "8a69f6fd9e09dc8917922d83b4a6504a3cb47f64"
+  },
+  {
+    "cat": "Credits",
+    "cls": "AnimalHBH",
+    "kind": "c",
+    "sha": "0bf7cc7494f814d2eedc3ae3e75d7769f2a30d4e"
+  },
+  {
+    "cat": "Credits",
+    "cls": "AnimalHBH",
+    "kind": "h",
+    "sha": "8b7fb50a83912eeb3acee15039d42ede3e10f323"
+  },
+  {
+    "cat": "Global",
+    "cls": "Announcer",
+    "kind": "c",
+    "sha": "e82662a0ff8f11ad467006ff36e0e2b2f48375ca"
+  },
+  {
+    "cat": "Global",
+    "cls": "Announcer",
+    "kind": "h",
+    "sha": "20178ed60dbeb95144610c8bfa4b095cffea8be6"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Aquis",
+    "kind": "c",
+    "sha": "6fdbb39198dde681444b85a64b38941ceb0fd880"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Aquis",
+    "kind": "h",
+    "sha": "4a9982c9f386b9814fecbcb65c10fed3aa93b98e"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Armadiloid",
+    "kind": "c",
+    "sha": "21806a3bb0af36e58c5be79b1ab23c902a86b05f"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Armadiloid",
+    "kind": "h",
+    "sha": "8fb3792bb37790edce36a990cb3868028d69f90a"
+  },
+  {
+    "cat": "Common",
+    "cls": "BGSwitch",
+    "kind": "c",
+    "sha": "7a188445d1b0b520b0e164738e6a31af370f5010"
+  },
+  {
+    "cat": "Common",
+    "cls": "BGSwitch",
+    "kind": "h",
+    "sha": "9be961af4bb64cec161c9d337ea69551d2037c4c"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Collectable",
+    "kind": "c",
+    "sha": "c2430c8ab5d9fe3b5390c5703e93a5155ac8bb83"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Collectable",
+    "kind": "h",
+    "sha": "0d031a2cf06baa037ad701abff2508c968eb78be"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Collected",
+    "kind": "c",
+    "sha": "125713cc4222138aa31a49b6907844b73b932cd8"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Collected",
+    "kind": "h",
+    "sha": "5e999f23fa191e6c891af6049dfee578df0c92d2"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_HUD",
+    "kind": "c",
+    "sha": "ee8b035dce33209be352433380e2dde7a4e2ac90"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_HUD",
+    "kind": "h",
+    "sha": "d470b3999fe9e3474e51bb59b9292dfd90e14eb7"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Horizon",
+    "kind": "c",
+    "sha": "6142518802b50e1c509645e18015dbd175b110ac"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Horizon",
+    "kind": "h",
+    "sha": "65506e1e9be50a681e725db5b8d82ab5c7461322"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Message",
+    "kind": "c",
+    "sha": "cfbecae4319be96ecf3b525969a43a026023605a"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Message",
+    "kind": "h",
+    "sha": "d9fd432754048bc528281d2393fbe81b01cd7427"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Palette",
+    "kind": "c",
+    "sha": "d6bf6137e75849f4e8fd8c613883d4973aa803bd"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Palette",
+    "kind": "h",
+    "sha": "9e3baf9e53f4ecad19c796c4a0392b69479fbfda"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Player",
+    "kind": "c",
+    "sha": "f06ad10a1374b35a6f2210466bd163b6f1768e3a"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Player",
+    "kind": "h",
+    "sha": "31de4479faca960d6d9c6e06a0406eda9bec6371"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Setup",
+    "kind": "c",
+    "sha": "74771849e378fbfc8b66f2278f356c17e897906e"
+  },
+  {
+    "cat": "BSS",
+    "cls": "BSS_Setup",
+    "kind": "h",
+    "sha": "ffd9c763e41c8c5931cb948b0fab6e9aa7dc2130"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "BallCannon",
+    "kind": "c",
+    "sha": "d38d47a7d9b8af89e88cfd79a39312ac33502029"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "BallCannon",
+    "kind": "h",
+    "sha": "ae82544c06d46cc41e6ce2ca7333d3e02e6ec9b2"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "BallHog",
+    "kind": "c",
+    "sha": "d05a45507a0878a50bc1c29f52d3653c018d876b"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "BallHog",
+    "kind": "h",
+    "sha": "fd7ebc754c4f923027510c2f8b84d3374e94d601"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "BarStool",
+    "kind": "c",
+    "sha": "7ab784ea36e77e60e29f8b7b91867f79fed4f17d"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "BarStool",
+    "kind": "h",
+    "sha": "5b676f3598bdcbdb8ecf613576ef528ec740c198"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Batbrain",
+    "kind": "c",
+    "sha": "765f6e1dbd7dc6ce2e122f19eec3d112c1e029d5"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Batbrain",
+    "kind": "h",
+    "sha": "d6784dd0763d08564922b168a63784bc5e51a56b"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Beanstalk",
+    "kind": "c",
+    "sha": "8dc433e58c3fa2eb3aa087156425efed87d5d1c4"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Beanstalk",
+    "kind": "h",
+    "sha": "50ff0cd04692decd5f738f5678b398098ad4b8f6"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "BigSqueeze",
+    "kind": "c",
+    "sha": "9e508385b65d3e8f548241c5f3e71bda00b1c026"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "BigSqueeze",
+    "kind": "h",
+    "sha": "417f8fc126ba36ea25deec2160b5d46b7d29322d"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "BladePole",
+    "kind": "c",
+    "sha": "c36e93b1522c909ef3b1b0518e97977d7952deee"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "BladePole",
+    "kind": "h",
+    "sha": "51f5a57b5e5beaae0fe0a327bc58513403b0e888"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Blaster",
+    "kind": "c",
+    "sha": "7c186a0ae05d4d6025695c7904151f8663ffd328"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Blaster",
+    "kind": "h",
+    "sha": "ede1a0d8114592044ff171316342588e54d040eb"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Blastoid",
+    "kind": "c",
+    "sha": "efa7fc9eada7f0bdb82bae2de4c9806da6845d50"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Blastoid",
+    "kind": "h",
+    "sha": "cbd9475bd982de57c3a2a358dd0d57ab8b1c099b"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "BouncePlant",
+    "kind": "c",
+    "sha": "945da0d12ad6615da44546b22d2a5ce5e3b31ad4"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "BouncePlant",
+    "kind": "h",
+    "sha": "24acfe93e8e7915cc9292655a65f0367feda2d0e"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "BreakBar",
+    "kind": "c",
+    "sha": "bd09f1ed39e5be818b9bc051eab6eff5cf18b9cc"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "BreakBar",
+    "kind": "h",
+    "sha": "51a28f3ddb71c2218695a945415bd7a1aa213702"
+  },
+  {
+    "cat": "Common",
+    "cls": "BreakableWall",
+    "kind": "h",
+    "sha": "96c4470e95ca32cfabeeda298b15a37fa38a0d22"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Bridge",
+    "kind": "h",
+    "sha": "db8bc7e1bf37f2c67b2cce3a89fc623599b8ec57"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "BuckwildBall",
+    "kind": "c",
+    "sha": "5a06f416371c35b6c52f78d583f2f39270986368"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "BuckwildBall",
+    "kind": "h",
+    "sha": "903d69b8d433743926497f4f042f77c6c6e06cc5"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Buggernaut",
+    "kind": "c",
+    "sha": "74f1cc5238d8cc7a5e070e9d0b930c0e7954fcb9"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Buggernaut",
+    "kind": "h",
+    "sha": "85cdb5b05795accba0efc198e3a6136ea4069bb2"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Bumpalo",
+    "kind": "c",
+    "sha": "696f475530225fb26ef55f04bc6136d6a8a64d94"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Bumpalo",
+    "kind": "h",
+    "sha": "bfd9efb058f1dfd39e8ce233b217a98b6affd2b6"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Bungee",
+    "kind": "c",
+    "sha": "9b427368aaed5a453d89cc7e64f05b089f27864e"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Bungee",
+    "kind": "h",
+    "sha": "1ed4432941e5b4beb6f43b5a62853472f193a3c1"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "BurningLog",
+    "kind": "c",
+    "sha": "ba60542a4e13ca6e181e9ec9e9211e04439e6851"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "BurningLog",
+    "kind": "h",
+    "sha": "1a27bffe60438897f760f35fd07ac09727ca3993"
+  },
+  {
+    "cat": "Common",
+    "cls": "Button",
+    "kind": "h",
+    "sha": "d7495c85c237cb0b27cbb43cf6a169cddf08c37c"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "ButtonDoor",
+    "kind": "c",
+    "sha": "abe9e2ddf9cc31ca35c5bd87242b370ac9b560ba"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "ButtonDoor",
+    "kind": "h",
+    "sha": "a53447d962416223728c2c4c4580b44ddc0381dd"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "BuzzBomber",
+    "kind": "h",
+    "sha": "82ad3fc5fe98907b05acc02604df19162c7fdc4a"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "BuzzSaw",
+    "kind": "c",
+    "sha": "3c48dc7d2d7ac5780121df6c372fa8e9ab0c0994"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "BuzzSaw",
+    "kind": "h",
+    "sha": "4f0e5e66a089ccf09c398c2d7bf0daa141173d7c"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZ1Intro",
+    "kind": "c",
+    "sha": "fec6befc702541f23e1307671eebca76737ad95e"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZ1Intro",
+    "kind": "h",
+    "sha": "47ad1b14d8c293bc0529151ba9cfa5649a95231e"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZ2Outro",
+    "kind": "c",
+    "sha": "0b024bd8c9e3ed8bcc870e0280cb8a007cee7099"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZ2Outro",
+    "kind": "h",
+    "sha": "85ca98867c1f1b27cf0b11794a0a417e8c2c04a1"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZBoss",
+    "kind": "c",
+    "sha": "816806109a37ec79de7fa89d90543de3f3f01792"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZBoss",
+    "kind": "h",
+    "sha": "a610b3a336ec89505bf680fc24f1d6b6d51bc84d"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZSetup",
+    "kind": "h",
+    "sha": "7f2bf9f2c4ad04d1829c1d8c59e5e71672dd3ba6"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZShutter",
+    "kind": "c",
+    "sha": "8a6952e37a1dd29ef449b98b1ce94b430bb7934c"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CPZShutter",
+    "kind": "h",
+    "sha": "3d93bc1b58e476fec90263269062f18ee7f215f1"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "CableWarp",
+    "kind": "c",
+    "sha": "dd9b0bd02da9f0a55e125b7680d0704cddbe9457"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "CableWarp",
+    "kind": "h",
+    "sha": "172ab4046c513e77247d532a4bb4701cd51c00e8"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Cactula",
+    "kind": "c",
+    "sha": "a08185c501229ec2e835377fed0046b50665d54b"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Cactula",
+    "kind": "h",
+    "sha": "29df098a28ee050e1260258b5f577aa24bd019a2"
+  },
+  {
+    "cat": "Global",
+    "cls": "Camera",
+    "kind": "h",
+    "sha": "96a6920a43dbfb418e5f37fc24ec5f7f23dd252b"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Canista",
+    "kind": "c",
+    "sha": "b582c29cfb28006a29071b548d1f944720b235fc"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Canista",
+    "kind": "h",
+    "sha": "861cc81523d55f78de5391af9ad77b4c12805003"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CaterkillerJr",
+    "kind": "c",
+    "sha": "38049eff6fd488773672ad6d725e4075a0146f97"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "CaterkillerJr",
+    "kind": "h",
+    "sha": "6af2b3c709092811e152aba84ea24c49760c5659"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "ChaosEmerald",
+    "kind": "c",
+    "sha": "ef3b3c2c98cefc390514636a954cc63d62571ed8"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "ChaosEmerald",
+    "kind": "h",
+    "sha": "feba65b8831731bc84686d851748ee54938245dc"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "CheckerBall",
+    "kind": "h",
+    "sha": "37995b799986a2cbb9a5bc84d2e8d6864c586970"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "ChemBubble",
+    "kind": "c",
+    "sha": "b3d146398832e39853a3fe77b64afa80d119948c"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "ChemBubble",
+    "kind": "h",
+    "sha": "4c736aa4e918df1e76e92d83fcc7b85939e44361"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "ChemicalBall",
+    "kind": "c",
+    "sha": "b27d1e8522d7fc23026d3fb19bf6d199c67ff6fd"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "ChemicalBall",
+    "kind": "h",
+    "sha": "feacb8cfcb3bed7b7a1af8ce8a243501c8c5f5e1"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "ChemicalPool",
+    "kind": "c",
+    "sha": "3e529a8ba825a889a0bf8866b3166e1ed18f40cb"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "ChemicalPool",
+    "kind": "h",
+    "sha": "e06b0b9c86f9f6d79b20ba4a65fe6a66204b8865"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Chopper",
+    "kind": "h",
+    "sha": "7512f408425f85f1dbe1c26f0cc29e5f94061d87"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "CircleBumper",
+    "kind": "c",
+    "sha": "183c89eb1b173a58429f836afb90574fe68356d9"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "CircleBumper",
+    "kind": "h",
+    "sha": "4f1e66538ffc851e907fbd59ce2e17e737f96ab9"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Clapperboard",
+    "kind": "c",
+    "sha": "c32f220a4dc0cd752b9c6d6cdd5ea34da59361ea"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Clapperboard",
+    "kind": "h",
+    "sha": "532f4dce6dda71e077d40785e6ee3db949969b9c"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Clucker",
+    "kind": "c",
+    "sha": "16120201c2905fe72be975a118e135b071e41a05"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Clucker",
+    "kind": "h",
+    "sha": "4dc4d66040f97608e325a84f290c4fbcc1ffd5b2"
+  },
+  {
+    "cat": "Common",
+    "cls": "CollapsingPlatform",
+    "kind": "h",
+    "sha": "821c96c9200e1fc87c54470e0fa46dfc566bdfc0"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "CollapsingSand",
+    "kind": "c",
+    "sha": "df7b685dbccc1dba6f3f5816883e6670ce93f72a"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "CollapsingSand",
+    "kind": "h",
+    "sha": "2e970f19abc8c1f52dd73014dc9f6ad85e02ee87"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Constellation",
+    "kind": "c",
+    "sha": "96733637d69ee3bec597b799bfe8bd2d93f208d8"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Constellation",
+    "kind": "h",
+    "sha": "78b0a3cd5a90053b655224c122565932b772ad7e"
+  },
+  {
+    "cat": "Continue",
+    "cls": "ContinuePlayer",
+    "kind": "c",
+    "sha": "7407555209da6f09958d14f08bb54cb834df96b9"
+  },
+  {
+    "cat": "Continue",
+    "cls": "ContinuePlayer",
+    "kind": "h",
+    "sha": "e81a0f3742d707df6a217993e41b7619e1df3ab0"
+  },
+  {
+    "cat": "Continue",
+    "cls": "ContinueSetup",
+    "kind": "c",
+    "sha": "8b990eb38e24f9ba9a255d53938fdb0b8be181d6"
+  },
+  {
+    "cat": "Continue",
+    "cls": "ContinueSetup",
+    "kind": "h",
+    "sha": "366c0afc56a9674c1d757ab13d183d605c26afd8"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "ConveyorBelt",
+    "kind": "c",
+    "sha": "45acd7dcedea44bc25454bb82b2c076122430b44"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "ConveyorBelt",
+    "kind": "h",
+    "sha": "d38fb8eb32c64a9845b839178b720c1cd697465a"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "ConveyorPlatform",
+    "kind": "c",
+    "sha": "e68995c71737eb1e023f73bd240cd276b33c77c8"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "ConveyorPlatform",
+    "kind": "h",
+    "sha": "e2f5d96b01dd48400bf9b8835767f371afe15dec"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "ConveyorWheel",
+    "kind": "c",
+    "sha": "39178ee25ece96d7b215d881b65a536fcde35be1"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "ConveyorWheel",
+    "kind": "h",
+    "sha": "20dae76497618de3d041a1364a94f798b1f4cc9a"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "CorkscrewPath",
+    "kind": "c",
+    "sha": "43f6da6187770a5e986e8a05fcdcfbc91d598181"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "CorkscrewPath",
+    "kind": "h",
+    "sha": "b4774781e2b2f6c05d46f50847dd809b0e102d5d"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Crabmeat",
+    "kind": "h",
+    "sha": "edd8e1fca64869271f8fe8e82ae7673ca50af7ae"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Crane",
+    "kind": "c",
+    "sha": "4961b5e7b8715644855c81d574942738b0b983db"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Crane",
+    "kind": "h",
+    "sha": "d81eca753eb39a1e5075ebdf2df5747ea5f1002b"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "CrashTest",
+    "kind": "c",
+    "sha": "aa6f81a622d95755e3f861264d0b87f1acb445b1"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "CrashTest",
+    "kind": "h",
+    "sha": "8bd34cd04fbf2f0c72e5f473d4c8cdd71e1ce25b"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Crate",
+    "kind": "c",
+    "sha": "133d629f6b3c5dfe3cebf5cce04be972c3e7458d"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Crate",
+    "kind": "h",
+    "sha": "8cfbe8de450e943ba5d795bcedb76784167cadf5"
+  },
+  {
+    "cat": "Credits",
+    "cls": "CreditsSetup",
+    "kind": "c",
+    "sha": "fa098d274ebda940983bb5be979fc16718a5ea9a"
+  },
+  {
+    "cat": "Credits",
+    "cls": "CreditsSetup",
+    "kind": "h",
+    "sha": "2175136958da050440c83f553bb324203b2ebc0c"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "CrimsonEye",
+    "kind": "c",
+    "sha": "d20be604fc156317c365413759462bcbd2060543"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "CrimsonEye",
+    "kind": "h",
+    "sha": "1001f71a8c0074e57fce9bfd5eaf01b29a3d3cfd"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Current",
+    "kind": "c",
+    "sha": "931bb684bfcb407c003943aa33c66c783d061e91"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Current",
+    "kind": "h",
+    "sha": "d82c75844e51b65a021dd38e4d0fd615f6c3fa04"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "CutsceneHBH",
+    "kind": "c",
+    "sha": "87f47091c49f9a7723f67598b489541bfa1f66b0"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "CutsceneHBH",
+    "kind": "h",
+    "sha": "f8cf74debe5e15667e65004121e0a40d15a97139"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "CutsceneSeq",
+    "kind": "c",
+    "sha": "d0037604d0b6e254169c90f3c31ec3360b8fe053"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "CutsceneSeq",
+    "kind": "h",
+    "sha": "85b033da22999d65b27de878984fb22410d42acc"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Cylinder",
+    "kind": "c",
+    "sha": "55dca4aa9c90f63cd4720e6eecfc6bf910c54f7b"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Cylinder",
+    "kind": "h",
+    "sha": "f138b6eefc6fcd440ed6cba78d779844a50c7773"
+  },
+  {
+    "cat": "Menu",
+    "cls": "DAControl",
+    "kind": "h",
+    "sha": "70674a3832702d2739a0904f91d2ff36c1eec67a"
+  },
+  {
+    "cat": "Menu",
+    "cls": "DASetup",
+    "kind": "h",
+    "sha": "29bf8f141ff90be021273c73a90381a05266d96c"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "DBTower",
+    "kind": "c",
+    "sha": "3c0127f27a36d1e5409f95d11e10cb3c954fa46e"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "DBTower",
+    "kind": "h",
+    "sha": "963b070a371f4f636a431780b43fe6b0bc286870"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "DCEvent",
+    "kind": "c",
+    "sha": "72ebc6c7d452b8d03fe10ee6bb7651abe37eed33"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "DCEvent",
+    "kind": "h",
+    "sha": "cf8d34d4f4e08939f6bfd21943e738a022420867"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "DDWrecker",
+    "kind": "c",
+    "sha": "d22cf7e15f80da18608a44d63c410d6b8ab612c6"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "DDWrecker",
+    "kind": "h",
+    "sha": "e8c7dcc8b4cfd0944156a823831cb17daa32598e"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "DERobot",
+    "kind": "c",
+    "sha": "275932bf1c9aecf37c697f5f829eefbdf3e2c11a"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "DERobot",
+    "kind": "h",
+    "sha": "e9eeb7faae0d011aa7a71476db7b3eb25549e8eb"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "DNARiser",
+    "kind": "c",
+    "sha": "657e8c51359cd7ece5e8d3f309dc96032f7d0103"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "DNARiser",
+    "kind": "h",
+    "sha": "9544e18b60e2666f2c4ffceccad98c46cc17854a"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Dango",
+    "kind": "c",
+    "sha": "f2165804846eb0e7fd80ab246986c07028761f25"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Dango",
+    "kind": "h",
+    "sha": "0b3f265e8a5dc7f20598078fdd338bb4c7aeda08"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "DashLift",
+    "kind": "c",
+    "sha": "cd3e3fa64dd506c2a28c9fb9434d6d33fbb95f53"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "DashLift",
+    "kind": "h",
+    "sha": "9963f43da912f83fcb85c68872a19a7c2048c76b"
+  },
+  {
+    "cat": "Global",
+    "cls": "Debris",
+    "kind": "c",
+    "sha": "86869125bef514f0ae8fe3caf5ee4fefabcda0f1"
+  },
+  {
+    "cat": "Global",
+    "cls": "Debris",
+    "kind": "h",
+    "sha": "e01f74c1bd3abeaa03725bbbbc81304455b059f0"
+  },
+  {
+    "cat": "Common",
+    "cls": "Decoration",
+    "kind": "h",
+    "sha": "6de1f5a812b7dfa43799a59edd6bd57043cb29c1"
+  },
+  {
+    "cat": "Menu",
+    "cls": "DemoMenu",
+    "kind": "h",
+    "sha": "95179490b416cdf6ceceb009a7ca71468c71c6f1"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "DirectorChair",
+    "kind": "c",
+    "sha": "6500defd6584f422ce458b96c87f358dfac303a7"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "DirectorChair",
+    "kind": "h",
+    "sha": "23e293b65982961b5c035735ef23f1ed1f36d14f"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "DiveEggman",
+    "kind": "c",
+    "sha": "a8052c69743924745606742017ff495fa2063871"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "DiveEggman",
+    "kind": "h",
+    "sha": "9f6716d08903537da33efca5bb6db2e9defd4925"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "DoorTrigger",
+    "kind": "c",
+    "sha": "f09f51960e7c2f06a52f86de1bd3fe076afb709e"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "DoorTrigger",
+    "kind": "h",
+    "sha": "dadaf5422e112afa4194bf78f3c8e6f75ac9234d"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Dragonfly",
+    "kind": "c",
+    "sha": "a6a459d39e3e63e92ca8efb52fc6464a48b1dc0a"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Dragonfly",
+    "kind": "h",
+    "sha": "0a1fb43c0cb4e882c38397a8157142d6019fcbb8"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Drillerdroid",
+    "kind": "c",
+    "sha": "c706780d0bc4e628ff6ed403708c981cd831ccdd"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Drillerdroid",
+    "kind": "h",
+    "sha": "70f1866ccfde305dc5ec1bb062837ad49cfe1ee5"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "DrillerdroidO",
+    "kind": "c",
+    "sha": "9b8308abe0a4e4f6b3de1c02404e8eed7c2c6ffa"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "DrillerdroidO",
+    "kind": "h",
+    "sha": "91743cd57ad18e6e949ef87c9ca483bb261a23f3"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZGunner",
+    "kind": "c",
+    "sha": "3f81a10bb536fbe26ca66ab2c44b3babd3563e36"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZGunner",
+    "kind": "h",
+    "sha": "5f3b0b85c0b8a8562674745628b7ef25f2385d22"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZKing",
+    "kind": "c",
+    "sha": "c96a6f7fd21f2cf700869a0abfc4fd2536a8ae48"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZKing",
+    "kind": "h",
+    "sha": "ca837675ba3d0ef77fdba4e5417bbca7ee167069"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZMystic",
+    "kind": "c",
+    "sha": "5fd26970dbb6545f8c70bd401b30c84060f4802e"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZMystic",
+    "kind": "h",
+    "sha": "a7dc1ad99749c77662bde0fae41072deaedfe75c"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZOutro",
+    "kind": "c",
+    "sha": "1b5795fcede246a01d09b0fc6f3a5131cd1b773c"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZOutro",
+    "kind": "h",
+    "sha": "752a62d4ad7fdf00678d8f4e42c9c561a3a99643"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZRider",
+    "kind": "c",
+    "sha": "c0b7f08162f37f66403776d38b1ada8fc1e6d1a1"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZRider",
+    "kind": "h",
+    "sha": "6c0d5758deb188b915d51402817e31b0c8ffecc2"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZSetup",
+    "kind": "h",
+    "sha": "06e2e6803074dc6a66e1e612066f66493b9b6e78"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZShinobi",
+    "kind": "c",
+    "sha": "6c11144c48d00c119eeb55d51b042995f1a0b094"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZShinobi",
+    "kind": "h",
+    "sha": "a670d1df561beba5e70a2a344158a17d0c257df5"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZStart",
+    "kind": "c",
+    "sha": "f0774990d03fc0c290d71c4cbb0157c9d8d2d570"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "ERZStart",
+    "kind": "h",
+    "sha": "86585243096889dba2e70158b5969c32bd2e4985"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "EggLoco",
+    "kind": "c",
+    "sha": "d7e3bfe15899ac2699e4a6efc50574acf0fabdeb"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "EggLoco",
+    "kind": "h",
+    "sha": "b830a7d6f6c186d898225313f661ad6f7758d4b0"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "EggPistonsMKII",
+    "kind": "c",
+    "sha": "716dbdaf28033e32eef607535d7456ceb224e559"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "EggPistonsMKII",
+    "kind": "h",
+    "sha": "3621446ed0da73fc6627191048ef5b15201537b4"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "EggTV",
+    "kind": "c",
+    "sha": "3aaf65fd2ccfd5d6306966ef9d2e84019b5bd2c0"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "EggTV",
+    "kind": "h",
+    "sha": "e1a73a3319634c9c08bb15f163d2557a99c14393"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "EggTower",
+    "kind": "c",
+    "sha": "5c90a39ba0fc3021c2146d47da355ea65738fb34"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "EggTower",
+    "kind": "h",
+    "sha": "0e0f0e324e0dafc6464414ee9e4a7316bee5b80c"
+  },
+  {
+    "cat": "Common",
+    "cls": "Eggman",
+    "kind": "h",
+    "sha": "09f9973a4d9386afe0e4385652af753953be2cbd"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "ElectroMagnet",
+    "kind": "c",
+    "sha": "e1b29ff05e319212ed0588dcfd704d6e0b03417c"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "ElectroMagnet",
+    "kind": "h",
+    "sha": "46dfef3fbf11c3e35842a1b05e915a8c6b998f32"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "EscapeCar",
+    "kind": "c",
+    "sha": "958d63133bb0afbfbcb1ae04b1a73ff34a7430a2"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "EscapeCar",
+    "kind": "h",
+    "sha": "a7631a1dc6d2ef458a3bb51102065cace10fd171"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZ1Outro",
+    "kind": "c",
+    "sha": "a5ab87a3e9edc49903d61c9254c2371379a45fa7"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZ1Outro",
+    "kind": "h",
+    "sha": "3bb64718b763eee7f0162d282f4a6e29abf429e0"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZFan",
+    "kind": "c",
+    "sha": "912f0c7d509b009b92b586d4cf413b7d7d6384b5"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZFan",
+    "kind": "h",
+    "sha": "5399940bea3e8be7f5ed146e37bf70182dc8bddd"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZMissile",
+    "kind": "c",
+    "sha": "1de10e5c2d7f4108e5f0edfd57003f17f4b5da67"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZMissile",
+    "kind": "h",
+    "sha": "063d5e172d1735373961096dcf26b3d41997d866"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZSetup",
+    "kind": "h",
+    "sha": "8d839ae1a468a282eed3081b6d6badc50cbb8d73"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZSinkTrash",
+    "kind": "c",
+    "sha": "c195d45e5014ed70993d8cc9a9b6035957ebcee1"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZSinkTrash",
+    "kind": "h",
+    "sha": "e13d39ba4dfd5da1b8efc24249ef266dfb9a3d3c"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZStorm",
+    "kind": "c",
+    "sha": "b88c285e3fb1532b9cac285f13067bb2c6600e53"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZStorm",
+    "kind": "h",
+    "sha": "ff8761a69147f7bb1c330421455c20dd8509b43e"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZTrash",
+    "kind": "c",
+    "sha": "9aef03255150805df577de47e2f5544eade85133"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FBZTrash",
+    "kind": "h",
+    "sha": "0e6959ed3cf95e7ff3f86df25f48c7f02917642f"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXExpandRing",
+    "kind": "c",
+    "sha": "e1cae6da86e34e2c9b0caad1f2d1b3ff2fa2e1c6"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXExpandRing",
+    "kind": "h",
+    "sha": "e1da59f01ccd0eb3ee52d9f15497ec6aac4a7b84"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXFade",
+    "kind": "c",
+    "sha": "5b52222a7766f375bc64ed10d46c5fb37293b5ef"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXFade",
+    "kind": "h",
+    "sha": "6c70ae2a5a1c43b5e30743a9c0753de58eb3cf3a"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXRuby",
+    "kind": "c",
+    "sha": "6ccda0be7aa608adda6bcdbbf16c5ab31b78a533"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXRuby",
+    "kind": "h",
+    "sha": "d085026ea7dbfdf5e1e0f1c82ec49c7bc7b5df7a"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXSpinRay",
+    "kind": "c",
+    "sha": "2b731cfac59519ebe6189c551f7ce00aefcde39c"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXSpinRay",
+    "kind": "h",
+    "sha": "7a557761833a19bc5e79933d5c2074bbd93a4dbd"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXTrail",
+    "kind": "c",
+    "sha": "5d7e9e097cc2e6c6d0a2e0a46bc53ad2afae709e"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "FXTrail",
+    "kind": "h",
+    "sha": "d3c9409160edb435baa41561c7dc8520cb6789a3"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Fan",
+    "kind": "c",
+    "sha": "a9d7f627751765f22de9233a51da0421109ac505"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Fan",
+    "kind": "h",
+    "sha": "43fb24fc5b5ee640ea09409f8ae18893f4166448"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "FarPlane",
+    "kind": "c",
+    "sha": "d6e1a0c23ccd354e7e0a913aa78f50d3d807fa5a"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "FarPlane",
+    "kind": "h",
+    "sha": "1443cf1affc422aa9c24b9b36163b2c60cb260ac"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "FilmProjector",
+    "kind": "c",
+    "sha": "8d1f300d27283da471d8c7b9a1db508e74a7a7db"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "FilmProjector",
+    "kind": "h",
+    "sha": "87548b0d3e5f59aab7228b84c904feaa04c956de"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "FilmReel",
+    "kind": "c",
+    "sha": "8e1eab27477978078675cc6b6b5e8b55b161d126"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "FilmReel",
+    "kind": "h",
+    "sha": "5027aac17d727c17ac1e7e4d2c590b32f1ffe76b"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Fireflies",
+    "kind": "c",
+    "sha": "1eebc60f7b7d8bdbce3399131eae7f6b59812929"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Fireflies",
+    "kind": "h",
+    "sha": "a6a8b9bc4a24a0f202087d491e7727c3f1dee889"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Firework",
+    "kind": "c",
+    "sha": "874d1dd732ce99fc48fad84775d63a1f5cb6c248"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Firework",
+    "kind": "h",
+    "sha": "cde22c47fa5e5617cd3d3b2b5e2fa22f07db0165"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Fireworm",
+    "kind": "c",
+    "sha": "8c5732730d52b116c5712bb6d439ca3dbd9fd0be"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Fireworm",
+    "kind": "h",
+    "sha": "54050d43fbc893b511fd7d5ef602c4f445bf3056"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FlameSpring",
+    "kind": "c",
+    "sha": "56aab8083f62f6070baffb752d01a0cd337a46fb"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FlameSpring",
+    "kind": "h",
+    "sha": "183a2c075c67e32adad3a5d9831396368d09cbfe"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Flamethrower",
+    "kind": "c",
+    "sha": "9d172dcbd0a03b67107730067c591a668bf3bf7d"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Flamethrower",
+    "kind": "h",
+    "sha": "69dda91b1e3a9f8ab592e520850f8b376102bab3"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "FlasherMKII",
+    "kind": "c",
+    "sha": "f2a80fd59a1a81c8e3d17c619bbb293144c249ab"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "FlasherMKII",
+    "kind": "h",
+    "sha": "504039b079e3dcc0733d3423f28b90d0700e746b"
+  },
+  {
+    "cat": "Common",
+    "cls": "FlingRamp",
+    "kind": "c",
+    "sha": "e07028e5729e4605e0e5fcd71319b1d9fc39accf"
+  },
+  {
+    "cat": "Common",
+    "cls": "FlingRamp",
+    "kind": "h",
+    "sha": "18d34c5549b09bbc43796954d9c38f0b518a56e5"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Flipper",
+    "kind": "c",
+    "sha": "a8d38e97015c02b8d4b4cdb0968df626ad0801bd"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Flipper",
+    "kind": "h",
+    "sha": "a7dc928a0c7bf26faa399ddd73e63c492dacb08a"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "FlowerPod",
+    "kind": "c",
+    "sha": "5f19410f18e86a7df1627bf944cdd566c9ae1906"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "FlowerPod",
+    "kind": "h",
+    "sha": "e8a0320f3c7dc6a77a09e44a7402490a4e7203ec"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FoldingPlatform",
+    "kind": "c",
+    "sha": "203726567659acec8a22fbf7611031ba0b29c020"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "FoldingPlatform",
+    "kind": "h",
+    "sha": "5970666e668fa0cea0f2bc0915de38e965eec684"
+  },
+  {
+    "cat": "Common",
+    "cls": "ForceSpin",
+    "kind": "c",
+    "sha": "54796c38ba83876f6a48a7718b52f5e81ee543cd"
+  },
+  {
+    "cat": "Common",
+    "cls": "ForceSpin",
+    "kind": "h",
+    "sha": "bb327d074e3ad76f00c507da6d66c81170fcbb91"
+  },
+  {
+    "cat": "Common",
+    "cls": "ForceUnstick",
+    "kind": "c",
+    "sha": "810f996b27a61082fb5863942145cb5c966ab096"
+  },
+  {
+    "cat": "Common",
+    "cls": "ForceUnstick",
+    "kind": "h",
+    "sha": "a15840ffa51c8ab52dffc13f0813a9390f8ab502"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "FrostThrower",
+    "kind": "c",
+    "sha": "4224472d508d5d0f82552915090680918d563867"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "FrostThrower",
+    "kind": "h",
+    "sha": "311ca1f2184908bb8b579eed213e8faa891e6cee"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Funnel",
+    "kind": "c",
+    "sha": "ba129d49e844a8990c534b87fe620d30f60114cd"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Funnel",
+    "kind": "h",
+    "sha": "1a9784414e0f8008b8623a558519bc28bbd794ee"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "GHZ2Outro",
+    "kind": "c",
+    "sha": "8a25a93929189ae435839b454bf08623c1cfb24e"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "GHZ2Outro",
+    "kind": "h",
+    "sha": "6aae378887a96491ed0ed7d31f6f12416ddd6c1d"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "GHZCutsceneK",
+    "kind": "c",
+    "sha": "14dca76801ae8a6c0d200846ac1a57ceab2eed9e"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "GHZCutsceneK",
+    "kind": "h",
+    "sha": "d440157aafe9a63ea78ae981fb87787646e2ce8b"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "GHZCutsceneST",
+    "kind": "c",
+    "sha": "607b6261ecdbe817c7b28aa8d9aa06dd8bf5e711"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "GHZCutsceneST",
+    "kind": "h",
+    "sha": "7a6edd3dbd30e02933287b2b1cdd6eabbd544728"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "GHZSetup",
+    "kind": "h",
+    "sha": "5d669da65fc8704a275915a47b6560240b6e97b6"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "Gachapandora",
+    "kind": "c",
+    "sha": "8f842b87bc2b33d97948caaa32e0c625da938535"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "Gachapandora",
+    "kind": "h",
+    "sha": "63d04e5db0bff6737aa8bbb3c1195f351840134c"
+  },
+  {
+    "cat": "Helpers",
+    "cls": "GameProgress",
+    "kind": "c",
+    "sha": "26f067f3f8e009aea86f7051059cdf921278ca5e"
+  },
+  {
+    "cat": "Helpers",
+    "cls": "GameProgress",
+    "kind": "h",
+    "sha": "8a5ecd3cf61af7c90c94f6a56ea5cf99a31aea41"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "GasPlatform",
+    "kind": "c",
+    "sha": "bcb2bfaa5b5a95faeec8cd0a6047c64aab4f1e3d"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "GasPlatform",
+    "kind": "h",
+    "sha": "9ca77e341678179d4631322268250eebcfe91e6f"
+  },
+  {
+    "cat": "Common",
+    "cls": "GenericTrigger",
+    "kind": "c",
+    "sha": "f857ce1f2b8f012d67775ff269606c434fb480f5"
+  },
+  {
+    "cat": "Common",
+    "cls": "GenericTrigger",
+    "kind": "h",
+    "sha": "5822ab82b9b167e5587bb37abe46d2d65ab3bf4d"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "GiantPistol",
+    "kind": "c",
+    "sha": "4d45e1b7f595182e4b2e95fadff986a2d215ac2c"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "GiantPistol",
+    "kind": "h",
+    "sha": "f82039389471fe5e8ff3ecb133688f3885e0e8c1"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Gondola",
+    "kind": "c",
+    "sha": "36446a98e87530ae22d35575c728dcd6f8ea3cee"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Gondola",
+    "kind": "h",
+    "sha": "c3cbd600eb5e0f6ed86093450e7a28c12952099c"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Grabber",
+    "kind": "c",
+    "sha": "37999bf3e7ba5e6aa422bac4e1a2f7b27f2097ae"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Grabber",
+    "kind": "h",
+    "sha": "c0cfc061c4cdab75117bdc6dfa43013313e83ab0"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "GreenScreen",
+    "kind": "c",
+    "sha": "c252686081fab3dad5883472d142a9a036aa56a2"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "GreenScreen",
+    "kind": "h",
+    "sha": "be4276ce7c6427af8bda0dc3751705e06f552a26"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "GymBar",
+    "kind": "c",
+    "sha": "a1923a0f14fea0304a010e0e87740f59ba27b70d"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "GymBar",
+    "kind": "h",
+    "sha": "98af476a2d76f19a11e89e8ce5dea2ee55c644fe"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HCZ1Intro",
+    "kind": "c",
+    "sha": "07e320305c388150b32c7aa972686f8904a12e75"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HCZ1Intro",
+    "kind": "h",
+    "sha": "afbfec91420c17b58b1555a3fda853ec840d990b"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HCZOneWayDoor",
+    "kind": "c",
+    "sha": "6ad6f822fcd7ade6fdaa528f296b678f4aa975df"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HCZOneWayDoor",
+    "kind": "h",
+    "sha": "aab69afb5ae5347949c54151d12e49aa1b10b398"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HCZSetup",
+    "kind": "h",
+    "sha": "097b33962f4ddedf6e9f3394a53f630212c7ab88"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HCZSpikeBall",
+    "kind": "c",
+    "sha": "0d40e1006e98feb04c9fa67839f71cf84e84da71"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HCZSpikeBall",
+    "kind": "h",
+    "sha": "ab8c213e26673564294fe48f5d4136f0245345c2"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "HPZEmerald",
+    "kind": "c",
+    "sha": "f3d84cc67c34bff25d6835bfb5bb07ce8a02d6aa"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "HPZEmerald",
+    "kind": "h",
+    "sha": "5c566ae1dc5a41e85a1711fa201317bf992ef40a"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HandLauncher",
+    "kind": "c",
+    "sha": "21f617ca82636ea4bd745e8b9283c47c02fc0355"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HandLauncher",
+    "kind": "h",
+    "sha": "0213fbeefab106c20740c665f02ff8878032a256"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HangConveyor",
+    "kind": "c",
+    "sha": "decf5bed955c1cb1645dfee2961300bd2f451e83"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "HangConveyor",
+    "kind": "h",
+    "sha": "2636f4db9125dbcb704695da0e7ff83a3507f4fb"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "HangPoint",
+    "kind": "c",
+    "sha": "f34b38f6ad4ab54f2c09b27dd5b071d3feb42079"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "HangPoint",
+    "kind": "h",
+    "sha": "411ac1a9477f271ff6ce1b0a9f86f3582c903dd2"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Hatch",
+    "kind": "c",
+    "sha": "4a1ac2c59d5642fd99f6d606e094e9aecee2dbcd"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Hatch",
+    "kind": "h",
+    "sha": "07f734cb66d216930e0b3345726f09a96551646a"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Hatterkiller",
+    "kind": "c",
+    "sha": "029315716577ec05855ff3decaaea0da1e6b9c26"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Hatterkiller",
+    "kind": "h",
+    "sha": "d19f97b5cc2905d6bf143ea9d73ad08f58d5a309"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "HeavyGunner",
+    "kind": "c",
+    "sha": "b3f60fba6f5fe6745073dd0382f8231d740bf9c4"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "HeavyGunner",
+    "kind": "h",
+    "sha": "4b91c2219bdbad92d36b7d346096005931559de6"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "HeavyKing",
+    "kind": "c",
+    "sha": "24f35650c101edc49c0f71a1a71b45660c485cef"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "HeavyKing",
+    "kind": "h",
+    "sha": "1f0f78fae034b61cf828629ae387587c5f2273b3"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "HeavyMystic",
+    "kind": "c",
+    "sha": "04476ffd9c01a1aee78879d69ea252c7653a9aa9"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "HeavyMystic",
+    "kind": "h",
+    "sha": "5ec8e62da39b8525ade69baf5b70c7a307cda3c4"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "HeavyRider",
+    "kind": "c",
+    "sha": "6d407f0ecdb59c1eabc85ef82c16fa3fd1ddb5ee"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "HeavyRider",
+    "kind": "h",
+    "sha": "ab9863bdeac2c15ec31b1d413dfe075824582d09"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "HeavyShinobi",
+    "kind": "c",
+    "sha": "69e20dcdcb5e160396f7f89b85f891dbeb8f9e59"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "HeavyShinobi",
+    "kind": "h",
+    "sha": "06f1adde34f3c2699a270aa3ac58c5d23b4b17f2"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "HiLoSign",
+    "kind": "c",
+    "sha": "28957d0cd7e9f1e4393980774d806b7c79fe5e6a"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "HiLoSign",
+    "kind": "h",
+    "sha": "b0cb70eb2cede251370acd162ab21dbc516f4242"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Honkytonk",
+    "kind": "c",
+    "sha": "a4d71bdc3687d4f2efd855ef7a6d934539853d6b"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Honkytonk",
+    "kind": "h",
+    "sha": "b343ec45a105dceb27af303f13ac29b4caeb5263"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Hotaru",
+    "kind": "c",
+    "sha": "b9293a4df1e959225f7d43e0e53efd226d7f48d3"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Hotaru",
+    "kind": "h",
+    "sha": "f33cc6f2bae1e137f716e7f3704ee4f6054b3f8f"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "HotaruHiWatt",
+    "kind": "c",
+    "sha": "6ed38c7281de3612022ff9aefe91fc67ff7d6d93"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "HotaruHiWatt",
+    "kind": "h",
+    "sha": "71f5ea543f826ef457a5b8d1dcd5834e74373425"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "HotaruMKII",
+    "kind": "c",
+    "sha": "86a6ae8a9447ea47609efc55c94439947f0834b6"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "HotaruMKII",
+    "kind": "h",
+    "sha": "da0ed0e26a14fd073c9dbb96c16638ccdbac7aaa"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Ice",
+    "kind": "c",
+    "sha": "0810d9ddaba7c24ee774634b31f118c040752e16"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Ice",
+    "kind": "h",
+    "sha": "0780347d744863c3491a39a8ec71c2da6ca9ff6f"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "IceBomba",
+    "kind": "c",
+    "sha": "3e36e4e85bfc2f486758d2c907871d920e001ac3"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "IceBomba",
+    "kind": "h",
+    "sha": "b7943ced33b80f5252ca0b055aef4ea437a75ab2"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "IceSpring",
+    "kind": "c",
+    "sha": "cd438a4777edaca964cd8ffe5bc3aa853cc6ea21"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "IceSpring",
+    "kind": "h",
+    "sha": "a4d4f26ad5b8022dc1c2bda91898f7e18c38a3a8"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Iwamodoki",
+    "kind": "c",
+    "sha": "36ab9bf39aba5f1c175bfe24b009a5141b3007d8"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Iwamodoki",
+    "kind": "h",
+    "sha": "ee8b3844ab8a15080620483b5d6284cd511d6f97"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "JacobsLadder",
+    "kind": "c",
+    "sha": "0b617b52ff0e55ac367deaf6f446880b717d43de"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "JacobsLadder",
+    "kind": "h",
+    "sha": "7b02e2c3e0f6c6e82c5c7bc7e83331158cdaec4b"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Jawz",
+    "kind": "c",
+    "sha": "ff594dc3994d50e3bf6faecc5f463c4768612c46"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Jawz",
+    "kind": "h",
+    "sha": "35a33935ea853129169517ac648e2bcd3d24bd86"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Jellygnite",
+    "kind": "c",
+    "sha": "71af7db52d00cea945240e004f479d4311ef5eee"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Jellygnite",
+    "kind": "h",
+    "sha": "6f0c91298dd0e808474eff5b2820b178c6418269"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "JuggleSaw",
+    "kind": "c",
+    "sha": "9dd3577e7318709a24ec309daff47ab996d5d3ba"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "JuggleSaw",
+    "kind": "h",
+    "sha": "7cd3ba6333b3b500364a8cf04e30a9710b719aed"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "JunctionWheel",
+    "kind": "c",
+    "sha": "9818839ec65b2915a1776d03625536211e1a6a51"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "JunctionWheel",
+    "kind": "h",
+    "sha": "b52887c531c87cd8826fef3d8136f9884ba7b526"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Kabasira",
+    "kind": "c",
+    "sha": "b1c7f542a0e277d8b85c20103ff5c862e74f531e"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Kabasira",
+    "kind": "h",
+    "sha": "e968e7e4a83a44d52cac30e5c53af8b8e26c8d0f"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Kanabun",
+    "kind": "c",
+    "sha": "870a79e664a5650850acb3be721b9b4ae2dd127f"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "Kanabun",
+    "kind": "h",
+    "sha": "6d7c9f1dda5059c8347d1e9636fb54ab6c5396bb"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "KingAttack",
+    "kind": "c",
+    "sha": "88143d0c1980cc9702deca88227404121fa993a9"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "KingAttack",
+    "kind": "h",
+    "sha": "94304bb1e76012d411ed4110a143254a347660e3"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "KingClaw",
+    "kind": "c",
+    "sha": "29040a4c6209fa52963beb558f940601d5cbb92b"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "KingClaw",
+    "kind": "h",
+    "sha": "a8e550241a423fa282eac70731da7769b24c08b9"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "KleptoMobile",
+    "kind": "c",
+    "sha": "7f4fb00dea8f0b399d16db5dd653408d88e462da"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "KleptoMobile",
+    "kind": "h",
+    "sha": "3d93822fc9f56aa6e7e75c8e236d1b2921335595"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "LEDPanel",
+    "kind": "c",
+    "sha": "7ed0aaaa497fb05416553316c64c583303795e41"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "LEDPanel",
+    "kind": "h",
+    "sha": "e3b218b14627112af2508783be080fa2ddeff452"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ1Outro",
+    "kind": "c",
+    "sha": "3b64eed84d04fccf27d35524705a2409bf245834"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ1Outro",
+    "kind": "h",
+    "sha": "3cbf4115f6ab2d0992db7ae24dde9c76dd84951c"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ1Setup",
+    "kind": "h",
+    "sha": "13a6e22bb7558ca4836e9f42b188650c04db2ea0"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ2Setup",
+    "kind": "h",
+    "sha": "8ecfab5d468156b76da7ddddda717c97c0dfdadf"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ3Cutscene",
+    "kind": "c",
+    "sha": "ffbb3bd4f10328af76a6368dbf3e67406c7e0e89"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ3Cutscene",
+    "kind": "h",
+    "sha": "c58d4b370bd626b1a7d2ead25baa46e4840fdd3c"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ3OutroK",
+    "kind": "c",
+    "sha": "ddd8e2e2f4b15261105e2e3a29aa3295ff3eaf4f"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ3OutroK",
+    "kind": "h",
+    "sha": "15d473cf84f18423e1497335cabb2ad5fac8871a"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZ3Setup",
+    "kind": "h",
+    "sha": "10028e7d827581656a840aba3fb28afdd8d02a1c"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConvControl",
+    "kind": "c",
+    "sha": "552bf96e075d0825523fed270750917c231051a7"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConvControl",
+    "kind": "h",
+    "sha": "b2d74d480d468118eeca370d85c15f65e3c319b6"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConvDropper",
+    "kind": "c",
+    "sha": "8a143135e547234fcae37da824e699089deb2eb6"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConvDropper",
+    "kind": "h",
+    "sha": "ec335b11fdcecdc04d5bb207db6d3af4b317ff30"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConvItem",
+    "kind": "c",
+    "sha": "2be6f2641ac06b0776e7bb1b545fcee60f703b2c"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConvItem",
+    "kind": "h",
+    "sha": "1784f279faea63117027626abd00356872e8186f"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConvSwitch",
+    "kind": "c",
+    "sha": "8323c34eccbca9778d923821685d0d23107dd291"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConvSwitch",
+    "kind": "h",
+    "sha": "2b024e336d08bfd1fe7bde556ea015a38718ae88"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConveyor",
+    "kind": "c",
+    "sha": "9165896c6c7e6dd3433440aa9b287f93fd1d3b18"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZConveyor",
+    "kind": "h",
+    "sha": "2e1c62f841f7647c1add12530e34870364f3c817"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZFireball",
+    "kind": "c",
+    "sha": "dbfc01ecf6a06de447acd9ffc3d231ef4079f7e9"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZFireball",
+    "kind": "h",
+    "sha": "96ddd837ccf9a52052674c3094b46a6ae5897bbb"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZRockPile",
+    "kind": "c",
+    "sha": "0e46325be4a076ec4920057f8c1bb8aa2662d548"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZRockPile",
+    "kind": "h",
+    "sha": "7685d9eec975489f41c55780acfc32ef0f479213"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZSpikeBall",
+    "kind": "c",
+    "sha": "b9908b60cce74d7f6e66c74a6188f7888663ba3a"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZSpikeBall",
+    "kind": "h",
+    "sha": "46838d62cb0a38ba0f4812f7b614cf58de82a187"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZSpiral",
+    "kind": "c",
+    "sha": "10f63c150a6edafd6cb360e6c86c7c839fae8ff5"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LRZSpiral",
+    "kind": "h",
+    "sha": "b253506b3d7bb4c69c855c012cb09c8f4a8d4815"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "LargeGear",
+    "kind": "c",
+    "sha": "8884fc6baf1b2eed09510c04a144f079afd294a8"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "LargeGear",
+    "kind": "h",
+    "sha": "10be6e1b8dc49cfc91795500d5d4ef31a6a8ce4e"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "LaunchSpring",
+    "kind": "c",
+    "sha": "ac1c1acf8d9b5390a99d85a1d2174d748ec5c10e"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "LaunchSpring",
+    "kind": "h",
+    "sha": "f6360138565e3de1b6a28dc6baecb93db6c552aa"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Launcher",
+    "kind": "c",
+    "sha": "3acc32bed6778972063da5ca3486b1b9f0eeffb9"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Launcher",
+    "kind": "h",
+    "sha": "bdcb9960588f9b2b6f1ddf16c9b7d0fab1e27eac"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "LaundroMobile",
+    "kind": "c",
+    "sha": "279d5ab925bcc3f3b36e16ef29f8ddd511f9fbd2"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "LaundroMobile",
+    "kind": "h",
+    "sha": "03ed824d7019aba707a9a9db828bcc27694b7477"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LavaFall",
+    "kind": "c",
+    "sha": "98d10d0b8a24fb7057d82e9443bb9cc8d3eb2b13"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LavaFall",
+    "kind": "h",
+    "sha": "fb48ed08a257eeabc6d7c70e5f3f8984d43a8b72"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LavaGeyser",
+    "kind": "c",
+    "sha": "86514c75618f82a84001c87705da2657bfbf4b1c"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "LavaGeyser",
+    "kind": "h",
+    "sha": "89f6f4e77d504139798ff522a75ba7ab482284c5"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Letterboard",
+    "kind": "c",
+    "sha": "fd9de633e0444249600beb948b7ba6e2c1b2d31e"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Letterboard",
+    "kind": "h",
+    "sha": "2c4f645bf9389e14df730291b0ef1206bf42f060"
+  },
+  {
+    "cat": "Menu",
+    "cls": "LevelSelect",
+    "kind": "h",
+    "sha": "d7e337883b89604cf37e218a402962cdc5faddbb"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "LightBarrier",
+    "kind": "c",
+    "sha": "157bd48b6ed1e21c5c77060fc719bca19f078bc4"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "LightBarrier",
+    "kind": "h",
+    "sha": "24958072ca91736837f1499260ad93f18a9f354e"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "LightBulb",
+    "kind": "c",
+    "sha": "781ca1ffafa0baa3538fa4f8a4f677cb8701c231"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "LightBulb",
+    "kind": "h",
+    "sha": "1e5afcae659268aadd93addff6e675483226242e"
+  },
+  {
+    "cat": "Global",
+    "cls": "Localization",
+    "kind": "h",
+    "sha": "00bae0ee1506d4c2b67910bf9f84a6bd94a89e54"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "LocoSmoke",
+    "kind": "c",
+    "sha": "1a25f336b4064741b4ae2741ebd94fb789f5f73e"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "LocoSmoke",
+    "kind": "h",
+    "sha": "0497282c4c68030bf2608ca0ebee4be65de63590"
+  },
+  {
+    "cat": "Menu",
+    "cls": "LogoSetup",
+    "kind": "h",
+    "sha": "d21e5665f280999ec9ca8c34c440efdc7cf0ca13"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "LottoBall",
+    "kind": "c",
+    "sha": "b0e686b3ef3bf2d57aa712b4fb229c5104de4fa2"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "LottoBall",
+    "kind": "h",
+    "sha": "0bddbbc4a9f00a17539c2b7f2373ba80bd94ee5b"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "LottoMachine",
+    "kind": "c",
+    "sha": "cffc136e85a2222b03e63bec60317ca194e4bc8f"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "LottoMachine",
+    "kind": "h",
+    "sha": "cb201186cf94dd486a0cbc0c2593d1b052750e12"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "LoveTester",
+    "kind": "c",
+    "sha": "48c4bae690ab1539b2a9402f2fc2685452874a39"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "LoveTester",
+    "kind": "h",
+    "sha": "7286e790df3607a3faf1d7cd66ab89d943f92425"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "MMZSetup",
+    "kind": "h",
+    "sha": "1660bd2ef799913cb30c44fc46440f64c51d3df0"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "MMZWheel",
+    "kind": "c",
+    "sha": "8c963132000779262a429746194c01a06cf67e39"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "MMZWheel",
+    "kind": "h",
+    "sha": "c66f38641f8575151612cf353c2980f50e41b905"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MSFactory",
+    "kind": "c",
+    "sha": "97ab1c0e8c1b62e65f18e14f52da70c167b5f99c"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MSFactory",
+    "kind": "h",
+    "sha": "14dde9b813d7dcbd42bc6188bb97763b78969aab"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MSHologram",
+    "kind": "c",
+    "sha": "9fe04f64a0c8dd2151848d122b4651d49bcbc074"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MSHologram",
+    "kind": "h",
+    "sha": "882495eb4321703080f11aefcb470617324ba8e6"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MSOrb",
+    "kind": "c",
+    "sha": "079146921e7e7c6ea1d3a9152f8df3c1fd3dce0f"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MSOrb",
+    "kind": "h",
+    "sha": "f201b4c99924b1efbf41e02a8bd0feb7e6454dbb"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MSPanel",
+    "kind": "c",
+    "sha": "60f1cced9a5359d5e3253e83966341d5da63248d"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MSPanel",
+    "kind": "h",
+    "sha": "9317769b9d7c78ace30d4546dfecbefbbf929682"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZ1KIntro",
+    "kind": "c",
+    "sha": "b6bef90368cdf6119ac8b02bceeb083acde2be99"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZ1KIntro",
+    "kind": "h",
+    "sha": "2a41f8aa40bb4ea3f90fe4944cfbfbf43fe8aea5"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZ2Cutscene",
+    "kind": "c",
+    "sha": "997461c00a6372feb4c9c1ff99b4050ee330a085"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZ2Cutscene",
+    "kind": "h",
+    "sha": "da8f7072480d36559699c2f630056e4897c48af9"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZCutsceneK",
+    "kind": "c",
+    "sha": "778c20807adb76fb7dad17437453b5d23b25d10c"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZCutsceneK",
+    "kind": "h",
+    "sha": "619f113198b41dcd376ed2695fc3db339fdc3439"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZCutsceneST",
+    "kind": "c",
+    "sha": "820d674e21a0ec275c86b7f5b0ac7badbe1fe24d"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZCutsceneST",
+    "kind": "h",
+    "sha": "5e2cce46d76e6c9d3da8aff2283db25c19e5cac7"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZSetup",
+    "kind": "h",
+    "sha": "5058a1de92485fadcf2aa9a52187ed5899bd5e8c"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZSpotlight",
+    "kind": "c",
+    "sha": "cad68d7a0b3109cf95a216dbdd10781afe4b33b9"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "MSZSpotlight",
+    "kind": "h",
+    "sha": "9514e53369e66bd5870d74cf65c03d7ddb2fd04d"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "MagPlatform",
+    "kind": "c",
+    "sha": "1900ac431219759cf2d6ca5a5c0ddf2c9a2fc22e"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "MagPlatform",
+    "kind": "h",
+    "sha": "587b30f519e7fbfd0797a8a68bae5ae4fddcbc32"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "MagSpikeBall",
+    "kind": "c",
+    "sha": "efbd89416f225fca53f2c58e675e96d9fafb0231"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "MagSpikeBall",
+    "kind": "h",
+    "sha": "0469da824b1551c643099f10e90db0c955f2e61e"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "MagnetSphere",
+    "kind": "c",
+    "sha": "a0d6712871d67a4b8b7116bc1ab7e0ed1570ce1e"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "MagnetSphere",
+    "kind": "h",
+    "sha": "4d751c5603c54b1164857e52ea625a838175e4ec"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "MatryoshkaBom",
+    "kind": "c",
+    "sha": "238a63027ef530a843fe068de3a9969da741e3b7"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "MatryoshkaBom",
+    "kind": "h",
+    "sha": "7ec7370a6fb38d9ce69c81c133387b3282dcb924"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "MechaBu",
+    "kind": "c",
+    "sha": "a6b61a6593f5db19ee1a478638dc8ebcd33a9369"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "MechaBu",
+    "kind": "h",
+    "sha": "d4205a4e29c9f4ecbfe6d7ee8a8d689fda112ad1"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "MegaChopper",
+    "kind": "c",
+    "sha": "aeac7e17619af6b7ca1f53b6942cbf71c78efd18"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "MegaChopper",
+    "kind": "h",
+    "sha": "faa6f78ee0f728d09e63865a4382d46b64923c7c"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "MegaOctus",
+    "kind": "c",
+    "sha": "e683101529ad39c33fccaafe5cec472d6c26d761"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "MegaOctus",
+    "kind": "h",
+    "sha": "ad2f323b9debca6585d92ef3fee7dcb746ac4504"
+  },
+  {
+    "cat": "Menu",
+    "cls": "MenuParam",
+    "kind": "h",
+    "sha": "2ef4ce8f170120f31e2dbf393bf4201d2625bf68"
+  },
+  {
+    "cat": "Menu",
+    "cls": "MenuSetup",
+    "kind": "h",
+    "sha": "0556cae536671c32f05d3be6fc198bc56a993140"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "MetalArm",
+    "kind": "c",
+    "sha": "54f043d5a38b10a0bdac5b6e7717835ce7bced3a"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "MetalArm",
+    "kind": "h",
+    "sha": "f0033c2b329dbf448d15eefbc57edd7f4d51e9b5"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MetalSonic",
+    "kind": "c",
+    "sha": "e220442177ad9ba76a1d20d66ea89520a9ff7263"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "MetalSonic",
+    "kind": "h",
+    "sha": "d6a3943c4d500499f5b9936f7c2036f643eca249"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "MeterDroid",
+    "kind": "c",
+    "sha": "f70796f63d18ac3f57d45f29cee7f8484d04924f"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "MeterDroid",
+    "kind": "h",
+    "sha": "cdc2889417f78a263f28aa04d2aeb30ba24e8b66"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "MicDrop",
+    "kind": "c",
+    "sha": "407201bfe3a902ae044b74f2912c3403e1fa5605"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "MicDrop",
+    "kind": "h",
+    "sha": "4a92ef94a09d115516acb169fe55590f0bfbcbd5"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Mine",
+    "kind": "c",
+    "sha": "e0f3dc64b2d2c5fe682607d158ab4a47bb61518e"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Mine",
+    "kind": "h",
+    "sha": "47b2c8f50e71fd6fc338cefc99d85f884787a27e"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "MonarchBG",
+    "kind": "c",
+    "sha": "7a3d2d2a7772ffb1ff8e0b8aef3d0d6d14f9fb7c"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "MonarchBG",
+    "kind": "h",
+    "sha": "2f469ecb445905a1eb28738bfff3d730df8152ba"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Motobug",
+    "kind": "h",
+    "sha": "30271356f77b8170bf15f1685605a836d0723ab7"
+  },
+  {
+    "cat": "Global",
+    "cls": "Music",
+    "kind": "h",
+    "sha": "489edca2c08e8ff9a8d390bb5240bcee69a0dcd8"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Newtron",
+    "kind": "h",
+    "sha": "3bb30b22ab62aa62dc70b434143ce38955074d8d"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "OOZ1Outro",
+    "kind": "c",
+    "sha": "f0964e8ebe9e5206ed7ab94a5e3ea3bb9850842a"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "OOZ1Outro",
+    "kind": "h",
+    "sha": "21a4367caabe4b97ae27279af3b591d4d7a9c4e4"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "OOZFlames",
+    "kind": "c",
+    "sha": "bbb0ec33d2ab9561fb4bcfa14cf2d9575f2a1685"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "OOZFlames",
+    "kind": "h",
+    "sha": "61de3ad80e1c4b832110bd481d8136dcdb885e3e"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "OOZSetup",
+    "kind": "h",
+    "sha": "0860d43f70d579f16328279482adb927c3faf606"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Octus",
+    "kind": "c",
+    "sha": "2da015a2d94053c102784f57e5ced93ea4a07edd"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Octus",
+    "kind": "h",
+    "sha": "28755d1e12d35a4754349b02cbd8f97354472fa5"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "OneWayDoor",
+    "kind": "c",
+    "sha": "d192888032ad5c9d692a8448740a5ee851fe803c"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "OneWayDoor",
+    "kind": "h",
+    "sha": "6921efe2c338038dad3e74fadce9d2d8b2e100a6"
+  },
+  {
+    "cat": "Helpers",
+    "cls": "Options",
+    "kind": "c",
+    "sha": "24f3f4312b2345542369f9fa59bf3b6d398d1f22"
+  },
+  {
+    "cat": "Helpers",
+    "cls": "Options",
+    "kind": "h",
+    "sha": "9ff048580e89cb7e26f5a925ab978f91730f65e7"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "OrbitSpike",
+    "kind": "c",
+    "sha": "4e0f6629fd85657b5b7df7d2d36f0c58fabf3a31"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "OrbitSpike",
+    "kind": "h",
+    "sha": "a0bb5fa1d0c19c063bb25a47e05bdfc906998953"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PKingAttack",
+    "kind": "c",
+    "sha": "ef20b94614101d9c408b8a6f31daa16cf8a1098c"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PKingAttack",
+    "kind": "h",
+    "sha": "e53d7c9d169f9aa4283d7cf9622261ab92809a5e"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZ1Setup",
+    "kind": "h",
+    "sha": "f03693a41a816a7201e2129dfac45590472f6b60"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZ2Intro",
+    "kind": "c",
+    "sha": "5495d0e821df7b617edd0072b399c453e9bad024"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZ2Intro",
+    "kind": "h",
+    "sha": "8b1e6ae841c7d2aced6e6c95822bff23a0c0326f"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZ2Outro",
+    "kind": "c",
+    "sha": "c6064bf88150b591c31437f6d80d0f5b0f6bd687"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZ2Outro",
+    "kind": "h",
+    "sha": "639fce5f2ac3079e6b7dae6b0ff04bb247e61f66"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZ2Setup",
+    "kind": "h",
+    "sha": "747b19b093f476bc81bd849cb794746189ac15ca"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZDoor",
+    "kind": "c",
+    "sha": "75fbac6ad8445c06f042edde88413c5048885c0f"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZDoor",
+    "kind": "h",
+    "sha": "a8fd4870465df1b37e271bc971f7c94db220114b"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZEggman",
+    "kind": "c",
+    "sha": "ec87658bb3ea3e693cdc7e9cb2a541a23a1177f5"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZEggman",
+    "kind": "h",
+    "sha": "4e58fe88a3a17e5cae2c51d000fe19dab5b24ae8"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZLauncher",
+    "kind": "c",
+    "sha": "5ebc6c9fef57c6b7bbecfc2600190cfa03f67216"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PSZLauncher",
+    "kind": "h",
+    "sha": "8f83d6e605d6afbdc9422e39344bef5476cbf4f0"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "PaintingEyes",
+    "kind": "c",
+    "sha": "85b256212e947d6f8be4d11164ff87774a897ead"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "PaintingEyes",
+    "kind": "h",
+    "sha": "f9e00cb297d671933f10d4bd45d8a5b0cea02532"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PaperRoller",
+    "kind": "c",
+    "sha": "6ec69a7c55c4b61b59f4cce4e068a0db76bc2636"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PaperRoller",
+    "kind": "h",
+    "sha": "1aefe331bf305a3530fbdc78bf95c95cd5554ddf"
+  },
+  {
+    "cat": "Common",
+    "cls": "ParallaxSprite",
+    "kind": "h",
+    "sha": "f96cd80bc440df9cbc83e4a94eb5ab7fd8f8b281"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "PathInverter",
+    "kind": "c",
+    "sha": "adaedcde33f2152817de4332d13c0677f83e3fc9"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "PathInverter",
+    "kind": "h",
+    "sha": "12f7e60a573e9041a8676cab101599fd942aa353"
+  },
+  {
+    "cat": "Global",
+    "cls": "PauseMenu",
+    "kind": "h",
+    "sha": "78de8581ec9e0668b26a383c4c1d57aad9e79ab8"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PetalPile",
+    "kind": "c",
+    "sha": "b23aafc8537f3226a1dbfc4682ec3a50d6bd6f9d"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PetalPile",
+    "kind": "h",
+    "sha": "357cd5f293e6163766c06f913f5560a75b891e3b"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomEgg",
+    "kind": "c",
+    "sha": "b0fdef765ae511b4a7c742781113adc7d8b04daf"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomEgg",
+    "kind": "h",
+    "sha": "22b25fbfa7e25d202e5b0de48bcdfdc0fb789274"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomGunner",
+    "kind": "c",
+    "sha": "d21e4b2a639c181583b8c62e2c9a251b2a19db00"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomGunner",
+    "kind": "h",
+    "sha": "418435a79efe73b2d4e5fba34b200cf9d750568d"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomHand",
+    "kind": "c",
+    "sha": "29a5b7bd5bba09bc7920cb90b5672eef4bf76415"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomHand",
+    "kind": "h",
+    "sha": "b806c367594f7a1512490ec3a56d82e721410273"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomKing",
+    "kind": "c",
+    "sha": "f118e01e3c8c4f316788c405ca9e4c7d930f0804"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomKing",
+    "kind": "h",
+    "sha": "506e869e7692fb4949f4cea3a8126b037d125ee9"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomMissile",
+    "kind": "c",
+    "sha": "3411da9cdc49353f1a6cf73e81f64c618fe22430"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomMissile",
+    "kind": "h",
+    "sha": "af53476b71a268a95126bd24e54e70a46c95a3f2"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomMystic",
+    "kind": "c",
+    "sha": "814b6ad05fdcd543d975a3cd0bf78ca43e18a309"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomMystic",
+    "kind": "h",
+    "sha": "9b0c58c96b7f657de96ddee2f6adc13436b61a4b"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomRider",
+    "kind": "c",
+    "sha": "4be684e42ae6ecffbd6da986156cb2f79332d862"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomRider",
+    "kind": "h",
+    "sha": "0bf4ebaeaf82d5fe5cdbdffe469e553688f84f1b"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomRuby",
+    "kind": "c",
+    "sha": "692a1e0c0a2d447f2635275d937028308e46b965"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomRuby",
+    "kind": "h",
+    "sha": "79702e85f6370f27444be8bb50dc2a650b10271f"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomShield",
+    "kind": "c",
+    "sha": "7d9cdaf1e116419b4eff4005ebd9e530f66c7306"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomShield",
+    "kind": "h",
+    "sha": "e5157f68f903cf225c3af35f038c77694661244b"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomShinobi",
+    "kind": "c",
+    "sha": "8ad1cd285ff733c460ce1ac823a392d187c59d8b"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "PhantomShinobi",
+    "kind": "h",
+    "sha": "273ce340a83452193534fd4e670d21755389ae5e"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "PimPom",
+    "kind": "c",
+    "sha": "d435abdc5304331d50e7b8beda60721e5ab78dfd"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "PimPom",
+    "kind": "h",
+    "sha": "4fe05c0fd458030c262120bf99b19785f40b5115"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Pinata",
+    "kind": "c",
+    "sha": "a9f8d4a8a9418723287a7b5c4df747754a818d8d"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Pinata",
+    "kind": "h",
+    "sha": "9a0335fa83a0f507484f775977da4dce31a6e969"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "Piston",
+    "kind": "c",
+    "sha": "34e9c7c80f10d5929e857095a9699b86ad98c688"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "Piston",
+    "kind": "h",
+    "sha": "35aaf852e005f18e78454960d4604c05b31bf5dd"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "PlaneSeeSaw",
+    "kind": "c",
+    "sha": "0897c313043f94ed2ecb7c94f3ee4641eecc41a6"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "PlaneSeeSaw",
+    "kind": "h",
+    "sha": "676ec510256dc2dd42d59c7e30bcb75e8e6b55f5"
+  },
+  {
+    "cat": "Common",
+    "cls": "Platform",
+    "kind": "h",
+    "sha": "c60f53dde876f5ea13e24af153ca8a5106a4903f"
+  },
+  {
+    "cat": "Common",
+    "cls": "PlatformControl",
+    "kind": "c",
+    "sha": "1a984c746e4aaf7ebc8e6cff8b71145494072619"
+  },
+  {
+    "cat": "Common",
+    "cls": "PlatformControl",
+    "kind": "h",
+    "sha": "f45b9eb449f2e8a1e94778dbc1672681c71a9c2a"
+  },
+  {
+    "cat": "Common",
+    "cls": "PlatformNode",
+    "kind": "c",
+    "sha": "10d19ea79b264e2f0f49e41ff7f996a8c02ae685"
+  },
+  {
+    "cat": "Common",
+    "cls": "PlatformNode",
+    "kind": "h",
+    "sha": "053b342a1f2a00ada249aa49507d8dc088b77fe6"
+  },
+  {
+    "cat": "Global",
+    "cls": "Player",
+    "kind": "h",
+    "sha": "2e0a9abb9383b73da72d8d454b04a13effa3422a"
+  },
+  {
+    "cat": "Helpers",
+    "cls": "PlayerProbe",
+    "kind": "c",
+    "sha": "caba6791302590f3a7ba0560975906a4525716a2"
+  },
+  {
+    "cat": "Helpers",
+    "cls": "PlayerProbe",
+    "kind": "h",
+    "sha": "0e2e393e1c46fbdca1e978408712c045c29f6ec4"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "PohBee",
+    "kind": "c",
+    "sha": "3e1bd84b302224e5ef36081e9e53f2df2e3ad94b"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "PohBee",
+    "kind": "h",
+    "sha": "fcc9fc2c93f302bd1ea97afd69e62f8389088615"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Pointdexter",
+    "kind": "c",
+    "sha": "b5d7ae8b8b7d1803dbea999906f025696a007611"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Pointdexter",
+    "kind": "h",
+    "sha": "6c90ce8d22ba9334b37db8f94b73c11f6e5d4bfa"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "PopOut",
+    "kind": "c",
+    "sha": "382cb5308839f9f4a8e6fe58dffdcbf9d98e10b4"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "PopOut",
+    "kind": "h",
+    "sha": "59cc574ed97e8a113db05fb4886951791ffee8be"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "PopcornKernel",
+    "kind": "c",
+    "sha": "6e537aade29cf2b60b754cfd6fb0aaf9609e7c3c"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "PopcornKernel",
+    "kind": "h",
+    "sha": "a848aefc3539973b914307b7deadee437a602e06"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "PopcornMachine",
+    "kind": "c",
+    "sha": "1c12b84d98fb91ad30c6e0517f22f55c883ae48d"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "PopcornMachine",
+    "kind": "h",
+    "sha": "81d6958a4efaf483bab3f03528d7f78d70e6eb09"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Press",
+    "kind": "c",
+    "sha": "e365fc93fddd3c001367166abcc8b2a399ae5535"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Press",
+    "kind": "h",
+    "sha": "ab70aa30404209b998ecf622a3766582d9a5af7a"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PrintBlock",
+    "kind": "c",
+    "sha": "7b02f0ed8036cb43000b1a40e84a1ff8476dd84f"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "PrintBlock",
+    "kind": "h",
+    "sha": "da4100394ccb355472388b07b8fe1cbdb98f2bdc"
+  },
+  {
+    "cat": "Common",
+    "cls": "Projectile",
+    "kind": "h",
+    "sha": "6708b1bbe3615503e7b8c7acec6e853bc7671db0"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Propeller",
+    "kind": "c",
+    "sha": "8bed2dab4627fa61a01d10f79fae7581e3e1183b"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Propeller",
+    "kind": "h",
+    "sha": "81cfded93491001de3f9afa315638d4929f25f6c"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "PropellerShaft",
+    "kind": "c",
+    "sha": "c5943410cadd5dc5a32130b8bc7a80a56abcd47b"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "PropellerShaft",
+    "kind": "h",
+    "sha": "f5496bd443bdf7699e32a468c99a107264969cf6"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "PullChain",
+    "kind": "c",
+    "sha": "ef0b02d84eb86813f7e593e17a62a6a5276e78eb"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "PullChain",
+    "kind": "h",
+    "sha": "1d14d9d5f466a1f7d12f454518392eadd2e055eb"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "PullSwitch",
+    "kind": "c",
+    "sha": "a9818e379a4d80ce3f88b3ddf34d2d644f602eb4"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "PullSwitch",
+    "kind": "h",
+    "sha": "9489f29f9e96c653d9f8542b941b267aac39ccd9"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "PushSpring",
+    "kind": "c",
+    "sha": "f6ea3890fdd1959541f9d2184cb962911083343f"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "PushSpring",
+    "kind": "h",
+    "sha": "8f94d12e659c3f08962921527838bbc535fac8c8"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoAI",
+    "kind": "c",
+    "sha": "2e90081eca41faa6e0f7dd4f93ffbc307297834e"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoAI",
+    "kind": "h",
+    "sha": "ad330e78c0ca929d82c420cd5bd508413dcc63f7"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoAttack",
+    "kind": "c",
+    "sha": "60c68634c9262c3a2c1ee7e442efc4d3ee75be27"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoAttack",
+    "kind": "h",
+    "sha": "62b25844a2d3d8d16fa14064930372fc5550216f"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoBean",
+    "kind": "c",
+    "sha": "e2a7d07a1d5a8fecdedd002dc00394568ca9f90d"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoBean",
+    "kind": "h",
+    "sha": "9cefedef32adddf92af137d866be4043716de7a4"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoGame",
+    "kind": "c",
+    "sha": "1834fe94756104985826f2c007494df5dea0415a"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoGame",
+    "kind": "h",
+    "sha": "291eb29bcc01968a128a455a61f27d92ba006892"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoIndicator",
+    "kind": "c",
+    "sha": "90c0e71e3cecd4b9a84c8ca3edcaa1ca7ed43e2b"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoIndicator",
+    "kind": "h",
+    "sha": "8a90195689db1c35439425293488defc430f8d12"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoLabel",
+    "kind": "c",
+    "sha": "33e5218899af5a7a79425d5ffc8d1f77a02e9c17"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoLabel",
+    "kind": "h",
+    "sha": "b7f45a253b742f56a3874a7f5300898d62a141a6"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoLevelSelect",
+    "kind": "c",
+    "sha": "5e564a96ae4539cc5a2105e6e90fa8af147acfb7"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoLevelSelect",
+    "kind": "h",
+    "sha": "13ba5bf774f459a3c22a6b7178b96225d06b0d56"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoMatch",
+    "kind": "c",
+    "sha": "b91c58fa0200791ec87d74f960727d2f063a8569"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoMatch",
+    "kind": "h",
+    "sha": "f36e46b5517e536e64873bbe6241066dbd8887cd"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoScore",
+    "kind": "c",
+    "sha": "f39eaf63f2f0001de4bb6fdcf143da1f1db7e578"
+  },
+  {
+    "cat": "Puyo",
+    "cls": "PuyoScore",
+    "kind": "h",
+    "sha": "58650a826a999a8ac662377671a4b08e70fcfbea"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "RPlaneShifter",
+    "kind": "c",
+    "sha": "2df2230eb152a1b3aa3a2f1b3781d6fe167320a0"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "RPlaneShifter",
+    "kind": "h",
+    "sha": "2344d38ff8435b9e4c10c1eff00daa5b8ee2663e"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "RTeleporter",
+    "kind": "c",
+    "sha": "45cca3ed99e26a8063338b75c7e0e6a17846eda8"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "RTeleporter",
+    "kind": "h",
+    "sha": "6c451048a54cb612ca95ff4c83a1012259814b5c"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Rattlekiller",
+    "kind": "c",
+    "sha": "95c1766fa1fd58233a131aea644593d2012df32b"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Rattlekiller",
+    "kind": "h",
+    "sha": "6127744aef015b878e8e6107a7a73dbd5ac4e0b2"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Reagent",
+    "kind": "c",
+    "sha": "cabc29b4ebfa53dfdd1fcb6253d0af36f9fdc939"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Reagent",
+    "kind": "h",
+    "sha": "34b91d5fe7c2141fa39af365ef89a8076dff7213"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Rexon",
+    "kind": "c",
+    "sha": "2d2eb9d89d9ff790c35ada5411cf3ff05befb257"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Rexon",
+    "kind": "h",
+    "sha": "9d521addb68132ca5786933f35351899fe8a8c09"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "RingField",
+    "kind": "c",
+    "sha": "4ff45e2acf54d95395908dcb4cbe2bc3b4ae4599"
+  },
+  {
+    "cat": "ERZ",
+    "cls": "RingField",
+    "kind": "h",
+    "sha": "00619d840b2dc4465bd73f53b61569075b7b2604"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "RisingLava",
+    "kind": "c",
+    "sha": "7a583b20155a1b3f7d2cd53bebe5d97eeb52bde9"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "RisingLava",
+    "kind": "h",
+    "sha": "46593b3deec1097356169ef041533994c470cfc5"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "RockDrill",
+    "kind": "c",
+    "sha": "5e56b9a2d6f6731fcb45e1a4b3428223f9104030"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "RockDrill",
+    "kind": "h",
+    "sha": "090622b9a1ff08ebe5110188d9c3bc71b24ff437"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "RockemSockem",
+    "kind": "c",
+    "sha": "1d55f22676a4e7d5332845cfeb763a87a93b69fd"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "RockemSockem",
+    "kind": "h",
+    "sha": "e20fa0ec8851261bfe323b7c5e83fc2984c2a159"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "RollerMKII",
+    "kind": "c",
+    "sha": "ec151ca5d5ac945332bf633ac17da17b0993150b"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "RollerMKII",
+    "kind": "h",
+    "sha": "41985c6b3843602ab91cc15b98a2ed0ec1d632a3"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "RotatingSpikes",
+    "kind": "c",
+    "sha": "28f6d577d39e122517042a394908055120eaa425"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "RotatingSpikes",
+    "kind": "h",
+    "sha": "7a91b527a079fff32f72954d66cd4614875e47d8"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "RotatingStair",
+    "kind": "c",
+    "sha": "14edbccf017efd7ffb7abb26303e9dfcf8a8f32a"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "RotatingStair",
+    "kind": "h",
+    "sha": "c14e7a03d3d5a396576324b14e57193d24daeb4f"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "RubyPortal",
+    "kind": "c",
+    "sha": "2b5cea0cf40a102a05883c8b6e301ae10ee9c450"
+  },
+  {
+    "cat": "Cutscene",
+    "cls": "RubyPortal",
+    "kind": "h",
+    "sha": "b4c244a214704e45a74149a82046785eedb0ca44"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SDashWheel",
+    "kind": "c",
+    "sha": "6e6a940ad4d46b61f657fc3bb53d569bcf9ceac0"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SDashWheel",
+    "kind": "h",
+    "sha": "2dc3575dca03be329c1066bc4975ed8142d5706d"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "SP500",
+    "kind": "c",
+    "sha": "bf061f37d5ed48377c1a24394e91d3a9f2c7e127"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "SP500",
+    "kind": "h",
+    "sha": "cfd3e945e3438af88fb249dac7651657df0f68d1"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "SP500MkII",
+    "kind": "c",
+    "sha": "77b54b21517fc4431924c346deb7e3f630054bca"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "SP500MkII",
+    "kind": "h",
+    "sha": "c0d4ac1753df1c84009d941550c3ecc67823295e"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "SPZ1Intro",
+    "kind": "c",
+    "sha": "4b3820d0c7bd67e7474394ebf8a4a5f1ba7fbf5a"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "SPZ1Intro",
+    "kind": "h",
+    "sha": "1c81c7a665133143dd9c7a6bb624313f55be8bcd"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "SPZ1Setup",
+    "kind": "h",
+    "sha": "bba225fdf2a75969ec30a61ffe8ed2a705b6e75f"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "SPZ2Outro",
+    "kind": "c",
+    "sha": "cbc4120073b0d1b3ea36167111c377ad21ec30c3"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "SPZ2Outro",
+    "kind": "h",
+    "sha": "4714830d3e257b1de314c0b2c5ffa1f642bee2d3"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "SPZ2Setup",
+    "kind": "h",
+    "sha": "0292a8ff648f35a98d533129935fc94a3abbb90c"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZ1Intro",
+    "kind": "c",
+    "sha": "1278c96e78ad475e953070972f031d545c613c90"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZ1Intro",
+    "kind": "h",
+    "sha": "e2d008e7fbba462814284faec6f5474cef852d09"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZ1Outro",
+    "kind": "c",
+    "sha": "58c4ca0082ff41e7d65c321cacadeba6be906499"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZ1Outro",
+    "kind": "h",
+    "sha": "8509c4cba6cc0b4a8f2b8fca01855520ad376754"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZ1Setup",
+    "kind": "h",
+    "sha": "3352006f9b683c8a8d981a55afe09224a3cbb493"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZ2Setup",
+    "kind": "h",
+    "sha": "cc59195af5855bb8ecf98db6816d51b35b39fa2b"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZ3Cutscene",
+    "kind": "c",
+    "sha": "da6339a9971b2ba94ae24b6c3e86ba8a84f894a7"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZ3Cutscene",
+    "kind": "h",
+    "sha": "7cc620ec33b18ae65fdb1d3f3e1d035c1823e1f1"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZSpikeBall",
+    "kind": "c",
+    "sha": "3687eaed6b603efccad5b2fd24c6812f71cdd664"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZSpikeBall",
+    "kind": "h",
+    "sha": "c0cc331d59d1f05c1a2b3970a464d9b3a34f7439"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZSpotlight",
+    "kind": "c",
+    "sha": "d58d6d8517a01fdb7cf52fb229af544f699e7eab"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SSZSpotlight",
+    "kind": "h",
+    "sha": "1760145d3b9591a909cb697f3cf6c90f8725ecc5"
+  },
+  {
+    "cat": "Global",
+    "cls": "SaveGame",
+    "kind": "h",
+    "sha": "85ffd54f5d82c3acddec13a310d3da88a8af0a3c"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "Scarab",
+    "kind": "c",
+    "sha": "d9f0160083b930e872c8d67a06e1280c648fa8ba"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "Scarab",
+    "kind": "h",
+    "sha": "bf6d5204e626b0911aa09d867a4d114c61e58ee5"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "ScrewMobile",
+    "kind": "c",
+    "sha": "579962a5e220b9140dc406f9d5506811111f37ba"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "ScrewMobile",
+    "kind": "h",
+    "sha": "a8bb41ae00e4e6a0006cdb4d150fda2e8d165e05"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SeeSaw",
+    "kind": "c",
+    "sha": "8cf8ce7b539440e535c2c959fe1d63926897eacd"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SeeSaw",
+    "kind": "h",
+    "sha": "bb0ebd28a38d8524bee7872024a851978f58563f"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SeltzerBottle",
+    "kind": "c",
+    "sha": "6556cb9e3349a97e66c7eb77d30c1d609cc5edb1"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SeltzerBottle",
+    "kind": "h",
+    "sha": "663372e028642ddca896ec715e81cb8c15388713"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SeltzerWater",
+    "kind": "c",
+    "sha": "cd0d8197892f9747b8c710688405ac763f4cd717"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SeltzerWater",
+    "kind": "h",
+    "sha": "7791ef07144de5d590f9e22ab007610c0fa49c26"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "SentryBug",
+    "kind": "c",
+    "sha": "efb9bbffb63471bced11262454eb59fdad413b25"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "SentryBug",
+    "kind": "h",
+    "sha": "780434a1bab635f96de4135e84ab00db9a3a9c35"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Shiversaw",
+    "kind": "c",
+    "sha": "f90d9ca3b6902e6f675b9751326c9fafcc9b68a9"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Shiversaw",
+    "kind": "h",
+    "sha": "427cd40b056a0958c2553c8e034e97b5cc911a28"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "ShopWindow",
+    "kind": "c",
+    "sha": "a2fce09510d2c6cff17e58aa2b09dae89b9c1884"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "ShopWindow",
+    "kind": "h",
+    "sha": "76253a43f78e5400073db52cd7b54261a39675b3"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Shuriken",
+    "kind": "c",
+    "sha": "3deba5f3857bd7e51dae61114a71443edc0c45bd"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Shuriken",
+    "kind": "h",
+    "sha": "9e8724233e419e38962caafbb58d9495ffa76c98"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Shutterbug",
+    "kind": "c",
+    "sha": "7023a34286225d79267f740a67eff0e74ae493ad"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Shutterbug",
+    "kind": "h",
+    "sha": "476bafb2405730f97b07c060080f7c51509620bb"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SideBarrel",
+    "kind": "c",
+    "sha": "c70c2f156af238334693fd5fa415a9c75089f34b"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SideBarrel",
+    "kind": "h",
+    "sha": "f379557dfcd244c0188921c7f88f16217269a3a3"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SilverSonic",
+    "kind": "c",
+    "sha": "71ee6fbd7fcc44bdb937b9ce17c72dc1c451b631"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SilverSonic",
+    "kind": "h",
+    "sha": "b1a3bb5106d0473cb2803b9e8fd341d76a0c4b73"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "SizeLaser",
+    "kind": "c",
+    "sha": "c2fc5c573f4428e9c08f1d867e242880138a03bf"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "SizeLaser",
+    "kind": "h",
+    "sha": "fe2c47104e0f801967340ec3c6cd7d151a652ec7"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "SkyTeleporter",
+    "kind": "c",
+    "sha": "99f822a3a42b343e59b585df267cf13e02738426"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "SkyTeleporter",
+    "kind": "h",
+    "sha": "8f0ccc45312c5616d144364fd91ac1f845e76476"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Smog",
+    "kind": "c",
+    "sha": "30e1136e0e8fc339eb8418eec114ef1b6754cc98"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Smog",
+    "kind": "h",
+    "sha": "9bfa0e4f5e86edfe47451998faf92399846aa38b"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Snowflakes",
+    "kind": "c",
+    "sha": "72d62ee4778608a8616a2ad8d88d20a93121183d"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Snowflakes",
+    "kind": "h",
+    "sha": "5787803b7e66f506dc2e138ce7ec9a3a5c02703d"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Sol",
+    "kind": "c",
+    "sha": "11603898cf401a1df0bcfaf8064d316083ceac95"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Sol",
+    "kind": "h",
+    "sha": "2890c76adcf4fa04743852d9dba1b9145375a66d"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SparkRail",
+    "kind": "c",
+    "sha": "baa987e978d4d4c9573a2528d1f33a19ef475e0f"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SparkRail",
+    "kind": "h",
+    "sha": "e960b4fea0430d951f037502792dc005b5014f36"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Spear",
+    "kind": "c",
+    "sha": "6c0fb11aa1784fd12b193c03420656a63f2fefe7"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Spear",
+    "kind": "h",
+    "sha": "f24a6028cc2944178c4ae7d3c3b73a0dd732d063"
+  },
+  {
+    "cat": "UFO",
+    "cls": "SpecialClear",
+    "kind": "c",
+    "sha": "a52959b852df2c558f3d6386cd1977abc43d5cd5"
+  },
+  {
+    "cat": "UFO",
+    "cls": "SpecialClear",
+    "kind": "h",
+    "sha": "197a3f8798a1968cb53226d06719737268f34c70"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "SpeedBooster",
+    "kind": "c",
+    "sha": "39219e8f10107223c55480cb43986aeeb0bc5f00"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "SpeedBooster",
+    "kind": "h",
+    "sha": "237794936ed3f6b783d5957ee0d9ad6f73e1edac"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "SpiderMobile",
+    "kind": "c",
+    "sha": "2b4a4ee2cff816e01fbdca7875e3e49b8d80a0f9"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "SpiderMobile",
+    "kind": "h",
+    "sha": "cb2bf185ee30d9b7d12fd34cfe7eefee15bf191a"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "SpikeCorridor",
+    "kind": "c",
+    "sha": "cd493f3870333613ae2e6afb228b2e7eaad364ac"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "SpikeCorridor",
+    "kind": "h",
+    "sha": "4a9341ba5c538548cc92befde50e06767fa787d9"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "SpikeCrusher",
+    "kind": "c",
+    "sha": "cc62f9ce52ec5b1ff860212822c2a05597beb5aa"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "SpikeCrusher",
+    "kind": "h",
+    "sha": "83a73ba1715e1fa5eff43bdcccb0a6501f0a4dc3"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SpikeFlail",
+    "kind": "c",
+    "sha": "6c6688d483a6505d5e7b80f16e1c5d515324deae"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "SpikeFlail",
+    "kind": "h",
+    "sha": "78760f6b50366a713db9a1a477cfddf2251658ee"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "SpikeLog",
+    "kind": "c",
+    "sha": "089c16b0d029f27bc2fc9c558650de81a330b264"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "SpikeLog",
+    "kind": "h",
+    "sha": "87225f06fc9c5b3c524d642705805eb8562937bd"
+  },
+  {
+    "cat": "Common",
+    "cls": "SpinBooster",
+    "kind": "c",
+    "sha": "d5e0708a917f7d0eb26d5760bad2b6d077637d90"
+  },
+  {
+    "cat": "Common",
+    "cls": "SpinBooster",
+    "kind": "h",
+    "sha": "f70cfdc160f10799c57765fbc55a00757f8e69d9"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "SpinSign",
+    "kind": "c",
+    "sha": "46ddcef0f5f00cf1535555892cfcf597f19e9f23"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "SpinSign",
+    "kind": "h",
+    "sha": "7cc4db88c7eeede9c8a6cd1004cc44522b9ff988"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Spiny",
+    "kind": "c",
+    "sha": "474d5b89fa216eecce8e30dd5e670e66d77f58cc"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Spiny",
+    "kind": "h",
+    "sha": "4fe5a569ed2177688156f07da09d305b6d2c0f37"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "SpiralPlatform",
+    "kind": "c",
+    "sha": "fa52e03ba3b0c05e617fa30d37b754ca268816f5"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "SpiralPlatform",
+    "kind": "h",
+    "sha": "2b52d62e57b7989ff934b4b1fe5af48d6446e229"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Splats",
+    "kind": "c",
+    "sha": "913d3c7ef1271433b92ac6c3a939b8ec90e94fa7"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "Splats",
+    "kind": "h",
+    "sha": "07183e861f7b9aa7517df7c635e5c7069271ce04"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Springboard",
+    "kind": "c",
+    "sha": "750dbf376a0b14aa5d9b931b967c89942554b435"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Springboard",
+    "kind": "h",
+    "sha": "d83be54e87692bfb10fb9e9eb5f3b17ad741e8dd"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Staircase",
+    "kind": "c",
+    "sha": "bca0fa485a0fe2b9a9e10da49baedee400976706"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Staircase",
+    "kind": "h",
+    "sha": "30014b9191ca72eaf1e959c5d0c09428d125a90e"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Stalactite",
+    "kind": "c",
+    "sha": "7fb47e958bd95d8a9a5221758326f5c29e7d4d1c"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Stalactite",
+    "kind": "h",
+    "sha": "5ff1a97b71b04ce2f087ad20b123c90fe777c168"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "StickyPlatform",
+    "kind": "c",
+    "sha": "f1a58991c26c7973b735073fdff5167b47eb7e10"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "StickyPlatform",
+    "kind": "h",
+    "sha": "5745cb890be51524e7dea5b6a5a8e5d20eded21d"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "Sweep",
+    "kind": "c",
+    "sha": "f206c84eb954b4b07c87009eda3b7d642917f728"
+  },
+  {
+    "cat": "AIZ",
+    "cls": "Sweep",
+    "kind": "h",
+    "sha": "5a6855f7fda4d552de6771b61e93f6a74a21af19"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SwingRope",
+    "kind": "c",
+    "sha": "7c872091e2ed62d24dfe6bb45768debb6f1f1e16"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "SwingRope",
+    "kind": "h",
+    "sha": "c2493ea1d05c1a4db4aa4dcde70d570a4878ef95"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "SwitchDoor",
+    "kind": "c",
+    "sha": "544daee88037a18538fa7fac19cb72289d4d9fcb"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "SwitchDoor",
+    "kind": "h",
+    "sha": "a13810481651ec831c6a48ecf358d3908de88209"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Syringe",
+    "kind": "c",
+    "sha": "098becd649727613dc43ae73ab8ce10106b64374"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "Syringe",
+    "kind": "h",
+    "sha": "5078ef9d2c16be9102f8336318f8c6ead06e9da7"
+  },
+  {
+    "cat": "Credits",
+    "cls": "TAEmerald",
+    "kind": "c",
+    "sha": "2411f87fd505e68cbab3cddb3268b8ade8e57251"
+  },
+  {
+    "cat": "Credits",
+    "cls": "TAEmerald",
+    "kind": "h",
+    "sha": "8bafc5e30812d13d5cfd2bc103662bc73b225c2f"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZ1Outro",
+    "kind": "c",
+    "sha": "9ea83cb3565b5ce46a0094412fe7c28990dff6a8"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZ1Outro",
+    "kind": "h",
+    "sha": "eca85b0cf2f348b6e298e997634f3049fe984dc7"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZ1Setup",
+    "kind": "h",
+    "sha": "09cf7a6d8536af087f70e16a4e9483575a9533e6"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZ2Outro",
+    "kind": "c",
+    "sha": "a727543d15eaa267328bc0163e442850f5cf74b2"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZ2Outro",
+    "kind": "h",
+    "sha": "f414e9c59444f23cda46cdd98e214c235faf4f84"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZ2Setup",
+    "kind": "h",
+    "sha": "0e9c549fdd5936c52b9e2b21dab844feb652c889"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZ3Setup",
+    "kind": "h",
+    "sha": "7c15e99dabbe35abc718fa733d3d198852b20a4e"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZAlert",
+    "kind": "c",
+    "sha": "826ca4fa2ad8f2783e030a496221b0aeca922848"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZAlert",
+    "kind": "h",
+    "sha": "1fc1fc228ac3d53fb444876f2777d445812361bb"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZBarrier",
+    "kind": "c",
+    "sha": "8781a3490f1a464937c770489688bf5d5524472d"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZBarrier",
+    "kind": "h",
+    "sha": "ad6ddddefc045b9a36f0a827b32f02da751e5b7a"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZCable",
+    "kind": "c",
+    "sha": "58b389261327d88e6796d6af05dacf87de3f3737"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZCable",
+    "kind": "h",
+    "sha": "f7f929492704bf29e8407eff0916574137e4003f"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZFlames",
+    "kind": "c",
+    "sha": "0d02122c889323483bddd39b7ff7142fd343d16c"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TMZFlames",
+    "kind": "h",
+    "sha": "c1f3d9e5711d0a6959d46e6e43ca049aa925e9dd"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "TTCutscene",
+    "kind": "c",
+    "sha": "2a0f39820b5c550466b55dba67c7f2351efa90e8"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "TTCutscene",
+    "kind": "h",
+    "sha": "b9e2cd1ae9fb2c661ef0bd090a5bdd623415fb6a"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "TVFlyingBattery",
+    "kind": "c",
+    "sha": "a6ee4f073b82ed995df1a926c3dd082c8f640b1e"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "TVFlyingBattery",
+    "kind": "h",
+    "sha": "1569b5cd0fc0171b97a5e37fed228460be0845e8"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "TVPole",
+    "kind": "c",
+    "sha": "d9da038c5f9a7f45bc9c5bd0ee0d0cc3115ebaee"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "TVPole",
+    "kind": "h",
+    "sha": "f1a880a9e75859d99731f53395da0fb3e37625dd"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "TVVan",
+    "kind": "c",
+    "sha": "43157b66fee590ca60e5b0579fe114b7609cde6d"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "TVVan",
+    "kind": "h",
+    "sha": "51540aab16fc258ffc756c01b1eb1a0f1fd3f295"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Technosqueek",
+    "kind": "c",
+    "sha": "01d9e0c5a343fa048513fa391733804c69d26a6e"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Technosqueek",
+    "kind": "h",
+    "sha": "c8051c5dd8c41fe6a96be402919284e125afa795"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TeeterTotter",
+    "kind": "c",
+    "sha": "e1edabbf792e9c821d3eaea0a704876e6123f629"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TeeterTotter",
+    "kind": "h",
+    "sha": "71761742a8458157934e27de2fbcc6f189e78e54"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "TetherBall",
+    "kind": "c",
+    "sha": "33c4294956d534bc376fd072197ec3bf31dfc14c"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "TetherBall",
+    "kind": "h",
+    "sha": "29a7d72c435de7e68906cb77870a385a0992d41d"
+  },
+  {
+    "cat": "Menu",
+    "cls": "ThanksSetup",
+    "kind": "h",
+    "sha": "5689bf6d800903f49a7d61c066b4c922e33f3f91"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "ThoughtBubble",
+    "kind": "c",
+    "sha": "bc2a06e56ed872687d7a072f7fec68958fbbf953"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "ThoughtBubble",
+    "kind": "h",
+    "sha": "f51a71f603b1c53a77709b64633282e79f40edb7"
+  },
+  {
+    "cat": "Common",
+    "cls": "TilePlatform",
+    "kind": "c",
+    "sha": "1cc4fc760c7e492421c3535317130346aa7b4b5e"
+  },
+  {
+    "cat": "Common",
+    "cls": "TilePlatform",
+    "kind": "h",
+    "sha": "7233c038d2ecd3647fc226dccb7ad9ca2a6dbb41"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "TimePost",
+    "kind": "c",
+    "sha": "c3a33828aa758af6cba8bba0d36ffba15666b418"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "TimePost",
+    "kind": "h",
+    "sha": "7065be2c705cc093356b99f2e2ad8a22b8f695c0"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "TimeTravelSetup",
+    "kind": "c",
+    "sha": "34ed60be410a9404bdf2e8f32d0cf62e784687e1"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "TimeTravelSetup",
+    "kind": "h",
+    "sha": "afee9585e8b8bc28c88f04e9a212383ba85b9fd4"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "TippingPlatform",
+    "kind": "c",
+    "sha": "140031912917fe63432e4c1d73c533c003c7abbd"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "TippingPlatform",
+    "kind": "h",
+    "sha": "4bde69fb8e13a38a3a36ff924dfc1b05bda3df4d"
+  },
+  {
+    "cat": "Title",
+    "cls": "Title3DSprite",
+    "kind": "h",
+    "sha": "c690233443831581ee15b847046b92729d2fee97"
+  },
+  {
+    "cat": "Title",
+    "cls": "TitleBG",
+    "kind": "h",
+    "sha": "282d1f503e84bc3d1dbbbe86f08f1b19276a6241"
+  },
+  {
+    "cat": "Title",
+    "cls": "TitleLogo",
+    "kind": "h",
+    "sha": "e65577d176b1b0e7cca4489894246ef29a47a178"
+  },
+  {
+    "cat": "Title",
+    "cls": "TitleSetup",
+    "kind": "h",
+    "sha": "9631a2b8015ebd7e1c068957a1b70977cd6c05d6"
+  },
+  {
+    "cat": "Title",
+    "cls": "TitleSonic",
+    "kind": "h",
+    "sha": "1dadbfd406f8e3193857a7a9a1c599bc4e98d2fb"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Tornado",
+    "kind": "c",
+    "sha": "706d85843cde907245c61a99fedb68119fb0b83d"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Tornado",
+    "kind": "h",
+    "sha": "6fa5c61c4f7c504014d6e83d4e9eba13344bf490"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "TornadoPath",
+    "kind": "c",
+    "sha": "af4b99acbdf6239001de6df1661e7e771c101f72"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "TornadoPath",
+    "kind": "h",
+    "sha": "3a8acc5bffe68e118b5fd01470bc5ec30fdb1d99"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Toxomister",
+    "kind": "c",
+    "sha": "36a73c4f8088eb3e20cbaa729ac3969b5cef5f3b"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Toxomister",
+    "kind": "h",
+    "sha": "f63647edebfe3372e255b8f35fb2b67d91ee63cc"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "TransportTube",
+    "kind": "c",
+    "sha": "563ef857e3f3418602091c427f221ef1e62b6454"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "TransportTube",
+    "kind": "h",
+    "sha": "a98c1b96b1e177c939621dfa28bdb200f0e85114"
+  },
+  {
+    "cat": "Credits",
+    "cls": "TryAgain",
+    "kind": "c",
+    "sha": "98d3fc7ad526a4d458a4c2fd372378bdbbd6df00"
+  },
+  {
+    "cat": "Credits",
+    "cls": "TryAgain",
+    "kind": "h",
+    "sha": "90ef90574b42e7f1bab73631093a5cc51e8d8794"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "TubeSpring",
+    "kind": "c",
+    "sha": "24e38cad3014eafca56c99c9adb1b6c588e08f64"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "TubeSpring",
+    "kind": "h",
+    "sha": "8306e4516473afb7204d788323cc0155d167a2c4"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Tubinaut",
+    "kind": "c",
+    "sha": "3802a71035285de7c75dea43f2db5cd883fe49f9"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "Tubinaut",
+    "kind": "h",
+    "sha": "b2c9c7f3de2e46fd048b37f1cf811accdeceb19a"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Tuesday",
+    "kind": "c",
+    "sha": "0768b2879eda36ba2f20ea508a693353a44abd3a"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "Tuesday",
+    "kind": "h",
+    "sha": "594ec9c32a62437aa4a47f488c4d0a1197ab9fd6"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Turbine",
+    "kind": "c",
+    "sha": "8e654e48d53df570e7f2ebc97672d93b3774fec6"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "Turbine",
+    "kind": "h",
+    "sha": "ca0cfa43d9933213604030956850f021f2ae4f55"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "TurboSpiker",
+    "kind": "c",
+    "sha": "5d4dc295a02b752e26210326e290a517a47644ab"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "TurboSpiker",
+    "kind": "h",
+    "sha": "78230ccafd58028e567651dab8ae1b4fafcda726"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TurboTurtle",
+    "kind": "c",
+    "sha": "4f7655c55f823868b64d8a42898ed02e7049ea36"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "TurboTurtle",
+    "kind": "h",
+    "sha": "bbfa8619c48e01f8b6c8d712b584c93726233edb"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Turntable",
+    "kind": "c",
+    "sha": "f51fd7ee448d2cdcdb51dd3453f48e5e7560d1a2"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Turntable",
+    "kind": "h",
+    "sha": "9a4dc1ed83730b88a025273b1039ae9f8b2cc55c"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "TurretSwitch",
+    "kind": "c",
+    "sha": "fd07e7c37fe232e0c6083e553e7352807088b6b1"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "TurretSwitch",
+    "kind": "h",
+    "sha": "4843856376820fdc9115d346e595083ae221d91f"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "TwistedTubes",
+    "kind": "c",
+    "sha": "c5d662825515624b2e05ea9c334ec55cbd3e6c7d"
+  },
+  {
+    "cat": "CPZ",
+    "cls": "TwistedTubes",
+    "kind": "h",
+    "sha": "79328b6073d505a77c6f8a2a3e2efa9414b54743"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "TwistingDoor",
+    "kind": "c",
+    "sha": "a25f98ebfb2885b466dc8114e6c021ac3dde8bfe"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "TwistingDoor",
+    "kind": "h",
+    "sha": "f0ae3f457a0f06befdd7e9cc24fa07355f551558"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "TwistingSlide",
+    "kind": "c",
+    "sha": "fbd969ddb3ec601203cec2a633eb976aae42d933"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "TwistingSlide",
+    "kind": "h",
+    "sha": "681ffd04de30a12805ead149646901a8b77e381f"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Camera",
+    "kind": "c",
+    "sha": "8751119da7ac14ce9556be28215e04660580977c"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Camera",
+    "kind": "h",
+    "sha": "be6ef4cfde51295fffca2e49311b33aed1c3d5e9"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Circuit",
+    "kind": "c",
+    "sha": "74e3ca3ecbc05bb8573d4c07a23d3047a08a2dca"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Circuit",
+    "kind": "h",
+    "sha": "598a0e9b089cbed7b1acc5e01e94ffacafd1ea2a"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Decoration",
+    "kind": "c",
+    "sha": "6c61a004207b3b0526b4cd15884d99e93bc23248"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Decoration",
+    "kind": "h",
+    "sha": "a4b1b2c2cde430caf064fa50a92625275b838722"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Dust",
+    "kind": "c",
+    "sha": "72b9e428933476787010858e40500b1b25c3c276"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Dust",
+    "kind": "h",
+    "sha": "aa26c5349046d1233dad879980396f6e63eac693"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_HUD",
+    "kind": "c",
+    "sha": "e0e134c3180fcd185eabe6a1da5435818c37f5e2"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_HUD",
+    "kind": "h",
+    "sha": "b54e0078e68da091eb81286350dedb4471da0693"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_ItemBox",
+    "kind": "c",
+    "sha": "51a8ccb21459c4f6341640062a703ba9bfa0c86d"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_ItemBox",
+    "kind": "h",
+    "sha": "e8b576ab8867d9a1e74192828efa2fa718083dba"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Message",
+    "kind": "c",
+    "sha": "da1140e812598eadff600b64df4c0be02a315b56"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Message",
+    "kind": "h",
+    "sha": "d4fe964e53f03d639f46bb5ea505f38f4e70dee3"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Plasma",
+    "kind": "c",
+    "sha": "e1e7847a9a6ac649d7fcac1031595181bbb4e991"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Plasma",
+    "kind": "h",
+    "sha": "6bf0764ad9aaa9af6dd1a37a917f2da377d46ca7"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Player",
+    "kind": "c",
+    "sha": "4a588df169184e17796c1b46b5ec5dd94a4c7c59"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Player",
+    "kind": "h",
+    "sha": "4f82cb9845097a7de4a56b5d28dee4af386747af"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Ring",
+    "kind": "c",
+    "sha": "705f7d7cbaf02c3be55e2380594ec87f7d976abe"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Ring",
+    "kind": "h",
+    "sha": "5100051b1b9828c86c4e795b442debbd29af121b"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Setup",
+    "kind": "c",
+    "sha": "8be465e9e34a7a5f2ac1589cd43043cc0c9495eb"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Setup",
+    "kind": "h",
+    "sha": "09d63e7f1a3c87c111ae3c307d5a17a308dabf0d"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Shadow",
+    "kind": "c",
+    "sha": "21cdd9fee729f0cf219bbda95aedf51901001f01"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Shadow",
+    "kind": "h",
+    "sha": "9fae070688f7381db83dcd6f05e13a6b18976d4c"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_SpeedLines",
+    "kind": "c",
+    "sha": "cc3151e59aff9be8b4a451e99651edab7c563844"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_SpeedLines",
+    "kind": "h",
+    "sha": "2f51e5507666c9c9fbaa1d9850253eb486ad2335"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Sphere",
+    "kind": "c",
+    "sha": "21b00f27bf68abb212e58b1f2427ec414a10ee27"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Sphere",
+    "kind": "h",
+    "sha": "b0547aa6e95042ceb5d8e8bb1deb0c295a04a9d6"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Springboard",
+    "kind": "c",
+    "sha": "7b302694686aad26ab6790bf395ca6bbe9f43b93"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Springboard",
+    "kind": "h",
+    "sha": "5f4bbe71a0d8b963c0685a980ea50500d0373f47"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Water",
+    "kind": "c",
+    "sha": "dcee0b69d9509eb2dda2c5381d0199606e8881bb"
+  },
+  {
+    "cat": "UFO",
+    "cls": "UFO_Water",
+    "kind": "h",
+    "sha": "77fd572dac0a04b2b3da804817f59ed9d8bbf38f"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIBackground",
+    "kind": "h",
+    "sha": "e37c077c059efa0f7e676dd59a673d44b2310166"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIButton",
+    "kind": "h",
+    "sha": "1945f86443b78568b4e1c8ae94b4dad5f187ec67"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIButtonLabel",
+    "kind": "h",
+    "sha": "b577e98ebaec44f0dd00f4e88742b32b10de8c57"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIButtonPrompt",
+    "kind": "h",
+    "sha": "93894a551dfddb2a735494b83091f86564712863"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UICharButton",
+    "kind": "h",
+    "sha": "c3e2197395f7dd312d3b20624a3546ab7087a154"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIChoice",
+    "kind": "h",
+    "sha": "d75feb8941c9cc12a0c4ed606177e16f749f2094"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIControl",
+    "kind": "h",
+    "sha": "38b6cd0a3134a292db44e748e764898824e553b5"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UICreditsText",
+    "kind": "h",
+    "sha": "1567cf19771fc90fca704ef37353b46717e69f80"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIDialog",
+    "kind": "h",
+    "sha": "7e2f925db1d48547f85e22b8f329a5c9ff1a3653"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIHeading",
+    "kind": "h",
+    "sha": "00cbc38bbd74d6ead02791389936b6c3abcde96f"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIInfoLabel",
+    "kind": "h",
+    "sha": "b56af9d1a9a2fea88ffcfb71fba51b70ab34ae01"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIKeyBinder",
+    "kind": "h",
+    "sha": "94e58caacf554f763999bf47314b9626b2c7f9e4"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UILeaderboard",
+    "kind": "h",
+    "sha": "89ec282a10fcf3b0a48ed6d32c9807d79ebb9790"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIMedallionPanel",
+    "kind": "h",
+    "sha": "56ad879f33d94d6b381d618eb36d7e7e9cf78271"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIModeButton",
+    "kind": "h",
+    "sha": "87a30e16d2e8c201165764d64607f24fe2413dd2"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIOptionPanel",
+    "kind": "h",
+    "sha": "e1aa009115f3eefe04922d1c5f72512ff8dbbbbd"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIPicture",
+    "kind": "h",
+    "sha": "e4303874a0ab063d8dc59b08959f3a8a19001b64"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIResPicker",
+    "kind": "h",
+    "sha": "c629c7c54e8100e4daec0460881f3ce592803520"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UISaveSlot",
+    "kind": "h",
+    "sha": "4d895f9ec711e3cda1896c9208396fcd8bfc96a3"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UISlider",
+    "kind": "h",
+    "sha": "9c108b662b05d12b12c4676df1b5be8b3b928884"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UISubHeading",
+    "kind": "h",
+    "sha": "8e83a4af97180cc6072baef09bb432cc32e6f5a8"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UITAZoneModule",
+    "kind": "h",
+    "sha": "dc747b99934ac56e451080ea394451fb915d7077"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIText",
+    "kind": "h",
+    "sha": "8ae61b9912bcd3ffec800050ea32554e84a8d50f"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UITransition",
+    "kind": "h",
+    "sha": "90b2984c54457a549d5b0aecd1ae562afd39d03e"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIUsernamePopup",
+    "kind": "h",
+    "sha": "94f744baf78a777657a60e7585a4ea2f8c227fd3"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIVideo",
+    "kind": "h",
+    "sha": "11adb67f8b3f8a1449b9ee9e976c72696b14d5ab"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIVsCharSelector",
+    "kind": "h",
+    "sha": "850a8f645c1c646f45ef8251523610bc2819e851"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIVsResults",
+    "kind": "h",
+    "sha": "724c9ab0bdaa6673d6556d5379cd57a1ce32b688"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIVsRoundPicker",
+    "kind": "h",
+    "sha": "59db58bbb6860abedf8728a62796dee81da3b84a"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIVsScoreboard",
+    "kind": "h",
+    "sha": "c2952415624589ac4b9441ecb2cf79418f571673"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIVsZoneButton",
+    "kind": "h",
+    "sha": "147e31ae8fdc09c814bffd8017cc45195897f1b0"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIWaitSpinner",
+    "kind": "h",
+    "sha": "e2d681f355998df22a8211204fc74bb2abf4e496"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIWidgets",
+    "kind": "h",
+    "sha": "d9351bb907abe3908bc44cace33162c4b0ab858f"
+  },
+  {
+    "cat": "Menu",
+    "cls": "UIWinSize",
+    "kind": "h",
+    "sha": "dad1e4321573c7886f485e0f0419a2da104ce30d"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "UberCaterkiller",
+    "kind": "c",
+    "sha": "903bbc9e55e5dc8abf2c98defd6d0ee175848d68"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "UberCaterkiller",
+    "kind": "h",
+    "sha": "78263811addefa022f45b8471c8c0c09c0a89481"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "UncurlPlant",
+    "kind": "c",
+    "sha": "d653c4aaf0fb9449b9184698d5fe39b9593113bc"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "UncurlPlant",
+    "kind": "h",
+    "sha": "47a549e22b4a1a669a86cba40c05ac15e528f085"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Valve",
+    "kind": "c",
+    "sha": "e401afad9d5d63afcb125c447db8d458502b580d"
+  },
+  {
+    "cat": "OOZ",
+    "cls": "Valve",
+    "kind": "h",
+    "sha": "65bdc22b0c60e7a25ffa649a9192060d58a9a0f7"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "VanishPlatform",
+    "kind": "c",
+    "sha": "a9a7b6c52db13d0dbda8d7580881f98af152c4f6"
+  },
+  {
+    "cat": "MMZ",
+    "cls": "VanishPlatform",
+    "kind": "h",
+    "sha": "e8f5469be9f92db35f58b277bc26de3d382ea7c0"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Vultron",
+    "kind": "c",
+    "sha": "42a830fa12a0409af2fde25dd0bf4e34cff4761f"
+  },
+  {
+    "cat": "MSZ",
+    "cls": "Vultron",
+    "kind": "h",
+    "sha": "8ea6841202d921c381439ef935b0eda50783ec00"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "WalkerLegs",
+    "kind": "c",
+    "sha": "587fc0ee9cb0da6f61906ad0c9d03b0c69ef3f88"
+  },
+  {
+    "cat": "LRZ",
+    "cls": "WalkerLegs",
+    "kind": "h",
+    "sha": "68915421b9a35a963d6a7475251e9e51840c938c"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "WallBumper",
+    "kind": "c",
+    "sha": "3fb4ef73b4589d54db93e378d4591502920f2c5a"
+  },
+  {
+    "cat": "TMZ",
+    "cls": "WallBumper",
+    "kind": "h",
+    "sha": "e4ec66296c6f6e9aedb1ea2bf0ae3aef40eb9ef5"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "WarpDoor",
+    "kind": "c",
+    "sha": "0a7e26b16e0ff2a3711a78d59c1db03200d08562"
+  },
+  {
+    "cat": "FBZ",
+    "cls": "WarpDoor",
+    "kind": "h",
+    "sha": "ad04af0c9c477ce77dc4193e3a20a05c0900be75"
+  },
+  {
+    "cat": "Common",
+    "cls": "Water",
+    "kind": "h",
+    "sha": "77dacd1b23c658c2e125b3ebb5760de4eb15cb4f"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "WaterGush",
+    "kind": "c",
+    "sha": "c85649df2189e6030e9bca440fac1090733abc01"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "WaterGush",
+    "kind": "h",
+    "sha": "36e3bf8b356db0fcbe0f676009ebcb0bb31560e5"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "WeatherMobile",
+    "kind": "c",
+    "sha": "c5f0ba7bd44a6b189b2aa0863cb94795ffd21dab"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "WeatherMobile",
+    "kind": "h",
+    "sha": "d4cca03d847cc30fc4538e581928af75993daac6"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "WeatherTV",
+    "kind": "c",
+    "sha": "50b14fb141ec2dab445013623283b480c91d711d"
+  },
+  {
+    "cat": "SPZ",
+    "cls": "WeatherTV",
+    "kind": "h",
+    "sha": "32a8c6480dc56fcd7fa3cd92f10ec890670009c3"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Whirlpool",
+    "kind": "c",
+    "sha": "bb761dc86cbdba3e414004ddc0d359ffec937471"
+  },
+  {
+    "cat": "HCZ",
+    "cls": "Whirlpool",
+    "kind": "h",
+    "sha": "ce44bfd9b82587f53037fe0d6d1fb21f2fe37575"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "WoodChipper",
+    "kind": "c",
+    "sha": "182778ea38a11e0a8056aabd0a97ea186453dad0"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "WoodChipper",
+    "kind": "h",
+    "sha": "ec5d3d909520163751f2ea0dee74904d6533e637"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Woodrow",
+    "kind": "c",
+    "sha": "43e8bfe21ce58163ca75f5052f667eb497590dd6"
+  },
+  {
+    "cat": "PGZ",
+    "cls": "Woodrow",
+    "kind": "h",
+    "sha": "421100312b08685aadbf0cb87914d01ad98526cf"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "YoyoPulley",
+    "kind": "c",
+    "sha": "d5379688df1bb0a263082d3cce12064ac1f5d391"
+  },
+  {
+    "cat": "SSZ",
+    "cls": "YoyoPulley",
+    "kind": "h",
+    "sha": "963bdc13b84ce2785cf4c84ab17847075b2b208e"
+  },
+  {
+    "cat": "GHZ",
+    "cls": "ZipLine",
+    "kind": "h",
+    "sha": "c8b6d097ff911e8a705fadb0c2ed3f1e9582e8a9"
+  },
+  {
+    "cat": "Global",
+    "cls": "Zone",
+    "kind": "h",
+    "sha": "abbacaa6ea4fde35b9acbc378ebd6569d2a6671d"
+  }
+]

@@ -1,0 +1,1972 @@
+/*
+ * main.c - Sonic Mania (Saturn) entry point and game-state machine.
+ *
+ * The Green Hill foreground is a *streaming* VDP2 NBG1 cell-scroll plane drawing
+ * the full 16384x2048 level: all unique 8x8 cells stay resident in VRAM, and a
+ * 64x64-cell page (one PL_SIZE_1x1 plane = 512x512px) is rebuilt in Work RAM and
+ * pushed to VRAM each frame via SCU DMA (slDMACopy) as the camera pans.
+ *
+ * Why DMA: VDP2 VRAM written by the CPU during active display does not reliably
+ * reach the screen, so per-frame page updates via CPU stores fail. The official
+ * SGL 2D-scroll sample (NOV96 DTS SGL302/SAMPLE2/SEGA2D_1) uploads cells and the
+ * pattern-name map to VRAM with slDMACopy; we use the same mechanism every frame.
+ */
+#include <jo/jo.h>
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+#include "jo/audio.h"             /* jo's PCM SFX API; module currently OFF in Makefile */
+#endif
+#include "player.h"
+#include "physics.h"
+#include "save.h"
+#include "title_sonic.h"   /* 49-frame TitleSonic atlas (uses jo_sprite_add_4bits_image) */
+
+/* Phase 3.2: intro Cinepak video. Plays cd/INTRO.CPK at boot before any
+ * other VDP2 setup -- gets a fresh VDP2 to take over, then releases it
+ * to the normal title path. Returns 0 if no INTRO.CPK present, 1 on
+ * natural end, 2 if skipped by START press. */
+extern int intro_video_play(const char *cpk_filename);
+
+#define SCR_W            320
+#define SCR_H            240
+#define SPRITE_Z         500
+
+typedef enum {
+    STATE_TITLE,
+    STATE_TITLECARD,
+    STATE_GAME,
+    STATE_ACTCLEAR,   /* Phase 3: signpost spinning + Sonic walks off-screen */
+    STATE_TALLY,      /* Phase 3: rolling-digit bonus tally; START -> next act */
+    STATE_GAMEOVER,   /* Phase 4: lives exhausted -- "GAME / OVER" overlay     */
+} game_state;
+
+/* Phase 2: per-zone resource descriptor. The runtime composes every level-
+ * specific filename from <prefix>+<suffix> at load time, so swapping zones
+ * is a `g_current_zone` change followed by a teardown+reload. The bible's
+ * Phase 7-9 zone roll-out grows this table; today it has GHZ1 and GHZ2. */
+typedef struct {
+    const char    *prefix;       /* e.g. "GHZ1", "GHZ2", "CPZ1" */
+    unsigned char  music_track;  /* CD-DA track to play on entry */
+    unsigned char  next_zone;    /* index reached on signpost touch */
+    unsigned short reserved;     /* future flags: WATER/UNDERGROUND/NIGHT */
+} zone_desc_t;
+
+static const zone_desc_t g_zones[] = {
+    /* idx 0: GHZ Act 1 advances to Act 2 */
+    { "GHZ1", 2, 1, 0 },
+    /* idx 1: GHZ Act 2 loops back to Act 1 until Phase 6 boss + Phase 7 CPZ */
+    { "GHZ2", 2, 0, 0 },
+};
+#define NUM_ZONES ((int)(sizeof(g_zones) / sizeof(g_zones[0])))
+
+static unsigned char g_current_zone;
+
+/* Forward declaration of zone_advance() so draw_signpost (declared earlier
+ * than zone_advance's body) can call it. Body is just before enter_game(). */
+static void zone_advance(void);
+
+/* Forward declarations for Phase 3 act-clear / tally state machine.
+ * Bodies live just before game_tick(). draw_signpost calls enter_actclear
+ * on touch; draw_actclear/draw_tally are invoked from game_tick. */
+static void enter_actclear(void);
+static void enter_tally(void);
+static void draw_actclear(void);
+static void draw_tally(void);
+
+/* --- Per-zone allocation tracking (Phase 2.1 teardown) -----------------
+ *
+ * Every per-zone resource loaded via jo_fs_read_file is tracked here so
+ * zone_teardown can jo_free it before the next zone loads. Without this
+ * each Act 1 -> Act 2 transition would leak ~400 KB into the 576 KB pool
+ * and the third transition would exhaust it.
+ *
+ * One exception: ZA_FG_CEL is tracked but NOT freed by zone_teardown.
+ * The original comment in setup_ghz_foreground notes that
+ * jo_vdp2_set_nbg1_8bits_image may retain internal pointers into the
+ * cell buffer, and freeing it from underneath jo corrupts NBG1 state on
+ * subsequent loads. We accept a ~90 KB leak per transition for that one
+ * buffer; the other ~310 KB per zone is properly freed.
+ *
+ * Helper zone_alloc_track() handles the free-old-before-store-new pattern
+ * so every setup/load site is a one-liner.
+ */
+enum {
+    ZA_FG_PAL = 0,
+    ZA_FG_CEL,      /* leaked intentionally; see comment */
+    ZA_FG_PAT,
+    ZA_FG_TMAP,
+    ZA_SKY_PAL,
+    ZA_SKY_DAT,
+    ZA_WORLD,
+    ZA_RINGS,
+    ZA_BUGS,
+    ZA_SPRINGS,
+    ZA_MONITORS,
+    ZA_SIGNS,
+    ZA_COUNT
+};
+
+static void *g_zone_alloc[ZA_COUNT];
+
+/* Track a freshly-loaded buffer; free the previous occupant of that slot
+ * unless it's the cel buffer (ZA_FG_CEL). Returns ptr for chaining. */
+static void *zone_alloc_track(int slot, void *ptr)
+{
+    if (slot != ZA_FG_CEL && g_zone_alloc[slot] != NULL) {
+        jo_free(g_zone_alloc[slot]);
+    }
+    g_zone_alloc[slot] = ptr;
+    return ptr;
+}
+
+/* Compose a filename = "<g_zones[g_current_zone].prefix><suffix>". Returns
+ * pointer to a static 24-byte buffer; valid until the next call. Suffix is
+ * the zone-agnostic part: "FG.CEL", "SKY.DAT", "SURF.BIN", etc. */
+static char *zone_path(const char *suffix)
+{
+    static char buf[24];
+    const char *p = g_zones[g_current_zone].prefix;
+    int i = 0;
+    while (*p && i < (int)sizeof(buf) - 1) buf[i++] = *p++;
+    while (*suffix && i < (int)sizeof(buf) - 1) buf[i++] = *suffix++;
+    buf[i] = 0;
+    return buf;
+}
+
+#define SPR_W 32
+#define SPR_H 40
+#define MAX_WALK 16
+
+static game_state      g_state;
+static player_t        g_player;
+
+/* Phase 4: hurt / death / lives state machine.
+ *
+ * g_hurt_timer  -- ticks of invuln+flash after a damage hit. Counts down each
+ *                  game tick; while > 0, enemy collision is ignored.
+ * g_dead        -- set when Sonic dies (touched enemy with 0 rings, OR fell
+ *                  into a death pit). Triggers respawn + life decrement.
+ * g_lives       -- remaining lives. Starts at 3 per fresh game; decremented on
+ *                  death. Zero -> STATE_GAMEOVER.
+ * g_pit_y       -- death-pit Y threshold (level_h_px + 64). Cached on enter.
+ *
+ * Declared near g_state so the badnik-hurt branch in update_badniks (which
+ * is defined much later in the file) sees them. */
+static int  g_hurt_timer;
+static bool g_dead;
+static int  g_lives = 3;
+
+static int             g_sonic_idle;
+static int             g_sonic_walk[MAX_WALK];
+static int             g_walk_count;
+static int             g_ticks;
+static int             g_anim;
+static bool            g_autorun;
+static unsigned char   g_input_grace;     /* ticks before we honour an input  */
+static bool            g_prev_left, g_prev_right, g_prev_jump;
+
+/* Title card cinematic: a coloured strip with the ring-icon + "1" glyph
+ * slides across the screen between STATE_TITLE and STATE_GAME. Drives off
+ * g_tcard_tick (0..TCARD_END); the easing is linear for the first cut, see
+ * draw_titlecard for the slide-in/hold/slide-out phase breakdown. */
+#define TCARD_IN_END    24                /* 0..23: slide IN from right       */
+#define TCARD_HOLD_END  90                /* 24..89: hold at centre           */
+#define TCARD_END       114               /* 90..113: slide OUT to left       */
+static int             g_tcard_tick;
+
+/* =======================================================================
+ *  Streaming GHZ foreground (VDP2 NBG1, cell-scroll, DMA-updated page)
+ *
+ *  Assets (tools/convert_stream.py, big-endian):
+ *    GHZFG.CEL  numCells*64B  256-colour row-major 8x8 cells (cell 0 = blank).
+ *    GHZFG.PAT  [u16 nPat] then nPat*4 u16 cell indices per tile (TL,TR,BL,BR).
+ *    GHZFG.TMP  [u16 xs][u16 ys] then xs*ys u16 tile-pattern ids (0 = blank).
+ *    GHZFG.PAL  256 u16 RGB555.
+ *
+ *  NBG1 is set up (via jo's cell-mode helper) as: PL_SIZE_1x1, COL_TYPE_256,
+ *  CHAR_SIZE_1x1, PNB_1WORD|CN_12BIT, cells in VRAM bank A0, page in bank B0.
+ *  Pattern name (1-word, 12-bit char): PN = (cellIndex*2) | (palette<<12) + base
+ *  (256-colour 8x8 cell = 0x40 bytes = 2 char units; base = cell offset / 0x20).
+ * ======================================================================= */
+extern unsigned char  *nbg1_cell;            /* jo's NBG1 char base (VRAM A0) */
+extern unsigned short *nbg1_map;             /* jo's NBG1 page    (VRAM B0)   */
+#define FG_PAGE_CELLS   64                   /* cells per page row/col        */
+#define FG_PAGE_LEN     (FG_PAGE_CELLS * FG_PAGE_CELLS)   /* 4096 PNs          */
+#define FG_WIN_TILES    32                   /* 32 tiles = 64 cells = one page */
+/* Per-zone unique-cell count; set at zone load from `.CEL` file size /
+ * 64. GHZ Act 1 has 1406 cells; Act 2 has a different count; subsequent
+ * zones each have their own. Keep < 4096 to fit a single VRAM bank. */
+static unsigned short  g_fg_num_cells;
+
+static unsigned short  g_page[FG_PAGE_LEN];  /* page built in Work RAM, DMA'd to VRAM */
+static unsigned short *g_fg_pat;             /* tile id -> 4 cell indices      */
+static unsigned short *g_fg_tmap;            /* [row*xs + col] tile-pattern ids */
+static int             g_fg_xs, g_fg_ys;     /* level size in 16px tiles        */
+static jo_palette      g_fg_pal;
+static unsigned short  g_fg_paloff;          /* palette id << 12               */
+static unsigned short  g_fg_mapoff;          /* char base = (cell byte-offset)/32 */
+
+/* Camera: GHZ Act 1's opening grass sits ~world tile-row 45. Title view pins
+ * vertically at this Y; in-game camera now follows Sonic's actual ypos via
+ * the collision surface (Phase 3). */
+#define CAM_Y_PX        720
+#define SONIC_SCR_X     60
+#define SONIC_SCR_Y     150
+static int             g_cam_x, g_cam_y;
+static sms_world_t     g_world;        /* per-column surface from GHZSURF.BIN */
+
+/* Build one 16x16 level tile (4 cells) into the Work-RAM page buffer. The page
+ * wraps every 32 tiles; tile (L,R) lands at page cell ((L*2)&63,(R*2)&63), which
+ * the VDP2 scroll position re-aligns to the world pixel. */
+static void fg_put_tile(int L, int R)
+{
+    unsigned short        pid = 0;
+    const unsigned short *q;
+    int                   cc, cr, b;
+
+    if ((unsigned)L < (unsigned)g_fg_xs && (unsigned)R < (unsigned)g_fg_ys)
+        pid = g_fg_tmap[R * g_fg_xs + L];
+    q  = &g_fg_pat[pid << 2];
+    cc = (L << 1) & (FG_PAGE_CELLS - 1);
+    cr = (R << 1) & (FG_PAGE_CELLS - 1);
+    b  = cr * FG_PAGE_CELLS + cc;
+    g_page[b]                     = (unsigned short)(((q[0] << 1) | g_fg_paloff) + g_fg_mapoff);
+    g_page[b + 1]                 = (unsigned short)(((q[1] << 1) | g_fg_paloff) + g_fg_mapoff);
+    g_page[b + FG_PAGE_CELLS]     = (unsigned short)(((q[2] << 1) | g_fg_paloff) + g_fg_mapoff);
+    g_page[b + FG_PAGE_CELLS + 1] = (unsigned short)(((q[3] << 1) | g_fg_paloff) + g_fg_mapoff);
+}
+
+/* Rebuild the whole page in Work RAM for the camera window (active display ok -
+ * Work RAM has no display contention). */
+static void fg_build_page(void)
+{
+    int L, R;
+    int tx = g_cam_x >> 4;
+    int ty = g_cam_y >> 4;
+
+    for (R = ty; R < ty + FG_WIN_TILES; ++R)
+        for (L = tx; L < tx + FG_WIN_TILES; ++L)
+            fg_put_tile(L, R);
+}
+
+/* Push the Work-RAM page to VRAM during V-blank. We use slDMAXCopy (SCU DMA,
+ * separate controller) rather than slDMACopy (CPU DMA) so we don't share a
+ * CPU DMA channel with SGL's sound subsystem -- which DOES use CPU DMA for
+ * its internal data transfers. SGL 2.0A release notes section 1.2.1) flags
+ * this exact pattern: "CPU DMA transfer channel used for a scroll screen
+ * data transfer conflicts with this sound data CPU DMA transfer when a
+ * V-blank interrupt occurs." SCU DMA sidesteps the conflict entirely.
+ *
+ * SCU DMA bypasses the SH-2 cache (slDMAXCopy is NOT cache-aware), so we
+ * pass the source via the cache-through alias (0x20000000 OR) to skip the
+ * cache entirely and avoid reading stale CPU-cached bytes. */
+static void fg_vblank(void)
+{
+    slDMAXCopy((void *)((unsigned int)g_page | 0x20000000),
+               (void *)nbg1_map,
+               FG_PAGE_LEN * sizeof(unsigned short),
+               Sinc_Dinc_Long);
+    slScrPosNbg1(JO_MULT_BY_65536(g_cam_x), JO_MULT_BY_65536(g_cam_y));
+}
+
+/* Register NBG1 in cell mode (jo helper) and load the resident cell bank. */
+static void setup_ghz_foreground(void)
+{
+    static jo_img_8bits dummy;
+    int                 len;
+    unsigned char      *cel;
+    unsigned short     *fgpal, *tmp;
+
+    fgpal = (unsigned short *)zone_alloc_track(ZA_FG_PAL,
+                jo_fs_read_file(zone_path("FG.PAL"), &len));
+    jo_create_palette_from(&g_fg_pal, fgpal, 256);
+    g_fg_paloff = (unsigned short)(g_fg_pal.id << 12);
+
+    cel       = (unsigned char *)zone_alloc_track(ZA_FG_CEL,
+                jo_fs_read_file(zone_path("FG.CEL"), &len));
+    /* `.CEL` is `num_cells * 64` bytes of raw row-major 256-colour 8x8 cells;
+     * the count is per-zone so we derive it from the loaded size rather than
+     * hard-coding it (GHZ Act 1 = 1406, Act 2 differs, every zone differs). */
+    g_fg_num_cells = (unsigned short)(len / 64);
+    {
+        unsigned short *pat_raw = (unsigned short *)zone_alloc_track(ZA_FG_PAT,
+                jo_fs_read_file(zone_path("FG.PAT"), &len));
+        g_fg_pat = pat_raw + 1;     /* skip [u16 nPat] header */
+    }
+    tmp       = (unsigned short *)zone_alloc_track(ZA_FG_TMAP,
+                jo_fs_read_file(zone_path("FG.TMP"), &len));
+    g_fg_xs   = tmp[0];                 /* SH-2 reads the big-endian u16 natively */
+    g_fg_ys   = tmp[1];
+    g_fg_tmap = tmp + 2;
+
+    /* jo sets up NBG1 cell mode + NBG1ON and allocates cell(A0)/page(B0). The
+     * dummy is the cell buffer itself (8 * g_fg_num_cells * 8 = total bytes),
+     * so no extra allocation; jo's reordered cells are then replaced with the
+     * real bank. */
+    dummy.data   = cel;
+    dummy.width  = 8;
+    dummy.height = g_fg_num_cells * 8;
+    jo_vdp2_set_nbg1_8bits_image(&dummy, g_fg_pal.id, false);
+    slPriorityNbg1(6);
+
+    /* char base = byte-offset of the cell bank within its 0x20000 VRAM bank / 32. */
+    g_fg_mapoff = (unsigned short)(((unsigned int)nbg1_cell & 0x1FFFF) >> 5);
+
+    /* Upload the resident, row-major cell bank to VRAM via DMA. We intentionally
+     * KEEP the Work-RAM source allocated -- jo_vdp2_set_nbg1_8bits_image may
+     * retain internal pointers into it, and freeing the block here can corrupt
+     * jo's state and freeze the game. The pool has room for both. */
+    slDMACopy(cel, (void *)nbg1_cell, g_fg_num_cells * 64);
+    (void)cel;
+
+    g_cam_x = 0;
+    g_cam_y = CAM_Y_PX;
+}
+
+/* ---- GHZ parallax sky on NBG2 (behind NBG1) --------------------------- */
+#define SKY_W 176
+#define SKY_H 512
+static jo_palette      g_sky_pal;
+static void setup_ghz_sky(void)
+{
+    static jo_img_8bits img;
+    int len;
+    unsigned short *spal = (unsigned short *)zone_alloc_track(ZA_SKY_PAL,
+            jo_fs_read_file(zone_path("SKY.PAL"), &len));
+    jo_create_palette_from(&g_sky_pal, spal, 256);
+    img.data   = (unsigned char *)zone_alloc_track(ZA_SKY_DAT,
+            jo_fs_read_file(zone_path("SKY.DAT"), &len));
+    img.width  = SKY_W;
+    img.height = SKY_H;
+
+    slScrPosNbg2(0, 0);
+
+    /* NBG2 cell-mode swap, applied per data-driven research (sega-saturn-
+     * developer skill + DTS96 BIPLANE sample). VDP2 cannot retarget the
+     * NBG2 plane safely while the layer is enabled (VDP2 manual §3.3,
+     * D:\Claude Saturn Skill Documentation\export\docs\sega_saturn_docs\
+     * VDP2_Manual.txt lines 1729-1825): if we leave NBG2ON set during
+     * the cell+map rewrite, VDP2 displays a partial mix and the new
+     * bitmap never visibly lands -- which is exactly what we observed
+     * before this fix (title bitmap persisted into STATE_GAME).
+     *
+     * Critical gotcha learned the hard way 2026-05-26: slScrAutoDisp is
+     * REPLACE (not OR/AND), and the screen-flag bitmask must include
+     * ONLY layers that are actually initialized. NBG0/NBG3 are never
+     * set up in this project; including their ON bits makes VDP2 read
+     * uninitialized VRAM and display garbled tiles. Use NBG1ON only
+     * during the swap window. */
+    slScrAutoDisp(NBG1ON);                 /* drop NBG2ON cleanly */
+    jo_vdp2_set_nbg2_8bits_image(&img, g_sky_pal.id, false, false);
+    /* Re-issue plane config (BIPLANE sample's canonical sequence at
+     * D:\Claude Saturn Skill Documentation\NOV96_DTS\EXAMPLES\SGL\
+     * BIPLANE\MAIN.C:191-206) so VDP2 latches the new layout. */
+    slPlaneNbg2(PL_SIZE_1x1);
+    slCharNbg2(COL_TYPE_256, CHAR_SIZE_1x1);
+    slPriorityNbg1(6);
+    slPriorityNbg2(1);
+    slScrAutoDisp(NBG1ON | NBG2ON);        /* re-enable cleanly */
+}
+
+/* ---- Title backdrop (Phase 3.1 / fix-for-user) -----------------------
+ *
+ * Loads cd/TITLE.DAT + cd/TITLE.PAL into NBG2 during the title state.
+ * The export_vdp2_image.py pipeline writes the bitmap rotated 90 deg CW,
+ * so the on-disk 320x224 logical image becomes a 224-wide x 320-tall
+ * stream that jo's NBG2 helper consumes verbatim.
+ *
+ * During STATE_TITLE we hide NBG1 (priority 0) so the underlying GHZ
+ * playfield doesn't bleed through the title art; enter_game() restores
+ * NBG1 priority to 6 and swaps NBG2 back to the GHZ sky.
+ */
+/* Title backdrop in NBG2 cell mode.
+ *
+ * jo_img_to_vdp2_cells does a horizontal-mirror + column-major pixel
+ * pack per cell, then writes cells column-major. __jo_create_map then
+ * reads them with y2 (image cell-row) wrapping at H/8 every 64 display-
+ * column iterations. To display a 320x224 source upright the bitmap on
+ * disk must be:
+ *   - CW-rotated 90 deg (so jo's mirror+column-major cancels back to
+ *     source orientation) -> 224 wide x 320 tall
+ *   - padded to 512 tall (= 64 cells = CELL_COUNT_PER_ROW) so the y2
+ *     wrap aligns with display row boundaries (matches GHZSKY's working
+ *     176x512 layout).
+ *   - padding bytes set to palette index 1 (NOT 0) so they read a real
+ *     palette entry rather than jo's reserved CRAM[bank+0] which shows
+ *     as magenta. */
+#define TITLE_W  224
+#define TITLE_H  512
+static jo_palette g_title_pal;
+
+static void setup_title_bg(void)
+{
+    static jo_img_8bits img;
+    int len;
+    unsigned short *tpal = (unsigned short *)jo_fs_read_file("TITLE.PAL", &len);
+    jo_create_palette_from(&g_title_pal, tpal, 256);
+    img.data   = (unsigned char *)jo_fs_read_file("TITLE.DAT", &len);
+    img.width  = TITLE_W;
+    img.height = TITLE_H;
+    jo_vdp2_set_nbg2_8bits_image(&img, g_title_pal.id, false, true);
+    /* Reset NBG2 scroll to (0,0) -- the GAME state's slScrPosNbg2(cam_x>>2,...)
+     * leaves a non-zero scroll on the NBG2 plane, and that scroll persists if
+     * we re-enter the title via state machine (or from any prior write). The
+     * symptom was: light-blue (sky) bars showing on the left + right of the
+     * title viewport because the visible 320 px were sampling columns far
+     * past the bitmap's content extent. Pinning the scroll to (0,0) here
+     * ensures the on-disk bitmap col 0 lines up with screen col 0. */
+    slScrPosNbg2(0, 0);
+}
+
+/* (Phase 3.1: enter_title() was inlined into jo_main during the title
+ * backdrop wiring -- jo_main does setup_title_bg + slPriorityNbg1(0) +
+ * slPriorityNbg2(7) directly. The dedicated enter_title was removed to
+ * silence the unused-function warning.) */
+
+/* ---- Audio setup (jo_audio fronting the SGL SCSP driver) -------------- */
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+static jo_sound      g_sfx_ring;
+static jo_sound      g_sfx_jump;
+static jo_sound      g_sfx_break;       /* Phase 1: monitor break / badnik destroy */
+static jo_sound      g_sfx_bounce;      /* Phase 1: spring launch                  */
+static jo_sound      g_sfx_stomp;       /* Phase 1: badnik stomp                   */
+static jo_sound      g_sfx_hurt;        /* Phase 4: damage hit                     */
+static jo_sound      g_sfx_lose;        /* Phase 4: ring-scatter on hurt           */
+static jo_sound      g_bgm;
+static bool          g_audio_ready;
+static bool          g_bgm_ready;
+static unsigned char g_bgm_channel;
+#endif
+
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+/* jo's audio module exposes jo_audio_init() in its core.c init path but
+ * doesn't put it in a public header that the project includes — declare
+ * locally to silence "implicit declaration" warning at -Wall. */
+extern void jo_audio_init(void);
+
+static bool _load_sfx(const char *path, jo_sound *out)
+{
+    out->sample_rate = 22050;
+    out->volume      = JO_DEFAULT_AUDIO_VOLUME;
+    return jo_audio_load_pcm((char *)path, JoSoundMono8Bit, out);
+}
+#endif
+
+static void setup_audio(void)
+{
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+    jo_audio_init();
+    /* SFX: short s8 mono PCMs at 22050 Hz. jo_audio_load_pcm reads from CD.
+     * Each load returns false on failure (missing file, SCSP RAM full); we
+     * still set g_audio_ready if the core two (ring + jump) load, since the
+     * rest are gameplay-optional. */
+    bool ok = _load_sfx("RINGSFX.PCM",   &g_sfx_ring)
+           && _load_sfx("JUMPSFX.PCM",   &g_sfx_jump);
+    /* The five Phase-1 new slots; failures are non-fatal. */
+    _load_sfx("BREAKSFX.PCM",  &g_sfx_break);
+    _load_sfx("BOUNCESFX.PCM", &g_sfx_bounce);
+    _load_sfx("STOMPSFX.PCM",  &g_sfx_stomp);
+    _load_sfx("HURTSFX.PCM",   &g_sfx_hurt);
+    _load_sfx("LOSESFX.PCM",   &g_sfx_lose);
+    if (ok) g_audio_ready = true;
+#endif
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+    /* BGM is intentionally DISABLED in this build (pool/RAM budget). Phase
+     * 4h will reintroduce it via CD streaming. */
+    g_bgm_ready   = false;
+    g_bgm_channel = JO_SOUND_MAX_CHANNEL - 1;
+    (void)g_bgm;
+#endif
+}
+
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+/* Re-trigger BGM if it has finished its loop. The first run kicks it off;
+ * subsequent runs restart after the PCM ends. The re-trigger gap is one
+ * tick (audible) -- a seamless loop needs SCSP-level loop bits or double-
+ * buffered streaming (Phase 4h follow-up). */
+static void bgm_pump(void)
+{
+    if (!g_bgm_ready) return;
+    if (!jo_audio_is_channel_playing(g_bgm_channel))
+        jo_audio_play_sound_on_channel(&g_bgm, g_bgm_channel);
+}
+#endif
+
+/* ---- Rings (Mania's Ring entities from Scene1.bin) -------------------- */
+#define RING_MAX     512               /* upper bound (GHZ Act 1 has 446)   */
+#define RING_FRAMES  16                /* "Normal Ring" animation in RSDK   */
+#define RING_W       16
+#define RING_H       16
+
+static const unsigned char *g_rings_buf;   /* GHZRINGS.BIN positions (u16 BE pairs) */
+static unsigned short       g_ring_count;
+static unsigned char        g_ring_active[RING_MAX];  /* 1 = uncollected   */
+static int                  g_sprite_ring[RING_FRAMES];
+static int                  g_rings_collected;
+
+/* HUD globals live alongside the ring data because draw_rings() bumps the
+ * score on pickup. The full set of HUD_* macros (HUD_GLYPHS, GLYPH_RING,
+ * etc.) is defined just before the load/draw helpers further down; here we
+ * only need storage. */
+static int                  g_digit_spr[12];
+static int                  g_score;
+static int                  g_game_ticks;     /* 60 Hz ticks in STATE_GAME    */
+
+/* (SCSP SFX storage moved up next to setup_audio so it can initialise
+ * g_sfx_ring/g_sfx_jump without forward-decl gymnastics.) */
+
+static void load_rings(void)
+{
+    int len, i, w, h, fc;
+    unsigned short *spr;
+    const unsigned char *r;
+
+    /* Sprite frames (cd/RING.SPR: u16 BE count + w + h + frames * w*h u16).
+     * jo_sprite_add copies into VDP1 VRAM, so we can free the source after. */
+    spr = (unsigned short *)jo_fs_read_file("RING.SPR", &len);
+    fc = spr[0]; w = spr[1]; h = spr[2];
+    if (fc > RING_FRAMES) fc = RING_FRAMES;
+    {
+        jo_img img;
+        for (i = 0; i < fc; ++i) {
+            img.data   = (jo_color *)(spr + 3) + i * w * h;
+            img.width  = w;
+            img.height = h;
+            g_sprite_ring[i] = jo_sprite_add(&img);
+        }
+    }
+    jo_free(spr);
+
+    /* World positions (cd/GHZRINGS.BIN: u16 BE count + per-ring u16 BE x,y).
+     * SH-2 is big-endian so the u16 pair reads natively as a struct of two
+     * shorts; we keep the raw pointer and decode at access time. */
+    r = (const unsigned char *)zone_alloc_track(ZA_RINGS,
+            jo_fs_read_file(zone_path("RINGS.BIN"), &len));
+    g_ring_count = *(const unsigned short *)r;
+    if (g_ring_count > RING_MAX) g_ring_count = RING_MAX;
+    g_rings_buf = r + 2;
+
+    for (i = 0; i < g_ring_count; ++i) g_ring_active[i] = 1;
+    g_rings_collected = 0;
+}
+
+/* Cull, hit-test against Sonic, and draw active rings. Called from draw_game
+ * once per frame. Camera-space culling skips off-screen rings cheaply so the
+ * full 446-ring sweep stays under budget on 28.6 MHz SH-2. */
+static void draw_rings(int cam_x, int cam_y, int sonic_px, int sonic_py)
+{
+    int i;
+    int frame = (g_ticks >> 2) % RING_FRAMES;       /* spin every 4 ticks   */
+
+    for (i = 0; i < g_ring_count; ++i) {
+        int rx, ry, sx, sy, dx, dy;
+        if (!g_ring_active[i]) continue;
+        rx = *(const unsigned short *)(g_rings_buf + (i << 2));
+        ry = *(const unsigned short *)(g_rings_buf + (i << 2) + 2);
+        sx = rx - cam_x;
+        sy = ry - cam_y;
+        if (sx < -RING_W || sx > SCR_W + RING_W ||
+            sy < -RING_H || sy > SCR_H + RING_H) continue;
+
+        /* AABB hit-test vs Sonic. His body roughly 32x40 centered at
+         * (xpos, ypos-SPR_H/2). Ring centre is at (rx+8, ry+8). */
+        dx = sonic_px - (rx + RING_W / 2);
+        dy = (sonic_py - SPR_H / 2) - (ry + RING_H / 2);
+        if (dx > -22 && dx < 22 && dy > -28 && dy < 28) {
+            g_ring_active[i] = 0;
+            ++g_rings_collected;
+            g_score += 10;                          /* classic Sonic: 10 per ring */
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+            if (g_audio_ready) jo_audio_play_sound(&g_sfx_ring);
+#endif
+            continue;
+        }
+
+        /* jo_sprite_draw3D is centre-origin -- ring centre on screen at
+         * (sx+8, sy+8); convert via -160, -112. */
+        jo_sprite_draw3D(g_sprite_ring[frame],
+                         (sx + RING_W / 2) - 160,
+                         (sy + RING_H / 2) - 112,
+                         SPRITE_Z);
+    }
+}
+
+/* ---- Badniks (cd/GHZBUGS.BIN positions, cd/BADNIK.SPR sprite) ---------
+ * Per-bug state machine: walks along the surface table at a fixed speed,
+ * flips facing on cliffs and walls (same thresholds the player physics
+ * uses), tested against Sonic's hitbox each frame. Stomp-from-above kills
+ * the bug + bounces Sonic + awards 100 score; contact-from-the-side hurts
+ * Sonic. The proper hurt-state machine (invuln flash, ring-scatter
+ * physics, knockback) lands in Phase 5; for this iteration "hurt" just
+ * zeros the ring counter so the effect is visible without the full state.
+ *
+ * Sprite is a procedural 4-frame placeholder I draw myself in
+ * tools/make_badnik_sprite.py. Drop a hand-extracted MOTOBUG.SPR with the
+ * same layout at cd/BADNIK.SPR and the engine picks it up. */
+#define BUG_MAX        32
+#define BUG_FRAMES     4
+#define BUG_W          16
+#define BUG_H          16
+#define BUG_SPEED      SMS_FIXED(0.5)     /* px/frame patrol speed         */
+#define BUG_WALL_PX    14                  /* same stair-step tolerance      */
+#define BUG_CLIFF_PX   18
+
+typedef struct {
+    jo_fixed     x;          /* world position, Q16.16 */
+    int          y;          /* world Y in pixels (snapped to surface)       */
+    signed char  vx_dir;     /* -1 = left, +1 = right                        */
+    unsigned char active;
+} sms_bug_t;
+
+static sms_bug_t  g_bug[BUG_MAX];
+static int        g_bug_count;
+static int        g_bug_spr[BUG_FRAMES];
+
+static void load_badniks(void)
+{
+    int                       len, i, w, h, fc;
+    unsigned short           *spr;
+    const unsigned char      *r;
+    unsigned short            count;
+    jo_img                    img;
+
+    /* Sprite frames. */
+    spr = (unsigned short *)jo_fs_read_file("BADNIK.SPR", &len);
+    fc = spr[0]; w = spr[1]; h = spr[2];
+    if (fc > BUG_FRAMES) fc = BUG_FRAMES;
+    for (i = 0; i < fc; ++i) {
+        img.data   = (jo_color *)(spr + 3) + i * w * h;
+        img.width  = w;
+        img.height = h;
+        g_bug_spr[i] = jo_sprite_add(&img);
+    }
+    jo_free(spr);                                   /* VDP1 has the pixels now */
+
+    /* World positions (cd/GHZBUGS.BIN, u16 BE count + per-bug u16 BE x,y). */
+    r = (const unsigned char *)zone_alloc_track(ZA_BUGS,
+            jo_fs_read_file(zone_path("BUGS.BIN"), &len));
+    count = *(const unsigned short *)r;
+    if (count > BUG_MAX) count = BUG_MAX;
+    g_bug_count = count;
+    for (i = 0; i < g_bug_count; ++i) {
+        unsigned short bx = *(const unsigned short *)(r + 2 + (i << 2));
+        unsigned short by = *(const unsigned short *)(r + 2 + (i << 2) + 2);
+        g_bug[i].x      = JO_MULT_BY_65536((int)bx);
+        g_bug[i].y      = (int)by;
+        g_bug[i].vx_dir = -1;               /* start walking left, classic */
+        g_bug[i].active = 1;
+    }
+}
+
+/* Update + render every active badnik. Called from draw_game each frame. */
+static void draw_badniks(int cam_x, int cam_y, int sonic_px, int sonic_py)
+{
+    int  frame = (g_ticks >> 3) % BUG_FRAMES;       /* walk cycle, ~8 ticks per */
+    int  i;
+
+    for (i = 0; i < g_bug_count; ++i) {
+        sms_bug_t *b = &g_bug[i];
+        int        bx_int, dx, dy, ahead_y;
+        jo_fixed   new_x;
+        int        sx, sscreen;
+
+        if (!b->active) continue;
+
+        /* --- patrol step ------------------------------------------------ */
+        new_x  = b->x + (b->vx_dir > 0 ? BUG_SPEED : -BUG_SPEED);
+        bx_int = JO_FIXED_TO_INT(new_x);
+        if (bx_int < 0)                       bx_int = 0;
+        if (bx_int >= g_world.width_px)       bx_int = g_world.width_px - 1;
+
+        ahead_y = player_surface_y(&g_world, bx_int);
+        if (ahead_y == SMS_NO_FLOOR ||
+            ahead_y < b->y - BUG_WALL_PX ||             /* wall: flip */
+            ahead_y > b->y + BUG_CLIFF_PX) {            /* cliff: flip */
+            b->vx_dir = -b->vx_dir;
+        } else {
+            b->x = new_x;
+            b->y = ahead_y;                              /* ground-follow */
+        }
+
+        /* --- cull + render ---------------------------------------------- */
+        bx_int  = JO_FIXED_TO_INT(b->x);
+        sx      = bx_int - cam_x;
+        sscreen = b->y    - cam_y;
+        if (sx < -BUG_W || sx > SCR_W + BUG_W ||
+            sscreen < -BUG_H || sscreen > SCR_H + BUG_H) continue;
+
+        /* --- hit-test vs Sonic ----------------------------------------- *
+         * Sonic's body bbox: 32x40 centred at (xpos, ypos-SPR_H/2).
+         * Bug's bbox: BUG_WxBUG_H with the bug's feet on the surface, so
+         * its centre is (bx_int, b->y - BUG_H/2). Stomp condition: Sonic's
+         * feet are at-or-above the bug's centre AND Sonic is falling. */
+        dx = sonic_px - bx_int;
+        dy = (sonic_py - SPR_H / 2) - (b->y - BUG_H / 2);
+        if (dx > -24 && dx < 24 && dy > -32 && dy < 24) {
+            int sonic_feet  = sonic_py;
+            int bug_centre  = b->y - BUG_H / 2;
+            if (sonic_feet <= bug_centre + 4 &&
+                g_player.ysp >= 0 && !g_player.grounded) {
+                /* STOMP */
+                b->active     = 0;
+                g_score      += 100;
+                g_player.ysp  = -SMS_FIXED(4.0);        /* bounce */
+                g_player.jumping = true;
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+                if (g_audio_ready) jo_audio_play_sound(&g_sfx_stomp);
+#endif
+            } else {
+                /* Phase 4 hurt path. Invuln/dead checks gate so we don't
+                 * stack damage during the flash window. */
+                if (g_hurt_timer > 0 || g_dead) {
+                    continue;
+                }
+                if (g_rings_collected > 0) {
+                    /* Took damage with rings: scatter rings (zero them for
+                     * the MVP -- ring-burst arcs land in Phase 4.1), apply
+                     * knockback, start the 120-tick invuln flash. */
+                    g_rings_collected = 0;
+                    g_hurt_timer      = 120;
+                    g_player.ysp      = -SMS_FIXED(4.0);
+                    g_player.xsp      = g_player.facing_left
+                                          ? SMS_FIXED(2.0)
+                                          : -SMS_FIXED(2.0);
+                    g_player.grounded = false;
+                    g_player.jumping  = true;
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+                    if (g_audio_ready) jo_audio_play_sound(&g_sfx_lose);
+#endif
+                } else {
+                    /* Took damage with 0 rings: death. The state-machine
+                     * handler in STATE_GAME triggers respawn / game-over. */
+                    g_dead = true;
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+                    if (g_audio_ready) jo_audio_play_sound(&g_sfx_hurt);
+#endif
+                }
+            }
+            continue;
+        }
+
+        /* Flip the sprite when walking left so the eyes face the direction. */
+        if (b->vx_dir < 0) jo_sprite_enable_horizontal_flip();
+        jo_sprite_draw3D(g_bug_spr[frame],
+                         (sx + BUG_W / 2) - 160,
+                         (sscreen - BUG_H / 2) - 112,
+                         SPRITE_Z);
+        if (b->vx_dir < 0) jo_sprite_disable_horizontal_flip();
+    }
+}
+
+/* ---- Static interactive objects: Spring, Monitor, SignPost ------------
+ * Same data shape as Ring / Motobug: u16 count + per-entity u16 BE worldX +
+ * worldY in cd/GHZSPRG.BIN, cd/GHZBOX.BIN, cd/GHZSIGN.BIN. Each gets a
+ * small active-flag array so picked-up / broken objects stay gone for the
+ * rest of the act. Sprites at cd/SPRING.SPR / cd/MONITOR.SPR / cd/SIGNPOST.SPR. */
+
+#define OBJ_MAX           64
+#define SPRING_FORCE      SMS_FIXED(10.0)  /* yellow Mania spring up-launch    */
+#define MONITOR_RINGS     10                /* placeholder: each box = +10 rings */
+
+static const unsigned char *g_spring_buf;
+static unsigned short       g_spring_count;
+static unsigned char        g_spring_active[OBJ_MAX];
+static unsigned char        g_spring_anim[OBJ_MAX];  /* 0=neutral, 1..N animating */
+static int                  g_sprite_spring[3];      /* extended / neutral / compr */
+
+static const unsigned char *g_monitor_buf;
+static unsigned short       g_monitor_count;
+static unsigned char        g_monitor_active[OBJ_MAX];
+static int                  g_sprite_monitor;
+
+#define SIGN_FRAMES   8                /* "Sonic" anim in SignPost.bin = 8 frames */
+static const unsigned char *g_sign_buf;
+static unsigned short       g_sign_count;
+static int                  g_sprite_sign[SIGN_FRAMES];
+static bool                 g_act_cleared;
+
+/* Phase 3 act-clear / tally state. g_state_tick counts ticks-in-current-state
+ * (zeroed each time we transition); ACTCLEAR spins the signpost, TALLY rolls
+ * up the bonus digits. g_tally_total is the running counter that grows from 0
+ * to (time_bonus + ring_bonus) as the digits roll. */
+static int g_state_tick;
+static int g_tally_time_bonus;
+static int g_tally_ring_bonus;
+static int g_tally_total;
+static int g_tally_act_x;             /* Sonic's screen-X during walk-off */
+
+static void load_objects(void)
+{
+    int                  len, i, w, h, fc;
+    unsigned short      *spr;
+    const unsigned char *r;
+    jo_img               img;
+
+    /* --- Springs -------------------------------------------------------- */
+    spr = (unsigned short *)jo_fs_read_file("SPRING.SPR", &len);
+    fc = spr[0]; w = spr[1]; h = spr[2];
+    if (fc > 3) fc = 3;
+    for (i = 0; i < fc; ++i) {
+        img.data = (jo_color *)(spr + 3) + i * w * h;
+        img.width = w; img.height = h;
+        g_sprite_spring[i] = jo_sprite_add(&img);
+    }
+    jo_free(spr);
+    r = (const unsigned char *)zone_alloc_track(ZA_SPRINGS,
+            jo_fs_read_file(zone_path("SPRG.BIN"), &len));
+    g_spring_count = *(const unsigned short *)r;
+    if (g_spring_count > OBJ_MAX) g_spring_count = OBJ_MAX;
+    g_spring_buf = r + 2;
+    for (i = 0; i < g_spring_count; ++i) {
+        g_spring_active[i] = 1;
+        g_spring_anim[i]   = 0;
+    }
+
+    /* --- Monitors ------------------------------------------------------- */
+    spr = (unsigned short *)jo_fs_read_file("MONITOR.SPR", &len);
+    w = spr[1]; h = spr[2];
+    img.data = (jo_color *)(spr + 3);
+    img.width = w; img.height = h;
+    g_sprite_monitor = jo_sprite_add(&img);
+    jo_free(spr);
+
+    r = (const unsigned char *)zone_alloc_track(ZA_MONITORS,
+            jo_fs_read_file(zone_path("BOX.BIN"), &len));
+    g_monitor_count = *(const unsigned short *)r;
+    if (g_monitor_count > OBJ_MAX) g_monitor_count = OBJ_MAX;
+    g_monitor_buf = r + 2;
+    for (i = 0; i < g_monitor_count; ++i) g_monitor_active[i] = 1;
+
+    /* --- Signposts ------------------------------------------------------
+     * SIGNPOST.SPR holds 8 frames of the spinning post ("Sonic" anim from
+     * Data/Sprites/Global/SignPost.bin via tools/convert_anim_sprite.py).
+     * In STATE_GAME we draw frame 0 (idle/upright); in STATE_ACTCLEAR we
+     * cycle through 0..7 to animate the spin. */
+    spr = (unsigned short *)jo_fs_read_file("SIGNPOST.SPR", &len);
+    fc = spr[0]; w = spr[1]; h = spr[2];
+    if (fc > SIGN_FRAMES) fc = SIGN_FRAMES;
+    for (i = 0; i < fc; ++i) {
+        img.data = (jo_color *)(spr + 3) + i * w * h;
+        img.width = w; img.height = h;
+        g_sprite_sign[i] = jo_sprite_add(&img);
+    }
+    jo_free(spr);
+
+    r = (const unsigned char *)zone_alloc_track(ZA_SIGNS,
+            jo_fs_read_file(zone_path("SIGN.BIN"), &len));
+    g_sign_count = *(const unsigned short *)r;
+    g_sign_buf = r + 2;
+    g_act_cleared = false;
+}
+
+/* Springs -- AABB hit from above launches Sonic up, plays jump SFX, and
+ * animates the spring (compressed -> extended -> neutral over a few ticks). */
+static void draw_springs(int cam_x, int cam_y, int sonic_px, int sonic_py)
+{
+    int i;
+    for (i = 0; i < g_spring_count; ++i) {
+        int rx, ry, sx, sy, dx, dy, frame;
+        rx = *(const unsigned short *)(g_spring_buf + (i << 2));
+        ry = *(const unsigned short *)(g_spring_buf + (i << 2) + 2);
+        sx = rx - cam_x; sy = ry - cam_y;
+        if (sx < -16 || sx > SCR_W + 16 || sy < -16 || sy > SCR_H + 16) continue;
+
+        if (g_spring_active[i]) {
+            /* hit-test: Sonic's feet are within 6 px above the spring top and
+             * not moving upward => launch. */
+            dx = sonic_px - rx;
+            dy = sonic_py - (ry - 4);                /* spring top */
+            if (dx > -10 && dx < 10 && dy > -6 && dy < 8 &&
+                g_player.ysp >= 0) {
+                g_player.ysp     = -SPRING_FORCE;
+                g_player.grounded = false;
+                g_player.jumping  = true;
+                g_spring_anim[i]  = 12;              /* 12 ticks of squash anim */
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+                if (g_audio_ready) jo_audio_play_sound(&g_sfx_bounce);
+#endif
+            }
+        }
+
+        /* frame: 0..3 = compressed, 4..7 = extended, 8..11 = compressed again,
+         * else neutral. Sequence: SQUASH -> POP -> settle. */
+        if (g_spring_anim[i]) {
+            int a = g_spring_anim[i]--;
+            frame = (a > 8) ? 2 : (a > 4) ? 0 : 2;     /* compr, ext, compr */
+        } else {
+            frame = 1;                                 /* neutral */
+        }
+        jo_sprite_draw3D(g_sprite_spring[frame],
+                         (sx + 8) - 160, (sy + 8) - 112, SPRITE_Z);
+    }
+}
+
+/* Monitors -- AABB hit while not-fully-on-ground (jumping or rolling) breaks
+ * the box and grants +10 rings (placeholder; full powerup table is Phase 5). */
+static void draw_monitors(int cam_x, int cam_y, int sonic_px, int sonic_py)
+{
+    int i;
+    /* Monitor sprite is 16x16 with centre at (rx+8, ry+8) per the
+     * jo_sprite_draw3D call below. The world Y stored in GHZ1BOX.BIN
+     * (and analogues per zone) is the AUTHORED position. Snap the
+     * BOTTOM EDGE of each monitor to the surface at its column so it
+     * sits flush on grass / mound tops, never overlapping the dirt
+     * geometry or floating. User reported 2026-05-26: "tv screen
+     * sprites are not sitting on grass and sitting overlapped on
+     * mound ground". */
+    const int MONITOR_H = 16;
+    for (i = 0; i < g_monitor_count; ++i) {
+        int rx, ry, sx, sy, dx, dy, snap_y;
+        if (!g_monitor_active[i]) continue;
+        rx = *(const unsigned short *)(g_monitor_buf + (i << 2));
+        ry = *(const unsigned short *)(g_monitor_buf + (i << 2) + 2);
+        /* Ground-snap: align sprite bottom (ry + MONITOR_H) to the
+         * surface at the monitor's column. If the surface has no
+         * floor (pit / unreachable column), fall back to authored Y. */
+        snap_y = player_surface_y(&g_world, rx + (MONITOR_H / 2));
+        if (snap_y != SMS_NO_FLOOR) ry = snap_y - MONITOR_H;
+        sx = rx - cam_x; sy = ry - cam_y;
+        if (sx < -16 || sx > SCR_W + 16 || sy < -16 || sy > SCR_H + 16) continue;
+
+        /* monitor centre vs Sonic body centre */
+        dx = sonic_px - rx;
+        dy = (sonic_py - SPR_H / 2) - ry;
+        if (dx > -20 && dx < 20 && dy > -24 && dy < 20 &&
+            (!g_player.grounded || g_player.rolling)) {
+            g_monitor_active[i] = 0;
+            g_rings_collected  += MONITOR_RINGS;
+            g_score            += 100;
+            g_player.ysp        = -SMS_FIXED(3.0);    /* small bounce */
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+            if (g_audio_ready) jo_audio_play_sound(&g_sfx_break);
+#endif
+            continue;
+        }
+        jo_sprite_draw3D(g_sprite_monitor,
+                         (sx + 8) - 160, (sy + 8) - 112, SPRITE_Z);
+    }
+}
+
+/* Signpost -- touch ends the act. Full bonus tally + transition is Phase 5;
+ * for this iteration we just set g_act_cleared which freezes autorun and
+ * lets the timer keep showing the clear time. */
+static void draw_signpost(int cam_x, int cam_y, int sonic_px, int sonic_py)
+{
+    int i;
+    for (i = 0; i < g_sign_count; ++i) {
+        int rx, ry, sx, sy, dx, dy;
+        rx = *(const unsigned short *)(g_sign_buf + (i << 2));
+        ry = *(const unsigned short *)(g_sign_buf + (i << 2) + 2);
+        sx = rx - cam_x; sy = ry - cam_y;
+        if (sx < -16 || sx > SCR_W + 16 || sy < -24 || sy > SCR_H + 24) continue;
+
+        if (!g_act_cleared) {
+            dx = sonic_px - rx;
+            dy = sonic_py - ry;
+            if (dx > -24 && dx < 24 && dy > -32 && dy < 12) {
+                /* Phase 3: signpost touch enters STATE_ACTCLEAR, which spins
+                 * the signpost over ~120 ticks while Sonic walks off-screen,
+                 * then enters STATE_TALLY for the bonus roll-up. The
+                 * STATE_TALLY exit calls zone_advance() (preserving score). */
+                g_act_cleared    = true;
+                g_autorun        = false;  /* freeze player input during cinematic */
+                g_score         += 1000;   /* signpost-touch bonus */
+                g_tally_act_x    = JO_FIXED_TO_INT(g_player.xpos);
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+                if (g_audio_ready) jo_audio_play_sound(&g_sfx_ring);
+#endif
+                enter_actclear();   /* snapshots time/ring bonuses */
+                return;             /* draw_actclear handles sprite from here */
+            }
+        }
+        /* Normal gameplay draws frame 0 (upright signpost). In STATE_ACTCLEAR
+         * / STATE_TALLY the spinning frame is drawn by draw_actclear instead,
+         * so skip the upright here to avoid double-rendering. */
+        if (!g_act_cleared) {
+            jo_sprite_draw3D(g_sprite_sign[0],
+                             (sx + 8) - 160, (sy + 12) - 112, SPRITE_Z);
+        }
+    }
+}
+
+/* ---- HUD glyphs (cd/DIGITS.SPR: 12 frames of 8x8 BGR1555) ------------- */
+#define HUD_GLYPHS    12        /* 0..9 + ring-icon + colon                  */
+#define DIGIT_W       8
+#define DIGIT_H       8
+#define GLYPH_RING    10        /* gold ring icon                            */
+#define GLYPH_COLON   11        /* two stacked dots, for the timer separator */
+#define HUD_Z         100
+#define HUD_X         8
+#define HUD_Y         8         /* line 0 = rings, line 1 = score, line 2 = timer */
+#define HUD_LINE_H    10
+
+/* (HUD storage moved up next to the ring globals so draw_rings() can bump
+ * g_score from the pickup branch -- see the block above load_rings.) */
+
+static void load_hud_digits(void)
+{
+    int len, i, w, h, fc;
+    unsigned short *spr;
+
+    spr = (unsigned short *)jo_fs_read_file("DIGITS.SPR", &len);
+    fc = spr[0]; w = spr[1]; h = spr[2];
+    if (fc > HUD_GLYPHS) fc = HUD_GLYPHS;
+    {
+        jo_img img;
+        for (i = 0; i < fc; ++i) {
+            img.data   = (jo_color *)(spr + 3) + i * w * h;
+            img.width  = w;
+            img.height = h;
+            g_digit_spr[i] = jo_sprite_add(&img);
+        }
+    }
+    jo_free(spr);
+}
+
+/* ---- Title overlay sprites (Phase 3.1: real Mania title animation) ----
+ *
+ * The NBG2 backdrop shows the title island art. On top we render VDP1
+ * sprites loaded from the title's Logo.bin:
+ *   MLOGO.SPR   = "Game Title" anim (the SONIC MANIA logo, 2 frames)
+ *   MPRESS.SPR  = "Press Button" anim (PRESS START prompt, 10 frames)
+ *
+ * Title-state animation:
+ *   ticks 0..59:    logo slides down from off-screen-top to its rest Y
+ *   ticks 60..89:   logo settled, no press prompt yet
+ *   ticks 90+:      press-button prompt animated at the bottom of screen
+ */
+#define MLOGO_FRAMES   2
+#define MPRESS_FRAMES  10
+static int g_sprite_mlogo[MLOGO_FRAMES];
+static int g_sprite_mpress[MPRESS_FRAMES];
+
+/* Additional logo parts extracted from Logo.bin: wings backing the logo,
+ * the ribbon strip behind the title text, and the ring seal at the
+ * bottom of the composite. Layered back-to-front to recreate the full
+ * Mania title composition. */
+static int g_sprite_mwings;
+static int g_sprite_msonic;
+static int g_sprite_mribside;
+static int g_sprite_mribbon;
+static int g_sprite_mring;
+
+static void load_title_sprites(void)
+{
+    int len, i, w, h, fc;
+    unsigned short *spr;
+    jo_img img;
+
+    spr = (unsigned short *)jo_fs_read_file("MLOGO.SPR", &len);
+    if (spr != NULL) {
+        fc = spr[0]; w = spr[1]; h = spr[2];
+        if (fc > MLOGO_FRAMES) fc = MLOGO_FRAMES;
+        for (i = 0; i < fc; ++i) {
+            img.data   = (jo_color *)(spr + 3) + i * w * h;
+            img.width  = w;
+            img.height = h;
+            g_sprite_mlogo[i] = jo_sprite_add(&img);
+        }
+        jo_free(spr);
+    }
+
+    spr = (unsigned short *)jo_fs_read_file("MPRESS.SPR", &len);
+    if (spr != NULL) {
+        fc = spr[0]; w = spr[1]; h = spr[2];
+        if (fc > MPRESS_FRAMES) fc = MPRESS_FRAMES;
+        for (i = 0; i < fc; ++i) {
+            img.data   = (jo_color *)(spr + 3) + i * w * h;
+            img.width  = w;
+            img.height = h;
+            g_sprite_mpress[i] = jo_sprite_add(&img);
+        }
+        jo_free(spr);
+    }
+
+    /* Logo wings (144x144 backing). */
+    spr = (unsigned short *)jo_fs_read_file("MWINGS.SPR", &len);
+    if (spr != NULL) {
+        w = spr[1]; h = spr[2];
+        img.data = (jo_color *)(spr + 3);
+        img.width = w; img.height = h;
+        g_sprite_mwings = jo_sprite_add(&img);
+        jo_free(spr);
+    }
+    /* Ribbon center (176x56 strip behind the title text). */
+    spr = (unsigned short *)jo_fs_read_file("MRIBBON.SPR", &len);
+    if (spr != NULL) {
+        w = spr[1]; h = spr[2];
+        img.data = (jo_color *)(spr + 3);
+        img.width = w; img.height = h;
+        g_sprite_mribbon = jo_sprite_add(&img);
+        jo_free(spr);
+    }
+    /* Ring seal at the bottom of the composite logo. */
+    spr = (unsigned short *)jo_fs_read_file("MRING.SPR", &len);
+    if (spr != NULL) {
+        w = spr[1]; h = spr[2];
+        img.data = (jo_color *)(spr + 3);
+        img.width = w; img.height = h;
+        g_sprite_mring = jo_sprite_add(&img);
+        jo_free(spr);
+    }
+    /* TitleSonic — full 49-frame entrance animation streamed from
+     * cd/TSONIC.ATL (4-bpp Color-Bank-16 atlas in VDP1 VRAM).  This
+     * replaces the prior static MSONIC.SPR fallback.  See
+     * docs/titlesonic_implementation.md and docs/large_sprite_anim_strategy.md
+     * for the rationale.  Soft-fails if the atlas is missing — title
+     * still renders, Sonic just doesn't appear. */
+    if (!title_sonic_load()) {
+        /* Fallback for missing/bad atlas: load the legacy static MSONIC.SPR
+         * pose so we never ship a totally empty title state. */
+        spr = (unsigned short *)jo_fs_read_file("MSONIC.SPR", &len);
+        if (spr != NULL) {
+            w = spr[1]; h = spr[2];
+            img.data = (jo_color *)(spr + 3);
+            img.width = w; img.height = h;
+            g_sprite_msonic = jo_sprite_add(&img);
+            jo_free(spr);
+        }
+    } else {
+        /* Atlas loaded — disable the legacy single-frame draw. */
+        g_sprite_msonic = -1;
+    }
+    /* Ribbon side banner — Ribbon Wave anim 2 frame 0 (56x72). Per decomp
+     * TitleLogo.c the RIBBON entity draws this twice (FLIP_X + NONE) to
+     * form both halves of the side banner around the orb. Wave loops
+     * once per frame; we ship the static settled pose for now. */
+    spr = (unsigned short *)jo_fs_read_file("MRIBSIDE.SPR", &len);
+    if (spr != NULL) {
+        w = spr[1]; h = spr[2];
+        img.data = (jo_color *)(spr + 3);
+        img.width = w; img.height = h;
+        g_sprite_mribside = jo_sprite_add(&img);
+        jo_free(spr);
+    }
+}
+
+/* Draw a single 8x8 glyph at screen top-left position (sx, sy). */
+static void hud_glyph(int glyph, int sx, int sy)
+{
+    jo_sprite_draw3D(g_digit_spr[glyph],
+                     (sx + DIGIT_W / 2) - 160,
+                     (sy + DIGIT_H / 2) - 112,
+                     HUD_Z);
+}
+
+/* Draw a non-negative integer right-justified into `width` glyph cells at
+ * (sx, sy). Leading positions are left BLANK (not zero-padded). Returns the
+ * pixel-X just past the last drawn glyph (always at sx + width*DIGIT_W). */
+static int hud_number(int value, int width, int sx, int sy, bool zero_pad)
+{
+    int  i;
+    int  digits[8];
+    bool seen = false;
+    for (i = 0; i < width; ++i) {
+        digits[i] = value % 10;
+        value /= 10;
+    }
+    for (i = width - 1; i >= 0; --i) {
+        int  d = digits[i];
+        bool draw = zero_pad || d != 0 || seen || i == 0;
+        if (draw) {
+            hud_glyph(d, sx + (width - 1 - i) * DIGIT_W, sy);
+            seen = true;
+        }
+    }
+    return sx + width * DIGIT_W;
+}
+
+/* Top-left HUD:
+ *   line 0:  [RING-icon] [3-digit count]              -- collected rings
+ *   line 1:  [6-digit score, zero-padded]              -- total score
+ *   line 2:  [m] [:] [ss] [:] [cc]                     -- Mania timer m:ss:cc
+ */
+static void draw_hud(void)
+{
+    int sy, mins, secs, cs, sx;
+
+    /* Line 0 -- ring icon then the count, no leading zeros. */
+    sy = HUD_Y;
+    hud_glyph(GLYPH_RING, HUD_X, sy);
+    hud_number(g_rings_collected, 3, HUD_X + DIGIT_W + 2, sy, false);
+
+    /* Line 1 -- 6-digit score, zero-padded for the classic look. */
+    sy += HUD_LINE_H;
+    hud_number(g_score, 6, HUD_X, sy, true);
+
+    /* Line 2 -- m:ss:cc Mania timer. 60 game-ticks = 1 second; cc is the
+     * count of hundredths within the current second. */
+    sy += HUD_LINE_H;
+    secs  = g_game_ticks / 60;
+    cs    = (g_game_ticks % 60) * 100 / 60;
+    mins  = secs / 60;
+    secs %= 60;
+    sx = HUD_X;
+    sx = hud_number(mins, 1, sx, sy, true);
+    hud_glyph(GLYPH_COLON, sx, sy); sx += DIGIT_W;
+    sx = hud_number(secs, 2, sx, sy, true);
+    hud_glyph(GLYPH_COLON, sx, sy); sx += DIGIT_W;
+    sx = hud_number(cs,   2, sx, sy, true);
+}
+
+/* ---- Sonic sprites ----------------------------------------------------
+ * jo_sprite_add copies pixel data into VDP1 VRAM via jo_dma_copy (see
+ * jo_engine/sprites.c:220), so the Work-RAM source buffer is free to
+ * release after the add finishes. Same pattern for every SPR atlas we
+ * load -- frees recover ~55KB of pool across all sprite atlases. */
+static void load_sonic_sprites(void)
+{
+    jo_img img;
+    int len, i, ww, hh;
+    unsigned short *idle, *walk;
+
+    idle = (unsigned short *)jo_fs_read_file("SONIC.SPR", &len);
+    img.data   = (jo_color *)idle;
+    img.width  = SPR_W;
+    img.height = SPR_H;
+    g_sonic_idle = jo_sprite_add(&img);
+    jo_free(idle);
+
+    walk = (unsigned short *)jo_fs_read_file("SONWALK.SPR", &len);
+    g_walk_count = walk[0];
+    ww = walk[1];
+    hh = walk[2];
+    if (g_walk_count > MAX_WALK) g_walk_count = MAX_WALK;
+    for (i = 0; i < g_walk_count; ++i) {
+        img.data   = (jo_color *)(walk + 3) + i * ww * hh;
+        img.width  = ww;
+        img.height = hh;
+        g_sonic_walk[i] = jo_sprite_add(&img);
+    }
+    jo_free(walk);
+}
+
+static void draw_sonic(int sx, int sy, bool moving, bool facing_left)
+{
+    int id = (moving && g_walk_count) ? g_sonic_walk[g_anim % g_walk_count]
+                                      : g_sonic_idle;
+    if (facing_left) jo_sprite_enable_horizontal_flip();
+    jo_sprite_draw3D(id, sx, sy, SPRITE_Z);
+    if (facing_left) jo_sprite_disable_horizontal_flip();
+}
+
+/* ---- Collision world (per-column surface from TileConfig.bin) -------- */
+static void setup_collision_world(void)
+{
+    int len;
+    g_world.raw       = (const unsigned char *)zone_alloc_track(ZA_WORLD,
+            jo_fs_read_file(zone_path("SURF.BIN"), &len));
+    /* GHZSURF.BIN is 4 bytes per column; width = file size / 4. */
+    g_world.width_px  = len >> 2;
+    g_world.height_px = g_fg_ys << 4;  /* tile rows * 16 px */
+}
+
+/* ---- Game states ------------------------------------------------------ */
+static void enter_titlecard(void)
+{
+    g_state      = STATE_TITLECARD;
+    g_tcard_tick = 0;
+}
+
+/* Draw the title-card overlay: ring-icon + digit "1" slide in from the
+ * right, hold at screen-centre, slide out to the left. The title backdrop
+ * (palms / sun / sky / Sonic at title pose) keeps drawing underneath via
+ * draw_title() called from the case branch -- the card is just the moving
+ * glyph pair on top. Linear easing for now; ease-out cubic is a follow-up. */
+static void draw_titlecard(void)
+{
+    int  t = g_tcard_tick;
+    int  card_x;
+    int  card_y = 90;                                /* screen Y of the card  */
+    int  offscreen_x = SCR_W + 32;                   /* fully off the right   */
+    int  centre_x    = SCR_W / 2;
+    int  offleft_x   = -32;
+
+    if (t < TCARD_IN_END) {
+        /* Slide in: t 0..23 -> offscreen_x -> centre_x */
+        card_x = offscreen_x +
+                 ((centre_x - offscreen_x) * t) / TCARD_IN_END;
+    } else if (t < TCARD_HOLD_END) {
+        card_x = centre_x;
+    } else if (t < TCARD_END) {
+        /* Slide out: t 90..113 -> centre_x -> offleft_x */
+        int phase = t - TCARD_HOLD_END;
+        int span  = TCARD_END - TCARD_HOLD_END;
+        card_x = centre_x +
+                 ((offleft_x - centre_x) * phase) / span;
+    } else {
+        return;                                       /* done; switch fires the transition */
+    }
+
+    /* Two 8x8 glyphs side by side: ring-icon as a stylised "act" marker on
+     * the left, the "1" digit on the right. jo_sprite_draw3D is centre-origin
+     * (0,0 = screen centre), so subtract 160/112 to convert from top-left
+     * screen coords. */
+    {
+        int icon_cx = card_x - DIGIT_W;              /* centre of icon glyph  */
+        int dig_cx  = card_x + DIGIT_W;              /* centre of digit glyph */
+        int cy      = card_y + DIGIT_H / 2;
+        jo_sprite_draw3D(g_digit_spr[GLYPH_RING], icon_cx - 160, cy - 112, HUD_Z);
+        jo_sprite_draw3D(g_digit_spr[1],           dig_cx  - 160, cy - 112, HUD_Z);
+    }
+}
+
+/* Forward declarations for zone_advance below (defined later in the file). */
+static void setup_ghz_foreground(void);
+static void setup_ghz_sky(void);
+static void setup_collision_world(void);
+static void load_rings(void);
+static void load_badniks(void);
+static void load_objects(void);
+static void enter_game(void);
+
+/* Phase 2: transition from current zone to g_zones[].next_zone.
+ *
+ * Called from the signpost-touch handler. Preserves the cumulative score
+ * across the transition (Mania-style scoring). For Phase 2 MVP this does
+ * an instant snap (no fade) and re-calls every per-zone setup function;
+ * the existing jo_fs_read_file allocations leak ~90 KB per transition
+ * (the FG cell bank that the engine intentionally retains -- see
+ * setup_ghz_foreground). Pool headroom of ~80 KB tolerates ONE transition;
+ * Phase 2.1 follow-up adds proper pointer-tracked teardown so the table
+ * can grow to all 24 acts.
+ *
+ * Note on jo internal state: calling jo_vdp2_set_nbg1_8bits_image,
+ * jo_create_palette_from, and jo_vdp2_set_nbg2_8bits_image a second time
+ * is not formally documented as safe; the failure mode if any would be a
+ * VDP2 render glitch on Act 2. Verified empirically.
+ */
+static void zone_advance(void)
+{
+    int saved_score = g_score;
+
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+    /* Stop the current zone's BGM before swapping tracks. */
+    jo_audio_stop_cd();
+#endif
+
+    /* Swap to the next zone descriptor; all zone_path() compositions
+     * downstream will resolve against the new prefix from here on. */
+    g_current_zone = g_zones[g_current_zone].next_zone;
+
+    /* Reload every per-zone asset with the new prefix. Each setup_/load_
+     * function uses zone_path() so the filename derives from
+     * g_zones[g_current_zone].prefix automatically.
+     * setup_ghz_sky() is called by enter_game() below, so it isn't
+     * called here -- otherwise the sky bitmap loads twice per transition. */
+    setup_ghz_foreground();
+    setup_collision_world();
+    load_rings();
+    load_badniks();
+    load_objects();
+
+    /* Reset player + state machine via enter_game (which zeros g_score
+     * for a fresh act + restores NBG layer priorities + loads the new
+     * zone's sky), then restore the cumulative score. enter_game also
+     * kicks off the new zone's CD-DA track. */
+    enter_game();
+    g_score = saved_score;
+}
+
+static void enter_game(void)
+{
+    int i;
+    /* Restore VDP2 layer config after a title-state stint: NBG2 holds the
+     * title backdrop with priority 7 + NBG1 hidden (priority 0). Swap NBG2
+     * to the per-zone GHZ sky and restore the gameplay plane priorities.
+     *
+     * Known issue (task #50): the NBG2 bitmap swap appears unreliable on
+     * Saturn — captures past title-card transition show title content
+     * persisting in NBG2 even after this call. Diagnostic: slScrAutoDisp
+     * NBG2-off experiment showed title sprites still drawn from VDP1
+     * even with NBG2 forcibly disabled — suggests draw_title() or some
+     * persistent VDP1 sprite list is still active. Investigation
+     * deferred until Phase A2 (Object/Entity slot manager) lands so we
+     * have a clean entity-driven render path. */
+    setup_ghz_sky();
+    slPriorityNbg1(6);
+    slPriorityNbg2(1);
+
+    /* Place Sonic standing on the actual ground at level start (column 0)
+     * rather than the previous hard-coded Y=176. */
+    int start_y = player_surface_y(&g_world, 0);
+    player_init(&g_player, CHAR_SONIC, SMS_FIXED(0.0), JO_MULT_BY_65536(start_y));
+    g_player.grounded = true;
+    g_autorun = true;
+    g_state = STATE_GAME;
+
+    /* Fresh act: zero the act-scoped HUD counters and re-arm every ring. */
+    g_score           = 0;
+    g_rings_collected = 0;
+    g_game_ticks      = 0;
+    for (i = 0; i < g_ring_count; ++i) g_ring_active[i] = 1;
+
+    /* Input takeover: autorun stays on until the player presses something.
+     * The 30-tick (0.5s) grace ignores any keys held at the moment we enter
+     * the game state so emulator focus-grabs / boot transients don't
+     * instantly disable autorun. After the grace expires, the first rising
+     * edge on LEFT/RIGHT/A/B/C flips autorun off for the rest of the act. */
+    g_input_grace = 30;
+    g_prev_left = g_prev_right = g_prev_jump = false;
+
+    /* Per-zone CD-DA track from g_zones[].music_track. tools/build_cdda.py
+     * lays the data on track 1 and audio on track 2; future per-zone tracks
+     * extend that to track 3, 4, ... See bible Phase 2.1 follow-up for the
+     * multi-track CD-DA build pipeline. */
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+    {
+        unsigned char tn = g_zones[g_current_zone].music_track;
+        jo_audio_play_cd_track(tn, tn, true);
+    }
+#endif
+    /* Note: agent-suggested `slSynch(); slSynch();` here was removed
+     * after verification — calling slSynch from INSIDE a jo callback
+     * (this enter_game runs nested inside game_tick which runs from
+     * jo_core_run's slSynch loop at jo-engine/jo_engine/core.c:585-637)
+     * desynchronizes VDP1's dual command table and produces a one-frame
+     * garbled VRAM display. The VDP1 sprite lag (faq-reference.md:257)
+     * is a real issue but the correct fix is at jo_main's outer scope,
+     * not nested. Tracking as a per-frame "transition cooldown" counter
+     * follow-up. */
+}
+
+#define CAM_FOOT_OFFSET   28   /* Sonic's feet sit ~28 px below screen centre */
+
+static void draw_game(void)
+{
+    int max_cam_x = (g_fg_xs << 4) - SCR_W;
+    int max_cam_y = g_world.height_px - SCR_H;
+    int px        = JO_FIXED_TO_INT(g_player.xpos);
+    int py        = JO_FIXED_TO_INT(g_player.ypos);
+
+    g_cam_x = px - SONIC_SCR_X;
+    if (g_cam_x < 0)          g_cam_x = 0;
+    if (g_cam_x > max_cam_x)  g_cam_x = max_cam_x;
+
+    /* Vertical camera: keep Sonic's feet at (SCR_H/2 + CAM_FOOT_OFFSET) on
+     * screen so a chunk of ground is visible below him -- classic Sonic. */
+    g_cam_y = py - (SCR_H / 2) - CAM_FOOT_OFFSET;
+    if (g_cam_y < 0)          g_cam_y = 0;
+    if (g_cam_y > max_cam_y)  g_cam_y = max_cam_y;
+
+    fg_build_page();
+    slScrPosNbg2(JO_MULT_BY_65536(g_cam_x >> 2),
+                 JO_MULT_BY_65536(g_cam_y >> 2));     /* sky parallax 1/4 in both axes */
+
+    /* Rings: world-coord cull + AABB hit-test + animated sprite per active. */
+    draw_rings(g_cam_x, g_cam_y, px, py);
+
+    /* Static objects: springs / item monitors / end-of-act signpost. */
+    draw_springs (g_cam_x, g_cam_y, px, py);
+    draw_monitors(g_cam_x, g_cam_y, px, py);
+    draw_signpost(g_cam_x, g_cam_y, px, py);
+
+    /* Badniks: patrol + ground-follow + stomp/hurt vs Sonic. */
+    draw_badniks(g_cam_x, g_cam_y, px, py);
+
+    /* HUD: ring-icon + count, score, timer at top-left, on top of gameplay. */
+    draw_hud();
+
+    {
+        /* jo_sprite_draw3D is CENTRE-origin (0,0 = screen centre); convert the
+         * top-left screen position (sx,sy) via sx-160, sy-112. */
+        bool moving = g_player.grounded && JO_ABS(g_player.gsp) > SMS_FIXED(0.4);
+        int  sx     = (px - g_cam_x) - 160;
+        int  sy     = (py - g_cam_y) - 112 - (SPR_H / 2);  /* sprite anchor is centre */
+        draw_sonic(sx, sy, moving, g_player.facing_left);
+    }
+}
+
+/* ---- Title-state draw (per docs/title_ground_truth.md) -----------------
+ *
+ * AUTHORITATIVE source: github.com/RSDKModding/Sonic-Mania-Decompilation
+ * (TitleSetup.c TitleLogo.c) + Scene1.bin entity coordinates parsed by
+ * tools/parse_title_entities.py.
+ *
+ * Entity world coordinates from Scene1.bin (cam X = 256-160 = 96; jo
+ * center-anchored coords = world - (256, 112)):
+ *
+ *   EMBLEM       world (256, 108)  jo ( 0,  -4)  Wings -- FLIP_NONE + FLIP_X
+ *   RIBBON       world (256, 144)  jo ( 0,  32)  Ribbon -- FLIP_X + FLIP_NONE
+ *                                                 + showRibbonCenter post-flash
+ *   GAMETITLE    world (256, 182)  jo ( 0,  70)  MANIA wordmark (frame 0)
+ *   POWERLED     destroyed @ frame 31 -- never on final title
+ *   RINGBOTTOM   world (256, 148)  jo ( 0,  36)
+ *   COPYRIGHT    world (432, 224)  jo (172, 112) off-screen on 320-wide
+ *   PRESSSTART   world (256, 212)  jo ( 0, 100)  blink: !(timer & 0x10)
+ *
+ * State timeline (compressed for early ship; full timing reinstated when
+ * the intro electricity-ring asset + Sonic-on-title are wired in):
+ *   t=  0 .. 64   : Wait phase -- nothing drawn yet
+ *   t= 64 .. 96   : AnimateUntilFlash -- EMBLEM + RIBBON appear
+ *   t= 96 ..112   : FlashIn -- white 0xF0F0F0 flash; at end the rest
+ *                   become visible + ribbon center swap-in
+ *   t=112 ..172   : WaitForSonic (compressed; Sonic anim not yet wired)
+ *   t=172 ..292   : SetupLogo -- PRESS START timer counts to 120
+ *   t>=292        : WaitForEnter -- PRESS START blinks
+ */
+#define TITLE_WAIT_END     64
+#define TITLE_UNFURL_END   96
+#define TITLE_FLASH_END    112
+#define TITLE_SONIC_END    172
+#define TITLE_PRESS_START  292
+
+/* Per-sprite jo-center offsets compensating for asymmetric pivots in the
+ * extracted SPR canvases. convert_anim_sprite.py composes a canvas with
+ * the pivot point at (-left, -top) of the bounding box; jo's draw3D
+ * centre-anchors the canvas. So we offset the draw position so the
+ * canvas pivot lands at the desired entity world coordinate.
+ *
+ * EMBLEM (Logo Wings anim 0, pivot=(-144,-72), w=h=144): pivot at canvas
+ *   right-edge -> shift draw left by 72 (for FLIP_NONE) / right by 72
+ *   (for FLIP_X) so both halves' pivot lands at the same world point.
+ * RIBBON (Ribbon Center anim 3, pivot=(-79,-24), 176x52): canvas is
+ *   slightly off-centre (pivot at canvas (79, 24); canvas centre at
+ *   (88, 26)). Single draw lands the pivot ~9px right of the jo coord.
+ *   For exact alignment shift draw by (-9, -2) for FLIP_NONE / (+9, -2)
+ *   for FLIP_X. (Same Ribbon-Center sprite is used until Ribbon-Unfurl
+ *   anim 1 is extracted separately.)
+ * GAMETITLE (Game Title anim 4 f0, pivot=(-69,-23), 137x46): nearly
+ *   centered pivot; no offset.
+ * RINGBOTTOM (Ring Bottom anim 7, pivot=(-60, 0), 120x25): pivot at
+ *   canvas top-edge -> shift draw down by canvas_h/2 = 12 for visible
+ *   pivot alignment with the entity Y. */
+static void draw_title(void)
+{
+    int press_frame;
+
+    /* AnimateUntilFlash: EMBLEM (Wings) + RIBBON (Unfurl) appear. */
+    if (g_ticks >= TITLE_WAIT_END) {
+        /* EMBLEM at jo (0, -4) -- FLIP_NONE then FLIP_X */
+        jo_sprite_draw3D(g_sprite_mwings, -72, -4, SPRITE_Z + 30);
+        jo_sprite_enable_horizontal_flip();
+        jo_sprite_draw3D(g_sprite_mwings, +72, -4, SPRITE_Z + 31);
+        jo_sprite_disable_horizontal_flip();
+
+        /* RIBBON side banners — Ribbon Wave anim 2 frame 0 (MRIBSIDE.SPR,
+         * 56x72, pivot (-121,-13)). Per decomp TitleLogo.c Draw():
+         * FLIP_X first, then FLIP_NONE, at the same entity position
+         * (256, 144) world. The asymmetric pivot makes one draw extend
+         * leftward and the mirror extend rightward, forming both halves
+         * of the side banner around the central orb.
+         *
+         * Saturn jo coord conversion: entity (256, 144) -> jo (0, 32).
+         * Sprite canvas is 56x72; the pivot (-121, -13) means the
+         * sprite's logical origin is 65px LEFT of canvas centre and
+         * 23px ABOVE. To anchor the logical-origin point at jo (0, 32),
+         * draw the canvas centre offset by (+65, +23) for FLIP_NONE
+         * (banner extends LEFT of center) and (-65, +23) for FLIP_X
+         * (banner extends RIGHT of center, mirrored). */
+        jo_sprite_enable_horizontal_flip();
+        jo_sprite_draw3D(g_sprite_mribside, -65, 32 + 23, SPRITE_Z + 22);
+        jo_sprite_disable_horizontal_flip();
+        jo_sprite_draw3D(g_sprite_mribside, +65, 32 + 23, SPRITE_Z + 22);
+    }
+
+    /* FlashIn end -> all remaining logos visible. Ribbon-Center (anim 3,
+     * separate animator) appears here -- but we're already drawing
+     * MRIBBON which IS Ribbon-Center, so no extra draw needed until we
+     * separately extract Ribbon-Unfurl/Wave. */
+    if (g_ticks >= TITLE_FLASH_END) {
+        /* Ribbon Center (anim 3, "SONIC" wordmark, MRIBBON.SPR 176x52,
+         * pivot=(-79,-24)) is a SEPARATE animator on the RIBBON entity,
+         * gated by showRibbonCenter=true (only true post-FlashIn per
+         * decomp TitleSetup_State_FlashIn). Drawn ONCE on top of the
+         * side banners — NOT mirrored. */
+        jo_sprite_draw3D(g_sprite_mribbon, +9, 30, SPRITE_Z + 19);
+        /* GAMETITLE = "MANIA" wordmark at jo (0, 70). Frame 0 only --
+         * frame 1 = "DISCOVERY" is Plus-DLC; we ship base Mania. */
+        jo_sprite_draw3D(g_sprite_mlogo[0], 0, 70, SPRITE_Z + 10);
+        /* RINGBOTTOM at jo (0, 36) -- pivot at canvas top, shift +12. */
+        jo_sprite_draw3D(g_sprite_mring, 0, 48, SPRITE_Z);
+        /* TitleSonic — 49-frame palettized entrance animation streamed
+         * at boot from cd/TSONIC.ATL.  title_sonic_draw() walks a
+         * cumulative-duration table to pick the right frame and applies
+         * each frame's individual pivot.  After the entrance arc
+         * completes (RSDK loop=48), it holds on frame 48 (settled pose).
+         * Falls back to the legacy static draw if the atlas didn't load. */
+        if (g_sprite_msonic < 0) {
+            /* g_ticks is the title-state tick counter (resets to 0 at
+             * title entry); title_sonic_current_frame walks the
+             * cumulative-duration table from there.  The TitleSonic
+             * entity world position is (252, 104); per-frame pivots
+             * applied inside title_sonic_draw. */
+            title_sonic_draw(g_ticks, SPRITE_Z + 5);
+        } else {
+            jo_sprite_draw3D(g_sprite_msonic, +1, -39, SPRITE_Z + 5);
+        }
+    }
+
+    /* PRESS START at jo (0, 100). Decomp blink: drawn only when
+     * !(timer & 0x10) -- 16 frames on, 16 frames off, 32-frame period.
+     * Timer starts when SetupLogo completes (TITLE_PRESS_START). */
+    if (g_ticks >= TITLE_PRESS_START) {
+        int blink_t = g_ticks - TITLE_PRESS_START;
+        if (!(blink_t & 0x10)) {
+            press_frame = (blink_t / 6) % MPRESS_FRAMES;
+            jo_sprite_draw3D(g_sprite_mpress[press_frame], 0, 100, SPRITE_Z);
+        }
+    }
+}
+
+/* ---- Phase 3: act-clear, tally, save ---------------------------------- */
+
+/* Mania-style time bonus: faster clears award more. Brackets per
+ * decompilation reference values; falls to 0 if you take > 5 minutes. */
+static int _calc_time_bonus(int ticks)
+{
+    int secs = ticks / 60;
+    if (secs <  30) return 50000;
+    if (secs <  45) return 10000;
+    if (secs <  60) return  5000;
+    if (secs <  90) return  4000;
+    if (secs < 120) return  3000;
+    if (secs < 180) return  1000;
+    if (secs < 240) return   500;
+    if (secs < 300) return   100;
+    return 0;
+}
+
+#define ACTCLEAR_TICKS  120   /* 2 sec spin + walk-off                    */
+#define TALLY_ROLL      120   /* 2 sec digit roll-up                      */
+#define TALLY_HOLD_MAX  240   /* 4 sec auto-advance after roll completes  */
+
+static void enter_actclear(void)
+{
+    g_state            = STATE_ACTCLEAR;
+    g_state_tick       = 0;
+    g_tally_time_bonus = _calc_time_bonus(g_game_ticks);
+    g_tally_ring_bonus = g_rings_collected * 100;
+    g_tally_total      = 0;
+}
+
+static void enter_tally(void)
+{
+    g_state      = STATE_TALLY;
+    g_state_tick = 0;
+}
+
+/* Render the spinning signpost overlay. draw_game() draws the playfield
+ * + entities; the signpost-position sprite gets the spin frame instead
+ * of frame 0 (which draw_signpost suppresses when g_act_cleared is set). */
+static void draw_actclear(void)
+{
+    int frame;
+    draw_game();
+    if (g_sign_count == 0) return;
+    frame = (g_state_tick < 80) ? (g_state_tick / 10) % SIGN_FRAMES : 0;
+    {
+        int rx = *(const unsigned short *)(g_sign_buf);
+        int ry = *(const unsigned short *)(g_sign_buf + 2);
+        int sx = rx - g_cam_x;
+        int sy = ry - g_cam_y;
+        jo_sprite_draw3D(g_sprite_sign[frame],
+                         (sx + 8) - 160, (sy + 12) - 112, SPRITE_Z);
+    }
+}
+
+/* Tally screen: rolling-digit bonus display. Number-only layout for now
+ * (HUD font has digits + ring icon + colon only; word labels like "TIME
+ * BONUS" become a Phase 3.1 follow-up once a letter glyph atlas exists).
+ * Layout, centred-ish on a 320x240 screen:
+ *   row 0  (sy=72):  [ring-icon]  <time bonus, 6-digit>
+ *   row 1  (sy=92):  [ring-icon]  <ring bonus, 6-digit>
+ *   row 2  (sy=120): <running total, 7-digit, larger spacing>
+ */
+static void draw_tally(void)
+{
+    int target = g_tally_time_bonus + g_tally_ring_bonus;
+    int roll   = (g_state_tick < TALLY_ROLL)
+               ? (target * g_state_tick / TALLY_ROLL)
+               : target;
+    g_tally_total = roll;
+    {
+        int cx_left  = 80;
+        int cx_value = 144;
+        int sy       = 72;
+        hud_glyph(GLYPH_RING, cx_left, sy);
+        hud_number(g_tally_time_bonus, 6, cx_value, sy, true);
+        sy += 20;
+        hud_glyph(GLYPH_RING, cx_left, sy);
+        hud_number(g_tally_ring_bonus, 6, cx_value, sy, true);
+        sy += 28;
+        hud_number(roll, 7, cx_value - DIGIT_W, sy, true);
+    }
+}
+
+static void game_tick(void)
+{
+    ++g_ticks;
+    if ((g_ticks & 3) == 0)
+        ++g_anim;
+
+    switch (g_state) {
+        case STATE_TITLE:
+            draw_title();
+#ifdef QA_MODE
+            /* QA build only: title holds until START so qa_refdiff has a
+             * deterministic static view to diff against the golden. The
+             * release binary auto-advances through the title card into
+             * the demo (see #else). */
+            if (jo_is_pad1_key_pressed(JO_KEY_START))
+                enter_titlecard();
+#else
+            /* Release: 2-second title, then auto-advance into the title
+             * card cinematic, which in turn transitions into the demo. */
+            if (jo_is_pad1_key_pressed(JO_KEY_START) || g_ticks > 120)
+                enter_titlecard();
+#endif
+            break;
+
+        case STATE_TITLECARD:
+            draw_title();                            /* keep the title scene  */
+            draw_titlecard();                        /* overlay sliding card  */
+            if (++g_tcard_tick >= TCARD_END)
+                enter_game();
+            break;
+
+        case STATE_GAME:
+            ++g_game_ticks;                         /* HUD timer (60 ticks/s) */
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+            bgm_pump();                             /* kick off / re-trigger BGM */
+#endif
+
+            /* Input takeover: after the boot-transient grace, the first
+             * fresh press (rising edge) on LEFT/RIGHT/A/B/C disables autorun
+             * for the rest of the act. player.c already reads those keys
+             * directly for steering + jump; autorun=false just stops the
+             * forced-right-input that was driving the demo. */
+            if (g_input_grace) {
+                --g_input_grace;
+            } else if (g_autorun) {
+                bool now_l = jo_is_pad1_key_pressed(JO_KEY_LEFT);
+                bool now_r = jo_is_pad1_key_pressed(JO_KEY_RIGHT);
+                bool now_j = jo_is_pad1_key_pressed(JO_KEY_A) ||
+                             jo_is_pad1_key_pressed(JO_KEY_B) ||
+                             jo_is_pad1_key_pressed(JO_KEY_C);
+                if ((now_l && !g_prev_left) ||
+                    (now_r && !g_prev_right) ||
+                    (now_j && !g_prev_jump)) {
+                    g_autorun = false;
+                }
+                g_prev_left  = now_l;
+                g_prev_right = now_r;
+                g_prev_jump  = now_j;
+            }
+
+            /* Auto-jump AI: fires while autorun is still on (demo mode).
+             * Two trigger conditions:
+             *   1. Moving (|gsp| > 1) and the surface 24 px ahead steps up
+             *      or down by more than the stair tolerance -- early hop
+             *      lets Sonic clear small walls before he touches them.
+             *   2. Blocked (gsp == 0 after the wall-block in player.c set
+             *      both gsp/xsp to 0) and a surface within 24 px ahead is
+             *      shallower than the current ypos -- the mound the demo
+             *      ran into is jumpable. Without this, Sonic plants
+             *      against the first invisible-walling mound and the demo
+             *      stops there forever (Gate 8's "invisible-wall stall"). */
+            if (g_autorun && g_player.grounded) {
+                int look_x = JO_FIXED_TO_INT(g_player.xpos) + 24;
+                int look_y = player_surface_y(&g_world, look_x);
+                int cur_y  = JO_FIXED_TO_INT(g_player.ypos);
+                bool moving  = JO_ABS(g_player.gsp) > SMS_FIXED(1.0);
+                bool blocked = g_player.gsp == 0 && g_player.xsp == 0;
+                bool step_change = (look_y != SMS_NO_FLOOR &&
+                                    (look_y < cur_y - 17 || look_y > cur_y + 17));
+                bool wall_ahead  = (look_y != SMS_NO_FLOOR && look_y < cur_y - 8);
+                if ((moving && step_change) || (blocked && wall_ahead)) {
+                    g_player.ysp      = -g_player.jump_force;
+                    g_player.grounded = false;
+                    g_player.jumping  = true;
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+                    if (g_audio_ready) jo_audio_play_sound(&g_sfx_jump);
+#endif
+                }
+            }
+
+            player_update(&g_player, &g_world, g_autorun);
+
+            /* Phase 4: post-update hurt/death checks.
+             *  - decrement invuln flash timer
+             *  - death pit if player fell below the level
+             *  - on death: decrement lives, respawn at level-start (or
+             *    enter STATE_GAMEOVER if no lives left)
+             */
+            if (g_hurt_timer > 0) --g_hurt_timer;
+            if (!g_dead) {
+                int py = JO_FIXED_TO_INT(g_player.ypos);
+                if (py > g_world.height_px + 64) g_dead = true;
+            }
+            if (g_dead) {
+                --g_lives;
+                if (g_lives <= 0) {
+                    g_state      = STATE_GAMEOVER;
+                    g_state_tick = 0;
+                } else {
+                    /* Respawn at level start. Phase 4.1: respawn at the
+                     * last touched BoundsMarker checkpoint instead. */
+                    int spawn_y = player_surface_y(&g_world, 0);
+                    player_init(&g_player, CHAR_SONIC, SMS_FIXED(0.0),
+                                JO_MULT_BY_65536(spawn_y));
+                    g_player.grounded = true;
+                    g_hurt_timer      = 0;
+                    g_dead            = false;
+                    /* Keep score + ring count + timer; just respawn the body. */
+                }
+            }
+            draw_game();
+            break;
+
+        case STATE_ACTCLEAR:
+            ++g_state_tick;
+            /* Auto-walk Sonic off-screen-right for the first 60 ticks of the
+             * cinematic, then freeze him. xsp is set directly so the player
+             * physics state machine still ground-follows naturally. */
+            if (g_state_tick < 60) {
+                g_player.xsp = SMS_FIXED(2.5);
+                player_update(&g_player, &g_world, false);
+            }
+            draw_actclear();
+            if (g_state_tick >= ACTCLEAR_TICKS) {
+                enter_tally();
+            }
+            break;
+
+        case STATE_TALLY:
+            ++g_state_tick;
+            draw_tally();
+            /* After the digit roll completes, accept START to advance, or
+             * auto-advance after TALLY_HOLD_MAX additional ticks. */
+            if (g_state_tick >= TALLY_ROLL) {
+                bool start = jo_is_pad1_key_pressed(JO_KEY_START);
+                bool timeout = g_state_tick >= TALLY_ROLL + TALLY_HOLD_MAX;
+                if (start || timeout) {
+                    sms_save_t save;
+                    g_score += g_tally_total;  /* award accumulated bonus */
+                    /* Persist the post-tally state to backup RAM. The slot
+                     * stores the NEXT zone to enter so a fresh boot resumes
+                     * at the start of the next act, not at the just-cleared
+                     * act. lives/emeralds/char_select are Phase 4/11/12
+                     * additions and stay 0 for now. */
+                    save.magic        = SMS_SAVE_MAGIC;
+                    save.version      = SMS_SAVE_VERSION;
+                    save.current_zone = g_zones[g_current_zone].next_zone;
+                    save.score        = g_score;
+                    save.best_score   = g_score;   /* PLACE_HOLDER: max-of with existing best is Phase 5 */
+                    save.lives        = 3;
+                    save.emeralds     = 0;
+                    save.char_select  = 0;
+                    save.pad          = 0;
+                    sms_save_write(&save);
+                    zone_advance();
+                }
+            }
+            break;
+
+        case STATE_GAMEOVER:
+            /* Lives exhausted. Show "GAME OVER" overlay for 240 ticks
+             * (4 sec), then return to title with lives reset. Keep
+             * draw_game() running underneath so the playfield freezes
+             * visibly during the overlay. */
+            ++g_state_tick;
+            draw_game();
+            /* Center-ish "GAME OVER" via existing HUD font: spell with
+             * digit glyphs as a placeholder since no letter glyphs yet.
+             * Use 0x06 (=6) as the "G" stand-in, 0x00 (0) for the O's --
+             * really this just blocks the screen; proper letter atlas is
+             * a Phase 5 menu task. */
+            {
+                int sy = 100;
+                hud_glyph(0, 132, sy);
+                hud_glyph(0, 140, sy);
+                hud_glyph(0, 148, sy);
+                hud_glyph(0, 156, sy);
+                hud_glyph(0, 172, sy);
+                hud_glyph(0, 180, sy);
+                hud_glyph(0, 188, sy);
+                hud_glyph(0, 196, sy);
+            }
+            if (g_state_tick > 240 || jo_is_pad1_key_pressed(JO_KEY_START)) {
+                /* Reset lives + transition back to title. The
+                 * title-state setup is in jo_main; we have to undo
+                 * enter_game's NBG-priority + sky swap to return to
+                 * title visuals. */
+                g_lives = 3;
+                g_hurt_timer = 0;
+                g_dead = false;
+                g_score = 0;
+                setup_title_bg();
+                slPriorityNbg1(0);
+                slPriorityNbg2(5);   /* NBG2 < sprite priority so logo overlays */
+                g_state = STATE_TITLE;
+                g_ticks = 0;
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+                jo_audio_play_cd_track(3, 3, true);
+#endif
+            }
+            break;
+    }
+}
+
+void jo_main(void)
+{
+    /* Back-color tuned to match the title bitmap's sky exactly. The 320-
+     * wide Saturn screen has ~36 px on each side where NBG2 doesn't
+     * cover, and that uncovered region shows the back-color. Setting it
+     * to the title's sky-blue makes those edges invisible (vs the prior
+     * (104,144,224) which read as visible "light blue bars" against the
+     * (96,128,224) title sky). User reports 2026-05-26: "still has blue
+     * bars at both sides... not taking up entire screen". */
+    jo_core_init(JO_COLOR_RGB(96, 128, 224));
+
+    /* Hide ALL NBGs immediately so any in-VRAM garbage from the cold-boot
+     * VRAM state doesn't render between jo_core_init and the title's
+     * first paint. User reported 2026-05-26: "when game boots before
+     * title why are there still garbled visual artifacts from the first
+     * level that appear". This is the fix. setup_title_bg() then unhides
+     * NBG2 with priority 5 when the title art is fully written. */
+    slPriorityNbg0(0);
+    slPriorityNbg1(0);
+    slPriorityNbg2(0);
+    slPriorityNbg3(0);
+
+    /* Phase 3.2 bisect stage 2: re-enabled to actually call into the
+     * bisect function so the optimizer doesn't dead-strip the LIBCPK
+     * references. */
+    intro_video_play("INTRO.CPK");
+
+    setup_ghz_foreground();    /* GHZ streaming foreground on VDP2 NBG1 */
+    setup_collision_world();   /* per-column surface table (TileConfig.bin) */
+    /* Title-state path: NBG2 holds the real Mania title art. enter_game()
+     * later swaps NBG2 to the per-zone GHZ sky and restores NBG layer
+     * priorities for gameplay. */
+    setup_title_bg();          /* real Mania title art on VDP2 NBG2          */
+    slPriorityNbg1(0);         /* hide GHZ FG during title state             */
+    /* NBG2 at priority 5: above any other background but BELOW the default
+     * VDP1 sprite layer (which sits at priority 6 or higher), so the
+     * MLOGO/MPRESS overlays render on top of the title backdrop. */
+    slPriorityNbg2(5);
+#ifdef JO_COMPILE_WITH_AUDIO_SUPPORT
+    /* Title music: CD-DA track 03 (TitleScreen.ogg). Built into the cue
+     * by tools/build_cdda.py in multi-track mode when both track02.wav
+     * (GHZ) and track03.wav (title) exist. enter_game later switches to
+     * track 02 for gameplay. */
+    jo_audio_play_cd_track(3, 3, true);
+#endif
+    load_sonic_sprites();      /* real Sonic (idle + walk) on VDP1 */
+    load_rings();              /* GHZ ring entities + spinning sprite frames */
+    load_badniks();            /* GHZ Motobug spawn points + placeholder spr */
+    load_objects();            /* Springs, Monitors, Signpost                */
+    load_hud_digits();         /* 10 digit glyphs for the ring counter HUD   */
+    load_title_sprites();      /* Phase 3.1: MLOGO + MPRESS title overlays   */
+    setup_audio();             /* SCSP init + ring/jump SFX                  */
+    sms_save_init();           /* Phase 3.1: now a no-op; real backup_mount
+                                * deferred to first read/write call so the
+                                * FG cell-bank corruption that boot-time
+                                * mount caused no longer happens. */
+
+    g_state = STATE_TITLE;
+
+    jo_core_add_vblank_callback(fg_vblank);   /* DMA page to VRAM during V-blank */
+    jo_core_add_callback(game_tick);
+    jo_core_run();
+}

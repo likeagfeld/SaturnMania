@@ -1,0 +1,127 @@
+# Makefile.intro -- Phase 1.21 B1 Cinepak intro binary build profile.
+#
+# This is the SECOND ELF in the two-binary chain (Path B from
+# docs/COMPREHENSIVE_PLAN.md sec.13.4 and sec.13.8). Built independently of
+# the default `make` (game.elf) flow so the two profiles' incompatible
+# jo module flags (VIDEO=1/AUDIO=0 vs VIDEO=0/AUDIO=1) never collide.
+#
+#   docker run --rm -v "D:/sonicmaniasaturn":/work -w /work \
+#       joengine-saturn make -f Makefile.intro intro
+#
+# Outputs:
+#   cd/INTRO.BIN         -- raw binary placed in the ISO root. This is
+#                           the artifact we care about. Phase 1.22 chain
+#                           trampoline reads it via GFS.
+#   intro.elf / intro.raw / intro.map -- final renamed artifacts at the
+#                           project root (renamed from jo's hardcoded
+#                           game.elf/game.raw/game.map outputs after the
+#                           link). Kept for symbol inspection during B2.
+#
+# Why we tolerate the rename dance:
+#   jo's makefile hardcodes TARGET=game.elf at line 297 and binds the
+#   linker recipe to that literal at include-time. Post-include overrides
+#   of TARGET don't change the already-parsed static rule targets, so
+#   we let jo build "game.elf"/"game.raw" as intermediates, then rename
+#   them to intro.elf/intro.raw. The next default `make` will rebuild
+#   game.elf/game.raw afresh under the VIDEO=0/AUDIO=1 game profile.
+#
+# What this build profile does NOT do:
+#   - Does NOT overwrite cd/0.bin. The `intro` goal stops before jo's
+#     $(TARGET2) recipe (which writes cd/0.bin + runs mkisofs) -- we
+#     intercept at $(TARGET1) (intro.raw, formerly game.raw) and only
+#     write cd/INTRO.BIN. cd/0.bin remains whatever the most-recent
+#     `make` (default game profile) produced.
+#   - Does NOT include the Mania object sources (Game.c, Title*.c, etc).
+#     The intro binary is intentionally minimal.
+#
+# Coordination requirement: callers MUST run `make` (default game build)
+# AFTER `make -f Makefile.intro intro` to restore project-root game.elf /
+# game.raw / cd/0.bin to the game-profile content. The top-level
+# `make all_phase121b1` target orders the two builds correctly (intro
+# first, then game) so the final filesystem state matches a normal `make`
+# plus an extra cd/INTRO.BIN.
+#
+# jo's *.o file profile-contamination rule: the CCFLAGS for VIDEO=1
+# differ from VIDEO=0, so jo's *.o output from one profile MUST NOT be
+# reused for the other. Pre-build delete + post-build delete enforce
+# this. See memory/jo-pool-stale-core-o-gotcha.md.
+
+# --- Jo Engine module toggles for the INTRO profile ---
+# VIDEO=1 + AUDIO=0 is the verified-working combination for Cinepak
+# playback. See docs/cinepak_blackboot_solved.md sec.3 for the audio+video
+# mutex root cause. jo's own Samples/demo-video makefile uses the same
+# pair.
+JO_COMPILE_WITH_VIDEO_MODULE        = 1
+JO_COMPILE_WITH_AUDIO_MODULE        = 0
+JO_COMPILE_WITH_BACKUP_MODULE       = 0
+JO_COMPILE_WITH_TGA_MODULE          = 0
+JO_COMPILE_WITH_3D_MODULE           = 0
+JO_COMPILE_WITH_PSEUDO_MODE7_MODULE = 0
+JO_COMPILE_WITH_EFFECTS_MODULE      = 0
+JO_DEBUG                            = 0
+JO_COMPILE_WITH_PRINTF_MODULE       = 0
+
+# Match jo's Samples/demo-video MAIN pool of 384 KB. Combined with the
+# 256 KB LWRAM zone added in src/intro_main.c that gives ~640 KB total,
+# enough for the documented Cinepak ~520 KB transient peak (PCM 32 KB +
+# RING 100 KB x 2 + WORK 152 KB + DECODE 73 KB ~= 457 KB plus
+# fragmentation overhead). Smaller pools risked jo_malloc returning
+# JO_NULL inside jo_video_open_file's allocation chain with JO_DEBUG=0,
+# silently failing the open with no logged error -- the symptom is the
+# screen stays black post-BIOS because the CPK handle is JO_NULL and
+# jo_video_play short-circuits.
+JO_GLOBAL_MEMORY_SIZE_FOR_MALLOC    = 393216
+
+# --- Our sources ---
+# INTRO build profile: ONLY the intro main + nothing else. No rsdk/,
+# no mania/, no QA flags.
+SRCS = src/intro_main.c
+
+# --- Engine + bundled toolchain locations ---
+JO_ENGINE_SRC_DIR = jo-engine/jo_engine
+COMPILER_DIR      = jo-engine/Compiler
+
+# Include jo's makefile. jo binds $(TARGET) to game.elf at line 297 and
+# parses $(TARGET): / $(TARGET1): recipe patterns AT INCLUDE TIME, so
+# the resulting linker output is game.elf and the objcopy output is
+# game.raw -- we rename those in our post-link step.
+include $(COMPILER_DIR)/COMMON/jo_engine_makefile
+
+# Custom phony targets for the INTRO profile. The `intro` goal:
+#   1. Removes jo's *.o (force rebuild under the VIDEO=1/AUDIO=0 flags).
+#   2. Builds game.elf via jo's $(TARGET) rule (linked from
+#      src/intro_main.o + jo engine objs + LIBCPK/LIBSND/SGL libs).
+#   3. Builds game.raw via jo's $(TARGET1) rule (objcopy -O binary).
+#   4. Renames game.elf -> intro.elf, game.raw -> intro.raw, game.map ->
+#      intro.map at the project root.
+#   5. Copies intro.raw to cd/INTRO.BIN.
+#   6. Removes jo's *.o again so the next default `make` rebuilds them
+#      under the VIDEO=0/AUDIO=1 game profile.
+.PHONY: intro intro_clean_jo_objs intro_post intro_clean_jo_objs_post intro_clean
+
+intro: intro_clean_jo_objs game.elf game.raw intro_post intro_clean_jo_objs_post
+
+intro_clean_jo_objs:
+	@echo "[intro] Cleaning jo engine objects so VIDEO=1/AUDIO=0 CCFLAGS take effect..."
+	$(RM) $(JO_ENGINE_SRC_DIR)/*.o
+	$(RM) src/intro_main.o
+	@echo "[intro] Removing stale project-root game.* (will be regenerated)..."
+	$(RM) game.elf game.raw game.iso game.cue game.map
+
+intro_post: game.raw
+	@echo "[intro] Renaming game.* -> intro.* and copying intro.raw -> cd/INTRO.BIN..."
+	mv game.elf intro.elf
+	mv game.raw intro.raw
+	mv game.map intro.map
+	cp intro.raw cd/INTRO.BIN
+
+intro_clean_jo_objs_post: intro_post
+	@echo "[intro] Cleaning jo engine objects so next default 'make' rebuilds under VIDEO=0/AUDIO=1..."
+	$(RM) $(JO_ENGINE_SRC_DIR)/*.o
+	$(RM) src/intro_main.o
+
+# Clean target for the intro profile (in addition to jo's clean).
+intro_clean:
+	$(RM) $(JO_ENGINE_SRC_DIR)/*.o
+	$(RM) src/intro_main.o
+	$(RM) intro.elf intro.raw intro.map cd/INTRO.BIN

@@ -1,0 +1,16 @@
+{
+  "atlas_path": "cd/TSONIC.ATL",
+  "current_atlas_bytes": 81172,
+  "anim0_frame_count": 8,
+  "anim0_pixel_bytes_total": 61408,
+  "anim0_used_keyframes": [
+    0,
+    6
+  ],
+  "anim0_used_bytes": 12064,
+  "anim0_dead_bytes": 49344,
+  "anim1_frame_count": 12,
+  "anim1_pixel_bytes_total": 19424,
+  "projected_stripped_bytes": 31744,
+  "projected_savings_bytes": 49428
+}

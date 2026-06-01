@@ -1,0 +1,92 @@
+# ==========================================================================
+# SaturnMania .gitignore
+#
+# Tracks all hand-authored work (src/, tools/, docs/, build scripts,
+# jo-engine + rsdkv5-src sources, the bundled SGL toolchain) while EXCLUDING:
+#   - copyrighted game data the user must supply themselves: Data.rsdk and
+#     everything extracted/derived from it (including the regenerated cd/
+#     ISO payload and the converted CD-DA audio)
+#   - the copyrighted Sega Saturn BIOS firmware
+#   - build outputs, emulator savestates, QA captures, scratch logs
+#
+# A fresh clone is made turn-key by dropping in your own Data.rsdk and
+# running tools/setup.ps1 -- see SETUP.md.
+# ==========================================================================
+
+# --- Copyrighted source data + everything derived from it -----------------
+/Data.rsdk
+/extracted/
+/extracted_orig/
+/cd_audio/
+/cd_placeholder_bak/
+
+# cd/ is the ISO staging directory; every payload file is regenerated from
+# Data.rsdk by tools/build_*.py + convert_audio.py (see SETUP.md). Keep ONLY
+# the hand-authored Saturn ISO volume-descriptor text files.
+/cd/*
+!/cd/ABS.TXT
+!/cd/BIB.TXT
+!/cd/CPY.TXT
+
+# --- Copyrighted Sega Saturn BIOS + Mednafen per-game state ---------------
+# Track only the emulator config (pad map + QA settings). Everything else
+# under .mednafen/ is BIOS firmware, backup-RAM saves, savestates, captures.
+/.mednafen/*
+!/.mednafen/mednafen.cfg
+
+# --- Vendored upstream histories (track the files, drop the gitlinks) -----
+# setup moves these aside (.git -> .git_vendored_bak) so the outer repo tracks
+# their files as plain sources instead of recording them as gitlinks.
+/jo-engine/.git/
+/rsdkv5-src/.git/
+/jo-engine/.git_vendored_bak/
+/rsdkv5-src/.git_vendored_bak/
+# jo-engine also bundles emulators + sample projects that are NOT build
+# inputs for this project (the SGL toolchain under Compiler/ is required and
+# stays tracked).
+/jo-engine/Emulators/
+/jo-engine/Samples/
+/jo-engine/JoMapEditor/
+
+# --- Build outputs (root) -------------------------------------------------
+/game.elf
+/game.raw
+/game.map
+/game.iso
+/game.cue
+/game_sfxprobe.cue
+/intro.elf
+/intro.raw
+/intro.map
+# Object files anywhere (the SGL toolchain ships .A archives, not loose .o).
+*.o
+
+# --- Emulator savestates / memory dumps / backup RAM ----------------------
+*.mcs
+*.mc0
+*.bcr
+*.bkr
+/tmp_*.bin
+/samples/
+
+# --- QA captures + scratch media (goldens under tools/ are kept) ----------
+/qa_*.png
+/qa_diff.png
+/qa_gate.png
+/qa_*.json
+/qa_*.txt
+/ghz_render/
+/qa_titlecard/
+/qa_diag/
+*.mp4
+*.mov
+
+# --- Local Claude Code session settings (machine-local permission allowlist)
+/.claude/
+
+# --- Scratch logs + backups -----------------------------------------------
+*.log
+*.tmp
+*.tmp.txt
+*.bak
+/probe_result.txt

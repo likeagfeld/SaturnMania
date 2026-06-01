@@ -1,0 +1,4 @@
+Data/Sprites/Title/Sonic.bin
+Data/Sprites/Title/Sonic.gif
+Data/Sprites/Title/Electricity.bin
+Data/Sprites/Title/Electricity.gif

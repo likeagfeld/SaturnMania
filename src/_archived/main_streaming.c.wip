@@ -1,0 +1,333 @@
+/*
+ * main.c - Sonic Mania (Saturn) entry point and game-state machine.
+ *
+ * Phase 1/2 build. The Green Hill foreground is rendered by a *streaming* VDP2
+ * NBG1 cell-scroll plane that draws the full 16384x2048 level: all unique 8x8
+ * cells stay resident in VRAM, and only pattern-name (tile) columns/rows are
+ * streamed into a wrapping 64x64 page as the camera pans. This is the documented
+ * SGL NBG cell-scroll path (SGL.PDF "Programmer's Tutorial / Scrolls", ch.8,
+ * sample_8_8_1) - see setup_ghz_foreground() / fg_*().
+ */
+#include <jo/jo.h>
+#include "player.h"
+#include "physics.h"
+
+#define FG_DIAG 1   /* 1 = NBG1 cell/page/palette isolation test (see setup) */
+
+/* ---- Screen / world constants ----------------------------------------- */
+#define SCR_W            320
+#define SCR_H            224
+#define SPRITE_Z         500
+
+typedef enum { STATE_TITLE, STATE_GAME } game_state;
+
+/* Sonic idle sprite (tools/export_sprite.py, VDP1 RGB1555, index0=transparent). */
+#define SPR_W 32
+#define SPR_H 40
+#define MAX_WALK 16
+
+static game_state      g_state;
+static player_t        g_player;
+static int             g_sonic_idle;
+static int             g_sonic_walk[MAX_WALK];
+static int             g_walk_count;
+static int             g_ticks;
+static int             g_anim;
+static bool            g_autorun;
+
+/* =======================================================================
+ *  Streaming GHZ foreground (VDP2 NBG1, cell-scroll)
+ *
+ *  Assets (tools/convert_stream.py, big-endian):
+ *    GHZFG.CEL  numCells*64B  8bpp cells in Jo byte order (cell 0 = blank).
+ *    GHZFG.PAT  [u16 nPat] then nPat*4 u16 cell indices per tile (TL,TR,BL,BR).
+ *    GHZFG.TMP  [u16 xs][u16 ys] then xs*ys u16 tile-pattern ids (0 = blank).
+ *    GHZFG.PAL  256 u16 RGB555.
+ *
+ *  VDP2 layout (verified against jo's bank allocator + SGL.PDF p.150):
+ *    cells -> bank A0 base 0x25E00000   (resident, all 1406 cells = ~88KB)
+ *    page  -> bank B0 base 0x25E40000   (one 64x64-cell page = 8KB)
+ *  NBG1 is set up exactly as sample_8_8_1:
+ *    slPlaneNbg1(PL_SIZE_1x1); slCharNbg1(COL_TYPE_256,CHAR_SIZE_1x1);
+ *    slMapNbg1(MAP,MAP,MAP,MAP); slPageNbg1(CELL,0,PNB_1WORD|CN_12BIT);
+ *  Pattern name (1-word, 12-bit char): PN = (charNo) | (palette<<12), where for
+ *  256-colour 8x8 cells charNo = cellIndex*2 (one char unit = 0x20 bytes, a cell
+ *  is 0x40 bytes; cell base is bank-aligned so the char offset is 0). The page
+ *  is raster-order, 64 cells wide (SGL.PDF p.149).
+ * ======================================================================= */
+/* NBG1 cell/page VRAM, allocated by jo's cell-mode helper (exposed pointers). */
+extern unsigned char  *nbg1_cell;
+extern unsigned short *nbg1_map;
+static volatile unsigned char  *g_fg_cell;   /* = nbg1_cell (char base)        */
+static volatile unsigned short *g_fg_map;    /* = nbg1_map  (64x64 page)       */
+#define FG_PAGE_CELLS   64           /* cells per page row/col (512px / 8)   */
+#define FG_WIN_TILES    32           /* 32 tiles = 64 cells = one full page  */
+#define FG_NUM_CELLS    1406         /* unique cells in GHZFG.CEL            */
+
+static unsigned short *g_fg_pat;     /* tile id -> 4 cell indices            */
+static unsigned short *g_fg_tmap;    /* [row*xs + col] tile-pattern ids      */
+static int             g_fg_xs;      /* level width  in 16px tiles           */
+static int             g_fg_ys;      /* level height in 16px tiles           */
+static jo_palette      g_fg_pal;
+static unsigned short  g_fg_paloff;  /* palette id << 12 (PN palette field)  */
+static int             g_cam_tx;     /* loaded page window: top-left tile X  */
+static int             g_cam_ty;     /* loaded page window: top-left tile Y  */
+
+/* Camera. The opening stretch of GHZ Act 1 sits around world tile-row 45 (the
+ * grass surface). Keep the vertical camera there for now; horizontal camera
+ * follows Sonic across the full level. (Vertical follow + full-width collision
+ * is the next milestone.) */
+#define CAM_Y_PX        720
+#define SONIC_SCR_X     60
+#define SONIC_SCR_Y     150
+static int             g_cam_x;      /* world px, monitor top-left */
+static int             g_cam_y;
+
+/* Write one 16x16 level tile (4 cells) into the wrapping page. The page wraps
+ * every 32 tiles (64 cells); tile (L,R) always lands at page cell
+ * ((L*2)&63, (R*2)&63), which the VDP2 scroll position re-aligns to world px. */
+static void fg_put_tile(int L, int R)
+{
+    unsigned short        pid = 0;
+    const unsigned short *q;
+    int                   cc, cr, b;
+
+    if ((unsigned)L < (unsigned)g_fg_xs && (unsigned)R < (unsigned)g_fg_ys)
+        pid = g_fg_tmap[R * g_fg_xs + L];
+    q  = &g_fg_pat[pid << 2];
+    cc = (L << 1) & (FG_PAGE_CELLS - 1);
+    cr = (R << 1) & (FG_PAGE_CELLS - 1);
+    b  = cr * FG_PAGE_CELLS + cc;
+    g_fg_map[b]                      = (unsigned short)((q[0] << 1) | g_fg_paloff);  /* TL */
+    g_fg_map[b + 1]                  = (unsigned short)((q[1] << 1) | g_fg_paloff);  /* TR */
+    g_fg_map[b + FG_PAGE_CELLS]      = (unsigned short)((q[2] << 1) | g_fg_paloff);  /* BL */
+    g_fg_map[b + FG_PAGE_CELLS + 1]  = (unsigned short)((q[3] << 1) | g_fg_paloff);  /* BR */
+}
+
+/* Fill the whole page from the level window whose top-left tile is (tx,ty). */
+static void fg_fill_all(int tx, int ty)
+{
+    int L, R;
+    g_cam_tx = tx;
+    g_cam_ty = ty;
+    for (R = ty; R < ty + FG_WIN_TILES; ++R)
+        for (L = tx; L < tx + FG_WIN_TILES; ++L)
+            fg_put_tile(L, R);
+}
+
+/* Treadmill: advance the loaded window to top-left tile (ntx,nty), rewriting
+ * only the newly revealed columns/rows. Cells never move (all resident). */
+static void fg_stream_to(int ntx, int nty)
+{
+    int L, R;
+
+    while (ntx > g_cam_tx) { ++g_cam_tx; L = g_cam_tx + FG_WIN_TILES - 1;
+        for (R = g_cam_ty; R < g_cam_ty + FG_WIN_TILES; ++R) fg_put_tile(L, R); }
+    while (ntx < g_cam_tx) { --g_cam_tx; L = g_cam_tx;
+        for (R = g_cam_ty; R < g_cam_ty + FG_WIN_TILES; ++R) fg_put_tile(L, R); }
+    while (nty > g_cam_ty) { ++g_cam_ty; R = g_cam_ty + FG_WIN_TILES - 1;
+        for (L = g_cam_tx; L < g_cam_tx + FG_WIN_TILES; ++L) fg_put_tile(L, R); }
+    while (nty < g_cam_ty) { --g_cam_ty; R = g_cam_ty;
+        for (L = g_cam_tx; L < g_cam_tx + FG_WIN_TILES; ++L) fg_put_tile(L, R); }
+}
+
+/* Set up NBG1 in cell-scroll mode and load the resident cell bank + palette.
+ * jo's helper does the proven cell-mode register setup (slPlane/Char/Map/Page,
+ * NBG1ON) and allocates the cell(A0)+page(B0) VRAM; we capture jo's real cell
+ * and map addresses, then take over the VRAM contents for full-level streaming. */
+static void setup_ghz_foreground(void)
+{
+    static jo_img_8bits dummy;
+    int                 len, i;
+    unsigned char      *cel;
+    unsigned short     *fgpal, *tmp;
+
+    /* Foreground palette gets its own CRAM bank (id used in the PN palette field). */
+    fgpal = (unsigned short *)jo_fs_read_file("GHZFG.PAL", &len);
+    jo_create_palette_from(&g_fg_pal, fgpal, 256);
+    g_fg_paloff = (unsigned short)(g_fg_pal.id << 12);
+
+    /* Resident streaming data (kept in Work RAM). */
+    cel       = (unsigned char *)jo_fs_read_file("GHZFG.CEL", &len);
+    g_fg_pat  = (unsigned short *)jo_fs_read_file("GHZFG.PAT", &len) + 1;   /* skip [u16 nPat] */
+    tmp       = (unsigned short *)jo_fs_read_file("GHZFG.TMP", &len);
+    g_fg_xs   = tmp[0];                 /* SH-2 reads the big-endian u16 natively */
+    g_fg_ys   = tmp[1];
+    g_fg_tmap = tmp + 2;
+
+    /* jo registers NBG1 in 8bpp cell mode and allocates cell+page VRAM. The dummy
+     * image is sized so the cell allocation == our resident bank (8*11248 =
+     * 89984 = 1406*64). */
+    dummy.data   = cel;
+    dummy.width  = 8;
+    dummy.height = FG_NUM_CELLS * 8;    /* 11248 lines */
+    jo_vdp2_set_nbg1_8bits_image(&dummy, g_fg_pal.id, false);
+
+    /* Capture jo's REAL cell/page addresses (do not assume bank bases). */
+    g_fg_cell = (volatile unsigned char  *)nbg1_cell;
+    g_fg_map  = (volatile unsigned short *)nbg1_map;
+
+    /* Overwrite jo's reordered cells with the real, row-major resident bank. */
+    for (i = 0; i < FG_NUM_CELLS * 64; ++i)
+        g_fg_cell[i] = cel[i];
+
+    /* Initial page so the foreground shows real level art immediately. */
+    g_cam_x = 0;
+    g_cam_y = CAM_Y_PX;
+    fg_fill_all(0, g_cam_y >> 4);
+    slScrPosNbg1(JO_MULT_BY_65536(g_cam_x), JO_MULT_BY_65536(g_cam_y));
+
+#if FG_DIAG
+    /* Isolation test (sky disabled in jo_main): cell 1 = solid palette index 3;
+     * whole page -> char 2 (= cell 1). Expect a UNIFORM palette[3] fill.
+     * Background colour verifies the extern pointers bound to real VDP2 VRAM:
+     * green = nbg1_cell/nbg1_map are valid 0x25Exxxxx addresses, red = not. */
+    {
+        int j;
+        unsigned int cp = (unsigned int)nbg1_cell, mp = (unsigned int)nbg1_map;
+        jo_set_default_background_color(
+            (cp >> 20) == 0x25E && (mp >> 20) == 0x25E ? JO_COLOR_Green : JO_COLOR_Red);
+        for (j = 0; j < 64; ++j)   g_fg_cell[64 + j] = 3;
+        for (j = 0; j < 4096; ++j) g_fg_map[j] = (unsigned short)((1 << 1) | g_fg_paloff);
+        slScrPosNbg1(0, 0);
+    }
+#endif
+}
+
+/* ---- GHZ parallax sky/clouds/cliffs/water on NBG2 (behind NBG1) -------- */
+#define SKY_W 176
+#define SKY_H 512
+static jo_palette      g_sky_pal;
+static void setup_ghz_sky(void)
+{
+    static jo_img_8bits img;
+    int len;
+    unsigned short *spal = (unsigned short *)jo_fs_read_file("GHZSKY.PAL", &len);
+    jo_create_palette_from(&g_sky_pal, spal, 256);
+    img.data   = (unsigned char *)jo_fs_read_file("GHZSKY.DAT", &len);
+    img.width  = SKY_W;
+    img.height = SKY_H;
+    jo_vdp2_set_nbg2_8bits_image(&img, g_sky_pal.id, false, true);
+    slPriorityNbg0(7);
+    slPriorityNbg1(6);   /* foreground */
+    slPriorityNbg2(1);   /* sky, behind */
+}
+
+/* ---- Sonic sprites ---------------------------------------------------- */
+static void load_sonic_sprites(void)
+{
+    jo_img img;
+    int len, i, ww, hh;
+    unsigned short *walk;
+
+    img.data   = (jo_color *)jo_fs_read_file("SONIC.SPR", &len);
+    img.width  = SPR_W;
+    img.height = SPR_H;
+    g_sonic_idle = jo_sprite_add(&img);
+
+    walk = (unsigned short *)jo_fs_read_file("SONWALK.SPR", &len);
+    g_walk_count = walk[0];
+    ww = walk[1];
+    hh = walk[2];
+    if (g_walk_count > MAX_WALK) g_walk_count = MAX_WALK;
+    for (i = 0; i < g_walk_count; ++i) {
+        img.data   = (jo_color *)(walk + 3) + i * ww * hh;
+        img.width  = ww;
+        img.height = hh;
+        g_sonic_walk[i] = jo_sprite_add(&img);
+    }
+}
+
+static void draw_sonic(int sx, int sy, bool moving, bool facing_left)
+{
+    int id = (moving && g_walk_count) ? g_sonic_walk[g_anim % g_walk_count]
+                                      : g_sonic_idle;
+    if (facing_left) jo_sprite_enable_horizontal_flip();
+    jo_sprite_draw3D(id, sx, sy, SPRITE_Z);
+    if (facing_left) jo_sprite_disable_horizontal_flip();
+}
+
+/* ---- Game-state transitions ------------------------------------------- */
+static void enter_game(void)
+{
+    player_init(&g_player, CHAR_SONIC, SMS_FIXED(0.0), SMS_FIXED(176.0));
+    g_player.grounded = true;
+    g_autorun = true;
+    g_cam_x = 0;
+    g_cam_y = CAM_Y_PX;
+    fg_fill_all(0, g_cam_y >> 4);
+    g_state = STATE_GAME;
+}
+
+/* ---- Rendering -------------------------------------------------------- */
+static void draw_game(void)
+{
+    int level_w = g_fg_xs << 4;
+    int max_cam = level_w - SCR_W;
+    int px      = JO_FIXED_TO_INT(g_player.xpos);
+
+    /* Horizontal camera follows Sonic and clamps to the level extent. */
+    g_cam_x = px - SONIC_SCR_X;
+    if (g_cam_x < 0)        g_cam_x = 0;
+    if (g_cam_x > max_cam)  g_cam_x = max_cam;
+
+    /* Stream the foreground page to the camera's tile window, then position the
+     * scroll plane at the world pixel (the plane wraps mod 512 automatically). */
+    fg_stream_to(g_cam_x >> 4, g_cam_y >> 4);
+    slScrPosNbg1(JO_MULT_BY_65536(g_cam_x), JO_MULT_BY_65536(g_cam_y));
+    /* Sky parallax: ~1/4 the foreground speed. */
+    slScrPosNbg2(JO_MULT_BY_65536(g_cam_x >> 2), 0);
+
+    {
+        bool moving = g_player.grounded && JO_ABS(g_player.gsp) > SMS_FIXED(0.4);
+        draw_sonic(px - g_cam_x, SONIC_SCR_Y, moving, g_player.facing_left);
+    }
+}
+
+static void draw_title(void)
+{
+    draw_sonic(-70, 70, true, false);
+}
+
+/* ---- Main loop -------------------------------------------------------- */
+static void game_tick(void)
+{
+    ++g_ticks;
+    if ((g_ticks & 3) == 0)
+        ++g_anim;
+
+    switch (g_state) {
+        case STATE_TITLE:
+            draw_title();
+            if (jo_is_pad1_key_pressed(JO_KEY_START) || g_ticks > 120)
+                enter_game();
+            break;
+
+        case STATE_GAME:
+            if (jo_is_pad1_key_pressed(JO_KEY_LEFT)  ||
+                jo_is_pad1_key_pressed(JO_KEY_RIGHT) ||
+                jo_is_pad1_key_pressed(JO_KEY_A) ||
+                jo_is_pad1_key_pressed(JO_KEY_B) ||
+                jo_is_pad1_key_pressed(JO_KEY_C))
+                g_autorun = false;
+            player_update(&g_player, SMS_FIXED(176.0), g_autorun);
+            draw_game();
+            break;
+    }
+}
+
+void jo_main(void)
+{
+    jo_core_init(JO_COLOR_RGB(104, 144, 224));
+
+    setup_ghz_foreground();    /* GHZ streaming foreground on VDP2 NBG1 */
+#if !FG_DIAG
+    setup_ghz_sky();           /* GHZ parallax sky/water on VDP2 NBG2 (behind) */
+#endif
+    load_sonic_sprites();      /* real Sonic (idle + walk) on VDP1 */
+
+    g_state = STATE_TITLE;
+
+    jo_core_add_callback(game_tick);
+    jo_core_run();
+}

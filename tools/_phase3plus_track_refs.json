@@ -1,0 +1,1129 @@
+[
+  {
+    "folder": "AIZ",
+    "scene": "Scene1.bin",
+    "slot": 41,
+    "trackFile": "AngelIsland.ogg",
+    "resolved": "Data/Music/AngelIsland.ogg"
+  },
+  {
+    "folder": "CPZ",
+    "scene": "Scene1.bin",
+    "slot": 827,
+    "trackFile": "ChemicalPlant1.ogg",
+    "resolved": "Data/Music/ChemicalPlant1.ogg"
+  },
+  {
+    "folder": "CPZ",
+    "scene": "Scene2.bin",
+    "slot": 822,
+    "trackFile": "ChemicalPlant2.ogg",
+    "resolved": "Data/Music/ChemicalPlant2.ogg"
+  },
+  {
+    "folder": "Credits",
+    "scene": "Scene1.bin",
+    "slot": 1,
+    "trackFile": "Credits.ogg",
+    "resolved": "Data/Music/Credits.ogg"
+  },
+  {
+    "folder": "Credits",
+    "scene": "Scene1.bin",
+    "slot": 3,
+    "trackFile": "SaveSelect.ogg",
+    "resolved": "Data/Music/SaveSelect.ogg"
+  },
+  {
+    "folder": "Credits",
+    "scene": "Scene1.bin",
+    "slot": 4,
+    "trackFile": "IntroTee.ogg",
+    "resolved": "Data/Music/IntroTee.ogg"
+  },
+  {
+    "folder": "Credits",
+    "scene": "Scene1.bin",
+    "slot": 5,
+    "trackFile": "IntroHP.ogg",
+    "resolved": "Data/Music/IntroHP.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 67,
+    "trackFile": "TitleScreen.ogg",
+    "resolved": "Data/Music/TitleScreen.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 68,
+    "trackFile": "MainMenu.ogg",
+    "resolved": "Data/Music/MainMenu.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 69,
+    "trackFile": "SaveSelect.ogg",
+    "resolved": "Data/Music/SaveSelect.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 70,
+    "trackFile": "Competition.ogg",
+    "resolved": "Data/Music/Competition.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 71,
+    "trackFile": "Results.ogg",
+    "resolved": "Data/Music/Results.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 72,
+    "trackFile": "Sneakers.ogg",
+    "resolved": "Data/Music/Sneakers.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 73,
+    "trackFile": "Invincible.ogg",
+    "resolved": "Data/Music/Invincible.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 74,
+    "trackFile": "1Up.ogg",
+    "resolved": "Data/Music/1Up.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 75,
+    "trackFile": "ActClear.ogg",
+    "resolved": "Data/Music/ActClear.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 76,
+    "trackFile": "GreenHill1.ogg",
+    "resolved": "Data/Music/GreenHill1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 77,
+    "trackFile": "GreenHill2.ogg",
+    "resolved": "Data/Music/GreenHill2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 78,
+    "trackFile": "ChemicalPlant1.ogg",
+    "resolved": "Data/Music/ChemicalPlant1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 79,
+    "trackFile": "ChemicalPlant2.ogg",
+    "resolved": "Data/Music/ChemicalPlant2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 80,
+    "trackFile": "Studiopolis1.ogg",
+    "resolved": "Data/Music/Studiopolis1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 81,
+    "trackFile": "Studiopolis2.ogg",
+    "resolved": "Data/Music/Studiopolis2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 82,
+    "trackFile": "FlyingBattery1.ogg",
+    "resolved": "Data/Music/FlyingBattery1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 83,
+    "trackFile": "FlyingBattery2.ogg",
+    "resolved": "Data/Music/FlyingBattery2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 84,
+    "trackFile": "PulpSolstice1.ogg",
+    "resolved": "Data/Music/PulpSolstice1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 85,
+    "trackFile": "PulpSolstice2.ogg",
+    "resolved": "Data/Music/PulpSolstice2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 86,
+    "trackFile": "StardustSpeedway1.ogg",
+    "resolved": "Data/Music/StardustSpeedway1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 87,
+    "trackFile": "StardustSpeedway2.ogg",
+    "resolved": "Data/Music/StardustSpeedway2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 88,
+    "trackFile": "Hydrocity1.ogg",
+    "resolved": "Data/Music/Hydrocity1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 89,
+    "trackFile": "Hydrocity2.ogg",
+    "resolved": "Data/Music/Hydrocity2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 90,
+    "trackFile": "MirageSaloon1.ogg",
+    "resolved": "Data/Music/MirageSaloon1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 91,
+    "trackFile": "MirageSaloon1k.ogg",
+    "resolved": "Data/Music/MirageSaloon1k.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 92,
+    "trackFile": "MirageSaloon2.ogg",
+    "resolved": "Data/Music/MirageSaloon2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 93,
+    "trackFile": "OilOcean1.ogg",
+    "resolved": "Data/Music/OilOcean1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 94,
+    "trackFile": "OilOcean2.ogg",
+    "resolved": "Data/Music/OilOcean2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 95,
+    "trackFile": "LavaReef1.ogg",
+    "resolved": "Data/Music/LavaReef1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 96,
+    "trackFile": "LavaReef2.ogg",
+    "resolved": "Data/Music/LavaReef2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 97,
+    "trackFile": "MetallicMadness1.ogg",
+    "resolved": "Data/Music/MetallicMadness1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 98,
+    "trackFile": "MetallicMadness2.ogg",
+    "resolved": "Data/Music/MetallicMadness2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 99,
+    "trackFile": "TitanicMonarch1.ogg",
+    "resolved": "Data/Music/TitanicMonarch1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 100,
+    "trackFile": "TitanicMonarch2.ogg",
+    "resolved": "Data/Music/TitanicMonarch2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 101,
+    "trackFile": "BossMini.ogg",
+    "resolved": "Data/Music/BossMini.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 102,
+    "trackFile": "BossEggman1.ogg",
+    "resolved": "Data/Music/BossEggman1.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 103,
+    "trackFile": "BossEggman2.ogg",
+    "resolved": "Data/Music/BossEggman2.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 104,
+    "trackFile": "BossHBH.ogg",
+    "resolved": "Data/Music/BossHBH.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 105,
+    "trackFile": "BossFinal.ogg",
+    "resolved": "Data/Music/BossFinal.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 106,
+    "trackFile": "BossPuyo.ogg",
+    "resolved": "Data/Music/BossPuyo.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 107,
+    "trackFile": "MetalSonic.ogg",
+    "resolved": "Data/Music/MetalSonic.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 108,
+    "trackFile": "EggReverie.ogg",
+    "resolved": "Data/Music/EggReverie.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 109,
+    "trackFile": "EggReveriePinch.ogg",
+    "resolved": "Data/Music/EggReveriePinch.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 110,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 111,
+    "trackFile": "BlueSpheres.ogg",
+    "resolved": "Data/Music/BlueSpheres.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 112,
+    "trackFile": "Credits.ogg",
+    "resolved": "Data/Music/Credits.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 113,
+    "trackFile": "Super.ogg",
+    "resolved": "Data/Music/Super.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 114,
+    "trackFile": "Drowning.ogg",
+    "resolved": "Data/Music/Drowning.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 115,
+    "trackFile": "GameOver.ogg",
+    "resolved": "Data/Music/GameOver.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 116,
+    "trackFile": "HBHMischief.ogg",
+    "resolved": "Data/Music/HBHMischief.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 117,
+    "trackFile": "AngelIsland.ogg",
+    "resolved": "Data/Music/AngelIsland.ogg"
+  },
+  {
+    "folder": "DAGarden",
+    "scene": "Scene1.bin",
+    "slot": 118,
+    "trackFile": "Countdown.ogg",
+    "resolved": "Data/Music/Countdown.ogg"
+  },
+  {
+    "folder": "ERZ",
+    "scene": "Scene1.bin",
+    "slot": 8,
+    "trackFile": "RubyPresence.ogg",
+    "resolved": "Data/Music/RubyPresence.ogg"
+  },
+  {
+    "folder": "ERZ",
+    "scene": "Scene1.bin",
+    "slot": 9,
+    "trackFile": "EggReverie.ogg",
+    "resolved": "Data/Music/EggReverie.ogg"
+  },
+  {
+    "folder": "Ending",
+    "scene": "SceneC.bin",
+    "slot": 3,
+    "trackFile": "Countdown.ogg",
+    "resolved": "Data/Music/Countdown.ogg"
+  },
+  {
+    "folder": "FBZ",
+    "scene": "Scene1.bin",
+    "slot": 1149,
+    "trackFile": "FlyingBattery1.ogg",
+    "resolved": "Data/Music/FlyingBattery1.ogg"
+  },
+  {
+    "folder": "FBZ",
+    "scene": "Scene2.bin",
+    "slot": 1403,
+    "trackFile": "FlyingBattery2.ogg",
+    "resolved": "Data/Music/FlyingBattery2.ogg"
+  },
+  {
+    "folder": "GHZ",
+    "scene": "Scene1.bin",
+    "slot": 886,
+    "trackFile": "GreenHill1.ogg",
+    "resolved": "Data/Music/GreenHill1.ogg"
+  },
+  {
+    "folder": "GHZ",
+    "scene": "Scene2.bin",
+    "slot": 991,
+    "trackFile": "GreenHill2.ogg",
+    "resolved": "Data/Music/GreenHill2.ogg"
+  },
+  {
+    "folder": "GHZCutscene",
+    "scene": "Scene1.bin",
+    "slot": 8,
+    "trackFile": "RubyPresence.ogg",
+    "resolved": "Data/Music/RubyPresence.ogg"
+  },
+  {
+    "folder": "HCZ",
+    "scene": "Scene1.bin",
+    "slot": 1051,
+    "trackFile": "Hydrocity1.ogg",
+    "resolved": "Data/Music/Hydrocity1.ogg"
+  },
+  {
+    "folder": "HCZ",
+    "scene": "Scene2.bin",
+    "slot": 582,
+    "trackFile": "Hydrocity2.ogg",
+    "resolved": "Data/Music/Hydrocity2.ogg"
+  },
+  {
+    "folder": "LRZ1",
+    "scene": "Scene1.bin",
+    "slot": 691,
+    "trackFile": "LavaReef1.ogg",
+    "resolved": "Data/Music/LavaReef1.ogg"
+  },
+  {
+    "folder": "LRZ1",
+    "scene": "Scene2.bin",
+    "slot": 3,
+    "trackFile": "LavaReef1.ogg",
+    "resolved": "Data/Music/LavaReef1.ogg"
+  },
+  {
+    "folder": "LRZ2",
+    "scene": "Scene1.bin",
+    "slot": 949,
+    "trackFile": "LavaReef2.ogg",
+    "resolved": "Data/Music/LavaReef2.ogg"
+  },
+  {
+    "folder": "LRZ3",
+    "scene": "Scene1.bin",
+    "slot": 47,
+    "trackFile": "LavaReef2.ogg",
+    "resolved": "Data/Music/LavaReef2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 48,
+    "trackFile": "MainMenu.ogg",
+    "resolved": "Data/Music/MainMenu.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 49,
+    "trackFile": "TitleScreen.ogg",
+    "resolved": "Data/Music/TitleScreen.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 50,
+    "trackFile": "MainMenu.ogg",
+    "resolved": "Data/Music/MainMenu.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 51,
+    "trackFile": "SaveSelect.ogg",
+    "resolved": "Data/Music/SaveSelect.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 52,
+    "trackFile": "Competition.ogg",
+    "resolved": "Data/Music/Competition.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 53,
+    "trackFile": "Results.ogg",
+    "resolved": "Data/Music/Results.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 54,
+    "trackFile": "Sneakers.ogg",
+    "resolved": "Data/Music/Sneakers.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 55,
+    "trackFile": "Invincible.ogg",
+    "resolved": "Data/Music/Invincible.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 56,
+    "trackFile": "1Up.ogg",
+    "resolved": "Data/Music/1Up.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 57,
+    "trackFile": "ActClear.ogg",
+    "resolved": "Data/Music/ActClear.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 58,
+    "trackFile": "GreenHill1.ogg",
+    "resolved": "Data/Music/GreenHill1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 59,
+    "trackFile": "GreenHill2.ogg",
+    "resolved": "Data/Music/GreenHill2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 60,
+    "trackFile": "ChemicalPlant1.ogg",
+    "resolved": "Data/Music/ChemicalPlant1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 61,
+    "trackFile": "ChemicalPlant2.ogg",
+    "resolved": "Data/Music/ChemicalPlant2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 62,
+    "trackFile": "Studiopolis1.ogg",
+    "resolved": "Data/Music/Studiopolis1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 63,
+    "trackFile": "Studiopolis2.ogg",
+    "resolved": "Data/Music/Studiopolis2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 64,
+    "trackFile": "FlyingBattery1.ogg",
+    "resolved": "Data/Music/FlyingBattery1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 65,
+    "trackFile": "FlyingBattery2.ogg",
+    "resolved": "Data/Music/FlyingBattery2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 66,
+    "trackFile": "PulpSolstice1.ogg",
+    "resolved": "Data/Music/PulpSolstice1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 67,
+    "trackFile": "PulpSolstice2.ogg",
+    "resolved": "Data/Music/PulpSolstice2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 68,
+    "trackFile": "StardustSpeedway1.ogg",
+    "resolved": "Data/Music/StardustSpeedway1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 69,
+    "trackFile": "StardustSpeedway2.ogg",
+    "resolved": "Data/Music/StardustSpeedway2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 70,
+    "trackFile": "Hydrocity1.ogg",
+    "resolved": "Data/Music/Hydrocity1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 71,
+    "trackFile": "Hydrocity2.ogg",
+    "resolved": "Data/Music/Hydrocity2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 72,
+    "trackFile": "MirageSaloon1.ogg",
+    "resolved": "Data/Music/MirageSaloon1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 73,
+    "trackFile": "MirageSaloon1k.ogg",
+    "resolved": "Data/Music/MirageSaloon1k.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 74,
+    "trackFile": "MirageSaloon2.ogg",
+    "resolved": "Data/Music/MirageSaloon2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 75,
+    "trackFile": "OilOcean1.ogg",
+    "resolved": "Data/Music/OilOcean1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 76,
+    "trackFile": "OilOcean2.ogg",
+    "resolved": "Data/Music/OilOcean2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 77,
+    "trackFile": "LavaReef1.ogg",
+    "resolved": "Data/Music/LavaReef1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 78,
+    "trackFile": "LavaReef2.ogg",
+    "resolved": "Data/Music/LavaReef2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 79,
+    "trackFile": "MetallicMadness1.ogg",
+    "resolved": "Data/Music/MetallicMadness1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 80,
+    "trackFile": "MetallicMadness2.ogg",
+    "resolved": "Data/Music/MetallicMadness2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 81,
+    "trackFile": "TitanicMonarch1.ogg",
+    "resolved": "Data/Music/TitanicMonarch1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 82,
+    "trackFile": "TitanicMonarch2.ogg",
+    "resolved": "Data/Music/TitanicMonarch2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 83,
+    "trackFile": "BossMini.ogg",
+    "resolved": "Data/Music/BossMini.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 84,
+    "trackFile": "BossEggman1.ogg",
+    "resolved": "Data/Music/BossEggman1.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 85,
+    "trackFile": "BossEggman2.ogg",
+    "resolved": "Data/Music/BossEggman2.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 86,
+    "trackFile": "BossHBH.ogg",
+    "resolved": "Data/Music/BossHBH.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 87,
+    "trackFile": "BossFinal.ogg",
+    "resolved": "Data/Music/BossFinal.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 88,
+    "trackFile": "BossPuyo.ogg",
+    "resolved": "Data/Music/BossPuyo.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 89,
+    "trackFile": "MetalSonic.ogg",
+    "resolved": "Data/Music/MetalSonic.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 90,
+    "trackFile": "EggReverie.ogg",
+    "resolved": "Data/Music/EggReverie.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 91,
+    "trackFile": "EggReveriePinch.ogg",
+    "resolved": "Data/Music/EggReveriePinch.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 92,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 93,
+    "trackFile": "BlueSpheres.ogg",
+    "resolved": "Data/Music/BlueSpheres.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 94,
+    "trackFile": "Credits.ogg",
+    "resolved": "Data/Music/Credits.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 95,
+    "trackFile": "Super.ogg",
+    "resolved": "Data/Music/Super.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 96,
+    "trackFile": "Drowning.ogg",
+    "resolved": "Data/Music/Drowning.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 97,
+    "trackFile": "GameOver.ogg",
+    "resolved": "Data/Music/GameOver.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 98,
+    "trackFile": "HBHMischief.ogg",
+    "resolved": "Data/Music/HBHMischief.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 99,
+    "trackFile": "AngelIsland.ogg",
+    "resolved": "Data/Music/AngelIsland.ogg"
+  },
+  {
+    "folder": "LSelect",
+    "scene": "Scene1.bin",
+    "slot": 100,
+    "trackFile": "Countdown.ogg",
+    "resolved": "Data/Music/Countdown.ogg"
+  },
+  {
+    "folder": "MMZ",
+    "scene": "Scene1.bin",
+    "slot": 782,
+    "trackFile": "MetallicMadness1.ogg",
+    "resolved": "Data/Music/MetallicMadness1.ogg"
+  },
+  {
+    "folder": "MMZ",
+    "scene": "Scene2.bin",
+    "slot": 971,
+    "trackFile": "MetallicMadness2.ogg",
+    "resolved": "Data/Music/MetallicMadness2.ogg"
+  },
+  {
+    "folder": "MSZ",
+    "scene": "Scene1.bin",
+    "slot": 208,
+    "trackFile": "MirageSaloon1.ogg",
+    "resolved": "Data/Music/MirageSaloon1.ogg"
+  },
+  {
+    "folder": "MSZ",
+    "scene": "Scene1k.bin",
+    "slot": 792,
+    "trackFile": "MirageSaloon1k.ogg",
+    "resolved": "Data/Music/MirageSaloon1k.ogg"
+  },
+  {
+    "folder": "MSZ",
+    "scene": "Scene2.bin",
+    "slot": 2,
+    "trackFile": "MirageSaloon2.ogg",
+    "resolved": "Data/Music/MirageSaloon2.ogg"
+  },
+  {
+    "folder": "MSZCutscene",
+    "scene": "Scene1.bin",
+    "slot": 11,
+    "trackFile": "MirageSaloon1.ogg",
+    "resolved": "Data/Music/MirageSaloon1.ogg"
+  },
+  {
+    "folder": "Menu",
+    "scene": "Scene1.bin",
+    "slot": 129,
+    "trackFile": "MainMenu.ogg",
+    "resolved": "Data/Music/MainMenu.ogg"
+  },
+  {
+    "folder": "Menu",
+    "scene": "Scene1.bin",
+    "slot": 198,
+    "trackFile": "Competition.ogg",
+    "resolved": "Data/Music/Competition.ogg"
+  },
+  {
+    "folder": "Menu",
+    "scene": "Scene1.bin",
+    "slot": 199,
+    "trackFile": "Results.ogg",
+    "resolved": "Data/Music/Results.ogg"
+  },
+  {
+    "folder": "Menu",
+    "scene": "Scene1.bin",
+    "slot": 200,
+    "trackFile": "SaveSelect.ogg",
+    "resolved": "Data/Music/SaveSelect.ogg"
+  },
+  {
+    "folder": "OOZ1",
+    "scene": "Scene1.bin",
+    "slot": 544,
+    "trackFile": "OilOcean1.ogg",
+    "resolved": "Data/Music/OilOcean1.ogg"
+  },
+  {
+    "folder": "OOZ2",
+    "scene": "Scene2.bin",
+    "slot": 600,
+    "trackFile": "OilOcean2.ogg",
+    "resolved": "Data/Music/OilOcean2.ogg"
+  },
+  {
+    "folder": "PSZ1",
+    "scene": "Scene1.bin",
+    "slot": 646,
+    "trackFile": "PulpSolstice1.ogg",
+    "resolved": "Data/Music/PulpSolstice1.ogg"
+  },
+  {
+    "folder": "PSZ2",
+    "scene": "Scene2.bin",
+    "slot": 1720,
+    "trackFile": "PulpSolstice2.ogg",
+    "resolved": "Data/Music/PulpSolstice2.ogg"
+  },
+  {
+    "folder": "Puyo",
+    "scene": "Scene1.bin",
+    "slot": 18,
+    "trackFile": "BossPuyo.ogg",
+    "resolved": "Data/Music/BossPuyo.ogg"
+  },
+  {
+    "folder": "SPZ1",
+    "scene": "Scene1.bin",
+    "slot": 1844,
+    "trackFile": "Studiopolis1.ogg",
+    "resolved": "Data/Music/Studiopolis1.ogg"
+  },
+  {
+    "folder": "SPZ1",
+    "scene": "Scene1d.bin",
+    "slot": 3,
+    "trackFile": "SPZ1.ogg",
+    "resolved": "Data/Music/SPZ1.ogg"
+  },
+  {
+    "folder": "SPZ2",
+    "scene": "Scene1.bin",
+    "slot": 733,
+    "trackFile": "Studiopolis2.ogg",
+    "resolved": "Data/Music/Studiopolis2.ogg"
+  },
+  {
+    "folder": "SSZ1",
+    "scene": "Scene1.bin",
+    "slot": 1457,
+    "trackFile": "StardustSpeedway1.ogg",
+    "resolved": "Data/Music/StardustSpeedway1.ogg"
+  },
+  {
+    "folder": "SSZ2",
+    "scene": "Scene1.bin",
+    "slot": 1203,
+    "trackFile": "StardustSpeedway2.ogg",
+    "resolved": "Data/Music/StardustSpeedway2.ogg"
+  },
+  {
+    "folder": "SSZ2",
+    "scene": "Scene2.bin",
+    "slot": 11,
+    "trackFile": "StardustSpeedway2.ogg",
+    "resolved": "Data/Music/StardustSpeedway2.ogg"
+  },
+  {
+    "folder": "SSZ2",
+    "scene": "Scene2.bin",
+    "slot": 15,
+    "trackFile": "MetalSonic.ogg",
+    "resolved": "Data/Music/MetalSonic.ogg"
+  },
+  {
+    "folder": "TMZ1",
+    "scene": "Scene1.bin",
+    "slot": 654,
+    "trackFile": "TitanicMonarch1.ogg",
+    "resolved": "Data/Music/TitanicMonarch1.ogg"
+  },
+  {
+    "folder": "TMZ2",
+    "scene": "Scene1.bin",
+    "slot": 592,
+    "trackFile": "TitanicMonarch2.ogg",
+    "resolved": "Data/Music/TitanicMonarch2.ogg"
+  },
+  {
+    "folder": "TMZ3",
+    "scene": "Scene1.bin",
+    "slot": 20,
+    "trackFile": "BossFinal.ogg",
+    "resolved": "Data/Music/BossFinal.ogg"
+  },
+  {
+    "folder": "TMZ3",
+    "scene": "Scene1.bin",
+    "slot": 28,
+    "trackFile": "TitanicMonarch2.ogg",
+    "resolved": "Data/Music/TitanicMonarch2.ogg"
+  },
+  {
+    "folder": "TimeTravel",
+    "scene": "Scene1.bin",
+    "slot": 2,
+    "trackFile": "TimeWarp.ogg",
+    "resolved": "Data/Music/TimeWarp.ogg"
+  },
+  {
+    "folder": "Title",
+    "scene": "Scene1.bin",
+    "slot": 75,
+    "trackFile": "TitleScreen.ogg",
+    "resolved": "Data/Music/TitleScreen.ogg"
+  },
+  {
+    "folder": "UFO1",
+    "scene": "Scene1.bin",
+    "slot": 224,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  },
+  {
+    "folder": "UFO2",
+    "scene": "Scene1.bin",
+    "slot": 197,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  },
+  {
+    "folder": "UFO3",
+    "scene": "Scene1.bin",
+    "slot": 387,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  },
+  {
+    "folder": "UFO4",
+    "scene": "Scene1.bin",
+    "slot": 367,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  },
+  {
+    "folder": "UFO5",
+    "scene": "Scene1.bin",
+    "slot": 475,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  },
+  {
+    "folder": "UFO6",
+    "scene": "Scene1.bin",
+    "slot": 740,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  },
+  {
+    "folder": "UFO7",
+    "scene": "Scene1.bin",
+    "slot": 422,
+    "trackFile": "UFOSpecial.ogg",
+    "resolved": "Data/Music/UFOSpecial.ogg"
+  }
+]
