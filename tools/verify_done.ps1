@@ -1076,6 +1076,33 @@ if ($v253Rc -ne 0) {
 }
 W "  OK (LookUp ported; camera lookPos pan to -96 over 60-tick hold; switch case + Player_Tick in game.map)" Green
 
+# Gate V-2.5.4: Player DropDash + JumpAbility_Sonic port (Phase 2.5.4 Task #172).
+#
+# Positioned BEFORE Gate V1 (V1 hard-exits RED). Static P1-P2 assert the decomp-
+# parity DropDash port: player_state_t enum w/ DROPDASH (append-only), the
+# jumpAbilityState + jumpHold fields, Player_State_DropDash + Player_JumpAbility_
+# Sonic routines, the Action_Jump arm (jumpAbilityState=1), the in-air ramp to 22
+# -> state=DROPDASH, the onGround launch consts (base 0x80000, cap 0xC0000) ->
+# state=ROLL, and the switch DROPDASH case + Player_Tick in game.map. P3
+# (savestate, optional) is two-state: jump+hold in air -> state==DROPDASH; on land
+# -> state==ROLL && |g_player_diag_gsp| >= 0x80000. Cites decomp Player.c:6114-6216
+# (JumpAbility_Sonic), 4455-4543 (State_DropDash), 3325 (arm). Shield (BUBBLE/FIRE/
+# LIGHTNING + insta) + super (0xC0000/0xD0000 + ShakeScreen) branches deferred to
+# 2.5.7 / 2.5.9; base Sonic always takes the SHIELD_NONE arm.
+W "Gate V-2.5.4: Player DropDash + JumpAbility_Sonic port (Phase 2.5.4)..." Yellow
+$v254Out = py -3 (Join-Path $PSScriptRoot "qa_phase2_5_4_gate.py") 2>&1
+$v254Rc = $LASTEXITCODE
+$v254Out -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|OK") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($v254Rc -ne 0) {
+    W "FAIL: Gate V-2.5.4 -- Player DropDash / JumpAbility_Sonic contract not met" Red
+    exit 1
+}
+W "  OK (DropDash ported; jump-arm -> air ramp to 22 -> DROPDASH; land launch 0x80000 cap 0xC0000 -> ROLL; switch case + Player_Tick in game.map)" Green
+
 # Gate V-2.4j2: TitleCard atlas-load + ZONE-shear fix (Phase 2.4j.2 Task #157).
 #
 # Positioned BEFORE Gate V1 (same reason as 2.4j1: V1 hard-exits RED). Fixes the

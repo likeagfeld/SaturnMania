@@ -543,10 +543,11 @@ static void player_action_jump(player_t *p)
     p->jumping      = true;
     p->applyJumpCap = true;
     p->angle        = 0;
+    p->jumpAbilityState = 1;              /* decomp Action_Jump: arm (Player.c:3325) */
     p->state        = PLAYER_STATE_AIR;   /* decomp Action_Jump: state=Air */
-    /* Decomp also resets collisionMode/skidding/jumpAbilityState and plays
-     * sfxJump — Phase 2.2 plays jump SFX from the caller (Game.c) so
-     * the cd/JUMPSFX.PCM load lives near the other audio init. */
+    /* Decomp also resets collisionMode/skidding and plays sfxJump — Phase 2.2
+     * plays jump SFX from the caller (Game.c) so the cd/JUMPSFX.PCM load lives
+     * near the other audio init. */
 }
 
 /* === Action_Roll (Player.c:3330-3340) ================================ *
@@ -863,15 +864,121 @@ static void player_state_ground(player_t *p, bool left, bool right, bool down,
     }
 }
 
+/* === JumpAbility_Sonic (Player.c:6114-6216, base-Sonic dropdash) ====== *
+ *
+ * The decomp's stateAbility is invoked from State_Air (Player.c:3914-3917)
+ * once the jump animation is active AND velocity.y has reached the jump cap
+ * (apex). For base Mania Sonic with no shield and no medal mods the flow is:
+ *   - Action_Jump set jumpAbilityState = 1.
+ *   - dropdashDisabled = (jumpAbilityState <= 1).
+ *   - jumpAbilityState == 1 + jumpPress + SHIELD_NONE:
+ *         jumpAbilityState = (~(medalMods & 0xFF) >> 3) & 2.
+ *         medalMods == 0 for base Sonic -> (~0 >> 3) & 2 == 2 (dropdash on).
+ *         The decomp `return`s on this frame (the arm frame).
+ *   - thereafter, !dropdashDisabled && jumpHold -> ++jumpAbilityState; at
+ *         >= 22 -> state = Player_State_DropDash, ANI_DROPDASH.
+ * Shield branches (SHIELD_BUBBLE/FIRE/LIGHTNING) + the invincibleTimer/
+ * insta-shield + super TryTransform paths are 2.5.7/2.5.9 scope and are
+ * intentionally absent here; base Sonic always takes the SHIELD_NONE arm. */
+static void Player_JumpAbility_Sonic(player_t *p, bool jump_press)
+{
+    bool dropdash_disabled = (p->jumpAbilityState <= 1);
+
+    if (p->jumpAbilityState == 1) {
+        if (jump_press) {
+            /* SHIELD_NONE: (~(medalMods & 0xFF) >> 3) & 2 with medalMods=0 =>
+             * 2 (dropdash enabled). Decomp returns on the arm frame. */
+            p->jumpAbilityState = 2;
+        }
+        return;
+    }
+
+    if (!dropdash_disabled && p->jumpHold) {
+        if (++p->jumpAbilityState >= 22) {
+            p->state = PLAYER_STATE_DROPDASH;
+            /* ANI_DROPDASH + sfxDropdash land with the player animation /
+             * audio systems in a later increment. */
+        }
+    }
+}
+
 /* === State_Air (Player.c:3871-3931) =================================== *
  *
  * Decomp does HandleAirFriction + HandleAirMovement, then if onGround
  * (set by ProcessObjectMovement post-physics) transitions back to
  * State_Ground. Saturn-side the surface-snap below handles the onGround
- * latch. */
-static void player_state_air(player_t *p, bool left, bool right, bool jump_held)
+ * latch.
+ *
+ * Phase 2.5.4 — invoke the jump ability. The decomp gates the stateAbility
+ * call on animationID == ANI_JUMP && velocity.y >= jumpCap (Player.c:3914-
+ * 3917): only after a genuine jump (not a spring/hurt launch) and only once
+ * the upward burst has decayed to the jump cap (apex region). The Saturn
+ * model has no per-frame animationID, so `jumping` (set true only by
+ * player_action_jump) stands in for ANI_JUMP, and `ysp >= jumpCap` mirrors
+ * the velocity gate (jumpCap is negative, so this is true from the apex on). */
+static void player_state_air(player_t *p, bool left, bool right,
+                             bool jump_held, bool jump_press)
 {
     player_update_air(p, left, right, jump_held);
+
+    if (p->jumping && p->ysp >= p->jumpCap)
+        Player_JumpAbility_Sonic(p, jump_press);
+}
+
+/* === State_DropDash (Player.c:4455-4543, base-Sonic onGround launch) == *
+ *
+ * On landing (onGround) the dropdash launches into a roll: base vel 0x80000,
+ * cap 0xC0000 (the super 0xC0000/0xD0000 + Camera_ShakeScreen branch is 2.5.9
+ * scope). The launch direction keys on facing + current horizontal velocity:
+ *   facing right: velocity.x >= 0 -> groundVel = vel + (groundVel>>2) cap
+ *       +cap; else if angle -> vel + (groundVel>>1); else -> vel.
+ *   facing left : mirror with negative sign.
+ * Then pushing=0, state=Roll. While still airborne with jumpHold held the
+ * decomp keeps air friction/movement running (+ a Dust/anim ramp deferred
+ * here); releasing jumpHold mid-air cancels: jumpAbilityState=0, state=Air.
+ * The onGround landing-latch is handled by the integrate step (which leaves
+ * state==DROPDASH so this onGround branch fires the frame after touchdown). */
+static void Player_State_DropDash(player_t *p, bool left, bool right,
+                                  bool jump_held)
+{
+    if (p->onGround) {
+        int32_t vel = 0x80000;
+        int32_t cap = 0xC0000;
+
+        if (right) p->facing_left = false;
+        if (left)  p->facing_left = true;
+
+        if (p->facing_left) {
+            if (p->xsp <= 0) {
+                p->gsp = (p->gsp >> 2) - vel;
+                if (p->gsp < -cap) p->gsp = -cap;
+            } else if (p->angle) {
+                p->gsp = (p->gsp >> 1) - vel;
+            } else {
+                p->gsp = -vel;
+            }
+        } else {
+            if (p->xsp >= 0) {
+                p->gsp = vel + (p->gsp >> 2);
+                if (p->gsp > cap) p->gsp = cap;
+            } else if (p->angle) {
+                p->gsp = vel + (p->gsp >> 1);
+            } else {
+                p->gsp = vel;
+            }
+        }
+
+        p->pushing = 0;
+        p->state   = PLAYER_STATE_ROLL;
+    } else if (jump_held) {
+        /* Continue the dropdash charge in the air (air friction + movement;
+         * the animator-speed ramp + Dust spawn are deferred). */
+        player_update_air(p, left, right, jump_held);
+    } else {
+        /* jumpHold released before landing -> cancel back to normal air. */
+        p->jumpAbilityState = 0;
+        p->state            = PLAYER_STATE_AIR;
+    }
 }
 
 /* === Player_Tick — Update body + ProcessObjectMovement collision ====== *
@@ -894,6 +1001,11 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
 {
     /* Jump button edge detect — needed for Action_Jump trigger. */
     bool jump_press = jump_held && !p->prev_jump;
+
+    /* Phase 2.5.4 — latch the held jump button for the dropdash charge ramp.
+     * Decomp Player_Input_P1 mirrors jumpHoldButton into entity->jumpHold each
+     * frame (Player.c:6421); JumpAbility_Sonic / State_DropDash read it. */
+    p->jumpHold = jump_held;
 
     /* Phase 2.4g.3 — two-plane bridge. Select the collision-plane table
      * BEFORE any surface probe this step. p->collisionPlane is written by
@@ -930,7 +1042,14 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
             break;
 
         case PLAYER_STATE_AIR:
-            player_state_air(p, left, right, jump_held);
+            player_state_air(p, left, right, jump_held, jump_press);
+            break;
+
+        case PLAYER_STATE_DROPDASH:
+            /* Airborne charge or the onGround launch-into-roll. No ground-angle
+             * refresh: while airborne the angle is unused, and on the landing
+             * frame the launch reads gsp/facing only (Player.c:4455-4543). */
+            Player_State_DropDash(p, left, right, jump_held);
             break;
 
         case PLAYER_STATE_CROUCH:
@@ -1029,7 +1148,13 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
             p->applyJumpCap = false;
             p->gsp        = p->xsp;
             p->ysp        = 0;
-            p->state      = PLAYER_STATE_GROUND;  /* land -> Ground (decomp) */
+            /* Land -> Ground (decomp). Exception: a DROPDASH that touches down
+             * must keep its state for one more tick so Player_State_DropDash's
+             * onGround branch fires the launch-into-roll next frame (decomp
+             * State_DropDash, Player.c:4458-4540 — the onGround launch runs in
+             * the dropdash state itself, not in State_Ground). */
+            if (p->state != PLAYER_STATE_DROPDASH)
+                p->state  = PLAYER_STATE_GROUND;
         } else if ((p->ypos >> 16) >= w->height_px) {
             /* Fell off the bottom of the level. Phase 2.2 just clamps;
              * Phase 2.3 will add death state + respawn. */

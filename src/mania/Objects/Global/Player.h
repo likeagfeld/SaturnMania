@@ -86,7 +86,10 @@ typedef enum {
     PLAYER_STATE_SPINDASH = 4,
     /* Phase 2.5.3 — append-only (savestate-gate stability).
      *   PLAYER_STATE_LOOKUP <-> Player_State_LookUp (Player.c:4026) */
-    PLAYER_STATE_LOOKUP   = 5
+    PLAYER_STATE_LOOKUP   = 5,
+    /* Phase 2.5.4 — append-only (savestate-gate stability).
+     *   PLAYER_STATE_DROPDASH <-> Player_State_DropDash (Player.c:4455) */
+    PLAYER_STATE_DROPDASH = 6
 } player_state_t;
 
 /* sms_world_t — per-column surface lookup for GHZ.
@@ -181,6 +184,17 @@ typedef struct {
      * (UP, lower world-Y) after the 60-tick LookUp hold; +96 would be the
      * invertGravity branch (unused for base Sonic). Player.c:4047-4058. */
     int32_t lookPos;
+
+    /* Phase 2.5.4 — DropDash ability state (decomp EntityPlayer fields).
+     *   jumpAbilityState <-> EntityPlayer::jumpAbilityState. Action_Jump
+     *     sets it to 1 (armed-pending); a mid-air jumpPress arms dropdash
+     *     (SHIELD_NONE -> 2 for base Sonic); jumpHold ramps it to 22 ->
+     *     Player_State_DropDash. Player.c:6114-6216, 3325.
+     *   jumpHold <-> EntityPlayer::jumpHold. The decomp input handler latches
+     *     it from the held jump button each tick; the Saturn port mirrors
+     *     jump_held into it at the top of Player_Tick. Player.c:6421. */
+    int32_t jumpAbilityState;
+    bool    jumpHold;
 
     /* Per-character physics-state (from sonicPhysicsTable per
      * UpdatePhysicsState, decomp Player.c:2747-2813). Phase 2.2 sets
