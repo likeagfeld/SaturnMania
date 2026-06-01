@@ -1026,6 +1026,31 @@ if ($v251Rc -ne 0) {
 }
 W "  OK (player_state_t enum + switch dispatch; Roll moveset ported; Player_Tick in game.map)" Green
 
+# Gate V-2.5.2: Player Crouch + Spindash port (Phase 2.5.2 Task #166).
+#
+# Positioned BEFORE Gate V1 (V1 hard-exits RED). Static P1-P2 assert the decomp-
+# parity Crouch/Spindash port: player_state_t enum w/ CROUCH+SPINDASH (append-
+# only), abilityTimer/spindashCharge/timer fields, Player_State_Crouch/
+# _Action_Spindash/_State_Spindash routines, at-rest crouch-init (state=CROUCH +
+# Crouch minRollVel 0x11000), charge consts (0x20000 step, 0x90000 cap,
+# 0x7FFF8000 launch mask, 0x80000 base, chargeCap 12), and the switch cases +
+# Player_Tick in game.map. P3 (savestate, optional) is two-state: charge ->
+# state==SPINDASH & g_player_diag_charge>0, release -> state==ROLL & |gsp|>=
+# 0x80000. Cites decomp Player.c:3341,3849,4082,4131.
+W "Gate V-2.5.2: Player Crouch + Spindash port (Phase 2.5.2)..." Yellow
+$v252Out = py -3 (Join-Path $PSScriptRoot "qa_phase2_5_2_gate.py") 2>&1
+$v252Rc = $LASTEXITCODE
+$v252Out -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|OK") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($v252Rc -ne 0) {
+    W "FAIL: Gate V-2.5.2 -- Player Crouch / Spindash contract not met" Red
+    exit 1
+}
+W "  OK (Crouch + Spindash ported; charge/launch consts present; switch cases + Player_Tick in game.map)" Green
+
 # Gate V-2.4j2: TitleCard atlas-load + ZONE-shear fix (Phase 2.4j.2 Task #157).
 #
 # Positioned BEFORE Gate V1 (same reason as 2.4j1: V1 hard-exits RED). Fixes the

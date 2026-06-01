@@ -76,9 +76,14 @@ typedef enum {
  * DEATH / etc. in port order; the numeric values are append-only so captured
  * savestate gates stay valid across increments. */
 typedef enum {
-    PLAYER_STATE_GROUND = 0,
-    PLAYER_STATE_AIR    = 1,
-    PLAYER_STATE_ROLL   = 2
+    PLAYER_STATE_GROUND   = 0,
+    PLAYER_STATE_AIR      = 1,
+    PLAYER_STATE_ROLL     = 2,
+    /* Phase 2.5.2 — append-only (savestate-gate stability).
+     *   PLAYER_STATE_CROUCH   <-> Player_State_Crouch   (Player.c:4082)
+     *   PLAYER_STATE_SPINDASH <-> Player_State_Spindash (Player.c:4131) */
+    PLAYER_STATE_CROUCH   = 3,
+    PLAYER_STATE_SPINDASH = 4
 } player_state_t;
 
 /* sms_world_t — per-column surface lookup for GHZ.
@@ -154,6 +159,17 @@ typedef struct {
      * carries it for Roll-port parity; the wall-push animation that consumes
      * it lands with the animation system in a later increment. */
     int32_t pushing;
+
+    /* Phase 2.5.2 — Crouch + Spindash state (decomp EntityPlayer).
+     *   abilityTimer   <-> EntityPlayer::abilityTimer (spindash charge accum,
+     *                       Player.c:4139 += 0x20000, cap 0x90000).
+     *   spindashCharge <-> EntityPlayer::spindashCharge (0..12 sfx-pitch idx,
+     *                       Player.c:4144).
+     *   timer          <-> EntityPlayer::timer (crouch hold counter -> camera
+     *                       pan after 60, Player.c:4103). */
+    int32_t abilityTimer;
+    int32_t spindashCharge;
+    int32_t timer;
 
     /* Per-character physics-state (from sonicPhysicsTable per
      * UpdatePhysicsState, decomp Player.c:2747-2813). Phase 2.2 sets

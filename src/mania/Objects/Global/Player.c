@@ -649,30 +649,165 @@ static void Player_State_Roll(player_t *p, bool left, bool right, bool jump_pres
         player_action_jump(p);
 }
 
+/* === Action_Spindash (Player.c:3341-3355) ============================= *
+ *
+ * Decomp spawns a Dust entity (Dust_State_SpinDash), sets ANI_SPINDASH,
+ * switches state to Player_State_Spindash, zeroes abilityTimer +
+ * spindashCharge, and plays sfxCharge. The Saturn port carries the
+ * load-bearing state transition + counter resets; the Dust effect, the
+ * spindash animation, and the charge SFX land with the player animation /
+ * SFX-channel systems in a later increment (same deferral as Action_Roll). */
+static void Player_Action_Spindash(player_t *p)
+{
+    p->state          = PLAYER_STATE_SPINDASH;
+    p->abilityTimer   = 0;
+    p->spindashCharge = 0;
+}
+
+/* === State_Crouch (Player.c:4082-4129) ================================ *
+ *
+ * Decomp: forces left=right=false, runs HandleGroundMovement + Gravity_False,
+ * sets nextAirState=Air. With DOWN held: plays ANI_CROUCH (settle on frame 4),
+ * counts `timer` to 60 then pans camera lookPos.y toward +/-96, and on
+ * jumpPress launches Action_Spindash. Without DOWN: resumes the crouch anim
+ * (speed=128) and returns to State_Ground once the anim reverses to frame 0
+ * (or left/right is pressed), with jumpPress -> Action_Jump.
+ *
+ * Saturn port: the animator-frame settle (frameID==4 / frameID==0) is a
+ * draw-side concern deferred with the player animation system, so the
+ * un-crouch keys directly on releasing DOWN (or pressing left/right) — the
+ * faithful state-level reduction. The camera lookPos pan lands in 2.5.3
+ * (LookUp + camera-pan); 2.5.2 advances the `timer` hold counter that gates
+ * it. left/right are forced false before HandleGroundMovement so groundVel
+ * friction-decays to rest, exactly as the decomp. */
+static void Player_State_Crouch(player_t *p, bool left, bool right, bool down,
+                                bool jump_press)
+{
+    /* Decomp Player.c:4089-4092 — left/right forced false, then ground move. */
+    player_update_ground(p, false, false, false);
+
+    /* Decomp sets nextAirState = Player_State_Air (Player.c:4096); the Saturn
+     * integrate step transitions to AIR directly on a cliff/pit, so the
+     * nextAirState indirection is elided. */
+
+    if (down) {
+        /* Decomp Player.c:4099-4115 — ANI_CROUCH settle (deferred), then a
+         * 60-tick hold before the camera look-down pan. */
+        if (p->timer < 60)
+            p->timer++;
+        /* else: camera->lookPos.y += 2 (cap 96) — wired in 2.5.3 camera-pan. */
+
+        if (jump_press)
+            Player_Action_Spindash(p);
+    } else {
+        /* Decomp Player.c:4121-4128 — un-crouch back to Ground; jumpPress
+         * jumps. left/right also leave (handled by the !down path here). */
+        p->state = PLAYER_STATE_GROUND;
+        if (jump_press)
+            player_action_jump(p);
+    }
+    (void)left; (void)right;
+}
+
+/* === State_Spindash (Player.c:4131-4188) ============================== *
+ *
+ * Decomp: each jumpPress while charging adds 0x20000 to abilityTimer (cap
+ * 0x90000) and bumps spindashCharge (0..12, the sfx-pitch index); with no
+ * jumpPress abilityTimer bleeds down by `abilityTimer >> 5`. When DOWN is
+ * released the charge converts to launch ground speed
+ * `(((uint32)abilityTimer >> 1) & 0x7FFF8000) + 0x80000` (super adds 0xB0000,
+ * deferred to 2.5.9), signed by facing, and the player drops into
+ * Player_State_Roll.
+ *
+ * Saturn port: the chargeSpeeds[] SFX-pitch table + SetChannelAttributes, the
+ * ANI_SPINDASH/ANI_JUMP animations, the Dust effect, and the camera
+ * scrollDelay/FollowY (Player.c:4161-4164) are draw/SFX/camera-side concerns
+ * deferred with their respective systems. The collisionMode jumpOffset nudge
+ * (Player.c:4182-4183) is moot under the Saturn surface re-snap, identical to
+ * the Action_Roll deferral. On release the launched groundVel is projected
+ * onto xsp/ysp immediately (mirrors Player_State_Roll) so the grounded
+ * integrate advances the very same frame. */
+static void Player_State_Spindash(player_t *p, bool down, bool jump_press)
+{
+    if (jump_press) {
+        p->abilityTimer += 0x20000;
+        if (p->abilityTimer > 0x90000)
+            p->abilityTimer = 0x90000;
+        if (p->spindashCharge < 12)
+            p->spindashCharge++;
+        if (p->spindashCharge < 0)
+            p->spindashCharge = 0;
+        /* ANI_SPINDASH + sfxCharge pitch (chargeSpeeds[spindashCharge]) —
+         * deferred with the player animation / SFX-channel systems. */
+    } else {
+        p->abilityTimer -= p->abilityTimer >> 5;
+    }
+
+    /* Pin the player horizontally while charging (decomp holds position; its
+     * ProcessObjectMovement derives velocity from a near-zero groundVel). */
+    p->xsp = 0;
+    p->ysp = 0;
+
+    if (!down) {
+        /* Decomp Player.c:4166-4186 — release into a roll. */
+        int32_t vel = (int32_t)((((uint32_t)p->abilityTimer >> 1) & 0x7FFF8000)
+                                + 0x80000);
+        /* super adds 0xB0000 (Player.c:4168) — deferred to 2.5.9. */
+        p->gsp     = p->facing_left ? -vel : vel;
+        p->pushing = 0;
+        p->state   = PLAYER_STATE_ROLL;
+
+        /* Project the launch speed onto world axes along the surface tangent
+         * (same shape as Player_State_Roll) so the grounded integrate moves
+         * this frame. */
+        {
+            int a      = p->angle & 0xFF;
+            int sin_q7 = SIN8[a];
+            int cos_q7 = SIN8[(a + 64) & 0xFF];
+            p->xsp =  (p->gsp * cos_q7) >> 7;
+            p->ysp = -(p->gsp * sin_q7) >> 7;
+        }
+    }
+}
+
 /* === State_Ground (Player.c:3801-3870) ================================ *
  *
  * Decomp dispatches to HandleGroundMovement, HandleGroundAnimation,
  * checks the jump button, the down+|gsp|>=minRollVel roll-init, and the
- * up/down crouch/look. Phase 2.2 ports the movement + jump branches only
- * (roll deferred to 2.2b; crouch/lookup deferred to 2.3 as they need
- * camera lookPos handling). */
+ * up/down crouch/look. Phase 2.5.2 adds the at-rest crouch-init (down on
+ * flat ground -> Crouch); LookUp (up) is deferred to 2.5.3. */
 static void player_state_ground(player_t *p, bool left, bool right, bool down,
                                 bool up, bool jump_press)
 {
-    (void)up;     /* crouch/lookup deferred to 2.5.2 / 2.5.3 */
+    (void)up;     /* up -> LookUp deferred to 2.5.3 */
 
     player_update_ground(p, left, right, down);
 
     if (jump_press) {
         player_action_jump(p);
+        p->timer = 0;                 /* decomp Player.c:3846 */
     } else if (p->gsp) {
         /* Roll-init — decomp Player.c:3849-3854. minRollVel is 0x11000 when
-         * entering from Crouch (2.5.2) and 0x8800 from a run; Phase 2.5.1 has
-         * no Crouch state yet, so the run threshold 0x8800 always applies.
-         * DOWN held, neither LEFT nor RIGHT, at/above minRollVel -> roll. */
-        int32_t minRollVel = 0x8800;
+         * entering from Crouch and 0x8800 from a run. In practice this runs
+         * only with state==GROUND (the switch dispatches Crouch to
+         * Player_State_Crouch), so the run threshold applies; the ternary
+         * mirrors the decomp exactly. DOWN held, neither LEFT nor RIGHT,
+         * at/above minRollVel -> roll. */
+        int32_t minRollVel = (p->state == PLAYER_STATE_CROUCH) ? 0x11000 : 0x8800;
         if (iabs(p->gsp) >= minRollVel && !left && !right && down) {
             Player_Action_Roll(p);
+        }
+    } else {
+        /* At-rest crouch/lookup init — decomp Player.c:3856-3866. Flat-ground
+         * guard: angle < 0x20 || angle > 0xE0 (collisionMode always floor on
+         * Saturn). DOWN -> Crouch; UP -> LookUp (2.5.3). */
+        int ang = p->angle & 0xFF;
+        if (ang < 0x20 || ang > 0xE0) {
+            if (down) {
+                p->timer = 0;
+                p->state = PLAYER_STATE_CROUCH;
+            }
+            /* up -> ANI_LOOK_UP + state = LookUp: deferred to 2.5.3. */
         }
     }
 }
@@ -733,6 +868,20 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
 
         case PLAYER_STATE_AIR:
             player_state_air(p, left, right, jump_held);
+            break;
+
+        case PLAYER_STATE_CROUCH:
+            /* At-rest; refresh the ground angle (HandleGroundMovement consumes
+             * the slope force as groundVel friction-decays to zero). */
+            p->angle = Player_SurfaceAngle(w, p->xpos >> 16);
+            Player_State_Crouch(p, left, right, down, jump_press);
+            break;
+
+        case PLAYER_STATE_SPINDASH:
+            /* Charging in place; refresh the ground angle so the release
+             * launch is projected onto the correct surface tangent. */
+            p->angle = Player_SurfaceAngle(w, p->xpos >> 16);
+            Player_State_Spindash(p, down, jump_press);
             break;
 
         case PLAYER_STATE_GROUND:

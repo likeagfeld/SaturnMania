@@ -1092,6 +1092,9 @@ player_t * const g_ghz_player_addr = &g_ghz_player;
  * g_ghz_player_addr; never read by gameplay code. */
 __attribute__((used)) uint8_t g_player_diag_state = 0;
 __attribute__((used)) int32_t g_player_diag_gsp   = 0;
+/* Phase 2.5.2 (Task #165) — spindash charge landmark for
+ * qa_phase2_5_2_gate.py P3a (mid-charge: state == SPINDASH, charge > 0). */
+__attribute__((used)) int32_t g_player_diag_charge = 0;
 
 static bool           g_ghz_autorun = false;
 static int            g_ghz_input_grace = 0;
@@ -1635,8 +1638,9 @@ void mania_ghz_tick_and_draw(void)
     /* Phase 2.5.1 — refresh the QA-landmark mirrors AFTER the tick so a
      * savestate captured at any frame reflects the player's current state +
      * ground speed (qa_phase2_5_1_gate.py P3). */
-    g_player_diag_state = (uint8_t)g_ghz_player.state;
-    g_player_diag_gsp   = g_ghz_player.gsp;
+    g_player_diag_state  = (uint8_t)g_ghz_player.state;
+    g_player_diag_gsp    = g_ghz_player.gsp;
+    g_player_diag_charge = g_ghz_player.spindashCharge;  /* Phase 2.5.2 P3a */
 
 #ifdef QA_INVBLOCK_PROBE
     /* Phase 2.4g.1 gate P4 capture ONLY. Pin the player at the slot-1016

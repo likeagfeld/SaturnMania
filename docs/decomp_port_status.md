@@ -78,7 +78,7 @@ ground truth for what GHZ Act 1 spawns.
 | SpinBooster | 4 | **NOT_STARTED** | |
 | SpecialRing | 3 | **NOT_STARTED** | bonus-stage entry |
 | TimeAttackGate | 3 | **NOT_STARTED** | TA mode only |
-| Player | 2 | PARTIAL_2.5.1 | run/air/slope + 17px wall/cliff + state-machine selector (player_state_t GROUND/AIR/ROLL switch dispatch) + Roll moveset; spindash/crouch/lookup/dropdash/super/water/shields/hurt/death deferred (2.5.2-2.5.9) |
+| Player | 2 | PARTIAL_2.5.2 | run/air/slope + 17px wall/cliff + state-machine selector (player_state_t GROUND/AIR/ROLL/CROUCH/SPINDASH switch dispatch) + Roll + Crouch + Spindash moveset (Player.c:3341 Action_Spindash, 3849 crouch-init minRollVel 0x11000, 4082 State_Crouch, 4131 State_Spindash; charge +0x20000 cap 0x90000, spindashCharge cap 12, release gsp=(abilityTimer>>1 & 0x7FFF8000)+0x80000); lookup/dropdash/super/water/shields/hurt/death deferred (2.5.3-2.5.9; camera lookPos pan + ANI_CROUCH/SPINDASH + Dust + charge SFX + super +0xB0000 deferred) |
 | SignPost | 2 | PORTED | |
 | CorkscrewPath | 2 | **NOT_STARTED** | loop/corkscrew path router |
 | ForceUnstick | 2 | **NOT_STARTED** | |
