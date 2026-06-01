@@ -770,17 +770,65 @@ static void Player_State_Spindash(player_t *p, bool down, bool jump_press)
     }
 }
 
+/* === State_LookUp (Player.c:4026-4081) ================================ *
+ *
+ * Decomp: Gravity_False, nextAirState=Air. With UP held: forces left=right=
+ * false, HandleGroundMovement, plays ANI_LOOK_UP (settle frame 5), counts
+ * `timer` to 60 then pans camera lookPos.y toward -96 at 2/frame (the
+ * invertGravity branch pans toward +96, unused for base Sonic); jumpPress
+ * runs statePeelout if set else Action_Jump. Without UP: resumes the anim
+ * (speed=64) and returns to State_Ground once the anim reverses to frame 0
+ * (or left/right is pressed), with jumpPress -> Action_Jump.
+ *
+ * Saturn port: the camera is owned by Game.c, so lookPos rides on player_t
+ * and Game.c's camera-follow folds it into cam_y; the recenter-toward-0 when
+ * leaving LookUp/Crouch (decomp Player_Update Player.c:35-40) lands in
+ * Player_Tick below. The animator-frame settle (frameID==0) is a draw-side
+ * concern, so the un-look-up keys directly on releasing UP (or pressing
+ * left/right) — the faithful state-level reduction, mirroring Crouch.
+ *
+ * statePeelout (Player.c:4062) is a medal-mod ability (Encore/medal Sonic);
+ * `self->statePeelout` is unset for base Mania Sonic, so the Saturn port
+ * takes the Action_Jump branch unconditionally. Peelout is surfaced as an
+ * optional default-OFF follow-on, not silently dropped. */
+static void Player_State_LookUp(player_t *p, bool left, bool right, bool up,
+                                bool jump_press)
+{
+    if (up) {
+        /* Decomp Player.c:4037-4041 — left/right forced false, then ground move. */
+        player_update_ground(p, false, false, false);
+
+        /* Decomp Player.c:4047-4058 — 60-tick hold, then pan lookPos to -96. */
+        if (p->timer < 60) {
+            p->timer++;
+        } else {
+            if (p->lookPos > -96)
+                p->lookPos -= 2;
+        }
+
+        if (jump_press)
+            player_action_jump(p);  /* statePeelout default-OFF for base Sonic */
+    } else {
+        /* Decomp Player.c:4070-4079 — resume movement; left/right (or the
+         * anim reversing to frame 0) returns to Ground. Saturn keys the exit
+         * on releasing UP, the state-level reduction of the frameID settle. */
+        player_update_ground(p, left, right, false);
+        p->state = PLAYER_STATE_GROUND;
+        if (jump_press)
+            player_action_jump(p);
+    }
+}
+
 /* === State_Ground (Player.c:3801-3870) ================================ *
  *
  * Decomp dispatches to HandleGroundMovement, HandleGroundAnimation,
  * checks the jump button, the down+|gsp|>=minRollVel roll-init, and the
  * up/down crouch/look. Phase 2.5.2 adds the at-rest crouch-init (down on
- * flat ground -> Crouch); LookUp (up) is deferred to 2.5.3. */
+ * flat ground -> Crouch); Phase 2.5.3 adds the at-rest lookup-init (up on
+ * flat ground -> LookUp). */
 static void player_state_ground(player_t *p, bool left, bool right, bool down,
                                 bool up, bool jump_press)
 {
-    (void)up;     /* up -> LookUp deferred to 2.5.3 */
-
     player_update_ground(p, left, right, down);
 
     if (jump_press) {
@@ -803,11 +851,14 @@ static void player_state_ground(player_t *p, bool left, bool right, bool down,
          * Saturn). DOWN -> Crouch; UP -> LookUp (2.5.3). */
         int ang = p->angle & 0xFF;
         if (ang < 0x20 || ang > 0xE0) {
-            if (down) {
+            if (up) {
+                /* decomp Player.c:3857-3861 — ANI_LOOK_UP, timer=0, LookUp. */
+                p->timer = 0;
+                p->state = PLAYER_STATE_LOOKUP;
+            } else if (down) {
                 p->timer = 0;
                 p->state = PLAYER_STATE_CROUCH;
             }
-            /* up -> ANI_LOOK_UP + state = LookUp: deferred to 2.5.3. */
         }
     }
 }
@@ -853,6 +904,18 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
      * not ROM. */
     ((sms_world_t *)w)->active_path = (int)(p->collisionPlane & 1);
 
+    /* Camera lookPos recenter — decomp Player_Update (Player.c:35-40). When
+     * the player is NOT actively panning (state != LookUp && != Crouch), the
+     * look offset bleeds back toward 0 at 2/frame so the viewport recenters.
+     * Runs before the state machine, mirroring the decomp order; p->state
+     * here reflects last frame's state (same as the decomp's self->state). */
+    if (p->state != PLAYER_STATE_LOOKUP && p->state != PLAYER_STATE_CROUCH) {
+        if (p->lookPos > 0)
+            p->lookPos -= 2;
+        else if (p->lookPos < 0)
+            p->lookPos += 2;
+    }
+
     /* State dispatch — Phase 2.5.1 mirrors the decomp's `StateMachine
      * self->state` selector (Player_Update -> StateMachine_Run) with an
      * explicit switch. Ground/Air bodies are byte-identical to Phase 2.2;
@@ -882,6 +945,13 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
              * launch is projected onto the correct surface tangent. */
             p->angle = Player_SurfaceAngle(w, p->xpos >> 16);
             Player_State_Spindash(p, down, jump_press);
+            break;
+
+        case PLAYER_STATE_LOOKUP:
+            /* At-rest; refresh the ground angle (HandleGroundMovement
+             * consumes the slope force as groundVel friction-decays). */
+            p->angle = Player_SurfaceAngle(w, p->xpos >> 16);
+            Player_State_LookUp(p, left, right, up, jump_press);
             break;
 
         case PLAYER_STATE_GROUND:

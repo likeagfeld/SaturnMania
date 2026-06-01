@@ -83,7 +83,10 @@ typedef enum {
      *   PLAYER_STATE_CROUCH   <-> Player_State_Crouch   (Player.c:4082)
      *   PLAYER_STATE_SPINDASH <-> Player_State_Spindash (Player.c:4131) */
     PLAYER_STATE_CROUCH   = 3,
-    PLAYER_STATE_SPINDASH = 4
+    PLAYER_STATE_SPINDASH = 4,
+    /* Phase 2.5.3 — append-only (savestate-gate stability).
+     *   PLAYER_STATE_LOOKUP <-> Player_State_LookUp (Player.c:4026) */
+    PLAYER_STATE_LOOKUP   = 5
 } player_state_t;
 
 /* sms_world_t — per-column surface lookup for GHZ.
@@ -170,6 +173,14 @@ typedef struct {
     int32_t abilityTimer;
     int32_t spindashCharge;
     int32_t timer;
+
+    /* Phase 2.5.3 — LookUp camera offset (decomp camera->lookPos.y).
+     * The decomp's camera is an RSDK entity; the Saturn build owns the GHZ
+     * camera directly in Game.c, so the look-up pan offset rides on the
+     * player and Game.c's camera-follow folds it into cam_y. Pans to -96
+     * (UP, lower world-Y) after the 60-tick LookUp hold; +96 would be the
+     * invertGravity branch (unused for base Sonic). Player.c:4047-4058. */
+    int32_t lookPos;
 
     /* Per-character physics-state (from sonicPhysicsTable per
      * UpdatePhysicsState, decomp Player.c:2747-2813). Phase 2.2 sets

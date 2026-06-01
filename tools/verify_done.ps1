@@ -1051,6 +1051,31 @@ if ($v252Rc -ne 0) {
 }
 W "  OK (Crouch + Spindash ported; charge/launch consts present; switch cases + Player_Tick in game.map)" Green
 
+# Gate V-2.5.3: Player LookUp + camera-pan port (Phase 2.5.3 Task #169).
+#
+# Positioned BEFORE Gate V1 (V1 hard-exits RED). Static P1-P2 assert the decomp-
+# parity LookUp port: player_state_t enum w/ LOOKUP (append-only), the lookPos
+# camera-offset field, Player_State_LookUp routine, the at-rest up-init
+# (state=LOOKUP), the pan consts (60-tick hold, 96 floor magnitude, -2 lookPos
+# step), the switch LOOKUP case + Player_Tick in game.map, and Game.c folding
+# lookPos into the camera-follow cam_y. P3 (savestate, optional) is two-state:
+# UP held <60 ticks -> state==LOOKUP; UP held past 60 -> -96 <= g_player_diag_
+# lookpos < 0 (panned up). Cites decomp Player.c:4026 (State_LookUp), 3857
+# (up-init), 4047-4058 (lookPos pan). Peelout default-OFF (medal-mod only).
+W "Gate V-2.5.3: Player LookUp + camera-pan port (Phase 2.5.3)..." Yellow
+$v253Out = py -3 (Join-Path $PSScriptRoot "qa_phase2_5_3_gate.py") 2>&1
+$v253Rc = $LASTEXITCODE
+$v253Out -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|OK") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($v253Rc -ne 0) {
+    W "FAIL: Gate V-2.5.3 -- Player LookUp / camera-pan contract not met" Red
+    exit 1
+}
+W "  OK (LookUp ported; camera lookPos pan to -96 over 60-tick hold; switch case + Player_Tick in game.map)" Green
+
 # Gate V-2.4j2: TitleCard atlas-load + ZONE-shear fix (Phase 2.4j.2 Task #157).
 #
 # Positioned BEFORE Gate V1 (same reason as 2.4j1: V1 hard-exits RED). Fixes the

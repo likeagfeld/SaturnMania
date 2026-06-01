@@ -1095,6 +1095,9 @@ __attribute__((used)) int32_t g_player_diag_gsp   = 0;
 /* Phase 2.5.2 (Task #165) — spindash charge landmark for
  * qa_phase2_5_2_gate.py P3a (mid-charge: state == SPINDASH, charge > 0). */
 __attribute__((used)) int32_t g_player_diag_charge = 0;
+/* Phase 2.5.3 (Task #168) — LookUp camera-pan landmark for
+ * qa_phase2_5_3_gate.py P3b (after the 60-tick hold: -96 <= lookPos < 0). */
+__attribute__((used)) int32_t g_player_diag_lookpos = 0;
 
 static bool           g_ghz_autorun = false;
 static int            g_ghz_input_grace = 0;
@@ -1641,6 +1644,7 @@ void mania_ghz_tick_and_draw(void)
     g_player_diag_state  = (uint8_t)g_ghz_player.state;
     g_player_diag_gsp    = g_ghz_player.gsp;
     g_player_diag_charge = g_ghz_player.spindashCharge;  /* Phase 2.5.2 P3a */
+    g_player_diag_lookpos = g_ghz_player.lookPos;        /* Phase 2.5.3 P3b */
 
 #ifdef QA_INVBLOCK_PROBE
     /* Phase 2.4g.1 gate P4 capture ONLY. Pin the player at the slot-1016
@@ -1673,6 +1677,12 @@ void mania_ghz_tick_and_draw(void)
     int py = g_ghz_player.ypos >> 16;
     int cam_x = px - MANIA_SONIC_SCR_X;
     int cam_y = py - 112 - MANIA_CAM_FOOT_OFFSET;
+    /* Phase 2.5.3 — LookUp camera pan. The Saturn build owns this camera
+     * directly (decomp's RSDK camera carries the offset on its own entity),
+     * so fold player_t.lookPos into cam_y. lookPos goes negative during the
+     * 60-tick LookUp hold (Player_State_LookUp, Player.c:4047-4058), panning
+     * the viewport UP toward -96 (lower world-Y at top-left origin). */
+    cam_y += g_ghz_player.lookPos;
     ghz_set_camera(cam_x, cam_y);
     int actual_cx = ghz_camera_x();
     int actual_cy = ghz_camera_y();
