@@ -1082,6 +1082,17 @@ volatile bool         g_ghz_player_ready = false;
  * read by gameplay code. */
 __attribute__((used))
 player_t * const g_ghz_player_addr = &g_ghz_player;
+
+/* Phase 2.5.1 (Task #162) — savestate-peek landmarks for
+ * qa_phase2_5_1_gate.py P3 (runtime --with-savestate). Mirror the player
+ * state-machine selector + ground speed into stable `used` globals updated
+ * once per physics tick, so the gate can assert "DOWN at speed -> ROLL"
+ * (state == PLAYER_STATE_ROLL, |gsp| >= 0x8000) from a captured .mc0 without
+ * needing g_ghz_player's LTO-mangled address. Same QA-landmark role as
+ * g_ghz_player_addr; never read by gameplay code. */
+__attribute__((used)) uint8_t g_player_diag_state = 0;
+__attribute__((used)) int32_t g_player_diag_gsp   = 0;
+
 static bool           g_ghz_autorun = false;
 static int            g_ghz_input_grace = 0;
 static bool           g_ghz_prev_left = false;
@@ -1620,6 +1631,12 @@ void mania_ghz_tick_and_draw(void)
     if (!g_titlecard_active)
         Player_Tick(&g_ghz_player, &g_ghz_world,
                     in_left, in_right, in_down, in_up, in_jump);
+
+    /* Phase 2.5.1 — refresh the QA-landmark mirrors AFTER the tick so a
+     * savestate captured at any frame reflects the player's current state +
+     * ground speed (qa_phase2_5_1_gate.py P3). */
+    g_player_diag_state = (uint8_t)g_ghz_player.state;
+    g_player_diag_gsp   = g_ghz_player.gsp;
 
 #ifdef QA_INVBLOCK_PROBE
     /* Phase 2.4g.1 gate P4 capture ONLY. Pin the player at the slot-1016

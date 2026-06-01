@@ -301,6 +301,7 @@ int Player_CheckCollisionBox(player_t *p, int box_x_px, int box_y_px,
 #define P_AIR_ACCEL        0x1800    /* 0.09375        */
 #define P_SKID_SPEED       0x8000    /* 0.5            */
 #define P_ROLLING_FRIC     0x600     /* 0.0234375      */
+#define P_ROLLING_DECEL    0x2000    /* decomp UpdatePhysicsState (Player.c:2795) */
 #define P_JUMP_STRENGTH    0x68000   /* 6.5            */
 #define P_JUMP_CAP         (-0x40000)/* -4.0           */
 #define P_GRAVITY          0x5800    /* 0.34375 — decomp Mania (NOT 0x38000) */
@@ -345,6 +346,7 @@ void Player_Init(player_t *p, player_character_t who,
     p->airAcceleration  = P_AIR_ACCEL;
     p->skidSpeed        = P_SKID_SPEED;
     p->rollingFriction  = P_ROLLING_FRIC;
+    p->rollingDeceleration = P_ROLLING_DECEL;
     p->jumpStrength     = P_JUMP_STRENGTH;
     p->jumpCap          = P_JUMP_CAP;
     p->gravityStrength  = P_GRAVITY;
@@ -541,9 +543,110 @@ static void player_action_jump(player_t *p)
     p->jumping      = true;
     p->applyJumpCap = true;
     p->angle        = 0;
+    p->state        = PLAYER_STATE_AIR;   /* decomp Action_Jump: state=Air */
     /* Decomp also resets collisionMode/skidding/jumpAbilityState and plays
      * sfxJump — Phase 2.2 plays jump SFX from the caller (Game.c) so
      * the cd/JUMPSFX.PCM load lives near the other audio init. */
+}
+
+/* === Action_Roll (Player.c:3330-3340) ================================ *
+ *
+ * Decomp sets ANI_JUMP, zeroes pushing, switches state to Player_State_Roll,
+ * and (on CMODE_FLOOR) nudges position.y by jumpOffset. The Saturn integrate
+ * step re-snaps ypos to the surface table every grounded tick, so the
+ * jumpOffset nudge is moot here (it would be overwritten the same frame) and
+ * is intentionally omitted; the state + pushing reset are the load-bearing
+ * parts. Animation (ANI_JUMP) lands with the player animation system in a
+ * later increment. */
+static void Player_Action_Roll(player_t *p)
+{
+    p->pushing = 0;
+    p->state   = PLAYER_STATE_ROLL;
+}
+
+/* === HandleRollDeceleration (Player.c:3466-3556, CMODE_FLOOR branch) == *
+ *
+ * Decomp: reverse-press adds rollingDeceleration toward zero; otherwise
+ * rollingFriction bleeds |groundVel| toward zero; slope force adds
+ * 0x1400 (with-slope) / 0x5000 (against-slope) * Sin256(angle) >> 8, capped
+ * at +/-0x120000; a sign reversal parks at groundVel=0 and returns to
+ * State_Ground.
+ *
+ * Saturn port: the decomp's `0x1400 * Sin256(angle) >> 8` uses the full-scale
+ * Sin256 table (~256*sin). The Saturn SIN8 table is Q1.7 (~127*sin ~= half
+ * Sin256), so the equivalent slope force is `0x1400 * SIN8[angle] >> 7` (one
+ * less right-shift) — identical magnitude. The sign of SIN8[angle] matches
+ * Sin256(angle), so the with/against-slope branch keys on it directly. Only
+ * the CMODE_FLOOR case of the decomp switch is ported (the Saturn collision
+ * model is always floor-relative; LWALL/RWALL/ROOF/TubeRoll are out of
+ * Phase 2.5.1 scope). */
+static void Player_HandleRollDeceleration(player_t *p, bool left, bool right)
+{
+    int32_t initialVel = p->gsp;
+    int     a      = p->angle & 0xFF;
+    int     sin_q7 = SIN8[a];
+
+    if (right && p->gsp < 0)
+        p->gsp += p->rollingDeceleration;
+    if (left && p->gsp > 0)
+        p->gsp -= p->rollingDeceleration;
+
+    if (p->gsp) {
+        if (p->gsp < 0) {
+            p->gsp += p->rollingFriction;
+            if (sin_q7 >= 0)
+                p->gsp += (0x1400 * sin_q7) >> 7;
+            else
+                p->gsp += (0x5000 * sin_q7) >> 7;
+            if (p->gsp < -0x120000)
+                p->gsp = -0x120000;
+        } else {
+            p->gsp -= p->rollingFriction;
+            if (sin_q7 <= 0)
+                p->gsp += (0x1400 * sin_q7) >> 7;
+            else
+                p->gsp += (0x5000 * sin_q7) >> 7;
+            if (p->gsp > 0x120000)
+                p->gsp = 0x120000;
+        }
+    } else {
+        p->gsp += (0x5000 * sin_q7) >> 7;
+    }
+
+    /* CMODE_FLOOR reversal -> park + return to Ground (Player.c:3516-3519). */
+    if ((p->gsp >= 0 && initialVel <= 0) || (p->gsp <= 0 && initialVel >= 0)) {
+        p->gsp   = 0;
+        p->state = PLAYER_STATE_GROUND;
+    }
+}
+
+/* === State_Roll (Player.c:3932-3958) ================================= *
+ *
+ * Decomp: HandleGroundRotation (Saturn refreshes p->angle from the surface
+ * table in Player_Tick before this runs), HandleRollDeceleration, clears
+ * applyJumpCap, then on jumpPress -> Action_Jump. The animator-speed ramp
+ * (Player.c:3947-3951) is a draw-side concern deferred with the player
+ * animation system. Saturn projects the post-decel groundVel onto xsp/ysp so
+ * the grounded integrate step (which reads xsp) advances the roll — mirrors
+ * ProcessObjectMovement's `velocity.x = groundVel * cos >> 8`. */
+static void Player_State_Roll(player_t *p, bool left, bool right, bool jump_press)
+{
+    Player_HandleRollDeceleration(p, left, right);
+
+    p->applyJumpCap = false;
+
+    /* Project groundVel onto world axes along the surface tangent (same shape
+     * as player_update_ground, Player.c port). */
+    {
+        int a      = p->angle & 0xFF;
+        int sin_q7 = SIN8[a];
+        int cos_q7 = SIN8[(a + 64) & 0xFF];
+        p->xsp =  (p->gsp * cos_q7) >> 7;
+        p->ysp = -(p->gsp * sin_q7) >> 7;
+    }
+
+    if (jump_press)
+        player_action_jump(p);
 }
 
 /* === State_Ground (Player.c:3801-3870) ================================ *
@@ -556,12 +659,21 @@ static void player_action_jump(player_t *p)
 static void player_state_ground(player_t *p, bool left, bool right, bool down,
                                 bool up, bool jump_press)
 {
-    (void)down; (void)up;     /* roll/crouch/lookup deferred */
+    (void)up;     /* crouch/lookup deferred to 2.5.2 / 2.5.3 */
 
     player_update_ground(p, left, right, down);
 
     if (jump_press) {
         player_action_jump(p);
+    } else if (p->gsp) {
+        /* Roll-init — decomp Player.c:3849-3854. minRollVel is 0x11000 when
+         * entering from Crouch (2.5.2) and 0x8800 from a run; Phase 2.5.1 has
+         * no Crouch state yet, so the run threshold 0x8800 always applies.
+         * DOWN held, neither LEFT nor RIGHT, at/above minRollVel -> roll. */
+        int32_t minRollVel = 0x8800;
+        if (iabs(p->gsp) >= minRollVel && !left && !right && down) {
+            Player_Action_Roll(p);
+        }
     }
 }
 
@@ -606,15 +718,30 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
      * not ROM. */
     ((sms_world_t *)w)->active_path = (int)(p->collisionPlane & 1);
 
-    /* State dispatch — decomp Player_Update calls StateMachine_Run(state).
-     * Phase 2.2 only has Ground / Air. */
-    if (p->onGround) {
-        /* Refresh ground angle from the column we're over BEFORE running
-         * the state — slope force consumes it. */
-        p->angle = Player_SurfaceAngle(w, p->xpos >> 16);
-        player_state_ground(p, left, right, down, up, jump_press);
-    } else {
-        player_state_air(p, left, right, jump_held);
+    /* State dispatch — Phase 2.5.1 mirrors the decomp's `StateMachine
+     * self->state` selector (Player_Update -> StateMachine_Run) with an
+     * explicit switch. Ground/Air bodies are byte-identical to Phase 2.2;
+     * Roll is the new case. onGround remains the integrate selector below and
+     * is kept in sync with state (cliff/pit -> AIR, land -> GROUND). */
+    switch (p->state) {
+        case PLAYER_STATE_ROLL:
+            /* HandleGroundRotation: refresh the ground angle from the surface
+             * column before the roll-decel curve consumes it. */
+            p->angle = Player_SurfaceAngle(w, p->xpos >> 16);
+            Player_State_Roll(p, left, right, jump_press);
+            break;
+
+        case PLAYER_STATE_AIR:
+            player_state_air(p, left, right, jump_held);
+            break;
+
+        case PLAYER_STATE_GROUND:
+        default:
+            /* Refresh ground angle from the column we're over BEFORE running
+             * the state — slope force consumes it. */
+            p->angle = Player_SurfaceAngle(w, p->xpos >> 16);
+            player_state_ground(p, left, right, down, up, jump_press);
+            break;
     }
 
     /* === Integrate position + ProcessObjectMovement-equivalent =========
@@ -644,6 +771,7 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
             p->onGround= false;
             p->jumping = false;
             p->angle   = 0;
+            p->state   = PLAYER_STATE_AIR;
         } else if (new_y < cur_y - WALL_STEP_PX) {
             /* Wall / steep step blocks horizontal motion (decomp
              * pushing=1 + groundVel=0; we just zero the velocity). */
@@ -656,6 +784,7 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
             p->onGround= false;
             p->jumping = false;
             p->angle   = 0;
+            p->state   = PLAYER_STATE_AIR;
         } else {
             /* Walkable: follow the surface. */
             p->xpos = new_x;
@@ -681,6 +810,7 @@ __attribute__((used)) void Player_Tick(player_t *p, const sms_world_t *w,
             p->applyJumpCap = false;
             p->gsp        = p->xsp;
             p->ysp        = 0;
+            p->state      = PLAYER_STATE_GROUND;  /* land -> Ground (decomp) */
         } else if ((p->ypos >> 16) >= w->height_px) {
             /* Fell off the bottom of the level. Phase 2.2 just clamps;
              * Phase 2.3 will add death state + respawn. */

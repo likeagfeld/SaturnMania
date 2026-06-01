@@ -62,6 +62,25 @@ typedef enum {
  * raw int32 = Q16.16 throughout. */
 #define PLAYER_FIXED(x) ((int32_t)((double)(x) * 65536.0))
 
+/* Player state-machine selector — Phase 2.5.1.
+ *
+ * The decomp drives behaviour through a `StateMachine self->state` function
+ * pointer (decomp Player.h EntityPlayer::state). The Saturn player_t is ticked
+ * directly from Game.c rather than via RSDK's object loop, so we mirror the
+ * decomp's per-state dispatch with an explicit enum + a switch in Player_Tick.
+ * Each value corresponds 1:1 to a decomp Player_State_* function:
+ *   PLAYER_STATE_GROUND <-> Player_State_Ground (Player.c:3801)
+ *   PLAYER_STATE_AIR    <-> Player_State_Air    (Player.c:3871)
+ *   PLAYER_STATE_ROLL   <-> Player_State_Roll   (Player.c:3932)
+ * Later 2.5.x increments append CROUCH / SPINDASH / LOOKUP / DROPDASH / HURT /
+ * DEATH / etc. in port order; the numeric values are append-only so captured
+ * savestate gates stay valid across increments. */
+typedef enum {
+    PLAYER_STATE_GROUND = 0,
+    PLAYER_STATE_AIR    = 1,
+    PLAYER_STATE_ROLL   = 2
+} player_state_t;
+
 /* sms_world_t — per-column surface lookup for GHZ.
  *
  * Saturn-port deviation: the decomp uses RSDK.GetTileLayer + Process-
@@ -119,11 +138,22 @@ typedef struct {
     int32_t gsp;               /* ground speed (decomp groundVel)           */
     int     angle;             /* Q0.8 ground angle (decomp angle byte)     */
 
+    /* State-machine selector — decomp EntityPlayer::state (Phase 2.5.1).
+     * Player_Tick dispatches on this; onGround stays the integrate selector
+     * (grounded vs airborne motion) and is kept in sync with state. */
+    player_state_t state;
+
     /* State flags */
     bool    onGround;          /* decomp EntityPlayer::onGround             */
     bool    jumping;           /* in air due to jump (enables jumpCap)      */
     bool    facing_left;       /* decomp direction & FLIP_X                 */
     bool    applyJumpCap;      /* decomp EntityPlayer::applyJumpCap         */
+
+    /* Decomp EntityPlayer::pushing — incremented/decremented in State_Ground
+     * against a wall, zeroed by Action_Roll (Player.c:3336). Phase 2.5.1
+     * carries it for Roll-port parity; the wall-push animation that consumes
+     * it lands with the animation system in a later increment. */
+    int32_t pushing;
 
     /* Per-character physics-state (from sonicPhysicsTable per
      * UpdatePhysicsState, decomp Player.c:2747-2813). Phase 2.2 sets
@@ -134,6 +164,7 @@ typedef struct {
     int32_t airAcceleration;
     int32_t skidSpeed;
     int32_t rollingFriction;
+    int32_t rollingDeceleration;  /* decomp UpdatePhysicsState: 0x2000     */
     int32_t jumpStrength;
     int32_t jumpCap;
     int32_t gravityStrength;

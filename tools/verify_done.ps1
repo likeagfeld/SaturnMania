@@ -1002,6 +1002,30 @@ if ($v24j1Rc -ne 0) {
 }
 W "  OK (TitleCard registered + driven via titlecard_tick/_draw_only; text trio defined; TITLECARD.SP2/.MET provenance-verified; BSS within SGL floor)" Green
 
+# Gate V-2.5.1: Player state-machine refactor + Roll port (Phase 2.5.1 Task #163).
+#
+# Positioned BEFORE Gate V1 (V1 hard-exits RED). Static P1-P2 assert the decomp-
+# style state selector (player_state_t enum w/ GROUND+AIR+ROLL, `state` field,
+# `switch (p->state)` dispatch) and the Roll moveset (Player_Action_Roll/
+# _State_Roll/_HandleRollDeceleration, roll-init minRollVel 0x8800 + down&!left&
+# !right guard, decel consts 0x1400/0x5000/0x120000 + rollingDeceleration field,
+# Player_Tick survives in game.map). P3 (savestate, optional) peeks
+# g_player_diag_state==PLAYER_STATE_ROLL at speed. Cites decomp Player.c:3330,
+# 3466,3932,3849.
+W "Gate V-2.5.1: Player state-machine + Roll port (Phase 2.5.1)..." Yellow
+$v251Out = py -3 (Join-Path $PSScriptRoot "qa_phase2_5_1_gate.py") 2>&1
+$v251Rc = $LASTEXITCODE
+$v251Out -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|OK") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($v251Rc -ne 0) {
+    W "FAIL: Gate V-2.5.1 -- Player state-machine / Roll contract not met" Red
+    exit 1
+}
+W "  OK (player_state_t enum + switch dispatch; Roll moveset ported; Player_Tick in game.map)" Green
+
 # Gate V-2.4j2: TitleCard atlas-load + ZONE-shear fix (Phase 2.4j.2 Task #157).
 #
 # Positioned BEFORE Gate V1 (same reason as 2.4j1: V1 hard-exits RED). Fixes the

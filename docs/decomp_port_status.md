@@ -78,7 +78,7 @@ ground truth for what GHZ Act 1 spawns.
 | SpinBooster | 4 | **NOT_STARTED** | |
 | SpecialRing | 3 | **NOT_STARTED** | bonus-stage entry |
 | TimeAttackGate | 3 | **NOT_STARTED** | TA mode only |
-| Player | 2 | PARTIAL_2.2 | run/air/slope + 17px wall/cliff; roll/spindash/peelout/dropdash/super/water/shields deferred |
+| Player | 2 | PARTIAL_2.5.1 | run/air/slope + 17px wall/cliff + state-machine selector (player_state_t GROUND/AIR/ROLL switch dispatch) + Roll moveset; spindash/crouch/lookup/dropdash/super/water/shields/hurt/death deferred (2.5.2-2.5.9) |
 | SignPost | 2 | PORTED | |
 | CorkscrewPath | 2 | **NOT_STARTED** | loop/corkscrew path router |
 | ForceUnstick | 2 | **NOT_STARTED** | |
@@ -451,7 +451,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/Global/NoSwap.c | NOT_STARTED | src/mania/Objects/Global/NoSwap.c | Phase 4: NoSwap helper |
 | SonicMania/Objects/Global/PauseMenu.c | NOT_STARTED | src/mania/Objects/Global/PauseMenu.c | Phase 4: Pause menu |
 | SonicMania/Objects/Global/PlaneSwitch.c | PORTED | src/mania/Objects/Global/PlaneSwitch.c | Phase 2.4g.3: Z-plane switch — third (largest, 106 inst) GHZ entity on the RSDK entity engine; writes player->collisionPlane (A/B) inside the rotated AABB window; two-plane surface-probe bridge in Player.c selects raw vs raw_alt path |
-| SonicMania/Objects/Global/Player.c | PARTIAL_2.2 | src/mania/Objects/Global/Player.c | Phase 2.2: Mania-faithful Q16.16 ground/air SM + slope physics + 17px wall/cliff + autorun + auto-jump. Deferred: roll/spindash/peelout/dropdash/super/water/shields/hurt/death (2.2b-2.5). |
+| SonicMania/Objects/Global/Player.c | PARTIAL_2.5.1 | src/mania/Objects/Global/Player.c | Phase 2.5.1: decomp-style state selector (player_state_t GROUND/AIR/ROLL + switch(p->state) dispatch in Player_Tick) replacing the binary if(onGround) branch; Roll moveset ported (Player_Action_Roll Player.c:3330, Player_HandleRollDeceleration :3466, Player_State_Roll :3932, State_Ground roll-init :3849 minRollVel 0x8800). Deferred: crouch/spindash/lookup/dropdash/super/water/shields/hurt/death (2.5.2-2.5.9). |
 | SonicMania/Objects/Global/ReplayRecorder.c | NOT_STARTED | src/mania/Objects/Global/ReplayRecorder.c | Phase Z: Replay recorder |
 | SonicMania/Objects/Global/Ring.c | NOT_STARTED | src/mania/Objects/Global/Ring.c | Phase 3: Rings |
 | SonicMania/Objects/Global/SaveGame.c | NOT_STARTED | src/mania/Objects/Global/SaveGame.c | Phase 5: Save data |
