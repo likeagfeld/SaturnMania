@@ -27,8 +27,16 @@ namespace RSDK
 #define OBJECT_COUNT (0x100)
 
 #define RESERVE_ENTITY_COUNT (0x40)
-#define TEMPENTITY_COUNT     (0x80)
-#define SCENEENTITY_COUNT    (0x100)
+// P6.7a (Task #210) Title-scale retarget: ProcessObjects needs LIVE
+// typeGroups/drawGroups backings (TYPEGROUP_COUNT * (2*ENTITY_COUNT + 4)
+// bytes); at SCENEENTITY 0x100 that is 119 KB against the diag image's
+// 171 KB WRAM-H margin -- measured too close to the 0x060C0000 SGL floor.
+// 0x40+0x40 covers every Title slot (highest witnessed scene slot 0x50)
+// at 32 KB. The GHZ-scale entity/group memory map is the P6.7b
+// deliverable (see the MEASURED CAVEAT above -- it is a placement
+// decision, not a #define).
+#define TEMPENTITY_COUNT     (0x40)
+#define SCENEENTITY_COUNT    (0x40)
 #define ENTITY_COUNT         (RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT + TEMPENTITY_COUNT)
 #define TEMPENTITY_START     (ENTITY_COUNT - TEMPENTITY_COUNT)
 

@@ -41,6 +41,9 @@
  * __attribute__((used)) defeats LTO name-collapse so the gate can locate it
  * in game.map (entity-atlas-loader-pattern memory rule). */
 __attribute__((used)) int p6_w_vdp1_slots = 0;
+/* P6.7a diagnostic: the LAST-uploaded cache key, packed
+ * (sx<<20)|(sy<<12)|(w<<6)|h -- identifies an unexpected 17th rect. */
+__attribute__((used)) int p6_w_vdp1_lastkey = 0;
 
 static const unsigned char *s_sheet_px = 0; /* bound engine surface (indexed 8bpp) */
 static int                  s_sheet_w  = 0;
@@ -116,6 +119,7 @@ static int p6_slot_for(int sx, int sy, int w, int h)
         s_slots[i].w   = w;
         s_slots[i].h   = h;
         s_slots[i].jo_id = id;
+        p6_w_vdp1_lastkey = (sx << 20) | (sy << 12) | (w << 6) | h;
         return i;
     }
 }

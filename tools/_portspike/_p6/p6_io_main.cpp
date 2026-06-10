@@ -439,9 +439,24 @@ namespace RSDK {
 EntityBase *objectEntityList = (EntityBase *)P6_LW_ENTITYLIST;
 TileLayer *tileLayers        = (TileLayer *)P6_LW_TILELAYERS;
 DataStorage *dataStorage     = (DataStorage *)P6_LW_DATASTORAGE;
-ObjectClass *objectClassList = (ObjectClass *)P6_LW_DEAD;
-TypeGroupList *typeGroups    = (TypeGroupList *)P6_LW_DEAD;
-DrawList *drawGroups         = (DrawList *)P6_LW_DEAD;
+// P6.7a: objectClassList/typeGroups/drawGroups are LIVE (ProcessObjects,
+// Object.cpp:357-475, reads/writes all three every tick). Real WRAM-H .bss
+// backings, sized by the P6.7a Title-scale data retarget (Object.hpp Saturn
+// branch: ENTITY_COUNT 0xC0): classes 0x100*~68B = 17.4 KB, typeGroups
+// 0x84*(0xC0*2+4) = 32 KB, drawGroups 16*~420B = 6.6 KB -- measured against
+// the 171 KB diag-image margin (GHZ-scale memory map = P6.7b deliverable).
+static ObjectClass   p6_objClassBacking[OBJECT_COUNT];
+static TypeGroupList p6_typeGroupsBacking[TYPEGROUP_COUNT];
+static DrawList      p6_drawGroupsBacking[DRAWGROUP_COUNT];
+ObjectClass *objectClassList = p6_objClassBacking;
+TypeGroupList *typeGroups    = p6_typeGroupsBacking;
+DrawList *drawGroups         = p6_drawGroupsBacking;
+// cameras/cameraCount normally live in Drawing.cpp (not a pack TU);
+// ProcessObjects reads both (Object.cpp:377-390, 409-458). Zero cameras =
+// every ACTIVE_BOUNDS entity stays out of range; the proof entity runs
+// ACTIVE_NORMAL.
+CameraInfo cameras[CAMERA_COUNT];
+int32 cameraCount = 0;
 // LIVE since P6.5b2: LoadSpriteAnimation hash-scans + fills these slots. The
 // 28,672 B backing rides WRAM-H .bss -- the diag image has ~208 KB of margin
 // since the P6SCENE park let LTO sweep the unreachable hand-port (the old
@@ -472,17 +487,10 @@ ScreenInfo *currentScreen     = NULL;
 // LoadSceneAssets, so these sections drop when unreferenced; kept for link
 // robustness). ClearStageObjects is byte-equivalent to the real body at
 // classCount==0 (Object.cpp:1256-1264: loop bound sceneInfo.classCount).
-// ClearStageSfx + LoadSfx stubs REMOVED at P6.6a: Audio_Audio.o (the real
-// engine Audio.cpp) now defines both -- the false-stubs would multiple-define
-// (measured on the first P6.6a pack link), same class as the P6.5a ImageGIF
-// false-stub.
-void ClearStageObjects() {}
-void LoadStaticVariables(uint8 *classPtr, uint32 *hash, int32 readOffset)
-{
-    (void)classPtr;
-    (void)hash;
-    (void)readOffset;
-}
+// ClearStageSfx + LoadSfx stubs REMOVED at P6.6a (real Audio.cpp defines
+// them); ClearStageObjects + LoadStaticVariables stubs REMOVED at P6.7a
+// (real Object.cpp defines them) -- false-stubs multiple-define, the same
+// class as the P6.5a ImageGIF false-stub.
 // ImageGIF::Load is REAL since P6.5a: Graphics_Sprite.o (the engine's own LZW
 // GIF decoder, Sprite.cpp:202-267) is in the pack and provides both the key
 // function and the _ZTVN4RSDK8ImageGIFE vtable. The P6.3-era false-stub that
@@ -603,6 +611,82 @@ void AudioDevice::HandleStreamLoad(ChannelInfo *channel, bool32 async)
 }
 } // namespace RSDK
 
+// ---- P6.7a: flat-Ring-TU surface + function-table bridges --------------------
+// The verbatim p6_ring2.cpp dispatches RSDK.* through these bridges, which
+// route through the engine's OWN RSDKFunctionTable[] (populated by the real
+// SetupFunctionTables, Core/Link.cpp -- the P6.1-proven path). DrawSprite's
+// slot now carries the REAL Saturn backend (P6.5b3), so the engine-looped
+// ring is VISIBLE.
+extern "C" {
+extern void *p6_ring2_staticvars_slot;
+extern unsigned p6_ring2_entity_size;
+extern int32 p6_w_obj_classcount;
+extern int32 p6_w_obj_spawns;
+extern int32 p6_w_obj_draws;
+void Ring_Update(void);
+void Ring_Draw(void);
+void p6_ring2_arm(void *slot, void *frames);
+void p6_ring2_witness(const void *slot);
+
+void *p6_scene_entity(void) { return (void *)RSDK::sceneInfo.entity; }
+
+void p6_bridge_proc_anim(void *animator)
+{
+    typedef void (*ProcAnimFn)(RSDK::Animator *);
+    ProcAnimFn fn = (ProcAnimFn)RSDK::RSDKFunctionTable[RSDK::FunctionTable_ProcessAnimation];
+    if (fn)
+        fn((RSDK::Animator *)animator);
+}
+
+void p6_bridge_draw_sprite(void *animator, void *position, int32 screenRelative)
+{
+    // Counts Ring_Draw_Normal dispatches (qa_p6_obj.py O2/O5, and
+    // qa_p6_draw.py's updated D1: draw_calls == ticks + obj_draws).
+    ++p6_w_obj_draws;
+    typedef void (*DrawSpriteFn)(RSDK::Animator *, RSDK::Vector2 *, bool32);
+    DrawSpriteFn fn = (DrawSpriteFn)RSDK::RSDKFunctionTable[RSDK::FunctionTable_DrawSprite];
+    if (fn)
+        fn((RSDK::Animator *)animator, (RSDK::Vector2 *)position, (bool32)screenRelative);
+}
+} // extern "C"
+
+// libm-free fminf/fmaxf: SetChannelAttributes (Audio.cpp:509, KEPT because
+// the function table references it) needs both; the pack links no libm
+// (P6.4 decision). Soft-float compares route through libgcc.
+extern "C" {
+float fminf(float a, float b) { return a < b ? a : b; }
+float fmaxf(float a, float b) { return a > b ? a : b; }
+}
+
+namespace RSDK {
+// P6.7a link closure backings/stubs (measured undefined list, build iter 3):
+// videoSettings + showHitboxes are read by ProcessObjectDrawLists/LoadImage;
+// the rest are dev/SKU surfaces the function table or REV02 paths reference.
+VideoSettings videoSettings;
+bool32 showHitboxes = false;
+void RenderDeviceBase::SetupImageTexture(int32 width, int32 height, uint8 *imagePixels)
+{
+    (void)width; (void)height; (void)imagePixels; // FIXME P6.8: Cinepak/image path
+}
+void DrawDevString(const char *string, int32 x, int32 y, int32 align, uint32 color)
+{
+    (void)string; (void)x; (void)y; (void)align; (void)color;
+}
+namespace SKU {
+void DrawAchievements() {}
+} // namespace SKU
+
+// A valid static Object for the blank class @0 (registry slot scene entities
+// resolve to through the zeroed stageObjectIDs -- update/draw NULL, skipped).
+static Object  p6_blankObject;
+static Object *p6_blankStaticVars = &p6_blankObject;
+
+// The proof entity's fixed slot: inside the RESERVE area (0x00..0x3F), below
+// every scene-parsed entity -- deterministic for the gate.
+#define P6_OBJ_RING_SLOT (RESERVE_ENTITY_COUNT - 1)
+#define P6_OBJ_RING_CLASSID 1
+} // namespace RSDK
+
 // ---- (b2) Group-B arrays as absolute WRAM-L symbols ---------------------------
 // These are declared as ARRAYS in headers (cannot be pointer-relocated without
 // further engine edits), but their mangled-name link symbols can be defined as
@@ -710,6 +794,24 @@ static Animator p6_ringAnimator;
 static int16  p6_sndPcm16[P6_SND_MAXSAMPLES];
 static uint32 p6_sndPcmBytes = 0; // S16 byte count (witness hash + upload extent)
 static int32  p6_sndSfxID    = -1;
+
+// P6.7a: the REAL engine-loaded Ring anim-0 frame base (saved in block 6;
+// the engine-loop entity's animator points INTO the engine's own frames).
+static SpriteFrame *p6_objRingFrames = NULL;
+
+// P6.7a: re-arm the proof entity through the ENGINE path (ResetEntitySlot,
+// Object.cpp:1084: memset entityClassSize + create dispatch + classID), then
+// apply the spawn-relevant Ring_Create lines (p6_ring2_arm, cited there) and
+// the spawn position. Slot 0x3F = top of the RESERVE area, below every
+// scene-parsed entity.
+static void p6_obj_spawn_ring(void)
+{
+    ResetEntitySlot(P6_OBJ_RING_SLOT, P6_OBJ_RING_CLASSID, NULL);
+    p6_ring2_arm(&objectEntityList[P6_OBJ_RING_SLOT], (void *)p6_objRingFrames);
+    objectEntityList[P6_OBJ_RING_SLOT].position.x = 260 << 16;
+    objectEntityList[P6_OBJ_RING_SLOT].position.y = 60 << 16;
+    ++p6_w_obj_spawns;
+}
 
 // ---- (d) The proof body main.c calls right after jo_core_init -----------------
 // Pre-state per the measured LoadSceneAssets contract (Scene.cpp:295-297 reads
@@ -850,6 +952,7 @@ extern "C" void p6_scene_run(void)
                 p6_w_spr_sheethash = (int32)sh;
 
                 SetSpriteAnimation(sprID, 0, &p6_ringAnimator, true, 0);
+                p6_objRingFrames = &spr->frames[spr->animations[0].frameListOffset]; // P6.7a
 
                 // P6.5b3: DrawSprite environment. Drawing.cpp:2683 translates
                 // through currentScreen->position; :2676/:2687 dereference
@@ -969,6 +1072,37 @@ extern "C" void p6_scene_run(void)
         p6_w_str_path = (int32)ph;
     }
 
+    // 8) P6.7a: ENGINE OBJECT LOOP -- populate the engine's own function
+    //    table (real SetupFunctionTables, Core/Link.cpp; the P6.1-proven
+    //    dispatch path -- the flat Ring TU's RSDK.* calls route through it),
+    //    register Blank @0 + the VERBATIM decomp Ring @1 through the real
+    //    RegisterObject (Object.cpp:62-108), and spawn the proof entity via
+    //    ResetEntitySlot. The tick then runs the engine's ProcessObjects +
+    //    ProcessObjectDrawLists every frame (mirrors p6_main.cpp:120-150,
+    //    the P6.1 standalone template).
+    if (p6_objRingFrames) {
+        SetupFunctionTables();
+
+        RegisterObject(&p6_blankStaticVars, "Blank Object", sizeof(EntityBase), sizeof(Object),
+                       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+        RegisterObject((Object **)p6_ring2_staticvars_slot, "Ring", p6_ring2_entity_size, 20,
+                       Ring_Update, NULL, NULL, Ring_Draw, NULL, NULL, NULL, NULL, NULL);
+        p6_w_obj_classcount = objectClassCount;
+
+        stageObjectIDs[0]    = 0;
+        stageObjectIDs[P6_OBJ_RING_CLASSID] = 1;
+        sceneInfo.classCount = 2;
+
+        // ProcessObjectDrawLists environment (Object.cpp:736-752): one
+        // screen, the proof draw group visible. NO-CTORS: videoSettings +
+        // engine fields set explicitly.
+        videoSettings.screenCount  = 1;
+        engine.drawGroupVisible[3] = true;
+        sceneInfo.state            = ENGINESTATE_REGULAR;
+
+        p6_obj_spawn_ring();
+    }
+
     // 4) Witness copy (WRAM-H .bss survives the later title boot's WRAM-L use).
     {
         EntityBase *e;
@@ -1023,6 +1157,19 @@ extern "C" void p6_scene_tick(void)
         PlaySfx((uint16)p6_sndSfxID, 0, 0xFF);
         p6_snd_play();
         ++p6_w_snd_plays;
+    }
+    // P6.7a: the ENGINE's own object loop, every frame -- update dispatch +
+    // draw-group enqueue (ProcessObjects, Object.cpp:357-475) and the
+    // draw-group walk (ProcessObjectDrawLists, :734+) dispatching the
+    // verbatim Ring_Draw through the function table into the REAL Saturn
+    // DrawSprite backend. The LostFX ring destroys itself after 64 updates
+    // (verbatim ++timer > 64); the engine respawn keeps the cycle running.
+    if (p6_objRingFrames) {
+        if (objectEntityList[P6_OBJ_RING_SLOT].classID == 0)
+            p6_obj_spawn_ring();
+        ProcessObjects();
+        ProcessObjectDrawLists();
+        p6_ring2_witness(&objectEntityList[P6_OBJ_RING_SLOT]);
     }
 }
 #endif // P6_SCENE_TEST

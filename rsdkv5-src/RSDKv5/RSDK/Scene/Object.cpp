@@ -6,6 +6,11 @@ using namespace RSDK;
 #include "Legacy/ObjectLegacy.cpp"
 #endif
 
+#if !defined(P6_SCENE_TEST)
+// P6.7a: under the P6 pack these relocate -- objectClassList/objectEntityList/
+// typeGroups are pointer-form with backings in p6_io_main.cpp (Animation.cpp:9
+// pattern); globalObjectIDs/stageObjectIDs are WRAM-L .equ absolutes; the
+// scalar counters live in p6_io_main's engine-scalars block.
 ObjectClass RSDK::objectClassList[OBJECT_COUNT];
 int32 RSDK::objectClassCount = 0;
 
@@ -19,6 +24,7 @@ EditableVarInfo *RSDK::editableVarList;
 int32 RSDK::editableVarCount = 0;
 
 TypeGroupList RSDK::typeGroups[TYPEGROUP_COUNT];
+#endif
 
 bool32 RSDK::validDraw = false;
 

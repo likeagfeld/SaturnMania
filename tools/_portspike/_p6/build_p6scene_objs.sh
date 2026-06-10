@@ -121,6 +121,33 @@ echo "[7e/9] Audio_Audio.o (UNMODIFIED engine Audio.cpp -- LoadSfx/LoadSfxToSlot
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Audio_Audio.o" "$SRC/RSDK/Audio/Audio.cpp"
 
+echo "[7f] Scene_Object.o (UNMODIFIED engine Object.cpp -- RegisterObject + ResetEntitySlot + ProcessObjects + ProcessObjectDrawLists for P6.7a; editor/serialize surface gc-drops) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Scene_Object.o" "$SRC/RSDK/Scene/Object.cpp"
+
+echo "[7g] Core_Link.o (UNMODIFIED engine Link.cpp -- SetupFunctionTables + RSDKFunctionTable[], the P6.1-proven dispatch; recipe from link_p6.sh:316-318) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Core_Link.o" "$SRC/RSDK/Core/Link.cpp"
+
+echo "[7h] Core_Math.o (engine Math.cpp, Saturn baked trig tables per Task #212 -- SetupFunctionTables -> CalculateTrigAngles closure) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Core_Math.o" "$SRC/RSDK/Core/Math.cpp"
+
+echo "[7i] UserCore_Saturn.o (-DRSDK_SKU_GLOBALS_IN_LINK so Core_Link.o solely owns the SKU globals; recipe from link_p6.sh:321-324) ..."
+$CC $CXXFLAGS $ENG_DEFS -DRSDK_SKU_GLOBALS_IN_LINK $CORE_INC \
+    -c -o "$P6/UserCore_Saturn.o" "$PLAT/UserCore_Saturn.cpp"
+
+echo "[7j] p6_stubs.o (backend entry points Link.cpp's table references that are NOT real in this pack) ..."
+$CC $CXXFLAGS $ENG_DEFS -DP6_PACK_STUBS $CORE_INC \
+    -c -o "$P6/p6_stubs.o" "$P6/p6_stubs.cpp"
+
+echo "[7jb] p6_pack_stubs.o (the measured 43-symbol function-table closure remainder; real TUs replace these P6.7b+) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC -c -o "$P6/p6_pack_stubs.o" "$P6/p6_pack_stubs.cpp"
+
+echo "[7k] p6_ring2.o (VERBATIM decomp Ring for the pack -- flat TU, bridges into the engine table; p6_gameapi.h two-TU split) ..."
+$CC $CXXFLAGS -DRETRO_SATURN_FILEIO -I"$P6" -I"$NEWLIB" \
+    -c -o "$P6/p6_ring2.o" "$P6/p6_ring2.cpp"
+
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
 # (MD5Table_Saturn.inc; Text.cpp Saturn branch) because (a) its upstream
@@ -149,6 +176,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Scene_Scene.o" "$P6/Storage_Storage.o" "$P6/miniz.o" \
     "$P6/Storage_Text.o" "$P6/Graphics_Sprite.o" "$P6/p6_vdp2.o" \
     "$P6/Graphics_Animation.o" "$P6/Audio_Audio.o" \
+    "$P6/Scene_Object.o" "$P6/Core_Link.o" "$P6/Core_Math.o" \
+    "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" "$P6/p6_ring2.o" \
     -o "$P6/p6_scene_pack.o"
 
 echo "--------------------------------------------------------------"

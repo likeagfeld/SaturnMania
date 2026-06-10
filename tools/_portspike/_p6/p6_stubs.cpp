@@ -41,7 +41,9 @@ int32 GetVideoSetting(int32 id) { return 0; }
 void SetVideoSetting(int32 id, int32 value) {}
 void SwapDrawListEntries(uint8 drawGroup, uint16 slot1, uint16 slot2, uint16 count) {}
 void FillScreen(uint32 color, int32 alphaR, int32 alphaG, int32 alphaB) {}
+#if !defined(P6_SCENE_TEST) // P6.5b3: real Saturn DrawSprite backend in p6_io_main.cpp
 void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative) {}
+#endif
 void DrawDeformedSprite(uint16 sheetID, int32 inkEffect, int32 alpha) {}
 void DrawTile(uint16 *tileInfo, int32 countX, int32 countY, Vector2 *position, Vector2 *offset, bool32 screenRelative) {}
 void DrawAniTile(uint16 sheetID, uint16 tileIndex, uint16 srcX, uint16 srcY, uint16 width, uint16 height) {}
@@ -63,11 +65,13 @@ bool32 LoadVideo(const char *filename, double startDelay, bool32 (*skipCallback)
 // ===========================================================================
 // Audio (5)  (Audio/Audio.hpp)  -- channels[] stays in AudioDevice_Saturn.cpp
 // ===========================================================================
+#if !defined(P6_SCENE_TEST) // P6.6: real Audio.cpp (Audio_Audio.o) owns these in the pack
 SFXInfo sfxList[SFX_COUNT];
 int32 PlayStream(const char *filename, uint32 slot, uint32 startPos, uint32 loopPoint, bool32 loadASync) { return -1; }
 int32 PlaySfx(uint16 sfx, uint32 loopPoint, uint32 priority) { return -1; }
 void SetChannelAttributes(uint8 channel, float volume, float panning, float speed) {}
 uint32 GetChannelPos(uint32 channel) { return 0; }
+#endif
 
 } // namespace RSDK
 
