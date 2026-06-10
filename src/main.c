@@ -1226,6 +1226,15 @@ void jo_main(void)
 #ifdef P6SCENE_HOOK
     /* Engine LoadScene proof, once, on jo's live GFS (witnesses persist in BSS). */
     p6_scene_run();
+
+    /* P6.5b1 (Task #208): the proof now PRESENTS the engine-decoded Island
+     * layer on NBG1. Park the diag build here -- the hand-port title init
+     * below would slScrAutoDisp-REPLACE the layer away (scene_ghz.c:574
+     * semantics). jo_core_run with no callbacks idles on slSynch, keeping the
+     * engine-rendered frame on screen for qa_p6_vdp2.py's capture tier. The
+     * shipping `make` (P6SCENE unset) compiles none of this. */
+    jo_core_run();
+    return;
 #endif
 
     /* Hide ALL NBGs immediately so any in-VRAM garbage from the cold-boot

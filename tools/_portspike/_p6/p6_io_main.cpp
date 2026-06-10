@@ -301,16 +301,23 @@ extern "C" void p6_io_proof(void)
 // ReadGifPictureData) now writes the full tileset INTO it via LoadStageGIF.
 // dataFileList[0x700] (57,344 B, P6.4, measured pack fileCount = 1677) and
 // the MUS/SFX trims carry over from v2.
+// v4 (P6.5b1 ROOT-CAUSE FIX): the heap window grows +48 KB. MEASURED: the
+// engine's ReadCompressed -> mz_uncompress allocates ~43.7 KB TRANSIENTLY
+// (mz_inflate's internal state: tinfl_decompressor ~10.9 KB + 32 KB dict);
+// every prior map left only ~8 KB of heap slack beyond the 5 pools, so the
+// malloc FAILED, inflateInit returned MZ_MEM_ERROR, the engine ignored the
+// return (upstream behavior), and every layer layout silently stayed ZERO
+// since P6.3 -- invisible until qa_p6_vdp2.py's layout-derived witnesses.
 #define P6_LW_HEAP_BASE    0x00200000u
-#define P6_LW_HEAP_END     0x00246000u // pools 272 KB (0x44000) + nano-malloc headers, 8 KB slack
-#define P6_LW_ENTITYLIST   0x00246000u // 448 * 344         = 0x25A00 -> 0x26BA00
-#define P6_LW_TILELAYERS   0x0026BA00u // 4 * 13384         = 0xD120  -> 0x278B20
-#define P6_LW_DATASTORAGE  0x00278B20u // 5 * 32788         = 0x28064 -> 0x2A0B84
-#define P6_LW_DATAFILELIST 0x002A0C00u // 0x700 * 32        = 0xE000  -> 0x2AEC00
-#define P6_LW_TILESETPX    0x002AEC00u // TILESET_SIZE      = 0x40000 -> 0x2EEC00 (LIVE since P6.5a)
-#define P6_LW_GROUPB_BASE  0x002EEC00u // absolute arrays below
-#define P6_LW_GROUPB_END   0x002F3EC0u
-#define P6_LW_DEAD         0x002F3F00u // shared dummy for measured-DEAD pointers
+#define P6_LW_HEAP_END     0x00252000u // pools 272 KB + inflate ~44 KB transient + slack
+#define P6_LW_ENTITYLIST   0x00252000u // 448 * 344         = 0x25A00 -> 0x277A00
+#define P6_LW_TILELAYERS   0x00277A00u // 4 * 13384         = 0xD120  -> 0x284B20
+#define P6_LW_DATASTORAGE  0x00284B20u // 5 * 32788         = 0x28064 -> 0x2ACB84
+#define P6_LW_DATAFILELIST 0x002ACC00u // 0x700 * 32        = 0xE000  -> 0x2BAC00
+#define P6_LW_TILESETPX    0x002BAC00u // TILESET_SIZE      = 0x40000 -> 0x2FAC00 (LIVE since P6.5a)
+#define P6_LW_GROUPB_BASE  0x002FAC00u // absolute arrays below
+#define P6_LW_GROUPB_END   0x002FFEC0u
+#define P6_LW_DEAD         0x002FFF00u // shared dummy for measured-DEAD pointers (256 B tail)
 #define P6_LW_ZERO_BASE    P6_LW_ENTITYLIST
 #define P6_LW_ZERO_END     P6_LW_DEAD
 
@@ -338,6 +345,11 @@ __attribute__((used)) int32 p6_w_pack_used      = 0; // 1 == scene LoadFile rode
 __attribute__((used)) int32 p6_w_gif_loaded = 0; // 1 == LoadStageGIF + hash completed
 __attribute__((used)) int32 p6_w_gif_hash   = 0; // djb2-xor over tilesetPixels[0x40000]
 __attribute__((used)) int32 p6_w_gif_b0     = 0; // tilesetPixels[0] (offline model 0x01)
+// P6.5b1 (Task #208, qa_p6_vdp2.py): VDP2 present witness.
+__attribute__((used)) int32 p6_w_vdp2_done  = 0; // 1 == engine layer presented on NBG1
+// p6_vdp2.c (C TU): presents the engine-decoded Island layer through NBG1.
+void p6_vdp2_present(const unsigned char *tilesetPx, const unsigned short *layout,
+                     int wshift, const unsigned short *pal565);
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -415,23 +427,23 @@ void LoadSfx(char *filePath, uint8 plays, uint8 scope)
     __asm__(".global " sym "\n\t.equ " sym ", " addr)
 // P6.4: dataFileList[0x700] -- the Data.rsdk registry LoadDataPack fills
 // (Reader.cpp:140-154) and OpenDataFile hash-scans (Reader.cpp:192-196).
-P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x002A0C00"); // RSDKFileInfo[0x700] = 0xE000
-P6_GROUPB_ABS("__ZN4RSDK11fullPaletteE",     "0x002EEC00"); // uint16[8][256] = 0x1000
-P6_GROUPB_ABS("__ZN4RSDK13globalPaletteE",   "0x002EFC00"); // uint16[8][256] = 0x1000
-P6_GROUPB_ABS("__ZN4RSDK12stagePaletteE",    "0x002F0C00"); // uint16[8][256] = 0x1000
-P6_GROUPB_ABS("__ZN4RSDK11scene3DListE",     "0x002F1C00"); // Scene3D[32]    = 0xA80
-P6_GROUPB_ABS("__ZN4RSDK10gfxSurfaceE",      "0x002F2680"); // GFXSurface[64] = 0x900
+P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x002ACC00"); // RSDKFileInfo[0x700] = 0xE000
+P6_GROUPB_ABS("__ZN4RSDK11fullPaletteE",     "0x002FAC00"); // uint16[8][256] = 0x1000
+P6_GROUPB_ABS("__ZN4RSDK13globalPaletteE",   "0x002FBC00"); // uint16[8][256] = 0x1000
+P6_GROUPB_ABS("__ZN4RSDK12stagePaletteE",    "0x002FCC00"); // uint16[8][256] = 0x1000
+P6_GROUPB_ABS("__ZN4RSDK11scene3DListE",     "0x002FDC00"); // Scene3D[32]    = 0xA80
+P6_GROUPB_ABS("__ZN4RSDK10gfxSurfaceE",      "0x002FE680"); // GFXSurface[64] = 0x900
 // textBuffer[0x400] is NOT an absolute here: Storage_Text.o (linked since P6.4
 // for the real GenerateHashMD5) DEFINES it -- 1 KB rides WRAM-H .bss instead.
-P6_GROUPB_ABS("__ZN4RSDK14stageObjectIDsE",  "0x002F2F80"); // int32[256]     = 0x400
-P6_GROUPB_ABS("__ZN4RSDK15globalObjectIDsE", "0x002F3380"); // int32[256]     = 0x400
-P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_RE",     "0x002F3780"); // uint16[256]    = 0x200
-P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_GE",     "0x002F3980"); // uint16[256]    = 0x200
-P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_BE",     "0x002F3B80"); // uint16[256]    = 0x200
-P6_GROUPB_ABS("__ZN4RSDK13gfxLineBufferE",   "0x002F3D80"); // uint8[224]     = 0xE0
-P6_GROUPB_ABS("__ZN4RSDK16activeGlobalRowsE","0x002F3E60"); // uint16[8]      = 0x10
-P6_GROUPB_ABS("__ZN4RSDK15activeStageRowsE", "0x002F3E70"); // uint16[8]      = 0x10
-P6_GROUPB_ABS("__ZN4RSDK7screensE",          "0x002F3E80"); // ScreenInfo[1]  = 0x34 -> end 0x2F3EB4 < 0x2F3EC0
+P6_GROUPB_ABS("__ZN4RSDK14stageObjectIDsE",  "0x002FEF80"); // int32[256]     = 0x400
+P6_GROUPB_ABS("__ZN4RSDK15globalObjectIDsE", "0x002FF380"); // int32[256]     = 0x400
+P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_RE",     "0x002FF780"); // uint16[256]    = 0x200
+P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_GE",     "0x002FF980"); // uint16[256]    = 0x200
+P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_BE",     "0x002FFB80"); // uint16[256]    = 0x200
+P6_GROUPB_ABS("__ZN4RSDK13gfxLineBufferE",   "0x002FFD80"); // uint8[224]     = 0xE0
+P6_GROUPB_ABS("__ZN4RSDK16activeGlobalRowsE","0x002FFE60"); // uint16[8]      = 0x10
+P6_GROUPB_ABS("__ZN4RSDK15activeStageRowsE", "0x002FFE70"); // uint16[8]      = 0x10
+P6_GROUPB_ABS("__ZN4RSDK7screensE",          "0x002FFE80"); // ScreenInfo[1]  = 0x34 -> end 0x2FFEB4 < 0x2FFEC0
 
 // ---- (c) WRAM-L _sbrk + full newlib syscall set -------------------------------
 // Pattern + rationale from p6_syscalls.c:4-11 (that file serves the STANDALONE
@@ -568,6 +580,16 @@ extern "C" void p6_scene_run(void)
     //    qa_p6_gif.py compares the on-SH-2 djb2-xor of the WHOLE buffer
     //    against a Pillow decode of the same GIF.
     {
+        // Render-backend palette tables FIRST (P6.5b1): the EXACT engine fill
+        // from Drawing.cpp:274-276, so LoadStageGIF's palette merge
+        // (Scene.cpp:995) lands the ORIGINAL GIF palette in fullPalette[0] as
+        // engine-canonical RGB565 instead of zeros.
+        for (int32 c = 0; c < 0x100; ++c) {
+            rgb32To16_R[c] = (c & 0xFFF8) << 8;
+            rgb32To16_G[c] = (c & 0xFFFC) << 3;
+            rgb32To16_B[c] = c >> 3;
+        }
+
         char gifPath[0x40];
         strcpy(gifPath, "Data/Stages/Title/16x16Tiles.gif");
         LoadStageGIF(gifPath);
@@ -580,6 +602,16 @@ extern "C" void p6_scene_run(void)
         p6_w_gif_b0     = (int32)px[0];
         p6_w_gif_loaded = 1;
     }
+
+    // 5) P6.5b1: FIRST ENGINE-RENDERED PIXELS -- present the engine-decoded
+    //    Island layer (tileLayers[3]) through VDP2 NBG1 from the engine's own
+    //    tilesetPixels + layout + fullPalette[0]. main.c then parks the diag
+    //    build on jo_core_run so the layer stays on screen for the capture.
+    p6_vdp2_present((const unsigned char *)P6_LW_TILESETPX,
+                    (const unsigned short *)tileLayers[3].layout,
+                    tileLayers[3].widthShift,
+                    (const unsigned short *)fullPalette[0]);
+    p6_w_vdp2_done = 1;
 
     // 4) Witness copy (WRAM-H .bss survives the later title boot's WRAM-L use).
     {

@@ -105,6 +105,11 @@ echo "[7b/9] Graphics_Sprite.o (UNMODIFIED engine Sprite.cpp -- REAL ImageGIF::L
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Graphics_Sprite.o" "$SRC/RSDK/Graphics/Sprite.cpp"
 
+echo "[7c/9] p6_vdp2.o (P6.5b1 present: engine Island layer -> NBG1 2-word-PND cell mode; ST-058 contracts in-file) ..."
+"$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
+    -I"$SGLINC" -I"$NEWLIB" \
+    -c -o "$P6/p6_vdp2.o" "$P6/p6_vdp2.c"
+
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
 # (MD5Table_Saturn.inc; Text.cpp Saturn branch) because (a) its upstream
@@ -130,7 +135,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u __execv -u __pipe -u _errno \
     "$P6/p6_io_main.o" "$P6/p6_gfs.o" "$P6/Core_Reader.o" \
     "$P6/Scene_Scene.o" "$P6/Storage_Storage.o" "$P6/miniz.o" \
-    "$P6/Storage_Text.o" "$P6/Graphics_Sprite.o" \
+    "$P6/Storage_Text.o" "$P6/Graphics_Sprite.o" "$P6/p6_vdp2.o" \
     -o "$P6/p6_scene_pack.o"
 
 echo "--------------------------------------------------------------"

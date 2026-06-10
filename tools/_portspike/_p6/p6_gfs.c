@@ -54,8 +54,11 @@ extern int p6_w_io_step;    // p6_gfs_init progress 1..2 (localises a hang in on
 #define P6_GFS_OPEN_MAX  2                 // max simultaneously-open GFS handles (1 is enough)
 #define P6_GFS_MAX_DIR   16                // root-dir entries the dirtbl can hold (disc has ~7)
 #define P6_GFS_SECTOR    2048              // CD-ROM Mode 1 user-data bytes per sector
-#define P6_GFS_WIN_SECTS 4                 // sliding-window size in sectors
-#define P6_GFS_WIN_BYTES (P6_GFS_SECTOR * P6_GFS_WIN_SECTS) // 8 KB window
+#define P6_GFS_WIN_SECTS 2                 // sliding-window size in sectors. 4 -> 2
+                                           // (P6.5b1): frees 4 KB of pack BSS to pay
+                                           // for the VDP2 present code against the
+                                           // WRAM-H floor; loads are boot-time only.
+#define P6_GFS_WIN_BYTES (P6_GFS_SECTOR * P6_GFS_WIN_SECTS) // 4 KB window
 // P6.4 (Task #225): the whole-file-in-RAM model (64 KB -> 4 KB s_filebuf) is
 // REPLACED by a sector-aligned sliding window so the engine can mount the
 // 182,962,115-byte DATA.RSDK pack and serve LoadDataPack's registry walk +
