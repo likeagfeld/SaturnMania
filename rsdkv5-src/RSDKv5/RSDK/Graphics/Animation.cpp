@@ -6,7 +6,9 @@ using namespace RSDK;
 #include "Legacy/AnimationLegacy.cpp"
 #endif
 
+#if !defined(P6_SCENE_TEST) // P6.5b2: relocates to static backing in p6_io_main.cpp (pointer form, Animation.hpp:80-84)
 SpriteAnimation RSDK::spriteAnimationList[SPRFILE_COUNT];
+#endif
 
 uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
 {

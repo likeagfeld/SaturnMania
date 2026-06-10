@@ -215,6 +215,15 @@ SRCS = src/main.c \
        src/mania/Objects/Menu/UIButtonPrompt.c \
        src/mania/Objects/Menu/UISubHeading.c
 
+# P6.5b2 (Task #208): the VDP1 sprite half of the engine proof compiles
+# INSIDE this make (appended AFTER the SRCS = assignment above -- an earlier
+# `SRCS +=` would be wiped) so it sees the project's exact jo configuration
+# flags; jo/jo.h struct layouts depend on them, and a flag mismatch between
+# TUs corrupts the sprite tables silently (the FR-2 #189 clobber class).
+ifeq ($(P6SCENE),1)
+SRCS += tools/_portspike/_p6/p6_vdp1.c
+endif
+
 # --- Cinepak Video (auto-linked when JO_COMPILE_WITH_VIDEO_MODULE=1) ---
 # Per docs/cinepak_integration_spec.md: setting JO_COMPILE_WITH_VIDEO_MODULE=1
 # is the FIRST step but NOT sufficient on its own. Verified 2026-05-26:

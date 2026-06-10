@@ -109,6 +109,13 @@ echo "[7c/9] p6_vdp2.o (P6.5b1 present: engine Island layer -> NBG1 2-word-PND c
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
     -I"$SGLINC" -I"$NEWLIB" \
     -c -o "$P6/p6_vdp2.o" "$P6/p6_vdp2.c"
+# NOTE: p6_vdp1.c (P6.5b2 sprite half) is NOT built here -- it includes
+# jo/jo.h, whose struct layouts depend on the project's jo config flags, so
+# the Makefile P6SCENE block compiles it inside the jo make (SRCS +=).
+
+echo "[7d/9] Graphics_Animation.o (UNMODIFIED engine Animation.cpp -- LoadSpriteAnimation + SetSpriteAnimation + ProcessAnimation for P6.5b2; gc drops the string/editor surface) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Graphics_Animation.o" "$SRC/RSDK/Graphics/Animation.cpp"
 
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
@@ -126,6 +133,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
 # pack build, 2026-06-09). C-level `_sbrk` is linker-level `__sbrk` here.
 "$LD" -r --gc-sections \
     -u _p6_scene_run \
+    -u _p6_scene_tick \
     -u _p6_w_magic \
     -u __sbrk -u __exit -u __close -u __fstat -u __isatty -u __lseek \
     -u __read -u __write -u __open -u __getpid -u __kill -u __fork \
@@ -136,6 +144,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/p6_io_main.o" "$P6/p6_gfs.o" "$P6/Core_Reader.o" \
     "$P6/Scene_Scene.o" "$P6/Storage_Storage.o" "$P6/miniz.o" \
     "$P6/Storage_Text.o" "$P6/Graphics_Sprite.o" "$P6/p6_vdp2.o" \
+    "$P6/Graphics_Animation.o" \
     -o "$P6/p6_scene_pack.o"
 
 echo "--------------------------------------------------------------"

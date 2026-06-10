@@ -1212,6 +1212,7 @@ extern void p6_io_run(void);
  * 0x210000, after this returns). Linked + hooked only when `make P6SCENE=1`.
  * Gate: tools/_portspike/qa_p6_scene.py. */
 extern void p6_scene_run(void);
+extern void p6_scene_tick(void); /* P6.5b2: ProcessAnimation + VDP1 ring re-draw */
 #endif
 
 void jo_main(void)
@@ -1232,7 +1233,10 @@ void jo_main(void)
      * below would slScrAutoDisp-REPLACE the layer away (scene_ghz.c:574
      * semantics). jo_core_run with no callbacks idles on slSynch, keeping the
      * engine-rendered frame on screen for qa_p6_vdp2.py's capture tier. The
-     * shipping `make` (P6SCENE unset) compiles none of this. */
+     * shipping `make` (P6SCENE unset) compiles none of this.
+     * P6.5b2: one callback ticks the engine's Ring animator + re-emits the
+     * VDP1 sprite each frame (SGL command lists are per-frame). */
+    jo_core_add_callback(p6_scene_tick);
     jo_core_run();
     return;
 #endif

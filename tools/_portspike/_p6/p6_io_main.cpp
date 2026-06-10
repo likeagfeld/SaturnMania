@@ -65,6 +65,15 @@ __attribute__((used)) int32 p6_w_io_firstbytes = 0;
 __attribute__((used)) int32 p6_w_io_gfsinit    = 0;
 __attribute__((used)) int32 p6_w_io_fid        = 0;
 __attribute__((used)) int32 p6_w_io_step       = 0;
+// P6.5b2 nested-open diagnostics (written by p6_gfs.c):
+//   p6_w_io_openfail  LAST fOpen failure site: 0 none, 1 no free slot,
+//                     2 NameToId<0, 3 GFS_Open NULL, 4 size<0, 5 write mode.
+//   p6_w_io_nopen     current count of concurrently-open handles (high-water
+//                     in p6_w_io_nopen_hw): proves whether the nested second
+//                     open ever actually happened.
+__attribute__((used)) int32 p6_w_io_openfail   = 0;
+__attribute__((used)) int32 p6_w_io_nopen      = 0;
+__attribute__((used)) int32 p6_w_io_nopen_hw   = 0;
 }
 
 // ---- The 3 engine symbols Core_Reader.o references (exact namespaces) --------
@@ -350,6 +359,24 @@ __attribute__((used)) int32 p6_w_vdp2_done  = 0; // 1 == engine layer presented 
 // p6_vdp2.c (C TU): presents the engine-decoded Island layer through NBG1.
 void p6_vdp2_present(const unsigned char *tilesetPx, const unsigned short *layout,
                      int wshift, const unsigned short *pal565);
+// P6.5b2 (Task #208, qa_p6_sprite.py): engine sprite-animation witnesses.
+__attribute__((used)) int32 p6_w_spr_id        = -1; // LoadSpriteAnimation slot
+__attribute__((used)) int32 p6_w_spr_animcount = 0;  // expect 5 (Ring.bin)
+__attribute__((used)) int32 p6_w_spr_f0xy      = 0;  // (sprX<<16)|sprY of anim0 frame0
+__attribute__((used)) int32 p6_w_spr_f0wh      = 0;  // (width<<16)|height
+__attribute__((used)) int32 p6_w_spr_f0pv      = 0;  // (pivotX&FFFF)<<16 | pivotY&FFFF
+__attribute__((used)) int32 p6_w_spr_f0dur     = 0;  // frame0 duration (model 256)
+__attribute__((used)) int32 p6_w_spr_sheethash = 0;  // djb2 over Items.gif surface pixels
+__attribute__((used)) int32 p6_w_spr_frame     = 0;  // animator.frameID at capture
+__attribute__((used)) int32 p6_w_spr_ticks     = 0;  // ProcessAnimation call count
+__attribute__((used)) int32 p6_w_spr_sheetid   = -1; // raw f0->sheetID (0xFF == LoadSpriteSheet
+                                                     // returned -1 truncated through the uint8
+                                                     // sheetIDs[] at Animation.cpp:39/62)
+// p6_vdp1.c (C TU, jo side): ring frame upload + per-tick VDP1 draw.
+int p6_vdp1_ring_init(const unsigned char *sheetPixels, int sheetWidth,
+                      int sprX, int sprY, int w, int h,
+                      const unsigned short *pal565);
+void p6_vdp1_ring_draw(int screenX, int screenY);
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -372,7 +399,13 @@ DataStorage *dataStorage     = (DataStorage *)P6_LW_DATASTORAGE;
 ObjectClass *objectClassList = (ObjectClass *)P6_LW_DEAD;
 TypeGroupList *typeGroups    = (TypeGroupList *)P6_LW_DEAD;
 DrawList *drawGroups         = (DrawList *)P6_LW_DEAD;
-SpriteAnimation *spriteAnimationList = (SpriteAnimation *)P6_LW_DEAD;
+// LIVE since P6.5b2: LoadSpriteAnimation hash-scans + fills these slots. The
+// 28,672 B backing rides WRAM-H .bss -- the diag image has ~208 KB of margin
+// since the P6SCENE park let LTO sweep the unreachable hand-port (the old
+// 41,936 B pack ceiling is obsolete for this build; binding budget = diag
+// _end vs the 0x060C0000 floor, asserted from game.map after every build).
+static SpriteAnimation p6_sprAnimBacking[SPRFILE_COUNT];
+SpriteAnimation *spriteAnimationList = p6_sprAnimBacking;
 Model *modelList             = (Model *)P6_LW_DEAD;
 // LIVE since P6.5a: LoadStageGIF points the decoder at this backing and the
 // engine's ReadGifPictureData writes all 262,144 indexed pixels into it.
@@ -510,6 +543,11 @@ __asm__(".section .bss._p6_errno,\"aw\",@nobits\n"
         "\t.space 4\n"
         "\t.section .text\n");
 
+// P6.5b2: the engine animator the per-tick callback advances with the
+// engine's own ProcessAnimation (zero .bss; armed by SetSpriteAnimation in
+// the run body once Ring.bin is loaded).
+static Animator p6_ringAnimator;
+
 // ---- (d) The proof body main.c calls right after jo_core_init -----------------
 // Pre-state per the measured LoadSceneAssets contract (Scene.cpp:295-297 reads
 // sceneInfo.listData[listPos].id + currentSceneFolder; :693 keeps an entity iff
@@ -613,6 +651,49 @@ extern "C" void p6_scene_run(void)
                     (const unsigned short *)fullPalette[0]);
     p6_w_vdp2_done = 1;
 
+    // 6) P6.5b2: ENGINE OBJECT SPRITES -- the engine loads the REAL
+    //    Global/Ring.bin animation set from the pack (LoadSpriteAnimation ->
+    //    LoadSpriteSheet -> ImageGIF, Animation.cpp:11-94 + Sprite.cpp:906),
+    //    the proof copies the parsed metadata into witnesses byte-for-byte
+    //    (qa_p6_sprite.py model = parse_spr on the same Ring.bin), uploads
+    //    anim-0 frame-0's sheet rect to VDP1, and arms the engine animator
+    //    that p6_scene_tick() advances with the engine's own ProcessAnimation.
+    {
+        uint16 sprID = LoadSpriteAnimation("Global/Ring.bin", SCOPE_STAGE);
+        p6_w_spr_id  = (sprID == (uint16)-1) ? -1 : (int32)sprID;
+        if (p6_w_spr_id >= 0) {
+            SpriteAnimation *spr = &spriteAnimationList[sprID];
+            p6_w_spr_animcount   = (int32)spr->animCount;
+            SpriteFrame *f0      = &spr->frames[spr->animations[0].frameListOffset];
+            p6_w_spr_f0xy        = ((int32)f0->sprX << 16) | (int32)f0->sprY;
+            p6_w_spr_f0wh        = ((int32)f0->width << 16) | (int32)f0->height;
+            p6_w_spr_f0pv = (((int32)f0->pivotX & 0xFFFF) << 16) | ((int32)f0->pivotY & 0xFFFF);
+            p6_w_spr_f0dur       = (int32)f0->duration;
+
+            // MEASURED FAILURE MODE (P6.5b2 T2): a failed LoadSpriteSheet
+            // returns (uint16)-1 which the uint8 sheetIDs[] truncates to 0xFF
+            // (Animation.cpp:39/62) -- gfxSurface[0xFF] is OOB (SURFACE_COUNT
+            // slots) and the unguarded hash loop dereferenced a wild pixels
+            // pointer, killing the whole run body (scene_step stuck at 3,
+            // every witness after block 6 unwritten). Witness the raw id and
+            // only touch gfxSurface when it is a real, populated slot.
+            p6_w_spr_sheetid = (int32)f0->sheetID;
+            GFXSurface *sheet = &gfxSurface[f0->sheetID];
+            if (f0->sheetID < SURFACE_COUNT && sheet->scope != SCOPE_NONE && sheet->pixels) {
+                uint32 sh     = 5381u;
+                uint32 nbytes = (uint32)sheet->width * (uint32)sheet->height;
+                for (uint32 i = 0; i < nbytes; ++i)
+                    sh = ((sh << 5) + sh) ^ (uint32)sheet->pixels[i];
+                p6_w_spr_sheethash = (int32)sh;
+
+                SetSpriteAnimation(sprID, 0, &p6_ringAnimator, true, 0);
+                p6_vdp1_ring_init(sheet->pixels, sheet->width,
+                                  f0->sprX, f0->sprY, f0->width, f0->height,
+                                  (const unsigned short *)fullPalette[0]);
+            }
+        }
+    }
+
     // 4) Witness copy (WRAM-H .bss survives the later title boot's WRAM-L use).
     {
         EntityBase *e;
@@ -628,6 +709,27 @@ extern "C" void p6_scene_run(void)
     }
     p6_w_scene_loaded = 1;
     p6_w_scene_step   = 4;
+}
+
+// P6.5b2: per-frame tick, registered as a jo callback by main.c (the diag
+// build's only callback -- the park keeps the hand-port out). Advances the
+// REAL Ring animator with the engine's own ProcessAnimation and re-emits the
+// VDP1 sprite (SGL rebuilds the command list every frame, so the draw must
+// recur). Witness order matters for qa_p6_sprite.py's W8 cadence formula:
+// ProcessAnimation, copy frameID, THEN ticks++ -- ticks counts completed
+// ProcessAnimation calls.
+extern "C" void p6_scene_tick(void)
+{
+    if (p6_w_spr_id < 0)
+        return;
+    ProcessAnimation(&p6_ringAnimator);
+    p6_w_spr_frame = (int32)p6_ringAnimator.frameID;
+    ++p6_w_spr_ticks;
+    // Frame-0 texture drawn at a fixed screen position (left band of the
+    // island window, qa_p6_sprite.py DRAW_CX/CY). Per-frame VDP1 texture
+    // residency (the FR-1 MRU pattern) lands with the integrated backend;
+    // this proof pins the data path + animator cadence + a visible sprite.
+    p6_vdp1_ring_draw(60, 112);
 }
 #endif // P6_SCENE_TEST
 

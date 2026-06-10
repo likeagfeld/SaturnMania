@@ -46,12 +46,16 @@
 #include <string.h>   // memcpy
 
 // ---- P6.2 file-I/O witnesses (defined int32 in p6_ring.cpp; int == 32-bit SH-2) -
-extern int p6_w_io_gfsinit; // GFS_Init return (ndir): >2 == backend up, <=2 == fail
-extern int p6_w_io_fid;     // GFS_NameToId(P6IO.BIN): >=0 == file found on disc
-extern int p6_w_io_step;    // p6_gfs_init progress 1..2 (localises a hang in one capture)
+extern int p6_w_io_gfsinit;  // GFS_Init return (ndir): >2 == backend up, <=2 == fail
+extern int p6_w_io_fid;      // GFS_NameToId(P6IO.BIN): >=0 == file found on disc
+extern int p6_w_io_step;     // p6_gfs_init progress 1..2 (localises a hang in one capture)
+extern int p6_w_io_openfail; // LAST fOpen failure site: 0 none, 1 no free slot,
+                             // 2 NameToId<0, 3 GFS_Open NULL, 4 size<0, 5 write mode
+extern int p6_w_io_nopen;    // concurrently-open handle count (P6.5b2 nested-open proof)
+extern int p6_w_io_nopen_hw; // high-water of p6_w_io_nopen
 
 // ---- GFS state (BSS) --------------------------------------------------------
-#define P6_GFS_OPEN_MAX  2                 // max simultaneously-open GFS handles (1 is enough)
+#define P6_GFS_OPEN_MAX  2                 // max simultaneously-open GFS handles (nested .bin+GIF opens need 2)
 #define P6_GFS_MAX_DIR   16                // root-dir entries the dirtbl can hold (disc has ~7)
 #define P6_GFS_SECTOR    2048              // CD-ROM Mode 1 user-data bytes per sector
 #define P6_GFS_WIN_SECTS 2                 // sliding-window size in sectors. 4 -> 2
@@ -78,23 +82,45 @@ static GfsDirTbl  s_gfs_dirtbl;
 // ---- The opaque file handle the engine holds (FileInfo.file) ----------------
 // Reader.hpp forward-declares `typedef struct Saturn_FileIO Saturn_FileIO;` and only
 // ever passes around a pointer; the full layout is private to this TU.
-// SINGLE-HANDLE CONTRACT: the engine's Reader opens are strictly sequential in
-// the P6 proofs (LoadDataPack CloseFile's the pack before OpenDataFile re-opens
-// it per file; LoadSceneAssets holds exactly one file open at a time), so one
-// handle + one window suffice; a second concurrent fOpen returns NULL loudly
-// rather than silently corrupting the window.
+// TWO-HANDLE CONTRACT (P6.5b2): the engine's REAL flow nests opens --
+// LoadSpriteAnimation holds the .bin open while LoadSpriteSheet (called
+// mid-parse, Animation.cpp:60) opens the sheet GIF through OpenDataFile,
+// which re-opens the pack. MEASURED failure under the old single handle:
+// the nested fOpen returned NULL, ImageGIF::Load failed, sheetID went 0xFF
+// through the uint8 sheetIDs[] (Animation.cpp:39/62), and the
+// gfxSurface[0xFF] deref crashed the proof (qa_p6_sprite W7/W8 RED, ticks=0).
+//
+// SHARED-UNDERLYING-HANDLE DESIGN (measured 2026-06-10): a second concurrent
+// GFS_Open of the SAME fid fails in this environment -- witnessed
+// p6_w_io_openfail=3 / nopen_hw=1 (GFS_Open returned NULL; per SBL source the
+// failure sits in GFCB_Setup's CD-block command chain, GFS_CDB.C:84-129, NOT
+// in slot exhaustion: jo's GFS_Init open_max=4, GFS_CDBBUF_NR=24; note SBL
+// also LEAKS the GfsFile group on a failed open, GFS.C:493+507). Both engine
+// handles are byte-windows over the same on-disc DATA.RSDK, so the backend
+// keeps ONE underlying GFS handle, refcounted by fid, and serves any number
+// of virtual handles from it: every p6_window_fill does GFS_Seek(sector)
+// FIRST and GFS_TMODE_CPU reads busy-poll to completion (GFS.C:927-928), so
+// interleaved per-slot refills cannot corrupt each other -- the same
+// semantics the PC engine gets from multiple stdio opens of the pack file.
+#define P6_GFS_NHANDLES 2
 struct Saturn_FileIO {
     int   used;    // 1 between fOpen and fClose
     int   size;    // exact file size in bytes
     int   cursor;  // current read position (byte offset)
-    GfsHn gfs;     // OPEN GFS handle, held until fClose (windowed access)
+    GfsHn gfs;     // the SHARED underlying GFS handle (s_pack_gfs)
     int   win_off; // file offset of window start (sector-aligned); -1 = invalid
-    int   win_len; // valid bytes in s_window
+    int   win_len; // valid bytes in this handle's window
+    unsigned char win[P6_GFS_WIN_BYTES];
 };
 typedef struct Saturn_FileIO Saturn_FileIO;
 
-static Saturn_FileIO s_handle;
-static unsigned char s_window[P6_GFS_WIN_BYTES];
+static Saturn_FileIO s_handles[P6_GFS_NHANDLES];
+
+// One refcounted GFS open shared by every virtual handle on the same fid.
+static GfsHn  s_pack_gfs  = (GfsHn)0;
+static Sint32 s_pack_fid  = -1;
+static int    s_pack_refs = 0;
+static int    s_pack_size = -1; // byte size of the underlying file (cached)
 
 // ---- CD/GFS bring-up (called once from p6_io_proof, AFTER p6_sgl_boot) -------
 // Standard order: CDC_CdInit then GFS_Init (jo audio.c:110 -> fs.c:115). slInitSystem
@@ -151,58 +177,107 @@ Saturn_FileIO *Saturn_fOpen(const char *path, const char *mode)
     if (mode) {
         const char *m;
         for (m = mode; *m; ++m) {
-            if (*m == 'w' || *m == 'a' || *m == '+')
+            if (*m == 'w' || *m == 'a' || *m == '+') {
+                p6_w_io_openfail = 5;
                 return (Saturn_FileIO *)0;
+            }
         }
     }
     if (!path)
         return (Saturn_FileIO *)0;
-    if (s_handle.used)
-        return (Saturn_FileIO *)0; // single-handle contract (see above)
+
+    // Two-handle contract (see above): claim the first free slot.
+    Saturn_FileIO *slot = (Saturn_FileIO *)0;
+    int i;
+    for (i = 0; i < P6_GFS_NHANDLES; ++i) {
+        if (!s_handles[i].used) {
+            slot = &s_handles[i];
+            break;
+        }
+    }
+    if (!slot) {
+        p6_w_io_openfail = 1; // both slots busy: deeper nesting than the engine performs
+        return (Saturn_FileIO *)0;
+    }
 
     const char *base = p6_basename(path);
 
     Sint32 fid = GFS_NameToId((Sint8 *)base);
     p6_w_io_fid = (int)fid;
-    if (fid < 0)
-        return (Saturn_FileIO *)0; // not on disc
-
-    GfsHn gfs = GFS_Open(fid);
-    if (gfs == (GfsHn)0)
-        return (Saturn_FileIO *)0;
-
-    // Force CPU software transfer (no SCU DMA) so no interrupt path is exercised.
-    GFS_SetTmode(gfs, GFS_TMODE_CPU);
-
-    Sint32 sctsz = 0, nsct = 0, lstsz = 0;
-    GFS_GetFileSize(gfs, &sctsz, &nsct, &lstsz);
-    int size = (int)(sctsz * (nsct - 1) + lstsz); // exact byte size
-    if (size < 0) {
-        GFS_Close(gfs);
+    if (fid < 0) {
+        p6_w_io_openfail = 2; // not on disc
         return (Saturn_FileIO *)0;
     }
 
-    // Handle stays OPEN; bytes are served through the sliding window on demand.
-    s_handle.used    = 1;
-    s_handle.size    = size;
-    s_handle.cursor  = 0;
-    s_handle.gfs     = gfs;
-    s_handle.win_off = -1; // window invalid until the first read
-    s_handle.win_len = 0;
-    return &s_handle;
+    int size;
+    if (s_pack_refs > 0 && fid == s_pack_fid) {
+        // Nested open of the already-open file: SHARE the underlying GFS
+        // handle (see the shared-underlying-handle design note above).
+        ++s_pack_refs;
+        size = s_pack_size;
+    }
+    else if (s_pack_refs > 0) {
+        // A DIFFERENT fid while another file is open never happens in the
+        // pack-routed engine flow (every LoadFile resolves to DATA.RSDK);
+        // refuse rather than risk the measured GFCB_Setup second-open fault.
+        p6_w_io_openfail = 3;
+        return (Saturn_FileIO *)0;
+    }
+    else {
+        GfsHn gfs = GFS_Open(fid);
+        if (gfs == (GfsHn)0) {
+            p6_w_io_openfail = 3;
+            return (Saturn_FileIO *)0;
+        }
+
+        // Force CPU software transfer (no SCU DMA) so no interrupt path is exercised.
+        GFS_SetTmode(gfs, GFS_TMODE_CPU);
+
+        Sint32 sctsz = 0, nsct = 0, lstsz = 0;
+        GFS_GetFileSize(gfs, &sctsz, &nsct, &lstsz);
+        size = (int)(sctsz * (nsct - 1) + lstsz); // exact byte size
+        if (size < 0) {
+            p6_w_io_openfail = 4;
+            GFS_Close(gfs);
+            return (Saturn_FileIO *)0;
+        }
+        s_pack_gfs  = gfs;
+        s_pack_fid  = fid;
+        s_pack_size = size;
+        s_pack_refs = 1;
+    }
+
+    // Slot is a VIRTUAL handle: own cursor + window over the shared GFS open.
+    slot->used    = 1;
+    slot->size    = size;
+    slot->cursor  = 0;
+    slot->gfs     = s_pack_gfs;
+    slot->win_off = -1; // window invalid until the first read
+    slot->win_len = 0;
+    ++p6_w_io_nopen;
+    if (p6_w_io_nopen > p6_w_io_nopen_hw)
+        p6_w_io_nopen_hw = p6_w_io_nopen;
+    return slot;
 }
 
 int Saturn_fClose(Saturn_FileIO *file)
 {
     if (file && file->used) {
-        GFS_Close(file->gfs);
         file->gfs  = (GfsHn)0;
         file->used = 0;
+        --p6_w_io_nopen;
+        if (--s_pack_refs <= 0) {
+            GFS_Close(s_pack_gfs);
+            s_pack_gfs  = (GfsHn)0;
+            s_pack_fid  = -1;
+            s_pack_size = -1;
+            s_pack_refs = 0;
+        }
     }
     return 0;
 }
 
-// Refill s_window so it covers `offset`: seek the access pointer to the
+// Refill file->win so it covers `offset`: seek the access pointer to the
 // containing sector (GFS_Seek unit = sector, ST-136-R2 sec 2.3) and read up to
 // P6_GFS_WIN_SECTS sectors. GFS_TMODE_CPU busy-polls to completion, so the
 // refill is synchronous and needs no interrupt plumbing.
@@ -218,7 +293,7 @@ static int p6_window_fill(Saturn_FileIO *file, int offset)
 
     if (GFS_Seek(file->gfs, sector, GFS_SEEK_SET) < 0)
         return 0;
-    if (GFS_Fread(file->gfs, nsct, s_window, nsct * P6_GFS_SECTOR) <= 0)
+    if (GFS_Fread(file->gfs, nsct, file->win, nsct * P6_GFS_SECTOR) <= 0)
         return 0;
 
     file->win_off = sector * P6_GFS_SECTOR;
@@ -253,7 +328,7 @@ unsigned long Saturn_fRead(void *buffer, unsigned long elementSize,
         unsigned long chunk     = want - done;
         if (chunk > win_avail)
             chunk = win_avail;
-        memcpy(dst + done, s_window + (file->cursor - file->win_off), (size_t)chunk);
+        memcpy(dst + done, file->win + (file->cursor - file->win_off), (size_t)chunk);
         file->cursor += (int)chunk;
         done += chunk;
     }
