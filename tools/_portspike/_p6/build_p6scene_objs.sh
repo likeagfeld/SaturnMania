@@ -101,6 +101,10 @@ echo "[7/9] Storage_Text.o (UNMODIFIED engine Text.cpp -- REAL GenerateHashMD5 +
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Storage_Text.o" "$SRC/RSDK/Storage/Text.cpp"
 
+echo "[7b/9] Graphics_Sprite.o (UNMODIFIED engine Sprite.cpp -- REAL ImageGIF::Load LZW decoder + vtable for P6.5a LoadStageGIF; the PNG half gc-drops; dyn-init audit: only the constant aggregate codeMasks[] at Sprite.cpp:16, no .init_array trap) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Graphics_Sprite.o" "$SRC/RSDK/Graphics/Sprite.cpp"
+
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
 # (MD5Table_Saturn.inc; Text.cpp Saturn branch) because (a) its upstream
@@ -126,7 +130,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u __execv -u __pipe -u _errno \
     "$P6/p6_io_main.o" "$P6/p6_gfs.o" "$P6/Core_Reader.o" \
     "$P6/Scene_Scene.o" "$P6/Storage_Storage.o" "$P6/miniz.o" \
-    "$P6/Storage_Text.o" \
+    "$P6/Storage_Text.o" "$P6/Graphics_Sprite.o" \
     -o "$P6/p6_scene_pack.o"
 
 echo "--------------------------------------------------------------"

@@ -43,14 +43,17 @@ bool32 RSDK::InitStorage()
     // measured at P5/P6; sized here for the bounded proof. Non-Saturn builds
     // keep the stock 74 MB totals byte-identical.
 #if defined(P6_SCENE_TEST)
-    // P6.4 (Task #225): trim the two pools the zero-registered-class proof
-    // never allocates from, freeing 144 KB of the WRAM-L heap window for the
-    // relocated dataFileList registry (57,344 B) + slack. MEASURED basis:
-    // Title/Scene1.bin DATASET_STG persistent = 13,184 B (256 KB keeps 19.9x
-    // headroom) and DATASET_TMP peak = 95,264 B (128 KB keeps 1.34x); MUS/SFX
-    // pools are touched only by Audio StageLoad paths, which never run with
-    // classCount == 0. Stock Saturn literals (the #else) stay the P6.5+ basis.
-    dataStorage[DATASET_STG].storageLimit = 256 * 1024; // 256 KB
+    // P6.4/P6.5a (Tasks #225/#208): trim the pools the zero-registered-class
+    // proof barely uses, freeing WRAM-L for the relocated dataFileList
+    // registry (57,344 B, P6.4) and the REAL tilesetPixels backing (262,144 B,
+    // P6.5a). MEASURED basis: Title/Scene1.bin DATASET_STG persistent =
+    // 13,184 B (64 KB keeps 4.9x headroom); DATASET_TMP peak = 95,264 B
+    // (128 KB keeps 1.34x; the GIF decode adds GifDecoder 24,892 B + palette
+    // 1 KB transiently AFTER the 88 KB tempEntityList is freed); MUS/SFX are
+    // touched only by Audio StageLoad paths, which never run with
+    // classCount == 0. Stock Saturn literals (the #else) stay the P6.5b+
+    // basis and get re-measured when real stages load through the engine.
+    dataStorage[DATASET_STG].storageLimit = 64 * 1024;  //  64 KB (proof-trim)
     dataStorage[DATASET_MUS].storageLimit = 16 * 1024;  //  16 KB (proof-trim)
     dataStorage[DATASET_SFX].storageLimit = 32 * 1024;  //  32 KB (proof-trim)
     dataStorage[DATASET_STR].storageLimit = 32 * 1024;  //  32 KB
