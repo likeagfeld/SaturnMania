@@ -117,6 +117,10 @@ echo "[7d/9] Graphics_Animation.o (UNMODIFIED engine Animation.cpp -- LoadSprite
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Graphics_Animation.o" "$SRC/RSDK/Graphics/Animation.cpp"
 
+echo "[7e/9] Audio_Audio.o (UNMODIFIED engine Audio.cpp -- LoadSfx/LoadSfxToSlot WAV parse + PlaySfx channel allocator + InitAudioChannels for P6.6a; the in-TU stb_vorbis + stream/mixer surface gc-drops while unreferenced; dyn-init audit: all file-scope state constant/zero-init, no .init_array trap) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Audio_Audio.o" "$SRC/RSDK/Audio/Audio.cpp"
+
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
 # (MD5Table_Saturn.inc; Text.cpp Saturn branch) because (a) its upstream
@@ -144,7 +148,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/p6_io_main.o" "$P6/p6_gfs.o" "$P6/Core_Reader.o" \
     "$P6/Scene_Scene.o" "$P6/Storage_Storage.o" "$P6/miniz.o" \
     "$P6/Storage_Text.o" "$P6/Graphics_Sprite.o" "$P6/p6_vdp2.o" \
-    "$P6/Graphics_Animation.o" \
+    "$P6/Graphics_Animation.o" "$P6/Audio_Audio.o" \
     -o "$P6/p6_scene_pack.o"
 
 echo "--------------------------------------------------------------"

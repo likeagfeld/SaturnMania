@@ -377,6 +377,16 @@ __attribute__((used)) int32 p6_w_draw_calls   = 0;  // FX_NONE dispatches comple
 __attribute__((used)) int32 p6_w_draw_xy      = 0;  // last blit top-left (x&FFFF)<<16|(y&FFFF)
 __attribute__((used)) int32 p6_w_draw_rect    = 0;  // last blit (sprX<<16)|sprY
 __attribute__((used)) int32 p6_w_draw_sheetid = -1; // last blit frame->sheetID
+// P6.6a (Task #209, qa_p6_sfx.py): engine audio-core witnesses.
+__attribute__((used)) int32 p6_w_sfx_inited   = 0;  // AudioDeviceBase::initializedAudioChannels
+__attribute__((used)) int32 p6_w_sfx_musbuf   = 0;  // stream-slot buffer alloc'd (DATASET_MUS)
+__attribute__((used)) int32 p6_w_sfx_id       = -1; // GetSfx("Global/ScoreAdd.wav") roundtrip
+__attribute__((used)) int32 p6_w_sfx_len      = 0;  // sfxList[id].length (model 1469)
+__attribute__((used)) int32 p6_w_sfx_hash     = 0;  // djb2 over the F32 buffer bytes
+__attribute__((used)) int32 p6_w_sfx_channel  = -1; // PlaySfx return (expect 0)
+__attribute__((used)) int32 p6_w_sfx_chstate  = 0;  // (state<<24)|(soundID&0xFFFF)
+__attribute__((used)) int32 p6_w_sfx_chspeed  = 0;  // channels[ch].speed (TO_FIXED(1))
+__attribute__((used)) int32 p6_w_sfx_chloop   = 0;  // channels[ch].loop (loopPoint 0 -> -1)
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
 // backend targets. sheet_bind pins the engine surface + mirrors the palette
 // to CRAM bank 1 once; blit() draws a sheet rect at an engine TOP-LEFT,
@@ -437,19 +447,16 @@ ScreenInfo *currentScreen     = NULL;
 // LoadSceneAssets, so these sections drop when unreferenced; kept for link
 // robustness). ClearStageObjects is byte-equivalent to the real body at
 // classCount==0 (Object.cpp:1256-1264: loop bound sceneInfo.classCount).
-void ClearStageSfx() {}
+// ClearStageSfx + LoadSfx stubs REMOVED at P6.6a: Audio_Audio.o (the real
+// engine Audio.cpp) now defines both -- the false-stubs would multiple-define
+// (measured on the first P6.6a pack link), same class as the P6.5a ImageGIF
+// false-stub.
 void ClearStageObjects() {}
 void LoadStaticVariables(uint8 *classPtr, uint32 *hash, int32 readOffset)
 {
     (void)classPtr;
     (void)hash;
     (void)readOffset;
-}
-void LoadSfx(char *filePath, uint8 plays, uint8 scope)
-{
-    (void)filePath;
-    (void)plays;
-    (void)scope;
 }
 // ImageGIF::Load is REAL since P6.5a: Graphics_Sprite.o (the engine's own LZW
 // GIF decoder, Sprite.cpp:202-267) is in the pack and provides both the key
@@ -506,6 +513,24 @@ void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
                 break;
         }
     }
+}
+
+// ---- P6.6a: the Saturn audio-device Init (the engine-canonical entry every
+// port's device class provides; SaturnAudioDevice.hpp declares it). It runs
+// the engine's OWN AudioDeviceBase::InitAudioChannels (Audio.cpp:164-182 --
+// channel reset to soundID=-1/IDLE, interpolation lookup fill, stream-slot
+// reservation from DATASET_MUS). Protected in the base; this derived static
+// member is the designated access path, mirroring the NX/SDL2 device shape.
+// The SCSP-audible half (key-on from the engine channels[] state) is P6.6b.
+bool32 AudioDevice::Init()
+{
+    // Qualified: SaturnAudioDevice.hpp:34 re-declares a private
+    // InitAudioChannels on the DERIVED class (never defined), which hides
+    // the base's -- the unqualified call linked to the phantom (measured
+    // undefined-ref on the first P6.6a image link). The ENGINE body is
+    // AudioDeviceBase::InitAudioChannels (Audio.cpp:164-182).
+    AudioDeviceBase::InitAudioChannels();
+    return true;
 }
 } // namespace RSDK
 
@@ -761,6 +786,45 @@ extern "C" void p6_scene_run(void)
 
                 p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
                                    (const unsigned short *)fullPalette[0]);
+            }
+        }
+    }
+
+    // 7) P6.6a: ENGINE AUDIO CORE -- the Saturn AudioDevice::Init backend runs
+    //    the engine's own InitAudioChannels, the UNMODIFIED engine loads the
+    //    REAL Global/ScoreAdd.wav from the pack (LoadSfx -> LoadSfxToSlot WAV
+    //    parse + S16->F32 convert, Audio.cpp:305-424), and the engine's own
+    //    PlaySfx channel allocator (Audio.cpp:441-507) arms channel 0. The
+    //    SCSP-audible half keys off this canonical channels[] state in P6.6b.
+    {
+        AudioDevice::Init();
+        p6_w_sfx_inited = (int32)AudioDeviceBase::initializedAudioChannels;
+        p6_w_sfx_musbuf = (sfxList[SFX_COUNT - 1].buffer != NULL) ? 1 : 0;
+
+        char sfxPath[0x20];
+        strcpy(sfxPath, "Global/ScoreAdd.wav");
+        LoadSfx(sfxPath, 1, SCOPE_GLOBAL);
+
+        uint16 sfxID = GetSfx("Global/ScoreAdd.wav");
+        p6_w_sfx_id  = (sfxID == (uint16)-1) ? -1 : (int32)sfxID;
+        if (p6_w_sfx_id >= 0) {
+            SFXInfo *sfx = &sfxList[sfxID];
+            p6_w_sfx_len = (int32)sfx->length;
+
+            const uint8 *pb = (const uint8 *)sfx->buffer;
+            uint32 sh       = 5381u;
+            uint32 nbytes   = (uint32)sfx->length * sizeof(float);
+            for (uint32 i = 0; i < nbytes; ++i)
+                sh = ((sh << 5) + sh) ^ (uint32)pb[i];
+            p6_w_sfx_hash = (int32)sh;
+
+            int32 ch         = PlaySfx(sfxID, 0, 0xFF);
+            p6_w_sfx_channel = ch;
+            if (ch >= 0) {
+                p6_w_sfx_chstate = ((int32)channels[ch].state << 24)
+                                 | ((int32)channels[ch].soundID & 0xFFFF);
+                p6_w_sfx_chspeed = channels[ch].speed;
+                p6_w_sfx_chloop  = (int32)channels[ch].loop;
             }
         }
     }
