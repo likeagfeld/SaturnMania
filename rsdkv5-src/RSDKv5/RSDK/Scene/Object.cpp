@@ -68,6 +68,18 @@ void RSDK::RegisterObject(Object **staticVars, const char *name, uint32 entityCl
     if (objectClassCount < OBJECT_COUNT) {
         if (entityClassSize > sizeof(EntityBase))
             PrintLog(PRINT_NORMAL, "Class exceeds max entity memory: %s", name);
+#if RETRO_PLATFORM == RETRO_SATURN
+        // P4 Task #203: the Saturn EntityBase slot is shrunk to data[0x40] (344 B).
+        // The stock code only WARNS on overflow, but on Saturn registering an oversize
+        // EntityXxx would let its Create/Update write past the slot into the adjacent
+        // objectEntityList entry -- the fatal Phase 1.4-1.15 .bss-corruption class.
+        // Refuse the registration so the object is cleanly absent (a visible failure)
+        // rather than silently corrupting memory. Compile-time static_asserts in the
+        // engine object TUs make this unreachable for the linked core set; this is the
+        // generic guard for game objects (e.g. the P5 Ring). P6 RESTORATION: remove.
+        if (entityClassSize > sizeof(EntityBase))
+            return;
+#endif
 
         ObjectClass *classInfo = &objectClassList[objectClassCount];
         GEN_HASH_MD5(name, classInfo->hash);
@@ -784,6 +796,14 @@ void RSDK::ProcessObjectDrawLists()
                         else
                             ProcessParallax(layer);
 
+#if RETRO_PLATFORM != RETRO_SATURN
+                        // P4 data retarget (Task #203): the DrawLayer* software rasterizers
+                        // are the ONLY writers of ScreenInfo.frameBuffer, which is Saturn-
+                        // stubbed to [1] (Drawing.hpp). On Saturn, tile layers render via
+                        // VDP2 NBG hardware, so this software path is dead -- gate it off so
+                        // it can never write past the stubbed buffer (the Phase 1.4-1.15
+                        // .bss-corruption class). ProcessParallax above still runs (it writes
+                        // scanlines[], not frameBuffer). P6 RESTORATION: drop the guard.
                         switch (layer->type) {
                             case LAYER_HSCROLL: DrawLayerHScroll(layer); break;
                             case LAYER_VSCROLL: DrawLayerVScroll(layer); break;
@@ -791,6 +811,7 @@ void RSDK::ProcessObjectDrawLists()
                             case LAYER_BASIC: DrawLayerBasic(layer); break;
                             default: break;
                         }
+#endif
                     }
 
 #if RETRO_USE_MOD_LOADER

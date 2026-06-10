@@ -6,12 +6,16 @@ using namespace RSDK;
 #include "Legacy/SceneLegacy.cpp"
 #endif
 
-uint8 RSDK::tilesetPixels[TILESET_SIZE * 4];
+#if !defined(P6_SCENE_TEST)
+uint8 RSDK::tilesetPixels[TILESET_SIZE * TILESET_FLIPCOUNT];
+#endif
 
 ScanlineInfo *RSDK::scanlines = NULL;
+#if !defined(P6_SCENE_TEST) // P6.3: these relocate to WRAM-L (pointer form), defined in p6_io_main.cpp
 TileLayer RSDK::tileLayers[LAYER_COUNT];
-CollisionMask RSDK::collisionMasks[CPATH_COUNT][TILE_COUNT * 4];
-TileInfo RSDK::tileInfo[CPATH_COUNT][TILE_COUNT * 4];
+CollisionMask RSDK::collisionMasks[CPATH_COUNT][TILE_COUNT * COLLISION_FLIPCOUNT]; // x4 PC / x1 Saturn (Task #203)
+TileInfo RSDK::tileInfo[CPATH_COUNT][TILE_COUNT * COLLISION_FLIPCOUNT];            // x4 PC / x1 Saturn (Task #203)
+#endif
 
 #if RETRO_REV02
 bool32 RSDK::forceHardReset = false;
@@ -364,6 +368,16 @@ void RSDK::LoadSceneAssets()
 
         // Tile Layers
         uint8 layerCount = ReadInt8(&info);
+#if RETRO_PLATFORM == RETRO_SATURN
+        // P4 data retarget (Task #203): tileLayers[] is Saturn-capped to LAYER_COUNT (4,
+        // Drawing.hpp). Clamp the scene's declared layerCount so the fill loop below can
+        // never write past tileLayers[] -- the Phase 1.4-1.15 .bss-corruption class. A
+        // scene with >4 layers truncates (visible: missing far-bg layers) instead of
+        // overflowing. On Saturn layers render via VDP2 NBG hardware, not the software
+        // DrawLayer* path (Saturn-gated off in Object.cpp). P6 RESTORATION: drop the clamp.
+        if (layerCount > LAYER_COUNT)
+            layerCount = LAYER_COUNT;
+#endif
         for (int32 l = 0; l < layerCount; ++l) {
             TileLayer *layer = &tileLayers[l];
 
@@ -866,6 +880,12 @@ void RSDK::LoadTileConfig(char *filepath)
                 }
             }
 
+#if RETRO_PLATFORM != RETRO_SATURN
+            // P4 (Task #203): the three flip-expansion passes below write the
+            // FLIP_X/Y/XY pre-built collision copies into collisionMasks/tileInfo
+            // [p][t + FLIP_n * TILE_COUNT]. On Saturn those arrays are x1
+            // (COLLISION_FLIPCOUNT==1, Scene.hpp), so the writes are skipped and the
+            // sensors read the base mask via COLLISION_TILE_MASK. P6: remove guard.
             // FlipX
             for (int32 t = 0; t < TILE_COUNT; ++t) {
                 int32 off                       = (FLIP_X * TILE_COUNT);
@@ -947,6 +967,7 @@ void RSDK::LoadTileConfig(char *filepath)
                     collisionMasks[p][t + off].roofMasks[c]  = collisionMasks[p][t + offY].roofMasks[0xF - c];
                 }
             }
+#endif // RETRO_PLATFORM != RETRO_SATURN -- flip-expansion (FlipX/Y/XY) skipped on Saturn (x1 arrays)
         }
 
 #if !RETRO_USE_ORIGINAL_CODE
@@ -975,6 +996,13 @@ void RSDK::LoadStageGIF(char *filepath)
                 }
             }
         }
+
+#if RETRO_PLATFORM != RETRO_SATURN
+        // Software FLIP_X/Y/XY pre-expansion. Skipped on Saturn: tilesetPixels is
+        // x1 (base tiles only) and VDP2 performs tile flips in hardware, so these
+        // three blocks would write 768 KB past the shrunk array. See
+        // TILESET_FLIPCOUNT (Scene.hpp:12). The DrawLayer* readers of the FLIP
+        // regions are retired by the P5/P6 VDP2 tile-render backend.
 
         // Flip X
         uint8 *srcPixels = tilesetPixels;
@@ -1010,6 +1038,7 @@ void RSDK::LoadStageGIF(char *filepath)
 
             dstPixels += (TILE_SIZE * 2);
         }
+#endif
 
 #if RETRO_USE_ORIGINAL_CODE
         tileset.palette = NULL;

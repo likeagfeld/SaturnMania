@@ -80,6 +80,8 @@ void LoadSfx(char *filePath, uint8 plays, uint8 scope);
 #include "SDL2/SDL2AudioDevice.hpp"
 #elif RETRO_AUDIODEVICE_OBOE
 #include "Oboe/OboeAudioDevice.hpp"
+#elif RETRO_AUDIODEVICE_SATURN
+#include "SaturnAudioDevice.hpp" // platform/Saturn/ via -I (Task #196)
 #endif
 
 namespace RSDK

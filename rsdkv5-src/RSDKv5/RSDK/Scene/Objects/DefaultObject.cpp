@@ -2,6 +2,14 @@
 
 using namespace RSDK;
 
+// P4 Task #203 -- compile-time slot-fit guard. Every engine object TU carries this:
+// objectEntityList is EntityBase[], so a registered EntityXxx must never exceed its
+// slot or it corrupts the adjacent entity (the Phase 1.4-1.15 .bss-overflow class).
+// EntityDefaultObject is empty (88 B) so this is always slack -- it documents the
+// contract every object (incl. the P5 Ring) must satisfy on Saturn (data[0x40]).
+static_assert(sizeof(EntityDefaultObject) <= sizeof(EntityBase),
+              "EntityDefaultObject overflows its objectEntityList slot (OBJECT_DATA_COUNT too small)");
+
 ObjectDefaultObject *RSDK::DefaultObject;
 
 void RSDK::DefaultObject_Update()

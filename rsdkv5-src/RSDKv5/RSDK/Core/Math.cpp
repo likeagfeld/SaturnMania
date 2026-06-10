@@ -23,6 +23,17 @@ int32 RSDK::acos256LookupTable[0x100];
 
 uint8 RSDK::arcTan256LookupTable[0x100 * 0x100];
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.1-fast (Task #212): the float loops in CalculateTrigAngles below end in a
+// 65,536-iteration DOUBLE-precision atan2 fill -- a multi-minute one-time
+// soft-float boot stall on the FPU-less SH-2 (no FPU -> every atan2 is thousands
+// of newlib/libgcc _unpack_df/_pack_df cycles). These 16 const tables are THIS
+// build's own on-target newlib output, captured from the savestate after the real
+// fill ran (tools/_portspike/_p6/gen_trig_tables.py), so they are bit-identical to
+// what the loops compute. Only the runtime FILL is replaced, never the values.
+#include "TrigTables_Saturn.inc"
+#endif
+
 uint32 RSDK::randSeed = 0;
 
 void RSDK::ClearTrigLookupTables()
@@ -51,6 +62,29 @@ void RSDK::CalculateTrigAngles()
     srand((uint32)time(NULL));
     randSeed = rand();
 
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P6.1-fast (Task #212): the float loops below culminate in a 65,536-iteration
+    // double-precision atan2 fill -- a multi-minute one-time soft-float stall on
+    // the FPU-less SH-2. Replace the deterministic FILL with a memcpy of the baked
+    // on-target tables (TrigTables_Saturn.inc). randSeed above is preserved; only
+    // the table contents are swapped in, bit-identical to the loops' own output.
+    memcpy(sin1024LookupTable, saturn_sin1024LookupTable, sizeof(sin1024LookupTable));
+    memcpy(cos1024LookupTable, saturn_cos1024LookupTable, sizeof(cos1024LookupTable));
+    memcpy(tan1024LookupTable, saturn_tan1024LookupTable, sizeof(tan1024LookupTable));
+    memcpy(asin1024LookupTable, saturn_asin1024LookupTable, sizeof(asin1024LookupTable));
+    memcpy(acos1024LookupTable, saturn_acos1024LookupTable, sizeof(acos1024LookupTable));
+    memcpy(sin512LookupTable, saturn_sin512LookupTable, sizeof(sin512LookupTable));
+    memcpy(cos512LookupTable, saturn_cos512LookupTable, sizeof(cos512LookupTable));
+    memcpy(tan512LookupTable, saturn_tan512LookupTable, sizeof(tan512LookupTable));
+    memcpy(asin512LookupTable, saturn_asin512LookupTable, sizeof(asin512LookupTable));
+    memcpy(acos512LookupTable, saturn_acos512LookupTable, sizeof(acos512LookupTable));
+    memcpy(sin256LookupTable, saturn_sin256LookupTable, sizeof(sin256LookupTable));
+    memcpy(cos256LookupTable, saturn_cos256LookupTable, sizeof(cos256LookupTable));
+    memcpy(tan256LookupTable, saturn_tan256LookupTable, sizeof(tan256LookupTable));
+    memcpy(asin256LookupTable, saturn_asin256LookupTable, sizeof(asin256LookupTable));
+    memcpy(acos256LookupTable, saturn_acos256LookupTable, sizeof(acos256LookupTable));
+    memcpy(arcTan256LookupTable, saturn_arcTan256LookupTable, sizeof(arcTan256LookupTable));
+#else
     for (int32 i = 0; i < 0x400; ++i) {
         sin1024LookupTable[i]  = (int32)(sinf((i / 512.f) * RSDK_PI) * 1024.f);
         cos1024LookupTable[i]  = (int32)(cosf((i / 512.f) * RSDK_PI) * 1024.f);
@@ -104,6 +138,7 @@ void RSDK::CalculateTrigAngles()
             arcTan += 0x100;
         }
     }
+#endif
 }
 
 uint8 RSDK::ArcTanLookup(int32 X, int32 Y)

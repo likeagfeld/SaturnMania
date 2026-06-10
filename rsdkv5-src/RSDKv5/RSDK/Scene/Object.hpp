@@ -10,6 +10,44 @@ namespace RSDK
 
 #define RSDK_SIGNATURE_OBJ (0x4A424F) // "OBJ"
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P4 data retarget (Task #203): the Saturn has 2 MB of main RAM (two separate
+// 1 MB banks: WRAM-H @0x06000000 + WRAM-L @0x00200000), not the PC's effectively
+// unbounded heap. These counts size the engine's three largest .bss arrays:
+//   objectEntityList = ENTITY_COUNT  * sizeof(EntityBase)
+//   typeGroups       = TYPEGROUP_COUNT * (uint16[ENTITY_COUNT] + int32)
+//   objectClassList  = OBJECT_COUNT  * sizeof(ObjectClass)
+// At the stock counts these alone are 2.57 MB + 1.20 MB + 68 KB = 3.83 MB --
+// they overflow main RAM on their own. The values below are sized for the
+// bounded P5 proof (one Ring on a minimal scene). MEASURED CAVEAT: full GHZ1
+// has 1041 placed entities (tools/parse_title_entities.py on GHZ Scene1.bin),
+// so shipping GHZ1 needs SCENEENTITY_COUNT >= ~1088 -> that does NOT fit a flat
+// single-bank image and is a P3 bank-placement / P6 entity-streaming decision,
+// NOT a #define. Every non-Saturn build keeps the stock values byte-identical.
+#define OBJECT_COUNT (0x100)
+
+#define RESERVE_ENTITY_COUNT (0x40)
+#define TEMPENTITY_COUNT     (0x80)
+#define SCENEENTITY_COUNT    (0x100)
+#define ENTITY_COUNT         (RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT + TEMPENTITY_COUNT)
+#define TEMPENTITY_START     (ENTITY_COUNT - TEMPENTITY_COUNT)
+
+#define TYPE_COUNT        (0x80)
+#define EDITABLEVAR_COUNT (0x100)
+#define TYPEGROUP_COUNT   (0x84)
+
+// EntityBase per-slot data[] overlay width. data[] exists ONLY so that
+// sizeof(EntityBase) >= sizeof(the largest registered EntityXxx); it is the
+// DOMINANT term in objectEntityList = ENTITY_COUNT * sizeof(EntityBase). At the
+// stock 0x100 (1024 B) each of the 448 Saturn slots costs 1112 B (486.5 KB total);
+// 0x40 (256 B) drops that to 344 B/slot (150.5 KB), reclaiming ~336 KB. SAFETY:
+// shrinking below the largest EntityXxx silently corrupts the adjacent slot (the
+// Phase 1.4-1.15 .bss-overflow class), so EntityDevOutput (message[1012]) is
+// Saturn-shrunk to fit, each engine object TU carries a compile-time slot-fit
+// static_assert, and RegisterObject refuses an oversize class on Saturn.
+// P6 RESTORATION: drop the Saturn branch -> data[] returns to 0x100.
+#define OBJECT_DATA_COUNT (0x40)
+#else
 #define OBJECT_COUNT (0x400)
 
 // 0x800 scene objects, 0x40 reserved ones, and 0x100 spare slots for creation
@@ -22,6 +60,9 @@ namespace RSDK
 #define TYPE_COUNT        (0x100)
 #define EDITABLEVAR_COUNT (0x100)
 #define TYPEGROUP_COUNT   (0x104)
+
+#define OBJECT_DATA_COUNT (0x100)
+#endif
 
 #define FOREACH_STACK_COUNT (0x400)
 
@@ -133,7 +174,7 @@ struct Entity {
 };
 
 struct EntityBase : Entity {
-    void *data[0x100];
+    void *data[OBJECT_DATA_COUNT]; // 0x100 PC / 0x40 Saturn (Task #203); sized to the largest EntityXxx
 #if RETRO_REV0U
     void *unknown;
 #endif
@@ -201,7 +242,11 @@ struct TypeGroupList {
     int32 entryCount;
 };
 
+#if defined(P6_SCENE_TEST)
+extern ObjectClass *objectClassList; // P6.3: relocated to WRAM-L (pointer form), defined in p6_io_main.cpp
+#else
 extern ObjectClass objectClassList[OBJECT_COUNT];
+#endif
 extern int32 objectClassCount;
 
 // Loaded Global Objects
@@ -211,7 +256,11 @@ extern int32 globalObjectIDs[OBJECT_COUNT];
 // Loaded Stage Objects (includes Globals if "loadGlobals" is enabled)
 extern int32 stageObjectIDs[OBJECT_COUNT];
 
+#if defined(P6_SCENE_TEST)
+extern EntityBase *objectEntityList; // P6.3: relocated to WRAM-L (pointer form), defined in p6_io_main.cpp
+#else
 extern EntityBase objectEntityList[ENTITY_COUNT];
+#endif
 
 extern EditableVarInfo *editableVarList;
 extern int32 editableVarCount;
@@ -219,7 +268,11 @@ extern int32 editableVarCount;
 extern ForeachStackInfo foreachStackList[FOREACH_STACK_COUNT];
 extern ForeachStackInfo *foreachStackPtr;
 
+#if defined(P6_SCENE_TEST)
+extern TypeGroupList *typeGroups; // P6.3: relocated to WRAM-L (pointer form), defined in p6_io_main.cpp
+#else
 extern TypeGroupList typeGroups[TYPEGROUP_COUNT];
+#endif
 
 extern bool32 validDraw;
 

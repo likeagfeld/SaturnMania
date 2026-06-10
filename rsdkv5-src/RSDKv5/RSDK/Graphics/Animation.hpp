@@ -77,7 +77,11 @@ struct Animator {
     uint8 rotationStyle;
 };
 
+#if defined(P6_SCENE_TEST)
+extern SpriteAnimation *spriteAnimationList; // P6.3: relocated (DEAD), defined in p6_io_main.cpp
+#else
 extern SpriteAnimation spriteAnimationList[SPRFILE_COUNT];
+#endif
 
 uint16 LoadSpriteAnimation(const char *filename, uint8 scope);
 uint16 CreateSpriteAnimation(const char *filename, uint32 frameCount, uint32 animCount, uint8 scope);

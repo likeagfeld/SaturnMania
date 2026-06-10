@@ -1,0 +1,155 @@
+/* =============================================================================
+ * p6.linker -- two-bank link for the P6.1 engine-dispatch proof (Task #205).
+ *
+ * Byte-identical bank layout to _p5/p5.linker (the first-object proof, #204):
+ * the core .bss (~1.15 MB measured) exceeds one 1 MB WRAM bank, so .bss is split
+ * across both physical banks. The ONLY P6-specific change is the WRAM-H pin for
+ * the flat witness TU (p6_ring.o instead of p5_ring.o) -- see the .bss_h block.
+ *
+ *   WRAM-H 0x06000000..0x06100000 : the image loads at 0x06004000 (IP.BIN copies
+ *     cd/0.bin here and jumps to it). With LIBSGL.A linked (P6.2 SGL re-base,
+ *     Task #206), slInitSystem owns the SGL work area at 0x060C0000..0x06100000
+ *     (SortList/SpriteBuf/Zbuffer + the master stack), so the loaded image
+ *     (.text + LIBSGL.A code + baked trig .rodata + pinned .bss) MUST end below
+ *     0x060C0000 -- the ceiling ASSERT enforces it. engine (Core_RetroEngine.o)
+ *     and the SMALLER Scene_Object.o(.bss) (296 KB) are pinned here next to the
+ *     p6_ring.o witnesses; the LARGER Scene_Scene.o(.bss) (456 KB) sweeps to
+ *     WRAM-L so the WRAM-H bank clears 0x060C0000. The gate reads every witness
+ *     from p6_ring.o (still WRAM-H) + the magic, so Scene_Scene.o's bank move is
+ *     byte-order-neutral (qa_p6_io.py reads no Scene_Scene.o/Core_RetroEngine.o
+ *     global directly).
+ *   WRAM-L 0x00200000..0x00300000 : the swept remainder of .bss (incl. the GREEN
+ *     build's RSDKFunctionTable[]/APIFunctionTable[] from Core_Link.o, plus the
+ *     swept Scene_Scene.o) + the malloc heap [___heap_start, ___heap_end).
+ *     p6_main.cpp does NOT call RunRetroEngine / InitStorage, so nothing mallocs
+ *     -- the heap is link-bait for p6_syscalls.o's _sbrk. The 64 KB floor ASSERT
+ *     is a link-bait sanity check.
+ *
+ * P6 WITNESS BYTE ORDER (the one change from p5.linker): the 11 C-linkage int32
+ * witnesses live in p6_ring.cpp -- the 9 carried from P5 PLUS the two new slot-
+ * address witnesses (p6_w_slot_procanim / p6_w_slot_drawsprite). p6_w_magic is
+ * `const` (-> .rodata, already in the WRAM-H bank with .text/.data). The other 10
+ * are zero-init (-> .bss) and would otherwise sweep to WRAM-L, giving them a
+ * DIFFERENT Mednafen WRAM byte order than the magic the gate self-calibrates
+ * from. Pinning *p6_ring.o(.bss) to .bss_h puts every numeric witness in WRAM-H
+ * alongside the magic -> one byte order for the whole witness set. The two slot
+ * witnesses hold .text addresses the gate range-checks against __text_start /
+ * __text_end (both emitted into the .map below). Saturn-only P6 scaffolding.
+ *
+ * .bss is NOLOAD (NOBITS): NOT in cd/0.bin; crt0.s zeroes both banks at boot
+ * from the __bss_h_start/_end + __bss_l_start/_end bounds defined here.
+ *
+ * SYMBOL UNDERSCORE CONVENTION (empirically confirmed, #202): sh-none-elf
+ * prepends exactly ONE underscore to C/asm identifiers at the ELF level. crt0.s
+ * references the LITERAL ELF names `__bss_h_start` etc. (two underscores), so
+ * this script DEFINES the two-underscore names verbatim. p6_syscalls.c's C
+ * `extern char __heap_start` (two underscores) becomes ELF `___heap_start`
+ * (three), so the heap bounds are defined with THREE underscores. The entry
+ * `___Start` is defined by crt0.s itself -- do NOT redefine it here.
+ * ============================================================================= */
+
+OUTPUT_ARCH(sh)
+ENTRY(___Start)
+
+__STACK_SIZE = 0x8000;        /* 32 KB reserve below WRAM-H top (0x06100000) */
+__HEAP_FLOOR = 0x10000;       /* 64 KB. P6.2 (Task #206): lowered from 192 KB. The SGL
+                               * re-base swaps the LARGER Scene_Scene.o(.bss) (456 KB)
+                               * OUT of WRAM-H and the SMALLER Scene_Object.o(.bss)
+                               * (296 KB) back IN, so the WRAM-H image clears the
+                               * 0x060C0000 SGL work-area floor now that LIBSGL.A .text +
+                               * the baked trig .rodata (TrigTables_Saturn.inc, ~99 KB,
+                               * LOADED so it MUST sit in the WRAM-H bank) both live there.
+                               * Scene_Scene.o now sweeps to WRAM-L (+160 KB there),
+                               * shrinking the unused link-bait heap to ~95 KB. Nothing
+                               * mallocs in p6_main, so the floor is purely a sanity
+                               * check; 64 KB is ample headroom for _sbrk. */
+
+SECTIONS
+{
+    /* ---- WRAM-H : loaded image (cd/0.bin), copied to 0x06004000 by IP.BIN ---- */
+    . = 0x06004000;
+
+    .slstart : {
+        *(SLSTART)            /* crt0 ___Start -- first instruction the BIOS jumps to */
+    }
+
+    .text ALIGN(0x20) : {
+        __text_start = .;
+        *(.text) *(.text.*) *(.stub) *(.gnu.linkonce.t.*)
+        __text_end = .;
+    }
+
+    /* SGLAREA.O (P6.2 SGL re-base) emits its work-area pointer/size table into the
+     * SLPROG section -- slInitSystem dereferences _SortList/_SpriteBuf/_Zbuffer/...
+     * from here. Loaded program data: it must live in the WRAM-H image bank with
+     * .text/.rodata, so place it right after .text. (sgl.linker does the same.) */
+    .slprog ALIGN(0x20) : {
+        __slprog_start = .;
+        *(SLPROG)
+        __slprog_end = .;
+    }
+
+    .rodata ALIGN(0x20) : {
+        *(.rodata) *(.rodata.*) *(.gnu.linkonce.r.*)
+        *(.rdata) *(.rodata1)
+    }
+
+    .data ALIGN(0x20) : {
+        *(.data) *(.data.*) *(.gnu.linkonce.d.*)
+        *(.data1)
+    }
+
+    .tors ALIGN(0x10) : {
+        __init_array_start = .;
+        *(.init_array) *(.init_array.*)
+        __init_array_end = .;
+
+        __ctors_start = .;
+        *(.ctors) *(.ctors.*)
+        __ctors_end = .;
+
+        __dtors_start = .;
+        *(.dtors) *(.dtors.*)
+        __dtors_end = .;
+    }
+
+    /* ---- WRAM-H : pinned .bss (NOLOAD) -- witnesses + engine + Object ---- */
+    .bss_h (NOLOAD) : ALIGN(0x10) {
+        __bss_h_start = .;
+        *p6_ring.o(.bss .bss.*)          /* P6: all 11 numeric witnesses share the magic's bank */
+        *Scene_Object.o(.bss .bss.*)     /* P6.2: the SMALLER (296 KB) Scene object pinned here */
+        *Core_RetroEngine.o(.bss .bss.*)
+        /* P6.2 SGL re-base: Scene_Scene.o(.bss) (456 KB) is un-pinned and sweeps to
+         * WRAM-L, and the SMALLER Scene_Object.o(.bss) (296 KB) is pinned here in its
+         * place. That nets -160 KB out of WRAM-H so the loaded image (now carrying
+         * LIBSGL.A .text + the baked trig .rodata) clears the 0x060C0000 SGL work-area
+         * floor. The gate reads every witness from p6_ring.o (still pinned) + the
+         * magic, never a Scene_Scene.o/Core_RetroEngine.o global, so Scene_Scene.o's
+         * bank move is byte-order-neutral (verified against qa_p6_io.py). */
+        . = ALIGN(0x10);
+        __bss_h_end = .;
+    }
+
+    /* ---- WRAM-L : swept .bss (NOLOAD) + malloc heap (link-bait in P6) ---- */
+    . = 0x00200000;
+    .bss_l (NOLOAD) : ALIGN(0x10) {
+        __bss_l_start = .;
+        *(.bss .bss.*)
+        *(COMMON)
+        . = ALIGN(0x10);
+        __bss_l_end = .;
+        ___heap_start = .;
+    }
+    ___heap_end = 0x00300000;
+
+    /DISCARD/ : {
+        *(.comment) *(.note) *(.note.*)
+        *(.eh_frame) *(.eh_frame_hdr)
+        *(.debug*) *(.gnu.attributes) *(.gnu.lto_*)
+    }
+}
+
+ASSERT(__bss_h_end <= 0x060C0000,
+       "p6.linker: WRAM-H image overran the SGL work-area floor (0x060C0000) -- sweep more .bss to WRAM-L")
+ASSERT(___heap_end - ___heap_start >= __HEAP_FLOOR,
+       "p6.linker: WRAM-L heap window below the 64 KB link-bait floor")

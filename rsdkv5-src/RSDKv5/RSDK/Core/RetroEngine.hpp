@@ -91,6 +91,7 @@ enum GameRegions {
 #define RETRO_iOS     (6)
 #define RETRO_ANDROID (7)
 #define RETRO_UWP     (8)
+#define RETRO_SATURN  (9) // true-port feasibility spike (Task #194): Sega Saturn SH-2 target
 
 // ============================
 // PLATFORMS (used mostly in legacy but could come in handy here)
@@ -142,6 +143,9 @@ enum GameRegions {
 #elif defined __linux__
 #define RETRO_PLATFORM   (RETRO_LINUX)
 #define RETRO_DEVICETYPE (RETRO_STANDARD)
+#elif defined __sh__
+#define RETRO_PLATFORM   (RETRO_SATURN)
+#define RETRO_DEVICETYPE (RETRO_STANDARD)
 #else
 #define RETRO_PLATFORM   (RETRO_WIN)
 #define RETRO_DEVICETYPE (RETRO_STANDARD)
@@ -167,6 +171,8 @@ enum GameRegions {
 #define RETRO_RENDERDEVICE_GLFW (0)
 #define RETRO_RENDERDEVICE_VK   (0)
 #define RETRO_RENDERDEVICE_EGL  (0)
+// CUSTOM (Task #196): Sega Saturn VDP1/VDP2 hardware render backend
+#define RETRO_RENDERDEVICE_SATURN (0)
 
 // ============================
 // AUDIO DEVICE BACKENDS
@@ -182,6 +188,10 @@ enum GameRegions {
 #endif
 #ifndef RETRO_AUDIODEVICE_MINI
 #define RETRO_AUDIODEVICE_MINI (0)
+#endif
+// CUSTOM (Task #196): Sega Saturn SCSP audio backend
+#ifndef RETRO_AUDIODEVICE_SATURN
+#define RETRO_AUDIODEVICE_SATURN (0)
 #endif
 
 // ============================
@@ -416,6 +426,29 @@ enum GameRegions {
 
 #undef RETRO_INPUTDEVICE_SDL2
 #define RETRO_INPUTDEVICE_SDL2 (1)
+
+#elif RETRO_PLATFORM == RETRO_SATURN
+// True-port engine pivot (Task #196): VDP1/VDP2 render + SCSP audio device
+// backends live in platform/Saturn/ (resolved via -I). Input/video/loader
+// gating is added iteratively as the logic-core compile target measures each
+// remaining device-backend dependency (Task #198).
+
+#undef RETRO_RENDERDEVICE_SATURN
+#define RETRO_RENDERDEVICE_SATURN (1)
+
+#undef RETRO_AUDIODEVICE_SATURN
+#define RETRO_AUDIODEVICE_SATURN (1)
+
+// Saturn has no keyboard/mouse device backend. The desktop KBInputDevice.cpp
+// (included by Input.cpp:24 when RETRO_INPUTDEVICE_KEYBOARD) is the combined
+// keyboard+mouse backend and odr-uses RenderDevice::GetCursorPos/ShowCursor
+// (KBInputDevice.cpp:717,727,734) which only exist on desktop render devices.
+// Mirror the Switch console template (this file, RETRO_SWITCH block) which
+// excludes the same backend. Saturn input comes from its own SMPC peripheral
+// device backend (added with the Saturn input TU, Task #198 follow-up).
+#undef RETRO_INPUTDEVICE_KEYBOARD
+#define RETRO_INPUTDEVICE_KEYBOARD (0)
+#undef RETRO_USING_MOUSE
 
 #endif
 

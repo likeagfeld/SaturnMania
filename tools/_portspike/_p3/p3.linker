@@ -1,0 +1,111 @@
+/* =============================================================================
+ * p3.linker -- two-bank link for the P3 engine-true-port core-boot proof (#202).
+ *
+ * Total core .bss (1,152,280 B, measured) exceeds one 1 MB WRAM bank, so .bss is
+ * split across both physical banks. Per-object sizes were measured from the flat
+ * measurement -Map via tools/_portspike/_p3/bss_split.py:
+ *
+ *   WRAM-H 0x06000000..0x06100000 : the image loads at 0x06004000 (IP.BIN copies
+ *     cd/0.bin here and jumps to it); SP grows DOWN from 0x06100000. The pinned
+ *     .bss (engine + sceneInfo + Scene/Object) sits just above the image and must
+ *     end below the 32 KB stack reserve at 0x060F8000. engine (Core_RetroEngine.o)
+ *     and sceneInfo (Scene_Scene.o) are pinned here because the witness gate reads
+ *     them alongside the WRAM-H .data magic and needs ONE consistent byte order.
+ *     Scene/Object (296 KB) is pinned only to lift the WRAM-H .bss total above the
+ *     726,296 B heap floor; it is otherwise free to bank either way.
+ *   WRAM-L 0x00200000..0x00300000 : the swept remainder of .bss + the malloc heap
+ *     [___heap_start, ___heap_end). InitStorage mallocs 608 KB (Storage.cpp:43-47);
+ *     the heap window must stay >= 622,592 B or InitStorage returns false and the
+ *     boot gate stays RED. Measured window = 650,068 B (27,476 B margin).
+ *
+ * .bss is NOLOAD (NOBITS): it is NOT in cd/0.bin; crt0.s zeroes both banks at boot
+ * from the __bss_h_start/_end + __bss_l_start/_end bounds this script defines.
+ *
+ * SYMBOL UNDERSCORE CONVENTION (empirically confirmed via the .symtab dump in
+ * tools/_portspike/_p3/elfsyms.py, #202): sh-none-elf prepends exactly ONE under-
+ * score to C/asm identifiers at the ELF level. crt0.s is hand-written asm -- its
+ * `.long __bss_h_start` references the LITERAL ELF name `__bss_h_start` (two under-
+ * scores), so this script DEFINES the two-underscore names verbatim. p3_main.cpp's
+ * C `extern char __heap_start` (two underscores in C) becomes ELF `___heap_start`
+ * (three underscores), so the heap bounds are defined with THREE underscores. The
+ * entry `___Start` is defined by crt0.s itself -- do NOT redefine it here.
+ * ============================================================================= */
+
+OUTPUT_ARCH(sh)
+ENTRY(___Start)
+
+__STACK_SIZE = 0x8000;        /* 32 KB reserve below WRAM-H top (0x06100000) */
+__HEAP_FLOOR = 622592;        /* 608 KB InitStorage requirement (Storage.cpp:43-47) */
+
+SECTIONS
+{
+    /* ---- WRAM-H : loaded image (cd/0.bin), copied to 0x06004000 by IP.BIN ---- */
+    . = 0x06004000;
+
+    .slstart : {
+        *(SLSTART)            /* crt0 ___Start -- first instruction the BIOS jumps to */
+    }
+
+    .text ALIGN(0x20) : {
+        __text_start = .;
+        *(.text) *(.text.*) *(.stub) *(.gnu.linkonce.t.*)
+        __text_end = .;
+    }
+
+    .rodata ALIGN(0x20) : {
+        *(.rodata) *(.rodata.*) *(.gnu.linkonce.r.*)
+        *(.rdata) *(.rodata1)
+    }
+
+    .data ALIGN(0x20) : {
+        *(.data) *(.data.*) *(.gnu.linkonce.d.*)
+        *(.data1)
+    }
+
+    .tors ALIGN(0x10) : {
+        __init_array_start = .;
+        *(.init_array) *(.init_array.*)
+        __init_array_end = .;
+
+        __ctors_start = .;
+        *(.ctors) *(.ctors.*)
+        __ctors_end = .;
+
+        __dtors_start = .;
+        *(.dtors) *(.dtors.*)
+        __dtors_end = .;
+    }
+
+    /* ---- WRAM-H : pinned .bss (NOLOAD) -- engine + sceneInfo + Scene/Object ---- */
+    .bss_h (NOLOAD) : ALIGN(0x10) {
+        __bss_h_start = .;
+        *Scene_Scene.o(.bss .bss.*)
+        *Core_RetroEngine.o(.bss .bss.*)
+        *Scene_Object.o(.bss .bss.*)
+        . = ALIGN(0x10);
+        __bss_h_end = .;
+    }
+
+    /* ---- WRAM-L : swept .bss (NOLOAD) + malloc heap ---- */
+    . = 0x00200000;
+    .bss_l (NOLOAD) : ALIGN(0x10) {
+        __bss_l_start = .;
+        *(.bss .bss.*)
+        *(COMMON)
+        . = ALIGN(0x10);
+        __bss_l_end = .;
+        ___heap_start = .;
+    }
+    ___heap_end = 0x00300000;
+
+    /DISCARD/ : {
+        *(.comment) *(.note) *(.note.*)
+        *(.eh_frame) *(.eh_frame_hdr)
+        *(.debug*) *(.gnu.attributes) *(.gnu.lto_*)
+    }
+}
+
+ASSERT(__bss_h_end <= 0x06100000 - __STACK_SIZE,
+       "p3.linker: WRAM-H .bss overran the 32 KB stack reserve (0x060F8000)")
+ASSERT(___heap_end - ___heap_start >= __HEAP_FLOOR,
+       "p3.linker: WRAM-L heap window below the 608 KB InitStorage floor")

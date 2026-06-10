@@ -24,16 +24,36 @@ enum {
     HEADER_SIZE
 };
 
+#if !defined(P6_SCENE_TEST) // P6.3: relocates to WRAM-L (pointer form), defined in p6_io_main.cpp
 DataStorage RSDK::dataStorage[DATASET_MAX];
+#endif
 
 bool32 RSDK::InitStorage()
 {
     // Storage limits.
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P4 data retarget (Task #203): these 5 pools are runtime malloc() heaps
+    // (allocated below at line ~42), NOT .bss. The stock totals are
+    // 24+8+32+2+8 = 74 MB -- malloc() CANNOT satisfy that on a 2 MB Saturn, so
+    // InitStorage() returns false (line ~45) and boot dies before the first
+    // object. Saturn-size them to a bounded heap covering the P5 proof (one
+    // Ring's tile/sprite/string allocations). DATASET_STG (stage tiles +
+    // collision + object data) and DATASET_TMP (transient decode scratch) carry
+    // the GHZ load weight. These are TUNABLE -- the real GHZ1 working set is
+    // measured at P5/P6; sized here for the bounded proof. Non-Saturn builds
+    // keep the stock 74 MB totals byte-identical.
+    dataStorage[DATASET_STG].storageLimit = 256 * 1024; // 256 KB
+    dataStorage[DATASET_MUS].storageLimit = 64 * 1024;  //  64 KB
+    dataStorage[DATASET_SFX].storageLimit = 128 * 1024; // 128 KB
+    dataStorage[DATASET_STR].storageLimit = 32 * 1024;  //  32 KB
+    dataStorage[DATASET_TMP].storageLimit = 128 * 1024; // 128 KB
+#else
     dataStorage[DATASET_STG].storageLimit = 24 * 1024 * 1024; // 24MB
     dataStorage[DATASET_MUS].storageLimit = 8 * 1024 * 1024;  //  8MB
     dataStorage[DATASET_SFX].storageLimit = 32 * 1024 * 1024; // 32MB
     dataStorage[DATASET_STR].storageLimit = 2 * 1024 * 1024;  //  2MB
     dataStorage[DATASET_TMP].storageLimit = 8 * 1024 * 1024;  //  8MB
+#endif
 
     for (int32 s = 0; s < DATASET_MAX; ++s) {
         dataStorage[s].usedStorage = 0;

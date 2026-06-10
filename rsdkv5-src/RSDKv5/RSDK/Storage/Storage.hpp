@@ -99,7 +99,11 @@ public:
     inline int32 Count() { return count; }
 };
 
+#if defined(P6_SCENE_TEST)
+extern DataStorage *dataStorage; // P6.3: relocated to WRAM-L (pointer form), defined in p6_io_main.cpp
+#else
 extern DataStorage dataStorage[DATASET_MAX];
+#endif
 
 bool32 InitStorage();
 void ReleaseStorage();

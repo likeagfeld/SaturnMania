@@ -125,7 +125,11 @@ struct Scene3D {
     uint8 scope;
 };
 
+#if defined(P6_SCENE_TEST)
+extern Model *modelList; // P6.3: relocated (DEAD), defined in p6_io_main.cpp
+#else
 extern Model modelList[MODEL_COUNT];
+#endif
 extern Scene3D scene3DList[SCENE3D_COUNT];
 
 extern ScanEdge scanEdgeBuffer[SCREEN_YSIZE * 2];

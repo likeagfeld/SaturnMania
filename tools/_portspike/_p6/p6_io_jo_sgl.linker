@@ -1,0 +1,94 @@
+/* =============================================================================
+ * p6_io_jo_sgl.linker -- Path 2 (io-jo) relink that MIRRORS jo's PROVEN
+ * Compiler/COMMON/sgl.linker EXACTLY (Task #206, P6.2 controlled experiment).
+ *
+ * WHY: the master crashes (CPU exception, PC=0x06000956 BIOS hang handler) deep
+ * inside slInitSystem -> slInitSynch -> sglI00.o DMA/interrupt setup -- confirmed
+ * by the crash-state stack trace (return addrs 0x0602bf92 sglI00.o, 0x0601b21c
+ * slInitSystem, 0x06028c90 slInitSynch). The SGL code is correctly linked &
+ * contiguous (orphan-scatter hypothesis DISPROVEN: SGL's runtime lives in the
+ * SLPROG input section, all collected contiguously into .slprog). The single
+ * biggest structural difference from jo's PROVEN shipping boot (which runs the
+ * SAME jo_core_init -> slInitSystem with this exact LIBSGL.A) is the LINKER.
+ *
+ * This file is jo's sgl.linker, byte-for-byte in LAYOUT (SLSTART / .text(+eh) /
+ * SLPROG / .tors / .data / .rodata / .bss, heap from _end in WRAM-H, NO WRAM-L
+ * split), with three additions the standalone link + gate need:
+ *   - OUTPUT_ARCH(sh) + ENTRY(___Start)   (jo's makefile passes -e ___Start; the
+ *                                          standalone relink has no -e, so set it here)
+ *   - __text_start / __text_end labels     (qa_p6_io.py W0 bounds the SH2-M PC)
+ *   - PROVIDE(end/_end/__end)              (newlib _sbrk heap base)
+ * Everything else is identical to the proven layout, so if THIS still crashes the
+ * linker is ruled out and the cause is in the reduced jo object set / jo_core_init.
+ * ============================================================================= */
+
+OUTPUT_ARCH(sh)
+ENTRY(___Start)
+
+SECTIONS
+{
+    SLSTART 0x06004000 : {
+        ___Start = .;
+        *(SLSTART)
+    }
+
+    .text ALIGN(0x20) : {
+        __text_start = .;
+        *(.text) *(.text.*) *(.stub) *(.gnu.linkonce.t.*)
+        *(.strings) *("SEGA_P")
+        *(.eh_frame_hdr) *(.eh_frame)
+        __etext = .;
+        __text_end = .;
+    }
+
+    SLPROG ALIGN(0x20) : {
+        __slprog_start = .;
+        *(SLPROG)
+        __slprog_end = .;
+    }
+
+    .tors ALIGN(0x10) : {
+        ___ctors = .;
+        *(.ctors) *(.ctors.*)
+        ___ctors_end = .;
+        ___dtors = .;
+        *(.dtors) *(.dtors.*)
+        ___dtors_end = .;
+        __init_array_start = .;
+        *(.init_array) *(.init_array.*)
+        __init_array_end = .;
+    }
+
+    .data ALIGN(0x10) : {
+        *(.data) *(.data.*) *(.gnu.linkonce.d.*)
+        __edata = .;
+    }
+
+    .rodata ALIGN(0x20) : {
+        *(.rodata) *(.rodata.*) *(.gnu.linkonce.r.*)
+        *(.rdata) *(.rodata1)
+    }
+
+    .bss ALIGN(0x10) (NOLOAD) : {
+        __bstart = .;
+        __bss_h_start = .;
+        *(.bss) *(.bss.*)
+        *(COMMON)
+        . = ALIGN(0x10);
+        __bss_h_end = .;
+        __bend = .;
+        _end = .;
+        PROVIDE(end = .);
+        PROVIDE(__end = .);
+        ___heap_start = .;
+    }
+    ___heap_end = 0x060f8000;
+
+    /DISCARD/ : {
+        *(.comment) *(.note) *(.note.*)
+        *(.debug*) *(.gnu.attributes) *(.gnu.lto_*)
+    }
+}
+
+ASSERT(__bend <= 0x060f0000,
+       "p6_io_jo_sgl.linker: WRAM-H image/.bss overran the heap+stack floor (0x060f0000)")

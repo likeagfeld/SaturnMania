@@ -24,6 +24,38 @@
 FileIO *fOpen(const char *path, const char *mode);
 #endif
 
+// P6.2 (Task #206): retarget the engine's file primitives to a Saturn CD/GFS backend.
+// The unmodified LoadFile/ReadBytes/CloseFile path (Reader.cpp) calls fOpen/fRead/fSeek/
+// fTell/fClose/fWrite -- here we #undef the newlib-stdio macros and route them to the
+// Saturn_* functions in tools/_portspike/_p6/p6_gfs.c (CDC_CdInit + GFS_* whole-file read).
+// Guarded by RETRO_SATURN_FILEIO so io-red (undefined) keeps the newlib path -> _open=-1
+// stub -> LoadFile false, while io-green (defined) reads the real on-disc file.
+#if (RETRO_PLATFORM == RETRO_SATURN) && defined(RETRO_SATURN_FILEIO)
+#undef FileIO
+#undef fOpen
+#undef fRead
+#undef fSeek
+#undef fTell
+#undef fClose
+#undef fWrite
+extern "C" {
+typedef struct Saturn_FileIO Saturn_FileIO;
+Saturn_FileIO *Saturn_fOpen(const char *path, const char *mode);
+int Saturn_fClose(Saturn_FileIO *file);
+unsigned long Saturn_fRead(void *buffer, unsigned long elementSize, unsigned long elementCount, Saturn_FileIO *file);
+unsigned long Saturn_fWrite(const void *buffer, unsigned long elementSize, unsigned long elementCount, Saturn_FileIO *file);
+int Saturn_fSeek(Saturn_FileIO *file, long offset, int whence);
+long Saturn_fTell(Saturn_FileIO *file);
+}
+#define FileIO                                          Saturn_FileIO
+#define fOpen(path, mode)                               Saturn_fOpen(path, mode)
+#define fRead(buffer, elementSize, elementCount, file)  Saturn_fRead(buffer, elementSize, elementCount, file)
+#define fSeek(file, offset, whence)                     Saturn_fSeek(file, offset, whence)
+#define fTell(file)                                     Saturn_fTell(file)
+#define fClose(file)                                    Saturn_fClose(file)
+#define fWrite(buffer, elementSize, elementCount, file) Saturn_fWrite(buffer, elementSize, elementCount, file)
+#endif
+
 #include <miniz/miniz.h>
 
 namespace RSDK
@@ -34,7 +66,18 @@ namespace RSDK
 #define RSDK_SIGNATURE_DATA (0x61746144) // "Data"
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P4 data retarget (Task #203): dataFileList[DATAFILE_COUNT] is the Data.rsdk pack file
+// registry at 32 B/RSDKFileInfo = 128 KB at 0x1000. The Saturn CD ships Saturn-native
+// assets, NOT a Data.rsdk pack (LoadFile fails in LoadDataPack), so 0 files register at
+// runtime. Cap to 0x100 (8 KB) to reclaim ~120 KB of .bss. LoadDataPack (Reader.cpp) is
+// Saturn-clamped so a pack declaring >0x100 files truncates (visible: missing late files)
+// instead of overflowing dataFileList[] -- the Phase 1.4-1.15 .bss-corruption class.
+// P6 RESTORATION: drop the Saturn branch -> DATAFILE_COUNT returns to 0x1000.
+#define DATAFILE_COUNT (0x100)
+#else
 #define DATAFILE_COUNT (0x1000)
+#endif
 #define DATAPACK_COUNT (4)
 
 enum Scopes {

@@ -1,0 +1,143 @@
+/* =============================================================================
+ * p6_io_jo.linker -- SINGLE-REGION ELF link for Path 2 (io-jo): the engine file-
+ * I/O proof body relinked into jo-engine's EXISTING, PROVEN boot (Task #206, P6.2).
+ *
+ * This is the proven p6_io.linker (io-green) layout with ONE change: it also
+ * defines the two symbols jo's own C runtime needs to zero its .bss --
+ *   __bstart / __bend   (jo core.c:66-67 `extern unsigned int _bstart,_bend;`
+ *                        zeroed by core.c:667 jo_memset(&_bstart,0,&_bend-&_bstart)).
+ * Everything else is identical to the io-green single-region image that already
+ * loads + enters master (magic GREEN).
+ *
+ * BOOT (Path 2 = "Boot via jo HAL"): SGL's REAL ___Start SLSTART (LIBSGL.A
+ * sglI00.o, pulled by jo_core_init_vdp's slInitSystem ref, placed first by
+ * `.slstart { ___Start = .; *(SLSTART) }`) sets SR/SP/CCR/GBR, then `jmp @main`.
+ * `main` here is jo's OWN main (core.c:665, ELF `_main`): it zeroes WRAM-H .bss
+ * via __bstart/__bend, then calls jo_main() (p6_jo_boot.c). jo_main() runs
+ * jo_core_init() (slInitSystem -> jo_audio_init/CDC_CdInit -> jo_fs_init/GFS_Init
+ * with the root dir) so by the time it returns the CD is spun up and GFS resolves
+ * on-disc names, then calls p6_io_run() (the engine LoadFile witness body) and
+ * parks in jo_core_run().
+ *
+ * NO ASM SHIM / NO CTOR RUN: unlike io-green (which booted via the bare crt0-less
+ * asm _main shim and ran __libc_init_array itself), Path 2 uses jo's main as the
+ * `jmp @main` target. Path 2's C++ objects are all POD/zero-init (.bss) + const
+ * (.rodata), so there are no C++ ctors to run; the .tors region below is emitted
+ * for completeness but nothing calls it (verified: __init_array empty in the map).
+ *
+ * SGLAREA.O work-area table -> SLPROG, right after .text (slInitSystem
+ * dereferences it). WITNESS BYTE-ORDER: p6_io_main.o(.bss) is pinned FIRST so the
+ * io witnesses share p6_w_magic's WRAM-H bank (single region: everything is
+ * WRAM-H, so byte order is uniform; the pin also guarantees the witnesses land in
+ * the first quarter jo's main zeroes -- and Mednafen zeroes WRAM on reset anyway).
+ *
+ * HEAP: newlib owns _sbrk (the single-region jo/Coup/GFSDEMO convention). The
+ * heap lives in WRAM-L (`end`/`_end`/`__end` below), cleanly separate from the SGL
+ * work-area floor at 0x060C0000 -- jo's main only references _bstart/_bend (NOT
+ * _end), so the WRAM-L heap placement does not perturb jo's boot.
+ *
+ * SYMBOL UNDERSCORE CONVENTION (#202): sh-none-elf prepends ONE underscore to C
+ * identifiers at the ELF level. jo's C `_bstart`/`_bend` -> ELF `__bstart`/`__bend`
+ * (defined here). C `main` -> ELF `_main` (jo's, the SLSTART jmp target). `___Start`
+ * (three underscores) is the ELF SLSTART entry sglI00.o resolves against.
+ * ============================================================================= */
+
+OUTPUT_ARCH(sh)
+ENTRY(___Start)
+
+__STACK_SIZE = 0x8000;        /* 32 KB. Unused: SGL's ___Start sets SP=*MasterStack
+                               * (SGLAREA), not a raw-top stack. Kept for symbol
+                               * table comparability. */
+__HEAP_FLOOR = 0x10000;       /* 64 KB. newlib snprintf may touch the heap; the
+                               * floor is a sanity check with ample headroom. */
+
+SECTIONS
+{
+    /* ---- WRAM-H : loaded image (cd/0.bin), copied to 0x06004000 by IP.BIN ---- */
+    . = 0x06004000;
+
+    .slstart : {
+        ___Start = .;        /* linker-defined SLSTART head; sglI00.o's SLSTART
+                              * content lands here; ENTRY(___Start) jumps to it. */
+        *(SLSTART)           /* LIBSGL.A(sglI00.o) ___Start -- SR/SP/CCR/GBR then jmp @main (jo's main) */
+    }
+
+    .text ALIGN(0x20) : {
+        __text_start = .;
+        *(.text) *(.text.*) *(.stub) *(.gnu.linkonce.t.*)
+        *(.strings) *("SEGA_P")        /* jo legacy text input sections (empty under ELF, kept non-orphan) */
+        __text_end = .;
+    }
+
+    /* SGLAREA.O work-area table -- slInitSystem dereferences it; loaded program
+     * data, so it sits in the WRAM-H image bank right after .text. */
+    .slprog ALIGN(0x20) : {
+        __slprog_start = .;
+        *(SLPROG)
+        __slprog_end = .;
+    }
+
+    .rodata ALIGN(0x20) : {
+        *(.rodata) *(.rodata.*) *(.gnu.linkonce.r.*)
+        *(.rdata) *(.rodata1)
+    }
+
+    .data ALIGN(0x20) : {
+        *(.data) *(.data.*) *(.gnu.linkonce.d.*)
+        *(.data1)
+    }
+
+    .tors ALIGN(0x10) : {
+        __init_array_start = .;
+        *(.init_array) *(.init_array.*)
+        __init_array_end = .;
+
+        __ctors_start = .;
+        *(.ctors) *(.ctors.*)
+        __ctors_end = .;
+
+        __dtors_start = .;
+        *(.dtors) *(.dtors.*)
+        __dtors_end = .;
+    }
+
+    /* ---- WRAM-H : .bss (NOLOAD) -- witnesses pinned first, then jo + GFS BSS ----
+     * __bstart/__bend bracket the whole WRAM-H .bss so jo's main zeroes it. */
+    .bss_h (NOLOAD) : ALIGN(0x10) {
+        __bstart = .;                    /* jo core.c:667 zeroes &_bstart.. (ELF __bstart) */
+        __bss_h_start = .;
+        *p6_io_main.o(.bss .bss.*)       /* io witnesses + userFileDir share magic's WRAM-H bank, zeroed first */
+        *(.bss .bss.*)                   /* jo global_memory[262144] + module state + p6_gfs.o s_filebuf (64 KB) */
+        *(COMMON)
+        . = ALIGN(0x10);
+        __bss_h_end = .;
+        __bend = .;                      /* ..to &_bend (ELF __bend) */
+    }
+
+    /* ---- WRAM-L : empty .bss + malloc heap link-bait ---- */
+    . = 0x00200000;
+    .bss_l (NOLOAD) : ALIGN(0x10) {
+        __bss_l_start = .;
+        . = ALIGN(0x10);                 /* Path 2 keeps all .bss in WRAM-H above */
+        __bss_l_end = .;
+        ___heap_start = .;
+        /* newlib's lib_a-syscalls.o _sbrk grows the heap from `end`. jo's main
+         * references only _bstart/_bend (NOT _end), so this WRAM-L heap base does
+         * not perturb jo's boot. sh-none-elf may reference end/_end/__end; PROVIDE all. */
+        PROVIDE(end   = .);
+        PROVIDE(_end  = .);
+        PROVIDE(__end = .);
+    }
+    ___heap_end = 0x00300000;
+
+    /DISCARD/ : {
+        *(.comment) *(.note) *(.note.*)
+        *(.eh_frame) *(.eh_frame_hdr)
+        *(.debug*) *(.gnu.attributes) *(.gnu.lto_*)
+    }
+}
+
+ASSERT(__bss_h_end <= 0x060C0000,
+       "p6_io_jo.linker: WRAM-H image overran the SGL work-area floor (0x060C0000)")
+ASSERT(___heap_end - ___heap_start >= __HEAP_FLOOR,
+       "p6_io_jo.linker: WRAM-L heap window below the 64 KB link-bait floor")

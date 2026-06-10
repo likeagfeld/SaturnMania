@@ -22,7 +22,16 @@ struct EntityDevOutput : Entity {
     int32 state;
     int32 timer;
     int32 ySize;
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P4 Task #203: message[1012] makes EntityDevOutput 1112 B, which OVERFLOWS the
+    // Saturn EntityBase slot (data[0x40] => 344 B). This holds dev-only on-screen
+    // popup text (DevOutput_Draw -> DrawDevString) that NEVER renders in the P5 proof.
+    // Shrink to fit: 88(Entity) + 12 + 240 == 340 <= 344. P6 RESTORATION: drop the
+    // guard; message returns to [1012] when OBJECT_DATA_COUNT is 0x100.
+    char message[240];
+#else
     char message[1012];
+#endif
 };
 
 // Object Entity

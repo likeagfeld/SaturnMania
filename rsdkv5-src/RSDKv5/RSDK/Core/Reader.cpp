@@ -128,6 +128,15 @@ bool32 RSDK::LoadDataPack(const char *filePath, size_t fileOffset, bool32 useBuf
         strcpy(dataPacks[dataPackCount].name, dataPackPath);
 
         dataPacks[dataPackCount].fileCount = ReadInt16(&info);
+#if RETRO_PLATFORM == RETRO_SATURN
+        // P4 data retarget (Task #203): dataFileList[] is Saturn-capped to DATAFILE_COUNT
+        // (0x100, Reader.hpp). Clamp the pack's declared fileCount so the fill loop below
+        // can never write past dataFileList[] -- the Phase 1.4-1.15 .bss-corruption class.
+        // Belt-and-suspenders: the Saturn CD has no Data.rsdk, so this loader normally
+        // bails at LoadFile above and never reaches here. P6 RESTORATION: drop the clamp.
+        if (dataPacks[dataPackCount].fileCount > DATAFILE_COUNT)
+            dataPacks[dataPackCount].fileCount = DATAFILE_COUNT;
+#endif
         for (int32 f = 0; f < dataPacks[dataPackCount].fileCount; ++f) {
             uint8 b[4];
             for (int32 y = 0; y < 4; y++) {

@@ -7,7 +7,15 @@ namespace RSDK
 #define SURFACE_COUNT (0x40)
 
 #ifndef SCREEN_COUNT
-#if RETRO_REV02
+#if RETRO_PLATFORM == RETRO_SATURN
+// P4 data retarget (Task #203): screens[SCREEN_COUNT] is 143408 bytes each
+// (ScreenInfo carries the uint16[SCREEN_XMAX*SCREEN_YSIZE] software frameBuffer).
+// At the stock REV02 count of 4 that is 560 KB of .bss for a SOFTWARE render
+// target the Saturn never uses (VDP1/VDP2 render in hardware). One screen holds
+// the engine's clip/camera bookkeeping; the dead frameBuffer is collapsed when
+// the render backend is wired (P3/P5). Non-Saturn builds keep the stock count.
+#define SCREEN_COUNT (1)
+#elif RETRO_REV02
 #define SCREEN_COUNT (4)
 #else
 #define SCREEN_COUNT (2)
@@ -17,7 +25,18 @@ namespace RSDK
 
 #define DEFAULT_PIXWIDTH (424)
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P4 data retarget (Task #203): tileLayers[LAYER_COUNT] costs 13384 B/layer (104.6 KB
+// at 8). The P5 proof scene has NO tile layers; a real GHZ scene uses <=4. Cap to 4
+// (53.5 KB) to reclaim 53.5 KB of .bss. LoadScene (Scene.cpp) is Saturn-clamped so a
+// scene declaring >4 layers truncates (visible: missing far-bg layers) instead of
+// overflowing tileLayers[] -- the Phase 1.4-1.15 .bss-corruption class. On Saturn,
+// layers render via VDP2 hardware, not the software DrawLayer* path (Saturn-gated off
+// in Object.cpp). P6 RESTORATION: drop the Saturn branch -> LAYER_COUNT returns to 8.
+#define LAYER_COUNT     (4)
+#else
 #define LAYER_COUNT     (8)
+#endif
 #define DRAWGROUP_COUNT (16)
 
 #define SHADER_COUNT (0x20)
@@ -74,8 +93,19 @@ struct GFXSurface {
 };
 
 struct ScreenInfo {
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P4 data retarget (Task #203): the software frameBuffer[SCREEN_XMAX*SCREEN_YSIZE]
+    // (uint16 320*224 = 143360 B) is the per-screen blit target the Saturn NEVER uses --
+    // VDP1 sprites + VDP2 NBG scrolls render in hardware. Its ONLY writers are the
+    // DrawLayer* software rasterizers (Object.cpp), which are Saturn-gated off. Stub it
+    // to [1] to reclaim ~140 KB of .bss. The struct's other fields (position/size/clip)
+    // stay live (DevOutput, clip bounds, camera bookkeeping all read them).
+    // P6 RESTORATION: drop the Saturn branch -> frameBuffer returns to full size.
+    uint16 frameBuffer[1];
+#else
     // uint16 *frameBuffer;
     uint16 frameBuffer[SCREEN_XMAX * SCREEN_YSIZE];
+#endif
     Vector2 position;
     Vector2 size;
     Vector2 center;
@@ -254,9 +284,15 @@ private:
 #include "Vulkan/VulkanRenderDevice.hpp"
 #elif RETRO_RENDERDEVICE_EGL
 #include "EGL/EGLRenderDevice.hpp"
+#elif RETRO_RENDERDEVICE_SATURN
+#include "SaturnRenderDevice.hpp" // platform/Saturn/ via -I (Task #196)
 #endif
 
+#if defined(P6_SCENE_TEST)
+extern DrawList *drawGroups; // P6.3: relocated (DEAD), defined in p6_io_main.cpp
+#else
 extern DrawList drawGroups[DRAWGROUP_COUNT];
+#endif
 extern char drawGroupNames[0x10][0x10];
 
 extern uint16 blendLookupTable[0x20 * 0x100];

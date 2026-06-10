@@ -70,13 +70,35 @@ uint32_t main_title_pal_drains(void) { return s_title_pal_drains; }
 #define TITLE_BG_W  224
 #define TITLE_BG_H  512
 
+/* #187 fix (2026-06-01): stage cd/TITLE.DAT in the GHZ FG.TMP LWRAM region
+ * (0x00210000, 320 KB, storage.c:211-221) instead of the jo malloc pool.
+ *
+ * Measured (during #186): the jo pool (256 KB) is down to ~8.9 KB free at
+ * GHZ gameplay because the 114688-byte TITLE.DAT backdrop bitmap
+ * (TITLE_BG_W * TITLE_BG_H = 224*512) stays resident in the pool. jo never
+ * splits a reused block (malloc.c:127-131) and jo_free either pops the zone
+ * high or marks the block free (malloc.c:189-192), so whether TITLE.DAT was
+ * never freed OR freed-then-recycled-whole by a smaller later alloc, the
+ * 114 KB is stranded either way -- starving HUD/entity loads.
+ *
+ * The FG.TMP LWRAM region is provably free during the title phase: GHZ
+ * assets (GHZ1SURF/FG.TMP/SKY.DAT) load only at the title->GHZ transition,
+ * AFTER setup_title_bg runs. jo_img_to_vdp2_cells copies the bitmap into
+ * VDP2 VRAM during the one-shot bind, so the staging buffer is dead the
+ * instant setup_title_bg returns -- it is never re-read and is reclaimed by
+ * the GHZSetup FG.TMP load at the transition. Pool-free GFS read via
+ * jo_fs_read_file_ptr (fs.c:282-283). Same LWRAM-bypass mechanism as
+ * memory/ghz-sky-dat-lwram-bypass.md and the #186 HUD fix. */
+#define TITLE_DAT_LWRAM_STAGE   ((void *)0x00210000)
+
 static jo_palette g_title_pal;
 static int s_title_bg_ready = 0;
-static unsigned char  *s_title_bg_dat  = NULL;   /* Phase 2.1: kept so title->GHZ
-                                                  * transition can jo_free() it,
-                                                  * recovering ~112KB pool space
-                                                  * for the GHZ FG.TMP (262KB)
-                                                  * tilemap allocation. */
+static unsigned char  *s_title_bg_dat  = NULL;   /* #187: now points at the
+                                                  * TITLE_DAT_LWRAM_STAGE region,
+                                                  * NOT a jo-pool allocation.
+                                                  * Kept only as a readiness
+                                                  * marker; NEVER jo_free()'d
+                                                  * (LWRAM has no pool header). */
 static unsigned short *s_title_bg_pal_buf = NULL;
 
 /* Phase 1.34b — NBG2 cloud parallax (Sub-fix B revived).
@@ -265,9 +287,12 @@ static void setup_title_bg(void)
      * for Phase 2.1's title->GHZ transition free path. */
     s_title_bg_pal_buf = tpal;
 
-    unsigned char *dat = (unsigned char *)jo_fs_read_file("TITLE.DAT", &len_dat);
+    /* #187: read into the LWRAM staging region, NOT the jo pool. dat is an
+     * LWRAM pointer; it must never be jo_free'd (see TITLE_DAT_LWRAM_STAGE
+     * note above and mania_free_title_bg_buffers). */
+    unsigned char *dat = (unsigned char *)jo_fs_read_file_ptr(
+        "TITLE.DAT", TITLE_DAT_LWRAM_STAGE, &len_dat);
     if (!dat || len_dat < TITLE_BG_W * TITLE_BG_H) {
-        if (dat) jo_free(dat);
         return;
     }
     static jo_img_8bits img;
@@ -437,10 +462,13 @@ void mania_free_title_bg_buffers(void)
         /* Flip RBG0OFF + free K/R tables. */
         jo_disable_background_3d_plane(JO_COLOR_RGB(96, 128, 224));
     }
-    if (s_title_bg_dat) {
-        jo_free(s_title_bg_dat);
-        s_title_bg_dat = NULL;
-    }
+    /* #187: s_title_bg_dat points at TITLE_DAT_LWRAM_STAGE (0x00210000), NOT
+     * a jo-pool allocation -- jo_free would treat the LWRAM byte at stage-8
+     * as a jo_memory_block header and corrupt the zone. The LWRAM staging
+     * buffer needs no free (it is reclaimed by the GHZ FG.TMP load at this
+     * same transition); just drop the readiness marker. The 114 KB it used
+     * to strand in the pool is now never in the pool at all. */
+    s_title_bg_dat = NULL;
     if (s_title_bg_pal_buf) {
         jo_free(s_title_bg_pal_buf);
         s_title_bg_pal_buf = NULL;
@@ -1161,9 +1189,44 @@ static void fg_vblank(void)
     }
 }
 
+#ifdef P6IO_HOOK
+/* P6.2 Path A (Task #206): host the engine file-I/O proof in this PROVEN jo boot.
+ * jo_core_init has already run slInitSystem (core.c) + CDC_CdInit (audio.c:110) +
+ * jo_fs_init/GFS_Init with the root dir loaded (core.c:388 -> fs.c:115), so jo's
+ * GFS is live. p6_io_run() (tools/_portspike/_p6/p6_io_main.cpp, lean, NO
+ * P6_IO_TEST) calls the UNMODIFIED engine RSDK::LoadFile("P6IO.BIN") through the
+ * Saturn GFS FileIO backend (p6_gfs.c) and records the gate witnesses (p6_w_io_*)
+ * in WRAM-H .bss. Linked + hooked only when `make P6IO=1`; the shipping `make`
+ * leaves jo_main byte-identical. Gate: tools/_portspike/qa_p6_io.py. */
+extern void p6_io_run(void);
+#endif
+
+#ifdef P6SCENE_HOOK
+/* P6.3 Path A (Task #207): host the engine LoadScene proof in this PROVEN jo
+ * boot. Same contract as the P6IO hook above (jo's GFS is live after
+ * jo_core_init), but the body drives the UNMODIFIED engine chain InitStorage()
+ * -> LoadSceneAssets() against the on-disc "Data/Stages/Title/Scene1.bin"
+ * (cd/SCENE1.BIN) and copies the parsed entity coords into WRAM-H witnesses
+ * (p6_w_scene_*). Engine pools + entity/layer arrays live in WRAM-L, which is
+ * untouched at this point in boot (first game writer is TITLE.DAT staging at
+ * 0x210000, after this returns). Linked + hooked only when `make P6SCENE=1`.
+ * Gate: tools/_portspike/qa_p6_scene.py. */
+extern void p6_scene_run(void);
+#endif
+
 void jo_main(void)
 {
     jo_core_init(JO_COLOR_RGB(96, 128, 224));
+
+#ifdef P6IO_HOOK
+    /* Engine LoadFile proof, once, on jo's live GFS (witnesses persist in BSS). */
+    p6_io_run();
+#endif
+
+#ifdef P6SCENE_HOOK
+    /* Engine LoadScene proof, once, on jo's live GFS (witnesses persist in BSS). */
+    p6_scene_run();
+#endif
 
     /* Hide ALL NBGs immediately so any in-VRAM garbage from the cold-boot
      * VRAM state doesn't render before setup_title_bg writes the

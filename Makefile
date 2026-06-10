@@ -122,6 +122,41 @@ ifneq ($(GHZ_AUTOADVANCE_TICKS),)
 CCFLAGS += -DGHZ_AUTOADVANCE_TICKS=$(GHZ_AUTOADVANCE_TICKS)
 endif
 
+# P6.2 Path A (Task #206): host the engine file-I/O proof inside this PROVEN
+# jo build. `make P6IO=1` defines P6IO_HOOK (main.c calls p6_io_run() once,
+# right after jo_core_init, on jo's live GFS) and links three PRE-BUILT proof
+# objects: the engine's UNMODIFIED RSDK/Core/Reader.cpp (Core_Reader.o), the
+# Saturn GFS FileIO backend under test (p6_gfs.o), and the lean proof driver +
+# RSDK stubs (p6_io_main.o). These are plain .o (always fully linked) and are
+# appended to LIBS BEFORE the `include` below so they PRECEDE the archives the
+# include appends (SEGA_SYS.A/LIBCD.A/LIBSGL.A at jo_engine_makefile:231, -lgcc
+# at :293, and the gcc-driver-appended -lc) -- the proof objects pull GFS_* from
+# LIBCD.A and snprintf/str*/mem* from newlib -lc, so they must come first.
+# Unset (the shipping build) skips the block entirely: byte-identical ISO.
+ifeq ($(P6IO),1)
+CCFLAGS += -DP6IO_HOOK
+LIBS += tools/_portspike/_p6/p6_io_main.o tools/_portspike/_p6/p6_gfs.o tools/_portspike/_p6/Core_Reader.o
+endif
+
+# P6.3 Path A (Task #207): host the engine LoadScene proof inside this PROVEN
+# jo build. `make P6SCENE=1` defines P6SCENE_HOOK (main.c calls p6_scene_run()
+# once, right after jo_core_init, on jo's live GFS) and links ONE pre-built,
+# pre-gc'd pack object: `ld -r --gc-sections` of {p6_io_main, p6_gfs,
+# Core_Reader, Scene_Scene, Storage_Storage, miniz} rooted at p6_scene_run
+# (tools/_portspike/_p6/build_p6scene_objs.sh). The gc-pack exists because the
+# six objects compiled whole add ~107 KB while this image's WRAM-H headroom to
+# the 0x060C0000 SGL floor is 41,936 B (game.map _end 0x060B5C30, 2026-06-06);
+# the pack keeps only the LoadSceneAssets closure and parks every big engine
+# array in WRAM-L (see p6_io_main.cpp P6_SCENE_TEST block). Same position as
+# the P6IO block so the pack PRECEDES LIBCD.A (GFS_*), -lgcc, and -lc. Unset
+# (the shipping build) skips the block entirely: byte-identical ISO. Build
+# P6IO=1 and P6SCENE=1 are mutually exclusive (shared intermediate .o paths).
+# Gate: tools/_portspike/qa_p6_scene.py.
+ifeq ($(P6SCENE),1)
+CCFLAGS += -DP6SCENE_HOOK
+LIBS += tools/_portspike/_p6/p6_scene_pack.o
+endif
+
 # --- Our sources ---
 #
 # Phase 0.5 foundation alignment (2026-05-26): the hand-rolled
@@ -133,13 +168,18 @@ endif
 # files will land under src/mania/Objects/ during Phase 1+ per
 # docs/COMPREHENSIVE_PLAN.md.
 SRCS = src/main.c \
-       src/rsdk/storage.c src/rsdk/collision.c src/rsdk/object.c \
+       src/rsdk/storage.c src/rsdk/collision.c src/rsdk/colwindow.c \
+       src/rsdk/puff.c \
+       src/rsdk/spc.c \
+       src/rsdk/object.c \
        src/rsdk/animation.c src/rsdk/save.c src/rsdk/input.c \
        src/rsdk/drawing.c src/rsdk/audio.c src/rsdk/scene.c \
        src/rsdk/math.c src/rsdk/palette.c src/rsdk/string.c \
        src/rsdk/tilelayer.c src/rsdk/api.c \
        src/rsdk/scene_ghz.c \
        src/rsdk/entity_atlas.c \
+       src/rsdk/player_atlas.c \
+       src/rsdk/breadcrumb.c \
        src/mania/Game.c \
        src/mania/Objects/Title/TitleSetup.c \
        src/mania/Objects/Title/TitleLogo.c \
@@ -258,3 +298,30 @@ all_phase121b1: intro all
 	@echo "  cd/0.bin    -- GAME.BIN (default ISO first-read; unchanged)"
 	@echo "  cd/INTRO.BIN -- Cinepak intro binary (Phase 1.22 chain target)"
 	@echo "  intro.elf   -- intro ELF (for symbol inspection during B2)"
+
+# --- Engine true-port pivot (Tasks #199-#204): TRUEPORT codegen target ---
+#
+# `make TRUEPORT=1` (or `make trueport`) compiles the true-port object set --
+# the 16 platform-independent RSDKv5 logic-core TUs + the 5 Saturn backend shim
+# TUs -- into tools/_portspike/_trueport_obj/ via build_trueport.sh (the P1
+# gate). This is the incremental SH-2 true-port of the RSDKv5 engine that will
+# replace the jo-engine hand-rewrite in src/rsdk + src/mania. It is GATED so the
+# default `make` (jo's `all`: the working shipping game) stays byte-identical --
+# the trueport target is inert unless explicitly selected, exactly like the
+# `intro` / `all_phase121b1` phony targets above.
+#
+# The compile uses C++ + RSDKv5 headers + newlib (NOT jo's C SRCS), so it lives
+# in its own script rather than in jo_engine_makefile's C rules (which must not
+# be modified). P1 is CODEGEN ONLY (21/21 .o); the real Saturn link is P2.
+.PHONY: trueport
+trueport:
+	bash tools/_portspike/build_trueport.sh
+
+# TRUEPORT=1 redirects the default goal to `trueport` so the canonical invocation
+# `make TRUEPORT=1` triggers the true-port codegen. This MUST come AFTER the
+# jo_engine_makefile include (which sets its own first-target default goal) and
+# is guarded so an unset / != 1 TRUEPORT leaves jo's `all` as the default goal --
+# i.e. plain `make` is byte-identical to before this block existed.
+ifeq ($(TRUEPORT),1)
+.DEFAULT_GOAL := trueport
+endif

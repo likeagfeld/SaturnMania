@@ -9,7 +9,50 @@ namespace RSDK
 #define TILE_DATASIZE (TILE_SIZE * TILE_SIZE)
 #define TILESET_SIZE  (TILE_COUNT * TILE_DATASIZE)
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P4 data retarget (Task #203): on Saturn tilesetPixels stores ONLY the base
+// (FLIP_NONE) tile region. The stock x4 holds software pre-flipped copies
+// (FLIP_X/Y/XY) consumed by the C software tile renderer (DrawLayer*, Scene.cpp
+// :1294-2069). On Saturn the VDP2 cell/scroll hardware performs H/V tile flips
+// from its own per-cell flip bits, so the pre-expansion is dead weight; dropping
+// it reclaims 3 * TILESET_SIZE = 768 KB of WRAM .bss. The DrawLayer* readers that
+// index the FLIP regions are retired by the P5/P6 VDP2 tile-render backend and are
+// NOT reached by the P3 boot or the P5 Ring-only proof scene (no tile layer drawn
+// -> ProcessObjectDrawLists' layer loop is empty). collisionMasks/tileInfo get the
+// same x4->x1 treatment via COLLISION_FLIPCOUNT below (their flipped copies are
+// pre-built collision GEOMETRY, distinct from pixels, but equally dead on Saturn).
+#define TILESET_FLIPCOUNT (1)
+#else
+#define TILESET_FLIPCOUNT (4)
+#endif
+
 #define CPATH_COUNT (2)
+
+#if RETRO_PLATFORM == RETRO_SATURN
+// P4 data retarget (Task #203): collisionMasks/tileInfo store ONLY the base
+// (FLIP_NONE) region on Saturn. The stock x4 holds three software pre-built
+// flipped copies (FLIP_X/Y/XY) of each tile's collision geometry, generated in
+// LoadTileConfig (Scene.cpp:869-949) and read by the collision sensors at
+// collisionMasks[cPlane][tile & 0xFFF] / tileInfo[..][tile & 0xFFF]
+// (Collision.cpp, 26 sites). On Saturn the VDP collision backend (P5/P6) derives
+// flipped geometry from per-cell flip bits, so the x3 expansion is dead .bss;
+// dropping it reclaims ~414 KB (collisionMasks 512->128 KB, tileInfo 40->10 KB).
+//   Because the sensors index with `tile & 0xFFF` (0..4095) -- which addresses the
+// x4 region -- a x1 array would be an OUT-OF-BOUNDS read for any flipped tile
+// (>=1024): the silent WRAM-.bss corruption class that cost 15 iterations in
+// Phase 1.4-1.15. So COLLISION_TILE_MASK clamps every Saturn collision read to the
+// base region (0x3FF): a flipped tile reads the FLIP_NONE mask -- a bounded,
+// in-bounds geometric approximation retired by the P6 backend, never OOB. The P5
+// Ring-only proof scene runs NO tile collision (no Player, no collidable layer), so
+// even the approximation is never exercised there.
+//   P6 RESTORATION: set both macros back to the stock (4) / (0xFFF) and remove the
+// `#if RETRO_PLATFORM != RETRO_SATURN` guards on the LoadTileConfig flip blocks.
+#define COLLISION_FLIPCOUNT (1)
+#define COLLISION_TILE_MASK (0x3FF)
+#else
+#define COLLISION_FLIPCOUNT (4)
+#define COLLISION_TILE_MASK (0xFFF)
+#endif
 
 #define RSDK_SIGNATURE_CFG (0x474643) // "CFG"
 #define RSDK_SIGNATURE_SCN (0x4E4353) // "SCN"
@@ -147,10 +190,16 @@ struct TileInfo {
 };
 
 extern ScanlineInfo *scanlines;
+#if defined(P6_SCENE_TEST)
+extern TileLayer *tileLayers; // P6.3: relocated to WRAM-L (pointer form), defined in p6_io_main.cpp
+extern CollisionMask (*collisionMasks)[TILE_COUNT * COLLISION_FLIPCOUNT]; // P6.3: relocated (DEAD), defined in p6_io_main.cpp
+extern TileInfo (*tileInfo)[TILE_COUNT * COLLISION_FLIPCOUNT];            // P6.3: relocated (DEAD), defined in p6_io_main.cpp
+#else
 extern TileLayer tileLayers[LAYER_COUNT];
 
-extern CollisionMask collisionMasks[CPATH_COUNT][TILE_COUNT * 4]; // 1024 * 1 per direction
-extern TileInfo tileInfo[CPATH_COUNT][TILE_COUNT * 4];            // 1024 * 1 per direction
+extern CollisionMask collisionMasks[CPATH_COUNT][TILE_COUNT * COLLISION_FLIPCOUNT]; // x4 PC (FLIP copies) / x1 Saturn
+extern TileInfo tileInfo[CPATH_COUNT][TILE_COUNT * COLLISION_FLIPCOUNT];            // x4 PC (FLIP copies) / x1 Saturn
+#endif
 
 #if RETRO_REV02
 extern bool32 forceHardReset;
@@ -163,7 +212,11 @@ extern uint8 currentSceneFilter;
 
 extern SceneInfo sceneInfo;
 
-extern uint8 tilesetPixels[TILESET_SIZE * 4];
+#if defined(P6_SCENE_TEST)
+extern uint8 *tilesetPixels; // P6.3: relocated (DEAD), defined in p6_io_main.cpp
+#else
+extern uint8 tilesetPixels[TILESET_SIZE * TILESET_FLIPCOUNT];
+#endif
 
 void LoadSceneFolder();
 void LoadSceneAssets();
@@ -290,6 +343,9 @@ inline void CopyTile(uint16 dest, uint16 src, uint16 count)
     uint8 *destPixels = &tilesetPixels[TILE_DATASIZE * dest];
     uint8 *srcPixels  = &tilesetPixels[TILE_DATASIZE * src];
 
+#if RETRO_PLATFORM != RETRO_SATURN
+    // FLIP_X/Y/XY copies skipped on Saturn -- tilesetPixels is x1 (base only);
+    // VDP2 does tile flips in hardware. See TILESET_FLIPCOUNT (Scene.hpp:12).
     uint8 *destPixelsX = &tilesetPixels[(TILE_DATASIZE * dest) + ((TILE_COUNT * TILE_DATASIZE) * FLIP_X)];
     uint8 *srcPixelsX  = &tilesetPixels[(TILE_DATASIZE * src) + ((TILE_COUNT * TILE_DATASIZE) * FLIP_X)];
 
@@ -298,13 +354,16 @@ inline void CopyTile(uint16 dest, uint16 src, uint16 count)
 
     uint8 *destPixelsXY = &tilesetPixels[(TILE_DATASIZE * dest) + ((TILE_COUNT * TILE_DATASIZE) * FLIP_XY)];
     uint8 *srcPixelsXY  = &tilesetPixels[(TILE_DATASIZE * src) + ((TILE_COUNT * TILE_DATASIZE) * FLIP_XY)];
+#endif
 
     for (int32 t = 0; t < count; ++t) {
         for (int32 p = 0; p < TILE_DATASIZE; ++p) {
             *destPixels++   = *srcPixels++;
+#if RETRO_PLATFORM != RETRO_SATURN
             *destPixelsX++  = *srcPixelsX++;
             *destPixelsY++  = *srcPixelsY++;
             *destPixelsXY++ = *srcPixelsXY++;
+#endif
         }
     }
 }

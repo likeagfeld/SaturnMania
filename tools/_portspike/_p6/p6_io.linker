@@ -1,0 +1,146 @@
+/* =============================================================================
+ * p6_io.linker -- SINGLE-REGION link for the DECOUPLED GFSDEMO-style file-I/O
+ * proof (io-green ONLY, Task #206, P6.2).
+ *
+ * This is NOT the two-bank engine link. The decoupled image is MINIMAL: it links
+ * the REAL unmodified engine Core_Reader.o (LoadFile/ReadBytes) over a Saturn GFS
+ * backend, but does NOT drag the 1.2 MB entity/scene BSS (no Scene_*.o, no other
+ * true-port objects). Its total .bss is ~70 KB (mostly p6_gfs.o's 64 KB whole-
+ * file RAM buffer), so EVERYTHING fits in WRAM-H below the 0x060C0000 SGL work-
+ * area floor -- there is no need to sweep a giant .bss to WRAM-L. This mirrors the
+ * STANDARD single-region SGL layout that jo-engine and Coup boot from, which is
+ * exactly why slInitSystem is proven to work here.
+ *
+ * BOOT (the decouple decision): boot through SGL's REAL ___Start SLSTART entry
+ * (LIBSGL.A sglI00.o, pulled by referencing slInitSystem in p6_sgl_boot.o, placed
+ * first by `.slstart { ___Start = .; *(SLSTART) }`). SLSTART sets SR=0xF0 /
+ * SP=*MasterStack (SGLAREA) / CCR=0x11 (cache enable+purge @0xFFFFFE92) /
+ * GBR=0x060FFC00, then `jmp @main` -- the ELF `_main` provided by the asm shim
+ * p6_io_boot.s. The shim (crt0.s MINUS the stack-pointer set) zeroes both .bss
+ * bounds + runs .init_array/.ctors, then jsr's p6_io_proof.
+ *
+ * WHY SGL's ___Start AND NOT crt0.s (refined root cause, Task #206): crt0.s
+ * skipped SLSTART, leaving GBR unset. SGL's VBlank ISR is GBR-relative, so when
+ * slInitSystem enabled interrupts the first vblank handler took an address error
+ * (master to PC=0x06000956). Booting through SLSTART (which sets GBR) removes the
+ * fault at its source. SLSTART jmps `_main` directly, bypassing newlib
+ * __libc_init_array -- so the asm shim must do the BSS-zero + ctor run itself,
+ * which is why this script still emits the __bss_ and .tors bounds below.
+ *
+ * SGLAREA.O (linked explicitly on the object line) emits its work-area pointer/
+ * size table into SLPROG; slInitSystem dereferences _SortList/_SpriteBuf/... from
+ * there, so SLPROG must live in the WRAM-H loaded image right after .text.
+ *
+ * WITNESS BYTE-ORDER: p6_io_main.o(.bss) is pinned FIRST in .bss_h so the io
+ * witnesses share the WRAM-H byte order of p6_w_magic (a const int32 in .rodata,
+ * also WRAM-H). tools/_portspike/qa_p6_io.py calibrates from magic and reads the
+ * witnesses, so both must sit in the same bank.
+ *
+ * SYMBOL UNDERSCORE CONVENTION (empirically confirmed, #202): sh-none-elf
+ * prepends exactly ONE underscore to C/asm identifiers at the ELF level. This
+ * script DEFINES the two-underscore `__bss_h_start` etc. that the asm shim
+ * references as `__bss_h_start` (asm literal), and the three-underscore
+ * `___heap_start` that p6_syscalls.c's C `__heap_start` (two) becomes. `___Start`
+ * (three underscores here) is the ELF form sglI00.o's SLSTART relocs resolve
+ * against and ENTRY() jumps to.
+ * ============================================================================= */
+
+OUTPUT_ARCH(sh)
+ENTRY(___Start)
+
+__STACK_SIZE = 0x8000;        /* 32 KB. Unused on this path -- SGL's ___Start sets
+                               * SP=*MasterStack (SGLAREA), not a raw-top stack --
+                               * but kept so the symbol table stays comparable. */
+__HEAP_FLOOR = 0x10000;       /* 64 KB. Nothing mallocs in the decoupled proof, so
+                               * the heap is link-bait for newlib _sbrk; the floor
+                               * is a sanity check with ample headroom. */
+
+SECTIONS
+{
+    /* ---- WRAM-H : loaded image (cd/0.bin), copied to 0x06004000 by IP.BIN ---- */
+    . = 0x06004000;
+
+    .slstart : {
+        ___Start = .;        /* linker-defined SLSTART head; sglI00.o's SLSTART
+                              * content lands here; ENTRY(___Start) jumps to it. */
+        *(SLSTART)           /* LIBSGL.A(sglI00.o) ___Start -- SR/SP/CCR/GBR then jmp @main */
+    }
+
+    .text ALIGN(0x20) : {
+        __text_start = .;
+        *(.text) *(.text.*) *(.stub) *(.gnu.linkonce.t.*)
+        __text_end = .;
+    }
+
+    /* SGLAREA.O work-area table -- slInitSystem dereferences it; loaded program
+     * data, so it sits in the WRAM-H image bank right after .text. */
+    .slprog ALIGN(0x20) : {
+        __slprog_start = .;
+        *(SLPROG)
+        __slprog_end = .;
+    }
+
+    .rodata ALIGN(0x20) : {
+        *(.rodata) *(.rodata.*) *(.gnu.linkonce.r.*)
+        *(.rdata) *(.rodata1)
+    }
+
+    .data ALIGN(0x20) : {
+        *(.data) *(.data.*) *(.gnu.linkonce.d.*)
+        *(.data1)
+    }
+
+    .tors ALIGN(0x10) : {
+        __init_array_start = .;
+        *(.init_array) *(.init_array.*)
+        __init_array_end = .;
+
+        __ctors_start = .;
+        *(.ctors) *(.ctors.*)
+        __ctors_end = .;
+
+        __dtors_start = .;
+        *(.dtors) *(.dtors.*)
+        __dtors_end = .;
+    }
+
+    /* ---- WRAM-H : .bss (NOLOAD) -- witnesses pinned first, then GFS buffer ---- */
+    .bss_h (NOLOAD) : ALIGN(0x10) {
+        __bss_h_start = .;
+        *p6_io_main.o(.bss .bss.*)       /* io witnesses + userFileDir share magic's WRAM-H bank */
+        *(.bss .bss.*)                   /* p6_gfs.o s_filebuf (64 KB) + GFS work + everything else */
+        *(COMMON)
+        . = ALIGN(0x10);
+        __bss_h_end = .;
+    }
+
+    /* ---- WRAM-L : empty .bss + malloc heap link-bait ---- */
+    . = 0x00200000;
+    .bss_l (NOLOAD) : ALIGN(0x10) {
+        __bss_l_start = .;
+        . = ALIGN(0x10);                 /* decoupled proof keeps all .bss in WRAM-H above */
+        __bss_l_end = .;
+        ___heap_start = .;
+        /* newlib's lib_a-syscalls.o _sbrk grows the heap from the linker symbol
+         * `end` (the single-region convention jo/Coup/GFSDEMO use). This image
+         * is single-region, so -- unlike the two-bank green/red link, which
+         * overrides the WHOLE syscall set via p6_syscalls.o -- io-green lets
+         * newlib own _sbrk and just points `end` at this WRAM-L heap base.
+         * sh-none-elf may reference either `end` or `_end`; PROVIDE all three. */
+        PROVIDE(end   = .);
+        PROVIDE(_end  = .);
+        PROVIDE(__end = .);
+    }
+    ___heap_end = 0x00300000;
+
+    /DISCARD/ : {
+        *(.comment) *(.note) *(.note.*)
+        *(.eh_frame) *(.eh_frame_hdr)
+        *(.debug*) *(.gnu.attributes) *(.gnu.lto_*)
+    }
+}
+
+ASSERT(__bss_h_end <= 0x060C0000,
+       "p6_io.linker: WRAM-H image overran the SGL work-area floor (0x060C0000)")
+ASSERT(___heap_end - ___heap_start >= __HEAP_FLOOR,
+       "p6_io.linker: WRAM-L heap window below the 64 KB link-bait floor")

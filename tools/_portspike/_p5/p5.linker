@@ -1,0 +1,122 @@
+/* =============================================================================
+ * p5.linker -- two-bank link for the P5 first-object proof (Task #204).
+ *
+ * Identical bank layout to _p3/p3.linker (the core-boot proof, #202): the core
+ * .bss (~1.15 MB measured) exceeds one 1 MB WRAM bank, so .bss is split across
+ * both physical banks. The ONLY P5-specific change is a WRAM-H pin for the flat
+ * witness TU (p5_ring.o) -- see the .bss_h block below.
+ *
+ *   WRAM-H 0x06000000..0x06100000 : the image loads at 0x06004000 (IP.BIN copies
+ *     cd/0.bin here and jumps to it); SP grows DOWN from 0x06100000. The pinned
+ *     .bss (engine + sceneInfo + Scene/Object + p5_ring witnesses) sits just
+ *     above the image and must end below the 32 KB stack reserve at 0x060F8000.
+ *     engine (Core_RetroEngine.o) and sceneInfo (Scene_Scene.o) are pinned here
+ *     because the gate reads them alongside the WRAM-H magic and needs ONE
+ *     consistent byte order. Scene/Object (296 KB) is pinned to lift the WRAM-H
+ *     .bss total above the heap floor (so less is swept to WRAM-L).
+ *   WRAM-L 0x00200000..0x00300000 : the swept remainder of .bss + the malloc
+ *     heap [___heap_start, ___heap_end). UNLIKE P3, p5_main.cpp does NOT call
+ *     RunRetroEngine / InitStorage, so nothing mallocs -- the heap is link-bait
+ *     for p5_syscalls.o's _sbrk. The 608 KB floor ASSERT is kept for structural
+ *     parity (the swept .bss set is ~identical to P3, so the window stays ~650 KB).
+ *
+ * P5 WITNESS BYTE ORDER (the one change from p3.linker): the 9 C-linkage int32
+ * witnesses live in p5_ring.cpp. p5_w_magic is `const` (-> .rodata, already in
+ * the WRAM-H bank with .text/.data). The other 8 are zero-init (-> .bss) and
+ * would otherwise sweep to WRAM-L, giving them a DIFFERENT Mednafen WRAM byte
+ * order than the magic the gate self-calibrates from. Pinning *p5_ring.o(.bss)
+ * to .bss_h puts every numeric witness in WRAM-H alongside the magic -> one
+ * byte order for the whole witness set. Saturn-only P5 scaffolding (P6 decides
+ * its fate).
+ *
+ * .bss is NOLOAD (NOBITS): NOT in cd/0.bin; crt0.s zeroes both banks at boot
+ * from the __bss_h_start/_end + __bss_l_start/_end bounds defined here.
+ *
+ * SYMBOL UNDERSCORE CONVENTION (empirically confirmed, #202): sh-none-elf
+ * prepends exactly ONE underscore to C/asm identifiers at the ELF level. crt0.s
+ * references the LITERAL ELF names `__bss_h_start` etc. (two underscores), so
+ * this script DEFINES the two-underscore names verbatim. p5_syscalls.c's C
+ * `extern char __heap_start` (two underscores) becomes ELF `___heap_start`
+ * (three), so the heap bounds are defined with THREE underscores. The entry
+ * `___Start` is defined by crt0.s itself -- do NOT redefine it here.
+ * ============================================================================= */
+
+OUTPUT_ARCH(sh)
+ENTRY(___Start)
+
+__STACK_SIZE = 0x8000;        /* 32 KB reserve below WRAM-H top (0x06100000) */
+__HEAP_FLOOR = 622592;        /* 608 KB structural floor (kept from p3.linker) */
+
+SECTIONS
+{
+    /* ---- WRAM-H : loaded image (cd/0.bin), copied to 0x06004000 by IP.BIN ---- */
+    . = 0x06004000;
+
+    .slstart : {
+        *(SLSTART)            /* crt0 ___Start -- first instruction the BIOS jumps to */
+    }
+
+    .text ALIGN(0x20) : {
+        __text_start = .;
+        *(.text) *(.text.*) *(.stub) *(.gnu.linkonce.t.*)
+        __text_end = .;
+    }
+
+    .rodata ALIGN(0x20) : {
+        *(.rodata) *(.rodata.*) *(.gnu.linkonce.r.*)
+        *(.rdata) *(.rodata1)
+    }
+
+    .data ALIGN(0x20) : {
+        *(.data) *(.data.*) *(.gnu.linkonce.d.*)
+        *(.data1)
+    }
+
+    .tors ALIGN(0x10) : {
+        __init_array_start = .;
+        *(.init_array) *(.init_array.*)
+        __init_array_end = .;
+
+        __ctors_start = .;
+        *(.ctors) *(.ctors.*)
+        __ctors_end = .;
+
+        __dtors_start = .;
+        *(.dtors) *(.dtors.*)
+        __dtors_end = .;
+    }
+
+    /* ---- WRAM-H : pinned .bss (NOLOAD) -- witnesses + engine + sceneInfo + Object ---- */
+    .bss_h (NOLOAD) : ALIGN(0x10) {
+        __bss_h_start = .;
+        *p5_ring.o(.bss .bss.*)          /* P5: numeric witnesses share the magic's bank */
+        *Scene_Scene.o(.bss .bss.*)
+        *Core_RetroEngine.o(.bss .bss.*)
+        *Scene_Object.o(.bss .bss.*)
+        . = ALIGN(0x10);
+        __bss_h_end = .;
+    }
+
+    /* ---- WRAM-L : swept .bss (NOLOAD) + malloc heap (link-bait in P5) ---- */
+    . = 0x00200000;
+    .bss_l (NOLOAD) : ALIGN(0x10) {
+        __bss_l_start = .;
+        *(.bss .bss.*)
+        *(COMMON)
+        . = ALIGN(0x10);
+        __bss_l_end = .;
+        ___heap_start = .;
+    }
+    ___heap_end = 0x00300000;
+
+    /DISCARD/ : {
+        *(.comment) *(.note) *(.note.*)
+        *(.eh_frame) *(.eh_frame_hdr)
+        *(.debug*) *(.gnu.attributes) *(.gnu.lto_*)
+    }
+}
+
+ASSERT(__bss_h_end <= 0x06100000 - __STACK_SIZE,
+       "p5.linker: WRAM-H .bss overran the 32 KB stack reserve (0x060F8000)")
+ASSERT(___heap_end - ___heap_start >= __HEAP_FLOOR,
+       "p5.linker: WRAM-L heap window below the 608 KB structural floor")

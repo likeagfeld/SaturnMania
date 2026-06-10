@@ -637,7 +637,7 @@ bool32 RSDK::ObjectTileCollision(Entity *entity, uint16 cLayers, uint8 cMode, ui
                             if (cy >= 0 && cy < TILE_SIZE * layer->ysize) {
                                 uint16 tile = layer->layout[(colX / TILE_SIZE) + ((cy / TILE_SIZE) << layer->widthShift)];
                                 if (tile < 0xFFFF && tile & solid) {
-                                    int32 ty = cy + collisionMasks[cPlane][tile & 0xFFF].floorMasks[colX & 0xF];
+                                    int32 ty = cy + collisionMasks[cPlane][tile & COLLISION_TILE_MASK].floorMasks[colX & 0xF];
                                     if (colY >= ty && abs(colY - ty) <= 14) {
                                         collided = true;
                                         colY     = ty;
@@ -671,7 +671,7 @@ bool32 RSDK::ObjectTileCollision(Entity *entity, uint16 cLayers, uint8 cMode, ui
                             if (cx >= 0 && cx < TILE_SIZE * layer->xsize) {
                                 uint16 tile = layer->layout[(cx >> 4) + ((colY / TILE_SIZE) << layer->widthShift)];
                                 if (tile < 0xFFFF && tile & solid) {
-                                    int32 tx = cx + collisionMasks[cPlane][tile & 0xFFF].lWallMasks[colY & 0xF];
+                                    int32 tx = cx + collisionMasks[cPlane][tile & COLLISION_TILE_MASK].lWallMasks[colY & 0xF];
                                     if (colX >= tx && abs(colX - tx) <= 14) {
                                         collided = true;
                                         colX     = tx;
@@ -705,7 +705,7 @@ bool32 RSDK::ObjectTileCollision(Entity *entity, uint16 cLayers, uint8 cMode, ui
                             if (cy >= 0 && cy < TILE_SIZE * layer->ysize) {
                                 uint16 tile = layer->layout[(colX >> 4) + ((cy / TILE_SIZE) << layer->widthShift)];
                                 if (tile < 0xFFFF && tile & solid) {
-                                    int32 ty = cy + collisionMasks[cPlane][tile & 0xFFF].roofMasks[colX & 0xF];
+                                    int32 ty = cy + collisionMasks[cPlane][tile & COLLISION_TILE_MASK].roofMasks[colX & 0xF];
                                     if (colY <= ty && abs(colY - ty) <= 14) {
                                         collided = true;
                                         colY     = ty;
@@ -739,7 +739,7 @@ bool32 RSDK::ObjectTileCollision(Entity *entity, uint16 cLayers, uint8 cMode, ui
                             if (cx >= 0 && cx < TILE_SIZE * layer->xsize) {
                                 uint16 tile = layer->layout[(cx >> 4) + ((colY / TILE_SIZE) << layer->widthShift)];
                                 if (tile < 0xFFFF && tile & solid) {
-                                    int32 tx = cx + collisionMasks[cPlane][tile & 0xFFF].rWallMasks[colY & 0xF];
+                                    int32 tx = cx + collisionMasks[cPlane][tile & COLLISION_TILE_MASK].rWallMasks[colY & 0xF];
                                     if (colX <= tx && abs(colX - tx) <= 14) {
                                         collided = true;
                                         colX     = tx;
@@ -785,7 +785,7 @@ bool32 RSDK::ObjectTileGrip(Entity *entity, uint16 cLayers, uint8 cMode, uint8 c
                             if (cy >= 0 && cy < TILE_SIZE * layer->ysize) {
                                 uint16 tile = layer->layout[(colX >> 4) + ((cy / TILE_SIZE) << layer->widthShift)];
                                 if (tile < 0xFFFF && tile & solid) {
-                                    int32 mask = collisionMasks[cPlane][tile & 0xFFF].floorMasks[colX & 0xF];
+                                    int32 mask = collisionMasks[cPlane][tile & COLLISION_TILE_MASK].floorMasks[colX & 0xF];
                                     int32 ty   = cy + mask;
                                     if (mask < 0xFF) {
                                         if (abs(colY - ty) <= tolerance) {
@@ -822,7 +822,7 @@ bool32 RSDK::ObjectTileGrip(Entity *entity, uint16 cLayers, uint8 cMode, uint8 c
                             if (cx >= 0 && cx < TILE_SIZE * layer->xsize) {
                                 uint16 tile = layer->layout[(cx >> 4) + ((colY / TILE_SIZE) << layer->widthShift)];
                                 if (tile < 0xFFFF && tile & solid) {
-                                    int32 mask = collisionMasks[cPlane][tile & 0xFFF].lWallMasks[colY & 0xF];
+                                    int32 mask = collisionMasks[cPlane][tile & COLLISION_TILE_MASK].lWallMasks[colY & 0xF];
                                     int32 tx   = cx + mask;
                                     if (mask < 0xFF) {
                                         if (abs(colX - tx) <= tolerance) {
@@ -859,7 +859,7 @@ bool32 RSDK::ObjectTileGrip(Entity *entity, uint16 cLayers, uint8 cMode, uint8 c
                             if (cy >= 0 && cy < TILE_SIZE * layer->ysize) {
                                 uint16 tile = layer->layout[(colX >> 4) + ((cy / TILE_SIZE) << layer->widthShift)];
                                 if (tile < 0xFFFF && tile & solid) {
-                                    int32 mask = collisionMasks[cPlane][tile & 0xFFF].roofMasks[colX & 0xF];
+                                    int32 mask = collisionMasks[cPlane][tile & COLLISION_TILE_MASK].roofMasks[colX & 0xF];
                                     int32 ty   = cy + mask;
                                     if (mask < 0xFF) {
                                         if (abs(colY - ty) <= tolerance) {
@@ -896,7 +896,7 @@ bool32 RSDK::ObjectTileGrip(Entity *entity, uint16 cLayers, uint8 cMode, uint8 c
                             if (cx >= 0 && cx < TILE_SIZE * layer->xsize) {
                                 uint16 tile = layer->layout[(cx >> 4) + ((colY / TILE_SIZE) << layer->widthShift)];
                                 if (tile < 0xFFFF && tile & solid) {
-                                    int32 mask = collisionMasks[cPlane][tile & 0xFFF].rWallMasks[colY & 0xF];
+                                    int32 mask = collisionMasks[cPlane][tile & COLLISION_TILE_MASK].rWallMasks[colY & 0xF];
                                     int32 tx   = cx + mask;
                                     if (mask < 0xFF) {
                                         if (abs(colX - tx) <= tolerance) {
@@ -2188,9 +2188,9 @@ void RSDK::FindFloorPosition(CollisionSensor *sensor)
                         uint16 tile = layer->layout[(colX / TILE_SIZE) + ((cy / TILE_SIZE) << layer->widthShift)];
 
                         if (tile < 0xFFFF && tile & solid) {
-                            int32 mask      = collisionMasks[collisionEntity->collisionPlane][tile & 0xFFF].floorMasks[colX & 0xF];
+                            int32 mask      = collisionMasks[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].floorMasks[colX & 0xF];
                             int32 ty        = cy + mask;
-                            int32 tileAngle = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].floorAngle;
+                            int32 tileAngle = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].floorAngle;
 
                             if (mask < 0xFF) {
                                 if (!sensor->collided || startY >= ty) {
@@ -2249,9 +2249,9 @@ void RSDK::FindLWallPosition(CollisionSensor *sensor)
                         uint16 tile = layer->layout[(cx / TILE_SIZE) + ((colY / TILE_SIZE) << layer->widthShift)];
 
                         if (tile < 0xFFFF && tile & solid) {
-                            int32 mask      = collisionMasks[collisionEntity->collisionPlane][tile & 0xFFF].lWallMasks[colY & 0xF];
+                            int32 mask      = collisionMasks[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].lWallMasks[colY & 0xF];
                             int32 tx        = cx + mask;
-                            int32 tileAngle = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].lWallAngle;
+                            int32 tileAngle = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].lWallAngle;
 
                             if (mask < 0xFF) {
                                 if (!sensor->collided || startX >= tx) {
@@ -2306,9 +2306,9 @@ void RSDK::FindRoofPosition(CollisionSensor *sensor)
                         uint16 tile = layer->layout[(colX / TILE_SIZE) + ((cy / TILE_SIZE) << layer->widthShift)];
 
                         if (tile < 0xFFFF && tile & solid) {
-                            int32 mask      = collisionMasks[collisionEntity->collisionPlane][tile & 0xFFF].roofMasks[colX & 0xF];
+                            int32 mask      = collisionMasks[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].roofMasks[colX & 0xF];
                             int32 ty        = cy + mask;
-                            int32 tileAngle = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].roofAngle;
+                            int32 tileAngle = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].roofAngle;
 
                             if (mask < 0xFF) {
                                 if (!sensor->collided || startY <= ty) {
@@ -2355,9 +2355,9 @@ void RSDK::FindRWallPosition(CollisionSensor *sensor)
                         uint16 tile = layer->layout[(cx / TILE_SIZE) + ((colY / TILE_SIZE) << layer->widthShift)];
 
                         if (tile < 0xFFFF && tile & solid) {
-                            int32 mask      = collisionMasks[collisionEntity->collisionPlane][tile & 0xFFF].rWallMasks[colY & 0xF];
+                            int32 mask      = collisionMasks[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].rWallMasks[colY & 0xF];
                             int32 tx        = cx + mask;
-                            int32 tileAngle = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].rWallAngle;
+                            int32 tileAngle = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].rWallAngle;
 
                             if (mask < 0xFF) {
                                 if (!sensor->collided || startX <= tx) {
@@ -2422,7 +2422,7 @@ void RSDK::FloorCollision(CollisionSensor *sensor)
                     if (cy >= 0 && cy < TILE_SIZE * layer->ysize) {
                         uint16 tile = layer->layout[(colX / TILE_SIZE) + ((cy / TILE_SIZE) << layer->widthShift)];
                         if (tile < 0xFFFF && tile & solid) {
-                            int32 mask = collisionMasks[collisionEntity->collisionPlane][tile & 0xFFF].floorMasks[colX & 0xF];
+                            int32 mask = collisionMasks[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].floorMasks[colX & 0xF];
 #if RETRO_REV0U
                             int32 ty = layer->position.y + cy + mask;
 #else
@@ -2432,14 +2432,14 @@ void RSDK::FloorCollision(CollisionSensor *sensor)
 #if RETRO_REV0U
                                 step = -TILE_SIZE;
                                 if (colY < collidePos) {
-                                    collideAngle = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].floorAngle;
+                                    collideAngle = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].floorAngle;
                                     collidePos   = ty;
                                     i            = stepCount;
 #else
                                 if (colY >= ty) {
                                     if (abs(colY - ty) <= collisionMinimumDistance) {
                                         sensor->collided   = true;
-                                        sensor->angle      = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].floorAngle;
+                                        sensor->angle      = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].floorAngle;
                                         sensor->position.y = TO_FIXED(ty + layer->position.y);
                                         i                  = stepCount;
                                     }
@@ -2489,11 +2489,11 @@ void RSDK::LWallCollision(CollisionSensor *sensor)
                         uint16 tile = layer->layout[(cx / TILE_SIZE) + ((colY / TILE_SIZE) << layer->widthShift)];
 
                         if (tile < 0xFFFF && tile & solid) {
-                            int32 mask = collisionMasks[collisionEntity->collisionPlane][tile & 0xFFF].lWallMasks[colY & 0xF];
+                            int32 mask = collisionMasks[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].lWallMasks[colY & 0xF];
                             int32 tx   = cx + mask;
                             if (mask < 0xFF && colX >= tx && abs(colX - tx) <= 14) {
                                 sensor->collided   = true;
-                                sensor->angle      = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].lWallAngle;
+                                sensor->angle      = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].lWallAngle;
                                 sensor->position.x = TO_FIXED(tx + layer->position.x);
                                 i                  = 3;
                             }
@@ -2551,7 +2551,7 @@ void RSDK::RoofCollision(CollisionSensor *sensor)
                         uint16 tile = layer->layout[tileX + (tileY << layer->widthShift)];
 
                         if (tile < 0xFFFF && tile & solid) {
-                            int32 mask = collisionMasks[collisionEntity->collisionPlane][tile & 0xFFF].roofMasks[colX & 0xF];
+                            int32 mask = collisionMasks[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].roofMasks[colX & 0xF];
 #if RETRO_REV0U
                             int32 ty = layer->position.y + cy + mask;
 #else
@@ -2561,14 +2561,14 @@ void RSDK::RoofCollision(CollisionSensor *sensor)
 #if RETRO_REV0U
                                 step = TILE_SIZE;
                                 if (colY > collidePos) {
-                                    collideAngle = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].roofAngle;
+                                    collideAngle = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].roofAngle;
                                     collidePos   = ty;
                                     i            = stepCount;
 #else
                                 if (colY < ty) {
                                     if (abs(colY - ty) <= collisionMinimumDistance) {
                                         sensor->collided   = true;
-                                        sensor->angle      = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].roofAngle;
+                                        sensor->angle      = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].roofAngle;
                                         sensor->position.y = TO_FIXED(ty + layer->position.y);
                                         i                  = stepCount;
                                     }
@@ -2615,11 +2615,11 @@ void RSDK::RWallCollision(CollisionSensor *sensor)
                         uint16 tile = layer->layout[(cx / TILE_SIZE) + ((colY / TILE_SIZE) << layer->widthShift)];
 
                         if (tile < 0xFFFF && tile & solid) {
-                            int32 mask = collisionMasks[collisionEntity->collisionPlane][tile & 0xFFF].rWallMasks[colY & 0xF];
+                            int32 mask = collisionMasks[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].rWallMasks[colY & 0xF];
                             int32 tx   = cx + mask;
                             if (mask < 0xFF && colX <= tx && abs(colX - tx) <= 14) {
                                 sensor->collided   = true;
-                                sensor->angle      = tileInfo[collisionEntity->collisionPlane][tile & 0xFFF].rWallAngle;
+                                sensor->angle      = tileInfo[collisionEntity->collisionPlane][tile & COLLISION_TILE_MASK].rWallAngle;
                                 sensor->position.x = TO_FIXED(tx + layer->position.x);
                                 i                  = 3;
                             }

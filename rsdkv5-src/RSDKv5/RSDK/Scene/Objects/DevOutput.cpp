@@ -3,6 +3,14 @@
 #if RETRO_REV02
 using namespace RSDK;
 
+// P4 Task #203 -- compile-time slot-fit guard (RED-first). objectEntityList is
+// EntityBase[]; an EntityDevOutput larger than its slot overflows into the adjacent
+// entity (the Phase 1.4-1.15 .bss-corruption class). On Saturn data[0x40] makes
+// sizeof(EntityBase)==344, so this is RED until message[] is Saturn-shrunk below.
+// Off Saturn it is the stock 1112<=1112 and always passes. Correct on every platform.
+static_assert(sizeof(EntityDevOutput) <= sizeof(EntityBase),
+              "EntityDevOutput overflows its objectEntityList slot (OBJECT_DATA_COUNT too small)");
+
 ObjectDevOutput *RSDK::DevOutput;
 
 void RSDK::DevOutput_Update()
@@ -56,7 +64,7 @@ void RSDK::DevOutput_Draw()
 void RSDK::DevOutput_Create(void *data)
 {
     RSDK_THIS(DevOutput);
-    strncpy(self->message, (char *)data, 0x3F4);
+    strncpy(self->message, (char *)data, sizeof(self->message)); // sizeof tracks the Saturn-shrunk message[] (Task #203). Byte-identical on PC (message is 1012 there, same as the stock literal).
 
     self->active      = ACTIVE_ALWAYS;
     self->visible     = true;
