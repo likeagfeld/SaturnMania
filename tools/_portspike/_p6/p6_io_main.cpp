@@ -372,11 +372,19 @@ __attribute__((used)) int32 p6_w_spr_ticks     = 0;  // ProcessAnimation call co
 __attribute__((used)) int32 p6_w_spr_sheetid   = -1; // raw f0->sheetID (0xFF == LoadSpriteSheet
                                                      // returned -1 truncated through the uint8
                                                      // sheetIDs[] at Animation.cpp:39/62)
-// p6_vdp1.c (C TU, jo side): ring frame upload + per-tick VDP1 draw.
-int p6_vdp1_ring_init(const unsigned char *sheetPixels, int sheetWidth,
-                      int sprX, int sprY, int w, int h,
-                      const unsigned short *pal565);
-void p6_vdp1_ring_draw(int screenX, int screenY);
+// P6.5b3 (Task #208, qa_p6_draw.py): engine DrawSprite-slot witnesses.
+__attribute__((used)) int32 p6_w_draw_calls   = 0;  // FX_NONE dispatches completed
+__attribute__((used)) int32 p6_w_draw_xy      = 0;  // last blit top-left (x&FFFF)<<16|(y&FFFF)
+__attribute__((used)) int32 p6_w_draw_rect    = 0;  // last blit (sprX<<16)|sprY
+__attribute__((used)) int32 p6_w_draw_sheetid = -1; // last blit frame->sheetID
+// p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
+// backend targets. sheet_bind pins the engine surface + mirrors the palette
+// to CRAM bank 1 once; blit() draws a sheet rect at an engine TOP-LEFT,
+// uploading each DISTINCT rect to VDP1 exactly once (cache keyed on
+// (sx,sy,w,h) -- a per-tick jo_sprite_add would be the #189 overflow class).
+int  p6_vdp1_sheet_bind(const unsigned char *sheetPixels, int sheetWidth,
+                        const unsigned short *pal565);
+void p6_vdp1_blit(int x, int y, int w, int h, int sx, int sy);
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -447,6 +455,58 @@ void LoadSfx(char *filePath, uint8 plays, uint8 scope)
 // GIF decoder, Sprite.cpp:202-267) is in the pack and provides both the key
 // function and the _ZTVN4RSDK8ImageGIFE vtable. The P6.3-era false-stub that
 // lived here would have shadowed it with a multiple-definition error.
+
+// ---- P6.5b3: the Saturn render-device implementation of the engine's --------
+// DrawSprite slot. Draw* is the DESIGNATED Saturn backend seam (Task #194
+// spike: the software DrawSpriteFlipped raster is infeasible on SH-2 -- 11
+// instr/px, 1.77x over budget -- so VDP1 IS the rasterizer). The body below
+// is a mechanical mirror of the engine's Drawing.cpp:2670-2686 frame/position
+// semantics; the FX_NONE arm mirrors :2783-2786's
+//   DrawSpriteFlipped(pos+pivot, w, h, sprX, sprY, FLIP_NONE, ink, alpha, id)
+// onto the jo-side VDP1 blitter. Object Draw callbacks (e.g. decomp Ring_Draw:
+// `RSDK.DrawSprite(&self->animator, NULL, false)`) consume exactly this
+// signature, so proving it proves the object-facing draw contract.
+void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
+{
+    if (animator && animator->frames) {
+        SpriteFrame *frame = &animator->frames[animator->frameID]; // Drawing.cpp:2673
+        Vector2 pos;
+        if (!position)
+            pos = sceneInfo.entity->position; // Drawing.cpp:2676
+        else
+            pos = *position;
+
+        pos.x >>= 0x10; // Drawing.cpp:2680-2681 (world fixed-point -> px)
+        pos.y >>= 0x10;
+        if (!screenRelative) { // Drawing.cpp:2682-2685
+            pos.x -= currentScreen->position.x;
+            pos.y -= currentScreen->position.y;
+        }
+
+        // Drawing.cpp:2687-2688 reads sceneInfo.entity->rotation/drawFX
+        // UNCONDITIONALLY -- callers must keep sceneInfo.entity valid.
+        switch (sceneInfo.entity->drawFX) {
+            case FX_NONE:
+                // Drawing.cpp:2785. inkEffect/alpha: the proof entity is
+                // zeroed (INK_NONE -> opaque), matching VDP1 CLUT-mode draw.
+                // FIXME Phase Z: INK_ALPHA/ADD/SUB via VDP1 color calculation.
+                p6_vdp1_blit(pos.x + frame->pivotX, pos.y + frame->pivotY,
+                             frame->width, frame->height, frame->sprX, frame->sprY);
+                p6_w_draw_xy = (((pos.x + frame->pivotX) & 0xFFFF) << 16)
+                             | ((pos.y + frame->pivotY) & 0xFFFF);
+                p6_w_draw_rect    = ((int32)frame->sprX << 16) | (int32)frame->sprY;
+                p6_w_draw_sheetid = (int32)frame->sheetID;
+                ++p6_w_draw_calls;
+                break;
+
+            default:
+                // FIXME P6.5b4+: FX_FLIP via VDP1 HF/VF (CMDCTRL Dir bits,
+                // ST-013-R3 sec 5.5.4 -- position math per Drawing.cpp:
+                // 2789-2812), FX_ROTATE/FX_SCALE via scaled/distorted parts.
+                break;
+        }
+    }
+}
 } // namespace RSDK
 
 // ---- (b2) Group-B arrays as absolute WRAM-L symbols ---------------------------
@@ -687,9 +747,20 @@ extern "C" void p6_scene_run(void)
                 p6_w_spr_sheethash = (int32)sh;
 
                 SetSpriteAnimation(sprID, 0, &p6_ringAnimator, true, 0);
-                p6_vdp1_ring_init(sheet->pixels, sheet->width,
-                                  f0->sprX, f0->sprY, f0->width, f0->height,
-                                  (const unsigned short *)fullPalette[0]);
+
+                // P6.5b3: DrawSprite environment. Drawing.cpp:2683 translates
+                // through currentScreen->position; :2676/:2687 dereference
+                // sceneInfo.entity unconditionally. screens[0] sits zeroed in
+                // WRAM-L (Group-B absolute, memset in step 0) -> position
+                // (0,0); entity slot 0 is zeroed -> drawFX=FX_NONE,
+                // inkEffect=INK_NONE, FLIP_NONE.
+                currentScreen      = &screens[0];
+                screens[0].size.x  = SCREEN_XMAX;
+                screens[0].size.y  = SCREEN_YSIZE;
+                sceneInfo.entity   = &objectEntityList[0];
+
+                p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
+                                   (const unsigned short *)fullPalette[0]);
             }
         }
     }
@@ -725,11 +796,20 @@ extern "C" void p6_scene_tick(void)
     ProcessAnimation(&p6_ringAnimator);
     p6_w_spr_frame = (int32)p6_ringAnimator.frameID;
     ++p6_w_spr_ticks;
-    // Frame-0 texture drawn at a fixed screen position (left band of the
-    // island window, qa_p6_sprite.py DRAW_CX/CY). Per-frame VDP1 texture
-    // residency (the FR-1 MRU pattern) lands with the integrated backend;
-    // this proof pins the data path + animator cadence + a visible sprite.
-    p6_vdp1_ring_draw(60, 112);
+    // P6.5b3: draw through the engine's CANONICAL DrawSprite slot -- the
+    // exact call shape object Draw callbacks use (decomp Ring.c Ring_Draw).
+    // World position (60<<16,112<<16) + pivot (-8,-8) + 16x16 frame puts the
+    // visual CENTER at (60,112), the same anchor qa_p6_sprite.py W9 and
+    // qa_p6_draw.py D6 gate on. screenRelative=false exercises the
+    // currentScreen->position translate (Drawing.cpp:2682-2685). The current
+    // frameID's rect is resolved INSIDE DrawSprite -- the on-screen ring
+    // animates through all 16 sheet rects.
+    {
+        Vector2 drawPos;
+        drawPos.x = 60 << 16;
+        drawPos.y = 112 << 16;
+        DrawSprite(&p6_ringAnimator, &drawPos, false);
+    }
 }
 #endif // P6_SCENE_TEST
 
