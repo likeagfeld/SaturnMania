@@ -42,11 +42,26 @@ bool32 RSDK::InitStorage()
     // the GHZ load weight. These are TUNABLE -- the real GHZ1 working set is
     // measured at P5/P6; sized here for the bounded proof. Non-Saturn builds
     // keep the stock 74 MB totals byte-identical.
+#if defined(P6_SCENE_TEST)
+    // P6.4 (Task #225): trim the two pools the zero-registered-class proof
+    // never allocates from, freeing 144 KB of the WRAM-L heap window for the
+    // relocated dataFileList registry (57,344 B) + slack. MEASURED basis:
+    // Title/Scene1.bin DATASET_STG persistent = 13,184 B (256 KB keeps 19.9x
+    // headroom) and DATASET_TMP peak = 95,264 B (128 KB keeps 1.34x); MUS/SFX
+    // pools are touched only by Audio StageLoad paths, which never run with
+    // classCount == 0. Stock Saturn literals (the #else) stay the P6.5+ basis.
+    dataStorage[DATASET_STG].storageLimit = 256 * 1024; // 256 KB
+    dataStorage[DATASET_MUS].storageLimit = 16 * 1024;  //  16 KB (proof-trim)
+    dataStorage[DATASET_SFX].storageLimit = 32 * 1024;  //  32 KB (proof-trim)
+    dataStorage[DATASET_STR].storageLimit = 32 * 1024;  //  32 KB
+    dataStorage[DATASET_TMP].storageLimit = 128 * 1024; // 128 KB
+#else
     dataStorage[DATASET_STG].storageLimit = 256 * 1024; // 256 KB
     dataStorage[DATASET_MUS].storageLimit = 64 * 1024;  //  64 KB
     dataStorage[DATASET_SFX].storageLimit = 128 * 1024; // 128 KB
     dataStorage[DATASET_STR].storageLimit = 32 * 1024;  //  32 KB
     dataStorage[DATASET_TMP].storageLimit = 128 * 1024; // 128 KB
+#endif
 #else
     dataStorage[DATASET_STG].storageLimit = 24 * 1024 * 1024; // 24MB
     dataStorage[DATASET_MUS].storageLimit = 8 * 1024 * 1024;  //  8MB

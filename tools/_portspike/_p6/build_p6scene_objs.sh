@@ -92,12 +92,20 @@ echo "[5/7] Storage_Storage.o (UNMODIFIED engine Storage.cpp -- InitStorage + Al
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Storage_Storage.o" "$SRC/RSDK/Storage/Storage.cpp"
 
-echo "[6/7] miniz.o       (lean inflate-only miniz -- mz_uncompress for ReadCompressed) ..."
+echo "[6/8] miniz.o       (lean inflate-only miniz -- mz_uncompress for ReadCompressed) ..."
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
     $MINIZ_DEFS -I"$DEPS" -I"$DEPS/miniz" -I"$NEWLIB" \
     -c -o "$P6/miniz.o" "$DEPS/miniz/miniz.c"
 
-echo "[7/7] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
+echo "[7/9] Storage_Text.o (UNMODIFIED engine Text.cpp -- REAL GenerateHashMD5 + StringLowerCase for the P6.4 pack hash lookup; gc drops the rest of the TU) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Storage_Text.o" "$SRC/RSDK/Storage/Text.cpp"
+
+echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
+# NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
+# (MD5Table_Saturn.inc; Text.cpp Saturn branch) because (a) its upstream
+# runtime form is a C++ dynamic initializer SLSTART never runs, and (b) the
+# sin/pow soft-double closure measured the pack 644 B OVER the WRAM-H budget.
 # Roots: p6_scene_run (the hook entry) transitively keeps every witness it
 # writes + the engine closure; p6_w_magic is const + unreferenced so it needs
 # an explicit root (the gate byte-order-calibrates from it, qa_p6_scene.py:148).
@@ -118,10 +126,11 @@ echo "[7/7] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u __execv -u __pipe -u _errno \
     "$P6/p6_io_main.o" "$P6/p6_gfs.o" "$P6/Core_Reader.o" \
     "$P6/Scene_Scene.o" "$P6/Storage_Storage.o" "$P6/miniz.o" \
+    "$P6/Storage_Text.o" \
     -o "$P6/p6_scene_pack.o"
 
 echo "--------------------------------------------------------------"
 ls -l "$P6/p6_io_main.o" "$P6/p6_gfs.o" "$P6/Core_Reader.o" \
       "$P6/Scene_Scene.o" "$P6/Storage_Storage.o" "$P6/miniz.o" \
-      "$P6/p6_scene_pack.o"
+      "$P6/Storage_Text.o" "$P6/p6_scene_pack.o"
 echo "DONE [p6_scene_pack.o built]."

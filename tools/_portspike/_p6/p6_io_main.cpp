@@ -79,12 +79,18 @@ void PrintLog(int32 mode, const char *message, ...)
     (void)mode;
     (void)message;
 }
+#if !defined(P6_SCENE_TEST)
+// P6IO builds only: a link-satisfying no-op (the data-pack path never runs
+// there). The P6SCENE build compiles the REAL RSDK::GenerateHashMD5 from
+// Storage/Text.cpp instead -- OpenDataFile's hash lookup (Reader.cpp:188-196)
+// needs true MD5 to resolve filenames inside Data.rsdk.
 void GenerateHashMD5(uint32 *buffer, char *textBuffer, int32 textBufferLen)
 {
     (void)buffer;
     (void)textBuffer;
     (void)textBufferLen;
 }
+#endif
 namespace SKU {
 char userFileDir[0x100];
 }
@@ -288,17 +294,22 @@ extern "C" void p6_io_proof(void)
 #ifdef P6_SCENE_TEST
 #include <string.h>
 
-// ---- WRAM-L layout constants (see the map above) -----------------------------
-#define P6_LW_HEAP_BASE   0x00200000u
-#define P6_LW_HEAP_END    0x0029A000u
-#define P6_LW_ENTITYLIST  0x0029A000u // 448 * 344         = 0x25A00
-#define P6_LW_TILELAYERS  0x002BFA00u // 4 * 13384         = 0xD120
-#define P6_LW_DATASTORAGE 0x002CCB20u // 5 * 32788         = 0x28064 -> 0x2F4B84
-#define P6_LW_GROUPB_BASE 0x002F4C00u // absolute arrays below
-#define P6_LW_GROUPB_END  0x002FA2C0u
-#define P6_LW_DEAD        0x002FA300u // shared dummy for measured-DEAD pointers
-#define P6_LW_ZERO_BASE   P6_LW_ENTITYLIST
-#define P6_LW_ZERO_END    P6_LW_DEAD
+// ---- WRAM-L layout constants (P6.4 revision, Task #225) -----------------------
+// The P6.3 map shifted: InitStorage's MUS/SFX pools are proof-trimmed 144 KB
+// (Storage.cpp P6_SCENE_TEST branch, measured basis in its comment) to make
+// room for the relocated Data.rsdk registry dataFileList[0x700] (57,344 B,
+// Reader.hpp:77 -- MEASURED pack fileCount = 1677).
+#define P6_LW_HEAP_BASE    0x00200000u
+#define P6_LW_HEAP_END     0x00276000u // pools 464 KB (0x74000) + nano-malloc headers, 8 KB slack
+#define P6_LW_ENTITYLIST   0x00276000u // 448 * 344         = 0x25A00 -> 0x29BA00
+#define P6_LW_TILELAYERS   0x0029BA00u // 4 * 13384         = 0xD120  -> 0x2A8B20
+#define P6_LW_DATASTORAGE  0x002A8B20u // 5 * 32788         = 0x28064 -> 0x2D0B84
+#define P6_LW_DATAFILELIST 0x002D0C00u // 0x700 * 32        = 0xE000  -> 0x2DEC00
+#define P6_LW_GROUPB_BASE  0x002DEC00u // absolute arrays below
+#define P6_LW_GROUPB_END   0x002E42C0u
+#define P6_LW_DEAD         0x002E4300u // shared dummy for measured-DEAD pointers
+#define P6_LW_ZERO_BASE    P6_LW_ENTITYLIST
+#define P6_LW_ZERO_END     P6_LW_DEAD
 
 // ---- (a) Gate witnesses (qa_p6_scene.py:98-132) ------------------------------
 // Copied from objectEntityList[slot + RESERVE_ENTITY_COUNT].position AFTER
@@ -316,6 +327,10 @@ __attribute__((used)) int32 p6_w_scene_t3d_x       = 0;
 __attribute__((used)) int32 p6_w_scene_t3d_y       = 0;
 __attribute__((used)) int32 p6_w_scene_step        = 0;
 __attribute__((used)) int32 p6_w_scene_initstorage = 0;
+// P6.4 (Task #225, qa_p6_pack.py): the original-Data.rsdk ingestion witnesses.
+__attribute__((used)) int32 p6_w_pack_mounted   = 0; // LoadDataPack("Data.rsdk") return
+__attribute__((used)) int32 p6_w_pack_filecount = 0; // dataPacks[0].fileCount (expect 1677)
+__attribute__((used)) int32 p6_w_pack_used      = 0; // 1 == scene LoadFile rode the pack (fileOffset > 0)
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -396,21 +411,25 @@ bool32 ImageGIF::Load(const char *fileName, bool32 loadHeader)
 // closure. p6_scene_run() zeroes the whole window before any engine call.
 #define P6_GROUPB_ABS(sym, addr) \
     __asm__(".global " sym "\n\t.equ " sym ", " addr)
-P6_GROUPB_ABS("__ZN4RSDK11fullPaletteE",     "0x002F4C00"); // uint16[8][256] = 0x1000
-P6_GROUPB_ABS("__ZN4RSDK13globalPaletteE",   "0x002F5C00"); // uint16[8][256] = 0x1000
-P6_GROUPB_ABS("__ZN4RSDK12stagePaletteE",    "0x002F6C00"); // uint16[8][256] = 0x1000
-P6_GROUPB_ABS("__ZN4RSDK11scene3DListE",     "0x002F7C00"); // Scene3D[32]    = 0xA80
-P6_GROUPB_ABS("__ZN4RSDK10gfxSurfaceE",      "0x002F8680"); // GFXSurface[64] = 0x900
-P6_GROUPB_ABS("__ZN4RSDK10textBufferE",      "0x002F8F80"); // char[0x400]
-P6_GROUPB_ABS("__ZN4RSDK14stageObjectIDsE",  "0x002F9380"); // int32[256]     = 0x400
-P6_GROUPB_ABS("__ZN4RSDK15globalObjectIDsE", "0x002F9780"); // int32[256]     = 0x400
-P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_RE",     "0x002F9B80"); // uint16[256]    = 0x200
-P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_GE",     "0x002F9D80"); // uint16[256]    = 0x200
-P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_BE",     "0x002F9F80"); // uint16[256]    = 0x200
-P6_GROUPB_ABS("__ZN4RSDK13gfxLineBufferE",   "0x002FA180"); // uint8[224]     = 0xE0
-P6_GROUPB_ABS("__ZN4RSDK16activeGlobalRowsE","0x002FA260"); // uint16[8]      = 0x10
-P6_GROUPB_ABS("__ZN4RSDK15activeStageRowsE", "0x002FA270"); // uint16[8]      = 0x10
-P6_GROUPB_ABS("__ZN4RSDK7screensE",          "0x002FA280"); // ScreenInfo[1]  = 0x34 -> end 0x2FA2B4 < 0x2FA2C0
+// P6.4: dataFileList[0x700] -- the Data.rsdk registry LoadDataPack fills
+// (Reader.cpp:140-154) and OpenDataFile hash-scans (Reader.cpp:192-196).
+P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x002D0C00"); // RSDKFileInfo[0x700] = 0xE000
+P6_GROUPB_ABS("__ZN4RSDK11fullPaletteE",     "0x002DEC00"); // uint16[8][256] = 0x1000
+P6_GROUPB_ABS("__ZN4RSDK13globalPaletteE",   "0x002DFC00"); // uint16[8][256] = 0x1000
+P6_GROUPB_ABS("__ZN4RSDK12stagePaletteE",    "0x002E0C00"); // uint16[8][256] = 0x1000
+P6_GROUPB_ABS("__ZN4RSDK11scene3DListE",     "0x002E1C00"); // Scene3D[32]    = 0xA80
+P6_GROUPB_ABS("__ZN4RSDK10gfxSurfaceE",      "0x002E2680"); // GFXSurface[64] = 0x900
+// textBuffer[0x400] is NOT an absolute here: Storage_Text.o (linked since P6.4
+// for the real GenerateHashMD5) DEFINES it -- 1 KB rides WRAM-H .bss instead.
+P6_GROUPB_ABS("__ZN4RSDK14stageObjectIDsE",  "0x002E3380"); // int32[256]     = 0x400
+P6_GROUPB_ABS("__ZN4RSDK15globalObjectIDsE", "0x002E3780"); // int32[256]     = 0x400
+P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_RE",     "0x002E3B80"); // uint16[256]    = 0x200
+P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_GE",     "0x002E3D80"); // uint16[256]    = 0x200
+P6_GROUPB_ABS("__ZN4RSDK11rgb32To16_BE",     "0x002E3F80"); // uint16[256]    = 0x200
+P6_GROUPB_ABS("__ZN4RSDK13gfxLineBufferE",   "0x002E4180"); // uint8[224]     = 0xE0
+P6_GROUPB_ABS("__ZN4RSDK16activeGlobalRowsE","0x002E4260"); // uint16[8]      = 0x10
+P6_GROUPB_ABS("__ZN4RSDK15activeStageRowsE", "0x002E4270"); // uint16[8]      = 0x10
+P6_GROUPB_ABS("__ZN4RSDK7screensE",          "0x002E4280"); // ScreenInfo[1]  = 0x34 -> end 0x2E42B4 < 0x2E42C0
 
 // ---- (c) WRAM-L _sbrk + full newlib syscall set -------------------------------
 // Pattern + rationale from p6_syscalls.c:4-11 (that file serves the STANDALONE
@@ -504,10 +523,37 @@ extern "C" void p6_scene_run(void)
     strcpy(currentSceneFolder, "Title");
     p6_w_scene_step = 2;
 
-    // 3) THE CALL UNDER TEST: unmodified engine scene parse of the on-disc
-    //    "Data/Stages/Title/Scene1.bin" (-> p6_gfs.c -> GFS "SCENE1.BIN").
+    // 2.5) P6.4 (Task #225): mount the ORIGINAL Data.rsdk pack (cd/DATA.RSDK,
+    //      182,962,115 B). LoadDataPack opens it through the windowed GFS
+    //      backend, walks the 1677-entry registry into the relocated
+    //      dataFileList (WRAM-L 0x2D0C00), and flips useDataPack -- from then
+    //      on EVERY non-external FMODE_RB LoadFile resolves by MD5 hash INSIDE
+    //      the pack (Reader.cpp:312-314 returns OpenDataFile unconditionally;
+    //      there is no loose-file fallback, so the scene parse below is a
+    //      pack-routed proof by construction).
+    p6_w_pack_mounted   = (int32)LoadDataPack("Data.rsdk", 0, false);
+    p6_w_pack_filecount = (int32)dataPacks[0].fileCount;
+    if (!p6_w_pack_mounted)
+        return; // loaded stays 0 -> gate RED with the mount diagnosis
+
+    // 3) THE CALL UNDER TEST: unmodified engine scene parse of
+    //    "Data/Stages/Title/Scene1.bin", now resolved INSIDE Data.rsdk.
     LoadSceneAssets();
     p6_w_scene_step = 3;
+
+    // 3.5) Pack-routing witness: re-open the scene file exactly as the engine
+    //      did and record where it came from. OpenDataFile stamps the in-pack
+    //      byte offset into FileInfo.fileOffset (Reader.cpp:218); pack data
+    //      always sits past the header+registry, so fileOffset > 0 iff the
+    //      open rode the pack (a loose open leaves InitFileInfo's zero).
+    {
+        FileInfo pfi;
+        InitFileInfo(&pfi);
+        if (LoadFile(&pfi, "Data/Stages/Title/Scene1.bin", FMODE_RB)) {
+            p6_w_pack_used = (pfi.fileOffset > 0) ? 1 : 0;
+            CloseFile(&pfi);
+        }
+    }
 
     // 4) Witness copy (WRAM-H .bss survives the later title boot's WRAM-L use).
     {

@@ -53,12 +53,18 @@ extern int p6_w_io_step;    // p6_gfs_init progress 1..2 (localises a hang in on
 // ---- GFS state (BSS) --------------------------------------------------------
 #define P6_GFS_OPEN_MAX  2                 // max simultaneously-open GFS handles (1 is enough)
 #define P6_GFS_MAX_DIR   16                // root-dir entries the dirtbl can hold (disc has ~7)
-#define P6_FILEBUF_BYTES (4 * 1024)        // whole-file RAM buffer. P6IO.BIN is 256 B
-                                           // = 1 GFS sector -> rdsz 2048; 4 KB gives 2x
-                                           // headroom and Saturn_fOpen:143 guards rdsz >
-                                           // sizeof(s_filebuf). Was 64 KB -- shrunk to keep
-                                           // _end below the 0x060C0000 SGL floor (Phase 1.15
-                                           // BSS-overflow class) in the P6IO=1 jo build.
+#define P6_GFS_SECTOR    2048              // CD-ROM Mode 1 user-data bytes per sector
+#define P6_GFS_WIN_SECTS 4                 // sliding-window size in sectors
+#define P6_GFS_WIN_BYTES (P6_GFS_SECTOR * P6_GFS_WIN_SECTS) // 8 KB window
+// P6.4 (Task #225): the whole-file-in-RAM model (64 KB -> 4 KB s_filebuf) is
+// REPLACED by a sector-aligned sliding window so the engine can mount the
+// 182,962,115-byte DATA.RSDK pack and serve LoadDataPack's registry walk +
+// OpenDataFile's fSeek(offset)/fRead pattern (Reader.cpp:200-218) from ONE
+// open GFS handle. GFS_Seek moves the access pointer in SECTOR units
+// (ST-136-R2 sec 2.3: "off: amount access point is moved (unit: sector)";
+// TB#20 erratum only forbids out-of-range positions), and GFS_Fread with
+// GFS_TMODE_CPU busy-polls to completion (GFS.C:927-928), so each window
+// refill is: GFS_Seek(sector, GFS_SEEK_SET) -> GFS_Fread(nsct, window).
 
 // GFS work area MUST be 4-byte aligned (GFS.C:226 -> GFS_ERR_ALIGN otherwise).
 // A Uint32 array guarantees that; size = GFS_WORK_SIZE(open_max) rounded up to 4.
@@ -69,16 +75,23 @@ static GfsDirTbl  s_gfs_dirtbl;
 // ---- The opaque file handle the engine holds (FileInfo.file) ----------------
 // Reader.hpp forward-declares `typedef struct Saturn_FileIO Saturn_FileIO;` and only
 // ever passes around a pointer; the full layout is private to this TU.
+// SINGLE-HANDLE CONTRACT: the engine's Reader opens are strictly sequential in
+// the P6 proofs (LoadDataPack CloseFile's the pack before OpenDataFile re-opens
+// it per file; LoadSceneAssets holds exactly one file open at a time), so one
+// handle + one window suffice; a second concurrent fOpen returns NULL loudly
+// rather than silently corrupting the window.
 struct Saturn_FileIO {
-    int            used;   // 1 between fOpen and fClose
-    int            size;   // exact file size in bytes
-    int            cursor; // current read position
-    unsigned char *data;   // -> s_filebuf
+    int   used;    // 1 between fOpen and fClose
+    int   size;    // exact file size in bytes
+    int   cursor;  // current read position (byte offset)
+    GfsHn gfs;     // OPEN GFS handle, held until fClose (windowed access)
+    int   win_off; // file offset of window start (sector-aligned); -1 = invalid
+    int   win_len; // valid bytes in s_window
 };
 typedef struct Saturn_FileIO Saturn_FileIO;
 
 static Saturn_FileIO s_handle;
-static unsigned char s_filebuf[P6_FILEBUF_BYTES];
+static unsigned char s_window[P6_GFS_WIN_BYTES];
 
 // ---- CD/GFS bring-up (called once from p6_io_proof, AFTER p6_sgl_boot) -------
 // Standard order: CDC_CdInit then GFS_Init (jo audio.c:110 -> fs.c:115). slInitSystem
@@ -141,6 +154,8 @@ Saturn_FileIO *Saturn_fOpen(const char *path, const char *mode)
     }
     if (!path)
         return (Saturn_FileIO *)0;
+    if (s_handle.used)
+        return (Saturn_FileIO *)0; // single-handle contract (see above)
 
     const char *base = p6_basename(path);
 
@@ -158,30 +173,56 @@ Saturn_FileIO *Saturn_fOpen(const char *path, const char *mode)
 
     Sint32 sctsz = 0, nsct = 0, lstsz = 0;
     GFS_GetFileSize(gfs, &sctsz, &nsct, &lstsz);
-    int size     = (int)(sctsz * (nsct - 1) + lstsz); // exact byte size
-    Sint32 rdsz  = nsct * sctsz;                       // sector-rounded read size
-
-    if (size < 0 || rdsz < 0 || rdsz > (Sint32)sizeof(s_filebuf)) {
+    int size = (int)(sctsz * (nsct - 1) + lstsz); // exact byte size
+    if (size < 0) {
         GFS_Close(gfs);
         return (Saturn_FileIO *)0;
     }
 
-    // Whole-file read into RAM; self-driving (GFS.C:927-928 polls to completion).
-    GFS_Fread(gfs, nsct, s_filebuf, rdsz);
-    GFS_Close(gfs);
-
-    s_handle.used   = 1;
-    s_handle.size   = size;
-    s_handle.cursor = 0;
-    s_handle.data   = s_filebuf;
+    // Handle stays OPEN; bytes are served through the sliding window on demand.
+    s_handle.used    = 1;
+    s_handle.size    = size;
+    s_handle.cursor  = 0;
+    s_handle.gfs     = gfs;
+    s_handle.win_off = -1; // window invalid until the first read
+    s_handle.win_len = 0;
     return &s_handle;
 }
 
 int Saturn_fClose(Saturn_FileIO *file)
 {
-    if (file)
+    if (file && file->used) {
+        GFS_Close(file->gfs);
+        file->gfs  = (GfsHn)0;
         file->used = 0;
+    }
     return 0;
+}
+
+// Refill s_window so it covers `offset`: seek the access pointer to the
+// containing sector (GFS_Seek unit = sector, ST-136-R2 sec 2.3) and read up to
+// P6_GFS_WIN_SECTS sectors. GFS_TMODE_CPU busy-polls to completion, so the
+// refill is synchronous and needs no interrupt plumbing.
+static int p6_window_fill(Saturn_FileIO *file, int offset)
+{
+    Sint32 sector      = offset / P6_GFS_SECTOR;
+    Sint32 file_sects  = (file->size + P6_GFS_SECTOR - 1) / P6_GFS_SECTOR;
+    Sint32 nsct        = file_sects - sector;
+    if (nsct <= 0)
+        return 0;
+    if (nsct > P6_GFS_WIN_SECTS)
+        nsct = P6_GFS_WIN_SECTS;
+
+    if (GFS_Seek(file->gfs, sector, GFS_SEEK_SET) < 0)
+        return 0;
+    if (GFS_Fread(file->gfs, nsct, s_window, nsct * P6_GFS_SECTOR) <= 0)
+        return 0;
+
+    file->win_off = sector * P6_GFS_SECTOR;
+    file->win_len = nsct * P6_GFS_SECTOR;
+    if (file->win_off + file->win_len > file->size)
+        file->win_len = file->size - file->win_off; // clamp final partial sector
+    return 1;
 }
 
 unsigned long Saturn_fRead(void *buffer, unsigned long elementSize,
@@ -195,9 +236,25 @@ unsigned long Saturn_fRead(void *buffer, unsigned long elementSize,
     if (want > avail)
         want = avail;
 
-    memcpy(buffer, file->data + file->cursor, (size_t)want);
-    file->cursor += (int)want;
-    return want / elementSize; // fread contract: number of full elements read
+    unsigned char *dst  = (unsigned char *)buffer;
+    unsigned long  done = 0;
+    while (done < want) {
+        int in_window = (file->win_off >= 0)
+                     && (file->cursor >= file->win_off)
+                     && (file->cursor < file->win_off + file->win_len);
+        if (!in_window) {
+            if (!p6_window_fill(file, file->cursor))
+                break; // CD error: return the elements completed so far
+        }
+        unsigned long win_avail = (unsigned long)(file->win_off + file->win_len - file->cursor);
+        unsigned long chunk     = want - done;
+        if (chunk > win_avail)
+            chunk = win_avail;
+        memcpy(dst + done, s_window + (file->cursor - file->win_off), (size_t)chunk);
+        file->cursor += (int)chunk;
+        done += chunk;
+    }
+    return done / elementSize; // fread contract: number of full elements read
 }
 
 unsigned long Saturn_fWrite(const void *buffer, unsigned long elementSize,

@@ -30,6 +30,20 @@ unsigned f3(unsigned abcd[]) { return abcd[2] ^ (abcd[1] | ~abcd[3]); }
 
 typedef unsigned (*DgstFctn)(unsigned a[]);
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.4 (Task #225): the upstream form below initializes k via a C++ DYNAMIC
+// initializer (`unsigned *k = calcKs(kspace);`) -- the Saturn SLSTART/jo boot
+// never runs .init_array, so k would be NULL at first GenerateHashMD5 call --
+// and calcKs's soft-double sin/pow closure measures ~6 KB of WRAM-H the pack
+// budget cannot fit. Bake the 64 standard MD5 T constants as const .rodata
+// instead (identical values by construction; RFC 1321 Appendix A.3 verified).
+// Same bake pattern as the Task #212 trig tables. `static` also keeps the
+// generic names `k`/`kspace` out of the full jo image's global namespace.
+static const unsigned kspace[64] = {
+#include "MD5Table_Saturn.inc"
+};
+static const unsigned *k = kspace;
+#else
 unsigned *calcKs(unsigned *k)
 {
     double s, pwr;
@@ -45,6 +59,7 @@ unsigned *calcKs(unsigned *k)
 
 unsigned kspace[64];
 unsigned *k = calcKs(kspace);
+#endif
 
 // ROtate v Left by amt bits
 unsigned rol(unsigned v, int16 amt)
@@ -78,8 +93,12 @@ unsigned *md5(unsigned *h, const char *msg, int32 mlen)
     int32 grp, grps, q, p;
     unsigned char *msg2;
 
+#if RETRO_PLATFORM != RETRO_SATURN
+    // Saturn: k is a const pointer to the baked RFC 1321 table (above) -- it
+    // can never be NULL and calcKs is compiled out with its sin/pow closure.
     if (k == NULL)
         k = calcKs(kspace);
+#endif
 
     for (q = 0; q < 4; q++) h[q] = h0[q]; // initialize
 

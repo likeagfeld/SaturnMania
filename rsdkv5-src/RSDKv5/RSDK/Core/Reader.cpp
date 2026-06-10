@@ -2,7 +2,9 @@
 
 using namespace RSDK;
 
+#if !defined(P6_SCENE_TEST) // P6.4: relocates to WRAM-L (absolute symbol in p6_io_main.cpp) -- 57,344 B exceeds the WRAM-H margin
 RSDKFileInfo RSDK::dataFileList[DATAFILE_COUNT];
+#endif
 RSDKContainer RSDK::dataPacks[DATAPACK_COUNT];
 
 uint8 RSDK::dataPackCount      = 0;

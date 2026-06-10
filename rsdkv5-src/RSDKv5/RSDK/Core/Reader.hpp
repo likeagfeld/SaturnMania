@@ -67,14 +67,17 @@ namespace RSDK
 #endif
 
 #if RETRO_PLATFORM == RETRO_SATURN
-// P4 data retarget (Task #203): dataFileList[DATAFILE_COUNT] is the Data.rsdk pack file
-// registry at 32 B/RSDKFileInfo = 128 KB at 0x1000. The Saturn CD ships Saturn-native
-// assets, NOT a Data.rsdk pack (LoadFile fails in LoadDataPack), so 0 files register at
-// runtime. Cap to 0x100 (8 KB) to reclaim ~120 KB of .bss. LoadDataPack (Reader.cpp) is
-// Saturn-clamped so a pack declaring >0x100 files truncates (visible: missing late files)
-// instead of overflowing dataFileList[] -- the Phase 1.4-1.15 .bss-corruption class.
-// P6 RESTORATION: drop the Saturn branch -> DATAFILE_COUNT returns to 0x1000.
-#define DATAFILE_COUNT (0x100)
+// P4 data retarget (Task #203) originally capped this to 0x100 because the P4-era
+// Saturn CD shipped no pack. P6.4 (Task #225) REVERSES that: the Saturn disc now
+// stages the ORIGINAL Data.rsdk (MEASURED 2026-06-10: 'RSDKv5' magic, fileCount
+// 1677, 182,962,115 B) and the engine mounts it natively, so the registry must
+// hold every real entry. 0x700 = 1792 >= 1677 with headroom, 32 B/RSDKFileInfo
+// -> 57,344 B, relocated to WRAM-L under P6_SCENE_TEST (absolute symbol in
+// p6_io_main.cpp; definition below is compiled out) because WRAM-H has no room
+// (SGL floor 0x060C0000). LoadDataPack's Saturn clamp (Reader.cpp:137) still
+// guards a hostile/over-declared pack -- the Phase 1.4-1.15 .bss-corruption
+// class. P6 RESTORATION: drop the Saturn branch -> 0x1000.
+#define DATAFILE_COUNT (0x700)
 #else
 #define DATAFILE_COUNT (0x1000)
 #endif
