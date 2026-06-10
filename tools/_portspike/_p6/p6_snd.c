@@ -1,0 +1,108 @@
+/* ============================================================================
+ * p6_snd.c -- P6.6b (Task #209): play an ENGINE-loaded SFX through the SCSP.
+ *
+ * DIRECT SCSP SLOT BACKEND, after the Coup reference implementation
+ * (D:\Claude Saturn Skill Documentation\Coup...\examples\coup\coup_audio.c
+ * :59-316 -- the skill's documented WORKING homebrew): PCM uploaded to
+ * Sound RAM once, SCSP slots 28-31 (untouched by the SGL M68K driver map
+ * {0xFF,0xFF,0xFF,0xFF} jo_audio_init loads) programmed directly from the
+ * SH-2, KYONEX-isolated key-on. Coup's header records WHY not slPCMOn:
+ * "The previous slPCMOn approach went through the M68K driver which
+ * degraded SFX quality" -- and MEASURED here 2026-06-10, jo's slPCMOn
+ * accepted every play (slSndPCMNum=1, free channel found) yet moved ZERO
+ * sample bytes into SCSP RAM across 464 plays in this build. Direct slot
+ * programming makes the data path deterministic AND gives qa_p6_scsp.py
+ * an exact-region witness: the engine's byte-exact S16 buffer sits at a
+ * FIXED Sound RAM address.
+ *
+ * SCSP semantics per ST-077-R2 (slot regs at 0x25B00000 + slot*0x20):
+ *   +0x00 SA_CTRL: KYONEX(1<<12) KYONB(1<<11) LPCTL=00 one-shot,
+ *         PCM8B=0 (16-bit), SA[19:16]
+ *   +0x02 SA[15:0]   +0x04 LSA   +0x06 LEA (sample count - 1)
+ *   +0x08 ENV1 AR=31 instant     +0x0A ENV2 RR=31
+ *   +0x0C TL (0=loudest)         +0x10 PITCH: OCT[14:11] FNS[9:0],
+ *         rate = 44100 * 2^OCT * (1+FNS/1024) -> 44100 = OCT 0, FNS 0
+ *   +0x16 MIXLVL: DISDL=7 max direct send, center pan
+ * KYONEX is GLOBAL (fires key-on/off for ALL slots from their KYONB
+ * bits): clear KYONB everywhere first, then key the target (Coup
+ * scsp_safe_keyon, coup_audio.c:176-203).
+ *
+ * Sound RAM layout: samples at +0x6C000 (clear of the M68K driver's
+ * program/data area, Coup's measured-safe choice). SH-2 and SCSP are both
+ * big-endian -- direct 16-bit copies.
+ * ========================================================================== */
+
+#define P6_SND_SRAM_BASE  0x25A00000UL
+#define P6_SND_REG_BASE   0x25B00000UL
+#define P6_SND_PCM_OFFSET 0x6C000UL
+
+#define P6_SCSP_KYONEX (1u << 12)
+#define P6_SCSP_KYONB  (1u << 11)
+#define P6_SND_SLOT    28
+#define P6_SND_NSLOTS  32
+
+/* qa_p6_scsp.py A3 sanity witness: bytes uploaded to Sound RAM. */
+__attribute__((used)) int p6_w_snd_upbytes = 0;
+
+static unsigned int s_snd_count = 0; /* sample count of the uploaded SFX */
+static int s_snd_rr = 0;             /* round-robin over slots 28-31 */
+
+static volatile unsigned short *p6_slot_reg(int slot, int offset)
+{
+    return (volatile unsigned short *)(P6_SND_REG_BASE
+                                       + (unsigned long)slot * 0x20UL
+                                       + (unsigned long)offset);
+}
+
+/* One-time upload of the engine-converted S16 MONO 44.1 kHz buffer. */
+void p6_snd_upload(const void *pcm16, unsigned int bytes)
+{
+    volatile unsigned short *dst =
+        (volatile unsigned short *)(P6_SND_SRAM_BASE + P6_SND_PCM_OFFSET);
+    const unsigned short *src = (const unsigned short *)pcm16;
+    unsigned int i, words = bytes / 2;
+
+    for (i = 0; i < words; ++i)
+        dst[i] = src[i];
+    s_snd_count      = words;
+    p6_w_snd_upbytes = (int)bytes;
+}
+
+/* Key a one-shot playback of the uploaded buffer on a free high slot. */
+void p6_snd_play(void)
+{
+    unsigned long sa;
+    unsigned short sa_hi, sa_lo;
+    int slot, i;
+
+    if (!s_snd_count)
+        return;
+    slot     = P6_SND_SLOT + s_snd_rr;
+    s_snd_rr = (s_snd_rr + 1) & 3;
+
+    sa    = P6_SND_PCM_OFFSET;
+    sa_hi = (unsigned short)((sa >> 16) & 0x000F);
+    sa_lo = (unsigned short)(sa & 0xFFFF);
+
+    *p6_slot_reg(slot, 0x02) = sa_lo;
+    *p6_slot_reg(slot, 0x04) = 0;                                  /* LSA  */
+    *p6_slot_reg(slot, 0x06) = (unsigned short)(s_snd_count - 1);  /* LEA  */
+    *p6_slot_reg(slot, 0x08) = 0x001F;                             /* AR31 */
+    *p6_slot_reg(slot, 0x0A) = 0x001F;                             /* RR31 */
+    *p6_slot_reg(slot, 0x0C) = 0x0010;                             /* TL   */
+    *p6_slot_reg(slot, 0x0E) = 0x0000;
+    *p6_slot_reg(slot, 0x10) = 0x0000;            /* OCT 0 FNS 0 = 44100  */
+    *p6_slot_reg(slot, 0x12) = 0x0000;
+    *p6_slot_reg(slot, 0x14) = 0x0000;
+    *p6_slot_reg(slot, 0x16) = (unsigned short)(7u << 13); /* DISDL=7 ctr */
+
+    /* KYONEX isolation: clear KYONB on every other slot, settle, key on. */
+    for (i = 0; i < P6_SND_NSLOTS; ++i) {
+        if (i != slot)
+            *p6_slot_reg(i, 0x00) = 0x0000;
+    }
+    for (i = 0; i < 128; ++i)
+        (void)*p6_slot_reg(0, 0x0C);
+    *p6_slot_reg(slot, 0x00) =
+        (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | sa_hi);
+}

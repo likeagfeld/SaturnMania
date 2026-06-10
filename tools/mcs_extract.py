@@ -111,6 +111,9 @@ REGION_MAP = [
     ("VDP2",  "VRAM",          0x05E00000, 0x00080000),
     ("VDP2",  "CRAM",          0x05F00000, 0x00001000),
     ("VDP2",  "RawRegs",       0x05F80000, 0x00000200),
+    # P6.6b (Task #209): SCSP sound RAM -- the audible-evidence region for
+    # audio gates (qa_p6_scsp.py searches it for engine PCM sample windows).
+    ("SCSP",  "RAM",           0x05A00000, 0x00080000),
 ]
 
 # VDP1 individual register addresses (per ST-013-R3 SSregister map).

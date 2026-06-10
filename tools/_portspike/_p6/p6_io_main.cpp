@@ -387,6 +387,17 @@ __attribute__((used)) int32 p6_w_sfx_channel  = -1; // PlaySfx return (expect 0)
 __attribute__((used)) int32 p6_w_sfx_chstate  = 0;  // (state<<24)|(soundID&0xFFFF)
 __attribute__((used)) int32 p6_w_sfx_chspeed  = 0;  // channels[ch].speed (TO_FIXED(1))
 __attribute__((used)) int32 p6_w_sfx_chloop   = 0;  // channels[ch].loop (loopPoint 0 -> -1)
+// P6.6b (Task #209, qa_p6_scsp.py): SCSP-audible witnesses.
+__attribute__((used)) int32 p6_w_snd_plays    = 0;  // engine PlaySfx + backend play count
+__attribute__((used)) int32 p6_w_snd_s16hash  = 0;  // djb2 over the F32->S16 device buffer
+// p6_snd.c (C TU): DIRECT SCSP slot backend after the Coup reference
+// (coup_audio.c:59-316). Upload the S16 buffer to Sound RAM +0x6C000 once,
+// then key slots 28-31 (untouched by the SGL driver) per play. NOT jo/SGL
+// slPCMOn: measured 2026-06-10, it accepted every play yet moved zero
+// sample bytes into SCSP RAM in this build (and Coup documents quality
+// degradation through the M68K driver path).
+void p6_snd_upload(const void *pcm16, unsigned int bytes);
+void p6_snd_play(void);
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
 // backend targets. sheet_bind pins the engine surface + mirrors the palette
 // to CRAM bank 1 once; blit() draws a sheet rect at an engine TOP-LEFT,
@@ -633,6 +644,15 @@ __asm__(".section .bss._p6_errno,\"aw\",@nobits\n"
 // the run body once Ring.bin is loaded).
 static Animator p6_ringAnimator;
 
+// P6.6b: the device-side S16 buffer (the SCSP consumes integer PCM; the
+// engine keeps F32, Audio.cpp:378). Converted ONCE in the run body and
+// uploaded to Sound RAM +0x6C000 (p6_snd.c); slot key-ons replay it.
+// MenuBleep = 3,487 samples @ 44.1 kHz native (SCSP pitch OCT 0/FNS 0).
+#define P6_SND_MAXSAMPLES 4096
+static int16  p6_sndPcm16[P6_SND_MAXSAMPLES];
+static uint32 p6_sndPcmBytes = 0; // S16 byte count (witness hash + upload extent)
+static int32  p6_sndSfxID    = -1;
+
 // ---- (d) The proof body main.c calls right after jo_core_init -----------------
 // Pre-state per the measured LoadSceneAssets contract (Scene.cpp:295-297 reads
 // sceneInfo.listData[listPos].id + currentSceneFolder; :693 keeps an entity iff
@@ -829,6 +849,46 @@ extern "C" void p6_scene_run(void)
         }
     }
 
+    // 7b) P6.6b: SCSP-AUDIBLE -- a SECOND engine SFX (MenuBleep: ScoreAdd's
+    //     S16 stream measured only 3 distinct byte values, no conclusive
+    //     sound-RAM window; MenuBleep windows carry 31-56). The engine loads
+    //     + plays it through its own LoadSfx/PlaySfx, the device backend
+    //     converts the channel's F32 buffer to S16 once (trunc toward zero,
+    //     bit-reproducible: F32 = (s*0.75)/0x8000 exactly), and p6_snd.c
+    //     routes it through jo's proven slPCMOn path. The tick re-triggers
+    //     every 256 ticks so the bleep is audible and the SCSP ring holds
+    //     recent sample bytes for qa_p6_scsp.py A3.
+    {
+        char sfxPath2[0x20];
+        strcpy(sfxPath2, "Global/MenuBleep.wav");
+        LoadSfx(sfxPath2, 1, SCOPE_GLOBAL);
+
+        uint16 bleepID = GetSfx("Global/MenuBleep.wav");
+        if (bleepID != (uint16)-1) {
+            SFXInfo *sfx = &sfxList[bleepID];
+            uint32 n     = (uint32)sfx->length;
+            if (n > P6_SND_MAXSAMPLES)
+                n = P6_SND_MAXSAMPLES;
+            for (uint32 i = 0; i < n; ++i)
+                p6_sndPcm16[i] = (int16)(sfx->buffer[i] * 32768.0f);
+            p6_sndPcmBytes = n * 2;
+
+            uint32 sh       = 5381u;
+            const uint8 *pb = (const uint8 *)p6_sndPcm16;
+            for (uint32 i = 0; i < p6_sndPcmBytes; ++i)
+                sh = ((sh << 5) + sh) ^ (uint32)pb[i];
+            p6_w_snd_s16hash = (int32)sh;
+
+            // One-time upload to Sound RAM (+0x6C000), then key slot 28.
+            p6_snd_upload(p6_sndPcm16, p6_sndPcmBytes);
+
+            p6_sndSfxID = (int32)bleepID;
+            PlaySfx(bleepID, 0, 0xFF);
+            p6_snd_play();
+            ++p6_w_snd_plays;
+        }
+    }
+
     // 4) Witness copy (WRAM-H .bss survives the later title boot's WRAM-L use).
     {
         EntityBase *e;
@@ -873,6 +933,16 @@ extern "C" void p6_scene_tick(void)
         drawPos.x = 60 << 16;
         drawPos.y = 112 << 16;
         DrawSprite(&p6_ringAnimator, &drawPos, false);
+    }
+    // P6.6b: re-trigger the engine SFX every 256 ticks (~4.3 s, audible
+    // bleep). The direct-SCSP backend keeps the FULL sample buffer at a
+    // FIXED Sound RAM address, so qa_p6_scsp.py A3 is capture-timing
+    // independent (exact-region compare, no ring chasing). Engine PlaySfx
+    // re-arms the canonical channel state each trigger.
+    if (p6_sndSfxID >= 0 && (p6_w_spr_ticks & 0xFF) == 0) {
+        PlaySfx((uint16)p6_sndSfxID, 0, 0xFF);
+        p6_snd_play();
+        ++p6_w_snd_plays;
     }
 }
 #endif // P6_SCENE_TEST

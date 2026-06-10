@@ -222,6 +222,9 @@ SRCS = src/main.c \
 # TUs corrupts the sprite tables silently (the FR-2 #189 clobber class).
 ifeq ($(P6SCENE),1)
 SRCS += tools/_portspike/_p6/p6_vdp1.c
+# P6.6b (Task #209): the SCSP playback half -- routes the engine-converted
+# S16 buffer through jo_audio_play_sound (jo.h-dependent, same rule as above).
+SRCS += tools/_portspike/_p6/p6_snd.c
 endif
 
 # --- Cinepak Video (auto-linked when JO_COMPILE_WITH_VIDEO_MODULE=1) ---
