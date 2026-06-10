@@ -32,6 +32,8 @@
  * big-endian -- direct 16-bit copies.
  * ========================================================================== */
 
+#include <jo/jo.h> /* P6.6c: jo_audio_play_cd_track (proven CD-DA start) */
+
 #define P6_SND_SRAM_BASE  0x25A00000UL
 #define P6_SND_REG_BASE   0x25B00000UL
 #define P6_SND_PCM_OFFSET 0x6C000UL
@@ -105,4 +107,18 @@ void p6_snd_play(void)
         (void)*p6_slot_reg(0, 0x0C);
     *p6_slot_reg(slot, 0x00) =
         (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | sa_hi);
+}
+
+/* P6.6c (Task #209): start CD-DA for the engine's PlayStream request.
+ * The Saturn AudioDevice::HandleStreamLoad (p6_io_main.cpp) resolves the
+ * stream name to a CUE audio track; this routes the start through jo's
+ * PROVEN CD-DA path (jo_audio_play_cd_track -> CDC_CdPlay, audio.c:60-83;
+ * repeat -> CDC PM 0x0F endless, ST-38-R1 p.24). CD-DA mixes through the
+ * SCSP EXTS inputs -- unaffected by the P6.6b direct-slot SFX KYONB
+ * clears (slots and EXTS are separate paths). */
+void p6_cdda_play(int track, int loop)
+{
+    if (track <= 0 || track > 99)
+        return;
+    jo_audio_play_cd_track(track, track, loop != 0);
 }

@@ -26,7 +26,14 @@ public:
 
     static void FrameInit() {}
 
-    inline static void HandleStreamLoad(ChannelInfo *channel, bool32 async) { LoadStream(channel); }
+    // P6.6c (Task #209): DECLARATION only -- the Saturn device body maps the
+    // engine's stream request (streamFilePath, set by PlayStream's sprintf,
+    // Audio.cpp:291) to a CD-DA CUE track instead of running the PC vorbis
+    // LoadStream: OGG decode is not real-time-feasible on SH-2 and the
+    // Saturn-fit BGM transport is CD audio (bgm-loops-hand-curated /
+    // saturn-cdda-cue-format memory rules). Defined in the P6 proof body
+    // (p6_io_main.cpp) until the integrated backend lands at P6.8.
+    static void HandleStreamLoad(ChannelInfo *channel, bool32 async);
 
 private:
     static uint8 contextInitialized;

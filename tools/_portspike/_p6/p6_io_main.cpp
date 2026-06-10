@@ -398,6 +398,13 @@ __attribute__((used)) int32 p6_w_snd_s16hash  = 0;  // djb2 over the F32->S16 de
 // degradation through the M68K driver path).
 void p6_snd_upload(const void *pcm16, unsigned int bytes);
 void p6_snd_play(void);
+// P6.6c (Task #209, qa_p6_stream.py): engine PlayStream -> CD-DA witnesses.
+__attribute__((used)) int32 p6_w_str_slot  = -2; // PlayStream return
+__attribute__((used)) int32 p6_w_str_state = -1; // channels[slot].state after device load
+__attribute__((used)) int32 p6_w_str_path  = 0;  // djb2 over streamFilePath (engine sprintf)
+__attribute__((used)) int32 p6_w_str_track = -1; // resolved CD-DA track
+// p6_snd.c: CD-DA start through the proven jo_audio_play_cd_track path.
+void p6_cdda_play(int track, int loop);
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
 // backend targets. sheet_bind pins the engine surface + mirrors the palette
 // to CRAM bank 1 once; blit() draws a sheet rect at an engine TOP-LEFT,
@@ -407,6 +414,13 @@ int  p6_vdp1_sheet_bind(const unsigned char *sheetPixels, int sheetWidth,
                         const unsigned short *pal565);
 void p6_vdp1_blit(int x, int y, int w, int h, int sx, int sy);
 }
+
+// P6.6c: Audio.cpp's file-scope stream state lives at GLOBAL scope (NOT in
+// namespace RSDK -- Audio.cpp:20,24): PlayStream sprintf-s the request path
+// into streamFilePath and stashes the loop point; the Saturn
+// AudioDevice::HandleStreamLoad below reads both to resolve the CD track.
+extern char streamFilePath[0x40];
+extern int32 streamLoopPoint;
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
 // Headers give the pointer extern under P6_SCENE_TEST (Scene.hpp:193-196,215-218,
@@ -542,6 +556,50 @@ bool32 AudioDevice::Init()
     // AudioDeviceBase::InitAudioChannels (Audio.cpp:164-182).
     AudioDeviceBase::InitAudioChannels();
     return true;
+}
+
+// ---- P6.6c: engine global + the Saturn stream device ------------------------
+// PlayStream:250 reads engine.streamsEnabled. NO-CTORS TRAP (Text.cpp class):
+// RetroEngine has a user ctor + in-class member inits -> the dynamic
+// initializer NEVER RUNS under SLSTART, so every field is ZERO including
+// streamsEnabled. The run body sets the fields the linked closure reads
+// EXPLICITLY before calling PlayStream.
+RetroEngine engine;
+
+// The Saturn body of the device stream seam (SaturnAudioDevice.hpp declares
+// it; PlayStream:295 calls it after arming the channel + sprintf-ing
+// streamFilePath, Audio.cpp:276-293). Saturn-fit per bgm-loops-hand-curated
+// + saturn-cdda-cue-format: OGG decode is not real-time-feasible on SH-2;
+// BGM is CD AUDIO. Map the requested stream name to its CUE track (track 2 =
+// GreenHill1, track 3 = TitleScreen -- build.bat:175-186 track identities)
+// and start hardware CD-DA through the proven jo_audio_play_cd_track path.
+// On success, perform the SAME state transition the PC LoadStream does on
+// vorbis-open success (Audio.cpp:239: channel->state = CHANNEL_STREAM);
+// unknown names fall through to the engine's own failure path (:244-245).
+void AudioDevice::HandleStreamLoad(ChannelInfo *channel, bool32 async)
+{
+    (void)async; // CD-DA start is non-blocking; no async split needed
+
+    // basename of "Data/Music/<name>"
+    const char *base = streamFilePath;
+    for (const char *p = streamFilePath; *p; ++p) {
+        if (*p == '/' || *p == '\\')
+            base = p + 1;
+    }
+
+    int track = -1;
+    if (!strcmp(base, "TitleScreen.ogg"))
+        track = 3;
+    else if (!strcmp(base, "GreenHill1.ogg"))
+        track = 2;
+    // FIXME P6.7+: table-ize from tools/loops.json as zones come online
+    // (bgm-loops-hand-curated: every shipped BGM needs an acknowledged entry).
+
+    p6_w_str_track = track;
+    if (track > 0) {
+        p6_cdda_play(track, streamLoopPoint != 0 || channel->loop);
+        channel->state = CHANNEL_STREAM; // mirror LoadStream:239
+    }
 }
 } // namespace RSDK
 
@@ -887,6 +945,28 @@ extern "C" void p6_scene_run(void)
             p6_snd_play();
             ++p6_w_snd_plays;
         }
+    }
+
+    // 7c) P6.6c: ENGINE MUSIC -- the canonical PlayStream call shape (decomp
+    //     Music_PlayTrack -> RSDK.PlayStream(track->fileName, 0, 0, loop,
+    //     true); the Title scene requests TitleScreen.ogg via TRACK_STAGE,
+    //     TitleSetup.c:145). The UNMODIFIED engine arms channel 0 + builds
+    //     "Data/Music/TitleScreen.ogg" (Audio.cpp:276-293), then the Saturn
+    //     HandleStreamLoad maps it to CUE track 3 and starts REAL CD-DA.
+    {
+        // NO-CTORS TRAP: RetroEngine's dynamic initializer never runs under
+        // SLSTART -- set the field PlayStream:250 reads explicitly.
+        engine.streamsEnabled = true;
+
+        int32 strSlot = PlayStream("TitleScreen.ogg", 0, 0, 1, true);
+        p6_w_str_slot = strSlot;
+        if (strSlot >= 0 && strSlot < CHANNEL_COUNT)
+            p6_w_str_state = (int32)channels[strSlot].state;
+
+        uint32 ph = 5381u;
+        for (const char *p = streamFilePath; *p; ++p)
+            ph = ((ph << 5) + ph) ^ (uint32)(uint8)*p;
+        p6_w_str_path = (int32)ph;
     }
 
     // 4) Witness copy (WRAM-H .bss survives the later title boot's WRAM-L use).
