@@ -86,15 +86,16 @@ def main(argv):
     print("  peeked: " + "  ".join("%s=%s" % (s[9:], _scene._hx(v[s])) for s in SYMS))
 
     t      = v["_p6_w_obj_timer"] or 0
-    # P6.7c: Ring's STAGE classID is 2 (the engine StageConfig path yields
-    # classCount==TYPE_DEFAULT_COUNT==2 for Title useGlobalObjects=0; the
-    # witnessed harness append parks Ring at stage class 2).
-    alive  = v["_p6_w_obj_classid"] == 2
+    # P6.7 wave-1: Ring's STAGE classID is 4 -- Title's StageConfig stage
+    # list names Options + Localization (MEASURED 11-entry list), which now
+    # hash-match ahead of the witnessed harness append (cc0 2 -> 4; was 2
+    # at P6.7c before the wave TUs registered).
+    alive  = v["_p6_w_obj_classid"] == 4
     ticks  = v["_p6_w_spr_ticks"] or 0
 
     checks = [
-        ("O1 engine registration: classCount == 3 (DefaultObject + DevOutput + Ring, the InitGameLink preamble mirror)",
-         v["_p6_w_obj_classcount"] == 3, "got %s" % v["_p6_w_obj_classcount"]),
+        ("O1 engine registration: classCount == 6 (DefaultObject + DevOutput + overlay Ring + wave-1 Localization/LogHelpers/Options)",
+         v["_p6_w_obj_classcount"] == 6, "got %s" % v["_p6_w_obj_classcount"]),
         ("O2 engine respawn cycle ran (spawns >= 1, draws > 0)",
          (v["_p6_w_obj_spawns"] or 0) >= 1 and (v["_p6_w_obj_draws"] or 0) > 0,
          "spawns=%s draws=%s" % (v["_p6_w_obj_spawns"], v["_p6_w_obj_draws"])),

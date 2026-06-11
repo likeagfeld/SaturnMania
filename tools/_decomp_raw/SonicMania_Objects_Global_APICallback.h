@@ -30,9 +30,24 @@
 #define API_GetUsername                     API.GetUsername
 #define API_ReadLeaderboardEntry            API.ReadLeaderboardEntry
 #else
+#if RETRO_REV02
+// SATURN 1.03-on-v5U COMPAT ARM (Task #210 wave-1, 2026-06-11): the pre-Plus
+// game expects the REV01 RSDKGameInfo carrying {platform, language, region},
+// but the REV02+ GameLink moves those fields to RSDKSKUInfo (EngineInfo
+// ->currentSKU; GameLink.h:260-264). MEASURED: compiling this header at
+// GAME_VERSION=3 with the default RETRO_REVISION=3 errors "RSDKGameInfo has
+// no member named 'platform'". Route through the same SKU pointer the Plus
+// build uses; p6_wave1_reg.c (the Game.c role TU) defines it from
+// EngineInfo->currentSKU exactly as SonicMania_Game.c:95 does under Plus.
+extern RSDKSKUInfo *SKU;
+#define sku_platform SKU->platform
+#define sku_language SKU->language
+#define sku_region   SKU->region
+#else
 #define sku_platform GameInfo->platform
 #define sku_language GameInfo->language
 #define sku_region   GameInfo->region
+#endif
 
 #define API_GetConfirmButtonFlip            APICallback_GetConfirmButtonFlip
 #define API_UnlockAchievement(info)         APICallback_UnlockAchievement((info)->id)

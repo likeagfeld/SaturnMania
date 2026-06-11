@@ -166,6 +166,37 @@ $CC -x c++ -std=gnu++11 -m2 -O2 -include stdlib.h -fno-exceptions -fno-rtti \
     -DRETRO_SATURN_FILEIO -I"$P6" -I"$NEWLIB" \
     -c -o "$P6/p6_ovl_ring.o" "$P6/p6_ovl_ring.cpp"
 
+echo "[7m] P6.7 wave-1 GAME TUs (VERBATIM decomp Localization/LogHelpers/Options + p6_wave1_reg, Game.c role) ..."
+# Compiled as C against the REAL Game.h/GameLink.h via the census include
+# tree (tools/_portspike/_p67d_sizing/build_include_tree.py output --
+# regenerate it after any tools/_decomp_raw header change). THE CENSUS KNOB
+# IS BINDING: -DRETRO_REVISION=2 matches CORE_DEFS above -- at REV0U the
+# function table gains entries and RegisterObject/RegisterGlobalVariables
+# grow extra args (garbage through the memcpy'd table otherwise; gate
+# qa_p6_globals G1 checks the slot ABI offline every run).
+GAME_DEFS="-DRETRO_REVISION=2 -DGAME_VERSION=3 -DSATURN_GLOBALS_RETARGET -DRETRO_USE_MOD_LOADER=0"
+GINC=/work/tools/_portspike/_p67d_sizing/include
+if [ ! -d "$GINC/Global" ]; then
+    echo "ERROR: census include tree missing -- run tools/_portspike/_p67d_sizing/build_include_tree.py first" >&2
+    exit 1
+fi
+for w1 in Global_Localization:Game_Localization \
+          Helpers_LogHelpers:Game_LogHelpers \
+          Helpers_Options:Game_Options; do
+    src_tu="${w1%%:*}"; out_tu="${w1##*:}"
+    "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
+        $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
+        -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
+done
+"$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
+    $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
+    -c -o "$P6/p6_wave1_reg.o" "$P6/p6_wave1_reg.c"
+# Integer-only vsprintf shim (rationale in-file: newlib's float closure is
+# 10.2 KB and breached the 0x060C0000 floor by 2,856 B -- MEASURED).
+"$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
+    -I"$NEWLIB" \
+    -c -o "$P6/p6_vsprintf.o" "$P6/p6_vsprintf.c"
+
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
 # (MD5Table_Saturn.inc; Text.cpp Saturn branch) because (a) its upstream
@@ -200,6 +231,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Scene_Object.o" "$P6/Core_Link.o" "$P6/Core_Math.o" \
     "$P6/Core_RetroEngine.o" \
     "$P6/Scene_Objects_DefaultObject.o" "$P6/Scene_Objects_DevOutput.o" \
+    "$P6/Game_Localization.o" "$P6/Game_LogHelpers.o" "$P6/Game_Options.o" \
+    "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" \
     "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" \
     -o "$P6/p6_scene_pack.o"
 # P6.7d.3: p6_ring2.o is NOT a pack member -- it links into the fixed-base

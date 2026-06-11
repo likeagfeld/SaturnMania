@@ -194,6 +194,17 @@ typedef enum {
 // =========================
 // GLOBAL VARIABLES
 // =========================
+// P6.7 WAVE-1 (Task #210, 2026-06-11) SATURN GLOBALS RETARGET: the verbatim
+// GlobalVariables is 268,148 B pre-Plus (four 64 KB buffers dominate) -- no
+// Saturn bank holds it. Object code accesses fields BY NAME and all 49
+// GameConfig var-seed offsets target SCALARS (measured), so shrinking the
+// arrays is a pure layout retarget: the engine's Saturn LoadGameConfig arm
+// remaps seed offsets through the generated SaturnGlobalsMap table, and the
+// consumers of each buffer get Saturn-sized ceilings as they land (saveRAM
+// 32 KB = the Saturn backup-RAM ceiling; atl/menuParam 8 KB; competition
+// 1 KB). Build with -DSATURN_GLOBALS_RETARGET (the census/default build
+// keeps the verbatim layout).
+
 
 typedef struct {
     int32 gameMode;
@@ -205,16 +216,32 @@ typedef struct {
     int32 atlEnabled;
     int32 atlEntityCount;
     int32 atlEntitySlot[0x20];
+#ifdef SATURN_GLOBALS_RETARGET
+    int32 atlEntityData[0x800];
+#else
     int32 atlEntityData[0x4000];
+#endif
     int32 saveLoaded;
+#ifdef SATURN_GLOBALS_RETARGET
+    int32 saveRAM[0x2000];
+#else
     int32 saveRAM[0x4000];
+#endif
     int32 saveSlotID;
     int32 noSaveSlot[0x400];
+#ifdef SATURN_GLOBALS_RETARGET
+    int32 menuParam[0x800];
+#else
     int32 menuParam[0x4000];
+#endif
     int32 itemMode;
     int32 suppressTitlecard;
     int32 suppressAutoMusic;
+#ifdef SATURN_GLOBALS_RETARGET
+    int32 competitionSession[0x100];
+#else
     int32 competitionSession[0x4000];
+#endif
     int32 medalMods;
     int32 parallaxOffset[0x100];
     int32 enableIntro;

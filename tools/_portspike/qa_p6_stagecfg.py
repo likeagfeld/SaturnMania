@@ -83,8 +83,11 @@ EXP_SFX_SKIPS = 51
 EXP_CREATESLOT = 0x80
 
 # The classes the pack registers BEFORE LoadGameConfig, in objectClassList
-# order (the InitGameLink mirror + the verbatim Ring).
-REGISTERED = [":DefaultObject:", ":DevOutput:", "Ring"]
+# order: the InitGameLink mirror (DefaultObject/DevOutput), the overlay Ring,
+# then the P6.7 wave-1 game link (p6_wave1_reg.c, SonicMania_Game.c order
+# :427/:429/:517 -> Localization=3, LogHelpers=4, Options=5).
+REGISTERED = [":DefaultObject:", ":DevOutput:", "Ring",
+              "Localization", "LogHelpers", "Options"]
 TYPE_DEFAULT_COUNT = 2  # Object.hpp:135-137 (DEFAULTOBJECT=0, DEVOUTPUT)
 
 
@@ -412,7 +415,17 @@ def main(argv):
                 break
         if exp_titlepos is not None:
             break
-    exp_cc0 = (exp_globalcount if sc["useGlobalObjects"] else TYPE_DEFAULT_COUNT)
+    # Stage-class simulation (Scene.cpp stage loop): cc0 starts at the two
+    # defaults, takes ALL globals when useGlobalObjects, then hash-matches
+    # the StageConfig's own stage list against the registered classes
+    # (Title: loadGlobalObjects=0 but its 11-entry list names Options +
+    # Localization -- MEASURED -- so wave-1 raises cc0 2 -> 4).
+    exp_cc0 = TYPE_DEFAULT_COUNT
+    if sc["useGlobalObjects"]:
+        exp_cc0 = exp_globalcount
+    for name in sc["objects"]:
+        if name in REGISTERED:
+            exp_cc0 += 1
     exp_cc = exp_cc0 + 1  # harness Ring append (Scene.cpp:199-205 mirror)
 
     pk = pack_path()

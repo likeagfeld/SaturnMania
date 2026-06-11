@@ -135,6 +135,25 @@
                                         // GHZ-scene diag (Task #203 accessor
                                         // seam, COLLISION_TILE_MASK).
 
+// ---- P6.7 WAVE-1 (Task #210): GAME GLOBALS WINDOW ----------------------------
+// GlobalVariables lives at a FIXED WRAM-H window inside the P6.7d.2-freed
+// region (the engine's RegisterGlobalVariables would back it from the 64 KB
+// DATASET_STG pool, which already carries ~13 KB of scene lists -- the seam
+// in p6_io_main.cpp overrides that one table slot). Sizes are generated +
+// self-tested by tools/_portspike/_p6/gen_globals_map.py (S1-S6):
+//   verbatim pre-Plus sizeof = 268,148 B; SATURN_GLOBALS_RETARGET = 56,180 B
+//   (atlEntityData 0x4000->0x800, saveRAM 0x4000->0x2000 [32 KB = the Saturn
+//   backup-RAM ceiling], menuParam 0x4000->0x800, competitionSession
+//   0x4000->0x100; all GameConfig seeds scalar-targeted; the v5U engine
+//   discards seeds and drives the by-name GlobalVariables_InitCB instead).
+// BUDGET SQUEEZE (P6.8 watch item): proof overlay window 0x8000 + globals
+// 56,180 + SPZ zone window 124,029 = 212,977 of the 212,992 B freed region
+// -- 15 B of slack if the zone window replaces the proof window at
+// 0x060C0000 and globals move to its tail. Closers if SPZ growth eats it:
+// menuParam 0x800->0x400 (-4 KB) or zone-window split.
+#define P68_HWRAM_GLOBALS_BASE  (0x060C8000) // = P6_OVL_BASE + P6_OVL_WINDOW
+#define P68_HWRAM_GLOBALS_BYTES (56180)      // gen_globals_map.py sat_sizeof
+
 // ---- P6.7d SIZING RECORD (MEASURED 2026-06-11, tools/_portspike/_p67d_sizing)
 // The COMPLETE verbatim decomp object set (540 TUs) compiled to SH-2 in the
 // SHIPPING configuration (-Os, -DGAME_VERSION=3 = 1.03 pre-Plus, REVISION=2;

@@ -1,0 +1,126 @@
+// =============================================================================
+// p6_wave1_reg.c -- P6.7 wave-1 (Task #210): the GAME-SIDE link + registration
+// TU, playing SonicMania_Game.c's role for the first verbatim Global-TU wave
+// (Localization, LogHelpers, Options -- Game.c registration order
+// :427/:429/:517). Compiled as C against the REAL Game.h/GameLink.h surface
+// with the CENSUS knob set (-DRETRO_REVISION=2 -DGAME_VERSION=3): the P6
+// engine builds RETRO_REVISION=2 (build_p6scene_objs.sh CORE_DEFS beats
+// RetroEngine.hpp:227's #ifndef default), so the game side MUST match --
+// at REV0U the table gains entries and RegisterObject/RegisterGlobalVariables
+// grow extra args (garbage through the table otherwise). Plus
+// -DSATURN_GLOBALS_RETARGET (shrunk GlobalVariables layout) and
+// -DRETRO_USE_MOD_LOADER=0 (the engine builds without the mod loader).
+//
+// FLAT-TU RULE: this TU never sees an engine header. The engine surface
+// arrives as the raw function-table pointer + info-struct pointers passed
+// into p6_wave1_link() by p6_io_main.cpp, exactly the LinkGameLogicDLL shape
+// (SonicMania_Game.c:111-136 pre-Plus). The memcpy table fill is sound per
+// gate qa_p6_globals G1 (slot-for-slot ABI check vs the engine's
+// FunctionTable_ enum + Link.cpp bindings, run offline every gate pass).
+// =============================================================================
+#include "Game.h"
+
+// ---- ENGINE VARIABLES (SonicMania_Game.c:3-41, pre-Plus set) ----------------
+RSDKFunctionTable RSDK;                       // Game.c:7
+int32 RSDKRevision = RETRO_REVISION;          // Game.c:19
+RSDKSceneInfo *SceneInfo = NULL;              // Game.c:21
+RSDKGameInfo *GameInfo = NULL;                // Game.c:23
+RSDKControllerState *ControllerInfo = NULL;   // Game.c:28
+RSDKAnalogState *AnalogStickInfoL = NULL;     // Game.c:29
+RSDKTouchInfo *TouchInfo = NULL;              // Game.c:35
+RSDKScreenInfo *ScreenInfo = NULL;            // Game.c:41
+
+// SATURN 1.03-on-v5U compat (see SonicMania_Objects_Global_APICallback.h
+// sku_* arm): pre-Plus code reaches platform/language/region through SKU,
+// defined here from EngineInfo->currentSKU exactly as Game.c:95 does under
+// Plus. The engine fills SKU::curSKU before the link call (p6_io_main).
+RSDKSKUInfo *SKU = NULL;
+
+// ---- GAME VARIABLES (SonicMania_Game.c:43-68) -------------------------------
+GlobalVariables *globals;                     // Game.c:47
+
+// VERBATIM GlobalVariables_InitCB (Game.c:50-67). COMPILED OUT at this
+// build's RETRO_REVISION=2 (it is the v5U seeding mechanism); kept verbatim
+// for the day the engine flips to REV0U. At REV02 the equivalent state
+// arrives canonically: the seam memsets the window (AllocateStorage
+// clearMemory=true mirror) and the engine's REV02 seed loop writes the
+// GameConfig var seeds -- whose nonzero payload gen_globals_map.py
+// self-test S6 proves EQUALS these writes ({saveSlotID=NO_SAVE_SLOT,
+// presenceID=-1}).
+#if RETRO_REV0U
+void GlobalVariables_InitCB(GlobalVariables *globals)
+{
+    memset(globals, 0, sizeof(GlobalVariables));
+
+    globals->saveSlotID = NO_SAVE_SLOT;
+
+    globals->presenceID = -1;
+
+#if MANIA_USE_PLUS
+    globals->replayTableID = (uint16)-1;
+    globals->taTableID     = (uint16)-1;
+
+    globals->stock          = (ID_RAY << 16) | (ID_KNUCKLES << 8) | ID_TAILS;
+    globals->characterFlags = ID_SONIC | ID_TAILS | ID_KNUCKLES | ID_MIGHTY | ID_RAY;
+
+    globals->superMusicEnabled = true;
+#endif
+}
+#endif
+
+// ---- Witnesses (DEFINED in p6_io_main.cpp, the main image) ------------------
+extern int32 p6_w_w1_locale;
+
+// =============================================================================
+// p6_wave1_link -- the LinkGameLogicDLL role (Game.c:111-136 pre-Plus shape,
+// REV02 EngineInfo field set per GameLink.h:417-443) + the wave-1 subset of
+// InitGameLogic (Game.c:140-147 + the three RSDK_REGISTER_OBJECT lines).
+// Called by p6_io_main.cpp AFTER SetupFunctionTables + the overlay entry
+// (so the overlay Ring keeps classID 2) and BEFORE LoadGameConfig (which
+// hash-matches GameConfig's object names against the registered classes and
+// then drives GlobalVariables_InitCB).
+// =============================================================================
+void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
+                   void *sceneInfo, void *controllerInfo, void *stickInfoL,
+                   void *touchInfo, void *screenInfo)
+{
+    memset(&RSDK, 0, sizeof(RSDKFunctionTable));   // Game.c:118
+
+    if (functionTable)                              // Game.c:120-121
+        memcpy(&RSDK, functionTable, sizeof(RSDKFunctionTable));
+
+    GameInfo         = (RSDKGameInfo *)gameInfo;         // Game.c:128
+    SKU              = (RSDKSKUInfo *)currentSKU;        // Game.c:95 (Plus)
+    SceneInfo        = (RSDKSceneInfo *)sceneInfo;       // Game.c:129
+    ControllerInfo   = (RSDKControllerState *)controllerInfo; // Game.c:130
+    AnalogStickInfoL = (RSDKAnalogState *)stickInfoL;    // Game.c:131
+    TouchInfo        = (RSDKTouchInfo *)touchInfo;       // Game.c:132
+    ScreenInfo       = (RSDKScreenInfo *)screenInfo;     // Game.c:133
+
+    // InitGameLogic wave-1 subset (Game.c:140-147):
+#if RETRO_REV0U
+    RSDK.RegisterGlobalVariables((void **)&globals, sizeof(GlobalVariables),
+                                 (void (*)(void *))GlobalVariables_InitCB); // Game.c:143
+#else
+    RSDK.RegisterGlobalVariables((void **)&globals, sizeof(GlobalVariables)); // Game.c:145
+#endif
+
+    RSDK_REGISTER_OBJECT(Localization); // Game.c:427
+    RSDK_REGISTER_OBJECT(LogHelpers);   // Game.c:429
+    RSDK_REGISTER_OBJECT(Options);      // Game.c:517
+}
+
+// =============================================================================
+// p6_wave1_witness -- called from the pack tick after the stage-load chain;
+// copies game-side state into the main-image witness for qa_p6_globals G8:
+// (Localization->loaded << 8) | language, 0xFFFF while staticVars are
+// unallocated (before LoadSceneAssets runs the StageLoad callbacks).
+// =============================================================================
+void p6_wave1_witness(void)
+{
+    if (Localization)
+        p6_w_w1_locale = ((int32)(Localization->loaded ? 1 : 0) << 8)
+                         | (int32)Localization->language;
+    else
+        p6_w_w1_locale = 0xFFFF;
+}

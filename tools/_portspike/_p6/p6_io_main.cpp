@@ -687,6 +687,10 @@ __attribute__((used)) int32 p6_w_ovl_bytes    = -1; // GFS bytes loaded into the
 __attribute__((used)) int32 p6_w_ovl_hash     = 0;  // djb2 over the loaded bytes (on SH-2)
 __attribute__((used)) int32 p6_w_ovl_classes  = -1; // objectClassCount after the entry ran
 __attribute__((used)) int32 p6_w_ovl_updatefn = 0;  // Ring_Update ptr the entry returned
+// P6.7 wave-1 (qa_p6_globals.py): game-globals + link-layer witnesses.
+__attribute__((used)) int32 p6_w_glb_size   = -1;  // sizeof(GlobalVariables) the game registered
+__attribute__((used)) int32 p6_w_glb_ptr    = 0;   // where globalVarsPtr landed
+__attribute__((used)) int32 p6_w_w1_locale  = -1;  // (Localization->loaded << 8) | language
 }
 
 // The api block + the registration thunk the entry calls back through (the
@@ -701,6 +705,44 @@ extern "C" void p6_ovl_register_object(void **staticVars, const char *name,
                          staticClassSize, update, NULL, NULL, draw,
                          NULL, NULL, NULL, NULL, NULL);
 }
+
+// =============================================================================
+// P6.7 wave-1 (Task #210): the GAME GLOBALS window + RegisterGlobalVariables
+// SEAM. The game's InitGameLogic registers GlobalVariables through the
+// function table; the engine's own RegisterGlobalVariables (RetroEngine.hpp
+// :736-741) backs it with AllocateStorage(DATASET_STG) -- but the Saturn
+// DATASET_STG pool is 64 KB (Storage.cpp proof-trim) and already carries
+// ~13 KB of scene-list weight, so the 56,180 B SATURN_GLOBALS_RETARGET
+// struct cannot live there. The seam (HandleStreamLoad pattern, P6.6c)
+// overrides the TABLE SLOT after SetupFunctionTables: same 2-arg REV02
+// signature (this engine builds RETRO_REVISION=2 -- build_p6scene_objs.sh
+// CORE_DEFS beats RetroEngine.hpp:227's #ifndef default), globals backed by
+// the fixed window inside the P6.7d.2-freed region instead (0x060C8000 =
+// P6_OVL_BASE + P6_OVL_WINDOW; budget runs to the SGL area floor
+// 0x060F4000 -- 56,180 of 180,224 B used; the P6.8 zone-code window shares
+// the remainder, see SaturnMemoryMap.h). The memset mirrors
+// AllocateStorage's clearMemory=true; globalVarsPtr flows exactly as the
+// engine inline would set it, and LoadGameConfig's REV02 seed loop then
+// writes through the RETRO_SATURN offset-remap arm (RetroEngine.cpp +
+// generated SaturnGlobalsMap.inc).
+// =============================================================================
+#define P6_GLOBALS_WINDOW (P6_OVL_BASE + P6_OVL_WINDOW) /* 0x060C8000 */
+extern "C" void p6_register_global_variables_saturn(void **globals, int32 size)
+{
+    p6_w_glb_size = size;
+    *globals = (void *)P6_GLOBALS_WINDOW;
+    RSDK::globalVarsPtr = (int32 *)P6_GLOBALS_WINDOW;
+    memset((void *)P6_GLOBALS_WINDOW, 0, (size_t)size);
+    p6_w_glb_ptr = (int32)(uint32)RSDK::globalVarsPtr;
+}
+
+// p6_wave1_reg.c (game-side TU): the LinkGameLogicDLL role + wave-1
+// registration, and the per-capture witness copier.
+extern "C" void p6_wave1_link(void *functionTable, void *gameInfo,
+                              void *currentSKU, void *sceneInfo,
+                              void *controllerInfo, void *stickInfoL,
+                              void *touchInfo, void *screenInfo);
+extern "C" void p6_wave1_witness(void);
 
 // src/rsdk/storage.c (hand-port TU, linked in this image): generic GFS
 // load-to-address -- the overlay loader. Name is historical; any address.
@@ -888,9 +930,13 @@ static SpriteFrame *p6_objRingFrames = NULL;
 // apply the spawn-relevant Ring_Create lines (p6_ring2_arm, cited there) and
 // the spawn position. Slot 0x3F = top of the RESERVE area, below every
 // scene-parsed entity.
+// P6.7 wave-1: ResetEntitySlot consumes the STAGE class index (set at the
+// harness Ring append; 4 at Title with Options+Localization matched ahead),
+// NOT the objectClassList id (still 2).
+static int32 s_ring_stage_classid = -1;
 static void p6_obj_spawn_ring(void)
 {
-    ResetEntitySlot(P6_OBJ_RING_SLOT, P6_OBJ_RING_CLASSID, NULL);
+    ResetEntitySlot(P6_OBJ_RING_SLOT, (uint16)s_ring_stage_classid, NULL);
     if (s_ovl.arm_fn)  // overlay vtable (P6.7d.3) -- same verbatim arm body
         s_ovl.arm_fn(&objectEntityList[P6_OBJ_RING_SLOT], (void *)p6_objRingFrames);
     objectEntityList[P6_OBJ_RING_SLOT].position.x = 260 << 16;
@@ -971,6 +1017,11 @@ extern "C" void p6_scene_run(void)
     //     SetupFunctionTables FIRST: object code dispatches through it.
     SetupFunctionTables();
 
+    // P6.7 wave-1: the RegisterGlobalVariables SEAM (see the thunk above) --
+    // the only table slot overridden; every other slot is the engine's own.
+    RSDKFunctionTable[FunctionTable_RegisterGlobalVariables] =
+        (void *)p6_register_global_variables_saturn;
+
     RegisterObject((Object **)&DefaultObject, ":DefaultObject:", sizeof(EntityBase), sizeof(ObjectDefaultObject), DefaultObject_Update,
                    DefaultObject_LateUpdate, DefaultObject_StaticUpdate, DefaultObject_Draw, DefaultObject_Create, DefaultObject_StageLoad,
                    DefaultObject_EditorLoad, DefaultObject_EditorDraw, DefaultObject_Serialize);
@@ -990,7 +1041,24 @@ extern "C" void p6_scene_run(void)
     globalObjectIDs[0] = TYPE_DEFAULTOBJECT; // RetroEngine.cpp:1230
     globalObjectIDs[1] = TYPE_DEVOUTPUT;     // :1232 (REV02)
     globalObjectCount  = TYPE_DEFAULT_COUNT; // :1235
-    p6_w_obj_classcount = objectClassCount;  // qa_p6_obj O1: now 3
+
+    // 2c) P6.7 wave-1: the GAME-SIDE LINK (the LinkGameLogicDLL call the
+    //     engine makes right after the preamble, RetroEngine.cpp:1255-1330
+    //     pre-REV02 arm shape :1280-1290). The pack has no input backend yet
+    //     (P6.8 W7), so controller/stick/touch pass NULL -- the wave TUs
+    //     (Localization/LogHelpers/Options) touch none of them (measured).
+    //     curSKU carries the canonical console identity the pre-Plus sku_*
+    //     compat arm reads: PLATFORM_SWITCH is the engine's own console
+    //     default (UserCore.cpp:238); LANGUAGE_EN drives Localization's
+    //     StringsEN.txt branch; region is read by no wave TU.
+    SKU::curSKU.platform = PLATFORM_SWITCH;
+    SKU::curSKU.language = LANGUAGE_EN;
+    SKU::curSKU.region   = 0;
+    p6_wave1_link((void *)RSDKFunctionTable, (void *)&gameVerInfo,
+                  (void *)&SKU::curSKU, (void *)&sceneInfo,
+                  NULL, NULL, NULL, (void *)screens);
+
+    p6_w_obj_classcount = objectClassCount;  // qa_p6_obj O1 / globals G9: 6
     p6_w_scene_step = 2;
 
     // 2.5) P6.4 (Task #225): mount the ORIGINAL Data.rsdk pack (cd/DATA.RSDK,
@@ -1149,6 +1217,12 @@ extern "C" void p6_scene_run(void)
     {
         Object *ringStatic = *(Object **)s_ovl.staticvars_slot; // overlay vtable
         stageObjectIDs[sceneInfo.classCount] = P6_OBJ_RING_CLASSID; // objectClassList id 2
+        // P6.7 wave-1: the STAGE class index is no longer numerically equal
+        // to the objectClassList id -- Title's StageConfig stage list names
+        // Options + Localization (MEASURED, 11-entry list), which now
+        // hash-match ahead of this append (cc0 2 -> 4). ResetEntitySlot and
+        // the entity-classID witnesses consume the STAGE index.
+        s_ring_stage_classid = sceneInfo.classCount;
         ringStatic->classID = sceneInfo.classCount;                 // Scene.cpp:237
         ringStatic->active  = ACTIVE_NORMAL;                        // Scene.cpp:238-239
         sceneInfo.classCount++;                                     // Scene.cpp:203
@@ -1175,6 +1249,11 @@ extern "C" void p6_scene_run(void)
     //     witness below asserts the value (0x80 at Title scale).
     InitObjects();
     p6_w_createslot = (int32)sceneInfo.createSlot;
+    // P6.7 wave-1: Localization_StageLoad ran inside InitObjects' stageLoad
+    // dispatch (Title's StageConfig names Options + Localization in its
+    // 11-entry stage list, MEASURED; loadGlobalObjects=0 is irrelevant --
+    // the stage list itself carries them). Copy the game-side witness.
+    p6_wave1_witness();
 
     // 3d) P6.7c witnesses over the LoadSceneFolder side effects: the
     //     TileConfig windows (zero for Title -- MEASURED absent from the

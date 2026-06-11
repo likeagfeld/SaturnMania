@@ -1023,6 +1023,18 @@ void RSDK::LoadXMLStages(const tinyxml2::XMLElement *gameElement)
 }
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.7 wave-1 (Task #210) DATA-RETARGET SHIM: the SATURN_GLOBALS_RETARGET
+// GlobalVariables layout shrinks four 64 KB buffers (268,148 B -> 56,180 B;
+// no Saturn bank holds the verbatim struct). Object code reaches fields BY
+// NAME, so the ONLY raw offsets into the struct are this loop's GameConfig
+// var seeds -- remapped below through the GENERATED table (every seed is
+// scalar-relative within its field; generator self-tests S1-S6 in
+// tools/_portspike/_p6/gen_globals_map.py). Unmapped, the largest PC seed
+// offset (67,032 int32) writes 268,128 B past a 56,180 B window.
+#include "SaturnGlobalsMap.inc"
+#endif
+
 void RSDK::LoadGameConfig()
 {
     FileInfo info;
@@ -1192,6 +1204,16 @@ void RSDK::LoadGameConfig()
             // standard v5 loads variables directly into the struct
             int32 offset = ReadInt32(&info, false);
             int32 count  = ReadInt32(&info, false);
+#if RETRO_PLATFORM == RETRO_SATURN
+            // P6.7 wave-1: PC-layout seed offset -> SATURN_GLOBALS_RETARGET
+            // layout (table + rationale above LoadGameConfig).
+            for (int32 m = 0; m < SATURN_GLOBALS_SEED_COUNT; ++m) {
+                if (saturnGlobalsSeedMap[m].pcOffset == offset) {
+                    offset = saturnGlobalsSeedMap[m].satOffset;
+                    break;
+                }
+            }
+#endif
             for (int32 v = 0; v < count; ++v) {
                 globalVarsPtr[offset + v] = ReadInt32(&info, false);
             }
