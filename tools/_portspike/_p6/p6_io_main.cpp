@@ -519,6 +519,15 @@ CollisionMask (*collisionMasks)[TILE_COUNT * COLLISION_FLIPCOUNT] =
     (CollisionMask (*)[TILE_COUNT * COLLISION_FLIPCOUNT])P6_LW_COLLMASKS;
 TileInfo (*tileInfo)[TILE_COUNT * COLLISION_FLIPCOUNT] =
     (TileInfo (*)[TILE_COUNT * COLLISION_FLIPCOUNT])P6_LW_TILEINFO;
+// P6.7 PACKED COLLISION (Task #210): the 16-bit/column packed masks at a
+// fixed WRAM-H window inside the P6.7d.2-freed region -- 0x060E0000 +
+// 0x10000 ends at 0x060F0000, 16 KB under the SGL-area floor 0x060F4000
+// (globals window ends 0x060D5B74). With the Scene.cpp P6_CM arm,
+// LoadTileConfig packs HERE and the raw x1 collisionMasks WRAM-L window
+// above receives no writes (fully dead -- a future WRAM-L reclaim).
+#define P6_HW_PACKEDCOL 0x060E0000u // 2 * 0x400 * 32 = 0x10000 -> 0x060F0000
+uint16 (*packedCollisionMasks)[TILE_COUNT * TILE_SIZE] =
+    (uint16 (*)[TILE_COUNT * TILE_SIZE])P6_HW_PACKEDCOL;
 
 // ---- (b3) Small engine scalars (WRAM-H .bss, zero-init by SLSTART) -----------
 int32 objectClassCount        = 0;
@@ -691,6 +700,12 @@ __attribute__((used)) int32 p6_w_ovl_updatefn = 0;  // Ring_Update ptr the entry
 __attribute__((used)) int32 p6_w_glb_size   = -1;  // sizeof(GlobalVariables) the game registered
 __attribute__((used)) int32 p6_w_glb_ptr    = 0;   // where globalVarsPtr landed
 __attribute__((used)) int32 p6_w_w1_locale  = -1;  // (Localization->loaded << 8) | language
+// P6.7 packed collision (qa_p6_collision.py): packer + accessor witnesses.
+__attribute__((used)) int32 p6_w_col_loaded     = 0;  // LoadTileConfig(GHZ) returned
+__attribute__((used)) int32 p6_w_col_packedhash = 0;  // djb2 over the 65,536 B packed window
+__attribute__((used)) int32 p6_w_col_infohash   = 0;  // djb2 over the 10,240 B tileInfo window
+__attribute__((used)) int32 p6_w_col_probes     = -1; // accessor probes matched (exp 128)
+__attribute__((used)) int32 p6_w_col_firstbad   = -1; // first mismatching probe index
 }
 
 // The api block + the registration thunk the entry calls back through (the
@@ -1388,6 +1403,52 @@ extern "C" void p6_scene_run(void)
         videoSettings.screenCount  = 1;
         engine.drawGroupVisible[3] = true;
         p6_obj_spawn_ring();
+    }
+
+    // 9) P6.7 PACKED COLLISION (Task #210, qa_p6_collision K2-K5): the
+    //    engine's own LoadTileConfig over the REAL GHZ TileConfig.bin from
+    //    the pack -- Title ships no TileConfig, so this is the packer's
+    //    data-bearing proof. The Scene.cpp P6_CM arm packs into the
+    //    0x060E0000 window; the byte-exact model + the 128 flip-probe
+    //    expectations come from gen_collision_model.py (raw/info hashes ==
+    //    the P6.7d.2 contract values). MUST run BEFORE PlayStream (pack
+    //    read = CD op; the 7c-moved rule below). Runs AFTER the Title til
+    //    witnesses (step 3d) so their zero-window model is undisturbed
+    //    (tileInfo gets GHZ angles only here).
+    {
+        memset((void *)P6_HW_PACKEDCOL, 0, 0x10000);
+        LoadTileConfig((char *)"Data/Stages/GHZ/TileConfig.bin");
+        p6_w_col_loaded = 1;
+
+        uint32 h = 5381u;
+        const uint8 *pb = (const uint8 *)P6_HW_PACKEDCOL;
+        for (int32 i = 0; i < 0x10000; ++i)
+            h = ((h << 5) + h) ^ pb[i];
+        p6_w_col_packedhash = (int32)h;
+
+        h = 5381u;
+        const uint8 *ti = (const uint8 *)P6_LW_TILEINFO;
+        for (int32 i = 0; i < 0x2800; ++i)
+            h = ((h << 5) + h) ^ ti[i];
+        p6_w_col_infohash = (int32)h;
+
+#include "p6_collision_probes.inc"
+        int32 good = 0;
+        p6_w_col_firstbad = -1;
+        for (int32 i = 0; i < (int32)(sizeof(p6CollisionProbes) / sizeof(p6CollisionProbes[0])); ++i) {
+            uint8 got;
+            if (p6CollisionProbes[i].dir < 4)
+                got = PackedCollisionMask(p6CollisionProbes[i].plane, p6CollisionProbes[i].tile,
+                                          p6CollisionProbes[i].dir, p6CollisionProbes[i].col);
+            else
+                got = PackedTileAngle(p6CollisionProbes[i].plane, p6CollisionProbes[i].tile,
+                                      (uint8)(p6CollisionProbes[i].dir - 4));
+            if (got == p6CollisionProbes[i].expect)
+                ++good;
+            else if (p6_w_col_firstbad < 0)
+                p6_w_col_firstbad = i;
+        }
+        p6_w_col_probes = good;
     }
 
     // 7c-moved) P6.7c ORDERING FIX (measured: gate T5 RED at the old

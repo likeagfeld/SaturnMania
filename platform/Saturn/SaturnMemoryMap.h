@@ -130,10 +130,14 @@
 #define P68_COLLISION_PLACED  (1)       // P6.7d.2: WRAM-H tenant (PACKED form;
                                         // P68_HWRAM_COLL_BYTES above), funded
                                         // by the SGL work-area re-contract.
-                                        // The 4-bit packer implementation +
-                                        // its byte-exact gate land with the
-                                        // GHZ-scene diag (Task #203 accessor
-                                        // seam, COLLISION_TILE_MASK).
+// P6.7 PACKER LANDED (Task #210): EXACT 16-bit/column packed masks at the
+// diag window 0x060E0000 (65,536 B; ends 0x060F0000, 16 KB under the SGL
+// floor); tileInfo (10,240 B) stays at its WRAM-L window for now -- the
+// 75,776 contract total = 65,536 + 10,240 across the two banks. The
+// accessors derive FLIP_X/Y/XY masks AND angles on the fly (Task #203
+// approximation RETIRED; byte-exact + 128-probe proof = qa_p6_collision).
+// The raw x1 collisionMasks WRAM-L window (0x20000 B) is now DEAD -- a
+// future WRAM-L reclaim of 131,072 B.
 
 // ---- P6.7 WAVE-1 (Task #210): GAME GLOBALS WINDOW ----------------------------
 // GlobalVariables lives at a FIXED WRAM-H window inside the P6.7d.2-freed

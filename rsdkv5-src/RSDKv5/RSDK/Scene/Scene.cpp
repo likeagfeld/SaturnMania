@@ -730,6 +730,20 @@ void RSDK::LoadSceneAssets()
     LoadGameXML(true); // override the stage palette *somewhere* idfk
 #endif
 }
+// P6.7 PACKED COLLISION (Task #210): inside LoadTileConfig the per-tile mask
+// writes go through P6_CM. On PC it expands to the EXACT stock expression
+// collisionMasks[p][t]. (byte-identical build); on Saturn the tile is built
+// in a stack scratch struct and PACKED into packedCollisionMasks at the end
+// of each tile (format + offline byte-exact model: Scene.hpp +
+// tools/_portspike/_p6/gen_collision_model.py; gate qa_p6_collision K3).
+// The raw x1 collisionMasks array (131,072 B, fits no Saturn bank) receives
+// no writes and is link-dead on Saturn.
+#if RETRO_PLATFORM == RETRO_SATURN
+#define P6_CM p6cmScratch
+#else
+#define P6_CM collisionMasks[p][t]
+#endif
+
 void RSDK::LoadTileConfig(char *filepath)
 {
     FileInfo info;
@@ -751,6 +765,9 @@ void RSDK::LoadTileConfig(char *filepath)
             for (int32 t = 0; t < TILE_COUNT; ++t) {
                 uint8 maskHeights[0x10];
                 uint8 maskActive[0x10];
+#if RETRO_PLATFORM == RETRO_SATURN
+                CollisionMask p6cmScratch;
+#endif
 
                 memcpy(maskHeights, buffer + bufPos, TILE_SIZE * sizeof(uint8));
                 bufPos += TILE_SIZE;
@@ -767,12 +784,12 @@ void RSDK::LoadTileConfig(char *filepath)
                 if (yFlip) {
                     for (int32 c = 0; c < TILE_SIZE; c++) {
                         if (maskActive[c]) {
-                            collisionMasks[p][t].floorMasks[c] = 0x00;
-                            collisionMasks[p][t].roofMasks[c]  = maskHeights[c];
+                            P6_CM.floorMasks[c] = 0x00;
+                            P6_CM.roofMasks[c]  = maskHeights[c];
                         }
                         else {
-                            collisionMasks[p][t].floorMasks[c] = 0xFF;
-                            collisionMasks[p][t].roofMasks[c]  = 0xFF;
+                            P6_CM.floorMasks[c] = 0xFF;
+                            P6_CM.roofMasks[c]  = 0xFF;
                         }
                     }
 
@@ -781,13 +798,13 @@ void RSDK::LoadTileConfig(char *filepath)
                         int32 h = 0;
                         while (true) {
                             if (h == TILE_SIZE) {
-                                collisionMasks[p][t].lWallMasks[c] = 0xFF;
+                                P6_CM.lWallMasks[c] = 0xFF;
                                 break;
                             }
 
-                            uint8 m = collisionMasks[p][t].roofMasks[h];
+                            uint8 m = P6_CM.roofMasks[h];
                             if (m != 0xFF && c <= m) {
-                                collisionMasks[p][t].lWallMasks[c] = h;
+                                P6_CM.lWallMasks[c] = h;
                                 break;
                             }
                             else {
@@ -803,13 +820,13 @@ void RSDK::LoadTileConfig(char *filepath)
                         int32 h = TILE_SIZE - 1;
                         while (true) {
                             if (h == -1) {
-                                collisionMasks[p][t].rWallMasks[c] = 0xFF;
+                                P6_CM.rWallMasks[c] = 0xFF;
                                 break;
                             }
 
-                            uint8 m = collisionMasks[p][t].roofMasks[h];
+                            uint8 m = P6_CM.roofMasks[h];
                             if (m != 0xFF && c <= m) {
-                                collisionMasks[p][t].rWallMasks[c] = h;
+                                P6_CM.rWallMasks[c] = h;
                                 break;
                             }
                             else {
@@ -825,12 +842,12 @@ void RSDK::LoadTileConfig(char *filepath)
                     // Collision heights
                     for (int32 c = 0; c < TILE_SIZE; ++c) {
                         if (maskActive[c]) {
-                            collisionMasks[p][t].floorMasks[c] = maskHeights[c];
-                            collisionMasks[p][t].roofMasks[c]  = 0x0F;
+                            P6_CM.floorMasks[c] = maskHeights[c];
+                            P6_CM.roofMasks[c]  = 0x0F;
                         }
                         else {
-                            collisionMasks[p][t].floorMasks[c] = 0xFF;
-                            collisionMasks[p][t].roofMasks[c]  = 0xFF;
+                            P6_CM.floorMasks[c] = 0xFF;
+                            P6_CM.roofMasks[c]  = 0xFF;
                         }
                     }
 
@@ -839,13 +856,13 @@ void RSDK::LoadTileConfig(char *filepath)
                         int32 h = 0;
                         while (true) {
                             if (h == TILE_SIZE) {
-                                collisionMasks[p][t].lWallMasks[c] = 0xFF;
+                                P6_CM.lWallMasks[c] = 0xFF;
                                 break;
                             }
 
-                            uint8 m = collisionMasks[p][t].floorMasks[h];
+                            uint8 m = P6_CM.floorMasks[h];
                             if (m != 0xFF && c >= m) {
-                                collisionMasks[p][t].lWallMasks[c] = h;
+                                P6_CM.lWallMasks[c] = h;
                                 break;
                             }
                             else {
@@ -861,13 +878,13 @@ void RSDK::LoadTileConfig(char *filepath)
                         int32 h = TILE_SIZE - 1;
                         while (true) {
                             if (h == -1) {
-                                collisionMasks[p][t].rWallMasks[c] = 0xFF;
+                                P6_CM.rWallMasks[c] = 0xFF;
                                 break;
                             }
 
-                            uint8 m = collisionMasks[p][t].floorMasks[h];
+                            uint8 m = P6_CM.floorMasks[h];
                             if (m != 0xFF && c >= m) {
-                                collisionMasks[p][t].rWallMasks[c] = h;
+                                P6_CM.rWallMasks[c] = h;
                                 break;
                             }
                             else {
@@ -878,6 +895,22 @@ void RSDK::LoadTileConfig(char *filepath)
                         }
                     }
                 }
+
+#if RETRO_PLATFORM == RETRO_SATURN
+                // pack the finished tile (format: Scene.hpp PACKED COLLISION
+                // block; rich nibble = floor for regular tiles, roof for
+                // yFlip; sentinels per direction; bit 15 = yFlip)
+                for (int32 c = 0; c < TILE_SIZE; ++c) {
+                    uint8 rich  = yFlip ? p6cmScratch.roofMasks[c] : p6cmScratch.floorMasks[c];
+                    uint8 lw    = p6cmScratch.lWallMasks[c];
+                    uint8 rw    = p6cmScratch.rWallMasks[c];
+                    uint16 w = (uint16)((rich == 0xFF ? 0x10 : (rich & 0xF))
+                                        | (lw == 0xFF ? 0x200 : ((lw & 0xF) << 5))
+                                        | (rw == 0xFF ? 0x4000 : ((rw & 0xF) << 10))
+                                        | (yFlip ? 0x8000 : 0));
+                    packedCollisionMasks[p][(t << 4) | c] = w;
+                }
+#endif
             }
 
 #if RETRO_PLATFORM != RETRO_SATURN
@@ -896,20 +929,20 @@ void RSDK::LoadTileConfig(char *filepath)
                 tileInfo[p][t + off].rWallAngle = -tileInfo[p][t].lWallAngle;
 
                 for (int32 c = 0; c < TILE_SIZE; ++c) {
-                    int32 h = collisionMasks[p][t].lWallMasks[c];
+                    int32 h = P6_CM.lWallMasks[c];
                     if (h == 0xFF)
                         collisionMasks[p][t + off].rWallMasks[c] = 0xFF;
                     else
                         collisionMasks[p][t + off].rWallMasks[c] = 0xF - h;
 
-                    h = collisionMasks[p][t].rWallMasks[c];
+                    h = P6_CM.rWallMasks[c];
                     if (h == 0xFF)
                         collisionMasks[p][t + off].lWallMasks[c] = 0xFF;
                     else
                         collisionMasks[p][t + off].lWallMasks[c] = 0xF - h;
 
-                    collisionMasks[p][t + off].floorMasks[c] = collisionMasks[p][t].floorMasks[0xF - c];
-                    collisionMasks[p][t + off].roofMasks[c]  = collisionMasks[p][t].roofMasks[0xF - c];
+                    collisionMasks[p][t + off].floorMasks[c] = P6_CM.floorMasks[0xF - c];
+                    collisionMasks[p][t + off].roofMasks[c]  = P6_CM.roofMasks[0xF - c];
                 }
             }
 
@@ -923,20 +956,20 @@ void RSDK::LoadTileConfig(char *filepath)
                 tileInfo[p][t + off].rWallAngle = -0x80 - tileInfo[p][t].rWallAngle;
 
                 for (int32 c = 0; c < TILE_SIZE; ++c) {
-                    int32 h = collisionMasks[p][t].roofMasks[c];
+                    int32 h = P6_CM.roofMasks[c];
                     if (h == 0xFF)
                         collisionMasks[p][t + off].floorMasks[c] = 0xFF;
                     else
                         collisionMasks[p][t + off].floorMasks[c] = 0xF - h;
 
-                    h = collisionMasks[p][t].floorMasks[c];
+                    h = P6_CM.floorMasks[c];
                     if (h == 0xFF)
                         collisionMasks[p][t + off].roofMasks[c] = 0xFF;
                     else
                         collisionMasks[p][t + off].roofMasks[c] = 0xF - h;
 
-                    collisionMasks[p][t + off].lWallMasks[c] = collisionMasks[p][t].lWallMasks[0xF - c];
-                    collisionMasks[p][t + off].rWallMasks[c] = collisionMasks[p][t].rWallMasks[0xF - c];
+                    collisionMasks[p][t + off].lWallMasks[c] = P6_CM.lWallMasks[0xF - c];
+                    collisionMasks[p][t + off].rWallMasks[c] = P6_CM.rWallMasks[0xF - c];
                 }
             }
 
@@ -977,6 +1010,8 @@ void RSDK::LoadTileConfig(char *filepath)
         CloseFile(&info);
     }
 }
+#undef P6_CM
+
 void RSDK::LoadStageGIF(char *filepath)
 {
     ImageGIF tileset;
