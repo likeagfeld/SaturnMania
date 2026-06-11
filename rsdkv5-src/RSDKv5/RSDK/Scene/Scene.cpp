@@ -471,7 +471,21 @@ void RSDK::LoadSceneAssets()
 
 #if RETRO_REV02
         EntityBase *tempEntityList = NULL;
+#if RETRO_PLATFORM == RETRO_SATURN
+        // P6.7 W11 (Task #210): tempEntityList holds scene entities whose raw
+        // slotID >= SCENEENTITY_COUNT. At the GHZ-scale retarget the
+        // canonical SCENEENTITY_COUNT-sized allocation (0x440 * 344 =
+        // 374,528 B) would fail the 128 KB TMP pool -> NULL -> the
+        // tempEntityList read loop below dereferences NULL. Every measured
+        // 1.03 scene keeps raw slotIDs < SCENEENTITY_COUNT at the GHZ
+        // retarget (GHZ1 max 1,040 < 0x440), so the Saturn list is a small
+        // capped buffer with a safe-and-witnessed CLAMP at the write/read
+        // sites (the P6.7b group-list clamp pattern).
+        enum { TEMPSCENE_COUNT = 0x40 };
+        AllocateStorage((void **)&tempEntityList, TEMPSCENE_COUNT * sizeof(EntityBase), DATASET_TMP, true);
+#else
         AllocateStorage((void **)&tempEntityList, SCENEENTITY_COUNT * sizeof(EntityBase), DATASET_TMP, true);
+#endif
 #endif
 
         for (int32 i = 0; i < objectCount; ++i) {
@@ -544,6 +558,19 @@ void RSDK::LoadSceneAssets()
 #if RETRO_REV02
                 if (slotID < SCENEENTITY_COUNT)
                     entity = &objectEntityList[slotID + RESERVE_ENTITY_COUNT];
+#if RETRO_PLATFORM == RETRO_SATURN
+                // P6.7 W11 clamp: indices past the capped Saturn temp list
+                // sink into its last slot (overwritten per overflow --
+                // those entities are DROPPED) and are WITNESSED; the gate
+                // expectation at every measured 1.03 scene is zero.
+                else if (slotID - SCENEENTITY_COUNT >= TEMPSCENE_COUNT) {
+                    // (defined in p6_io_main.cpp namespace RSDK -- the
+                    // p6_saturn_sfx_skips block-scope-extern pattern)
+                    extern int32 p6_saturn_tempentity_skips;
+                    ++p6_saturn_tempentity_skips;
+                    entity = &tempEntityList[TEMPSCENE_COUNT - 1];
+                }
+#endif
                 else
                     entity = &tempEntityList[slotID - SCENEENTITY_COUNT];
 #else
@@ -705,7 +732,12 @@ void RSDK::LoadSceneAssets()
             entity++;
         }
 
+#if RETRO_PLATFORM == RETRO_SATURN
+        // P6.7 W11: walk only the capped Saturn temp list (allocation above).
+        for (int32 i = 0; i < TEMPSCENE_COUNT; ++i) {
+#else
         for (int32 i = 0; i < SCENEENTITY_COUNT; ++i) {
+#endif
             if (sceneInfo.filter & tempEntityList[i].filter)
                 memcpy(&objectEntityList[activeSlot++], &tempEntityList[i], sizeof(EntityBase));
 

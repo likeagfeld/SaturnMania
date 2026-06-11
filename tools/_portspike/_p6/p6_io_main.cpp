@@ -329,11 +329,20 @@ extern "C" void p6_io_proof(void)
 #define P6_LW_HEAP_BASE    0x00200000u
 #define P6_LW_HEAP_END     0x00252000u // pools 272 KB + inflate ~44 KB transient + slack
 #define P6_LW_ENTITYLIST   0x00252000u // 192 * 344         = 0x10200 -> 0x262200 (pad to 0x262400)
-#define P6_LW_TILELAYERS   0x00262400u // 4 * 13384         = 0xD120  -> 0x26F520 (pad to 0x26F600)
+// P6.7 W11 map v6: LAYER_COUNT restored to the stock 8 (whole-game census:
+// GHZ1 uses 5 layers, FBZ/TMZ1 use 8 -- the P4 "<=4" assumption is
+// falsified), so tileLayers grows 0xD120 -> 0x1A240 and moves into the
+// raw-collision window that the P6.7 packed-collision arm left DEAD
+// (LoadTileConfig now packs to P6_HW_PACKEDCOL; nothing writes the raw
+// window). The old tileLayers slot becomes the documented dead sink the
+// collisionMasks pointer needs as an address.
+#define P6_LW_COLLMASKS    0x00262400u // DEAD sink (raw masks unwritten on
+                                       // Saturn since the packed arm); the
+                                       // extern pointer needs an address
 #define P6_LW_DATASTORAGE  0x0026F600u // 5 * 16404         = 0x14064 -> 0x283664 (pad to 0x283700)
 #define P6_LW_DATAFILELIST 0x00283700u // 0x700 * 32        = 0xE000  -> 0x291700
 #define P6_LW_TILESETPX    0x00291700u // TILESET_SIZE      = 0x40000 -> 0x2D1700 (LIVE since P6.5a)
-#define P6_LW_COLLMASKS    0x002D1700u // 2 * 0x400 * 64    = 0x20000 -> 0x2F1700 (LIVE: LoadTileConfig)
+#define P6_LW_TILELAYERS   0x002D1700u // 8 * 13384         = 0x1A240 -> 0x2EB940 (in the dead raw-mask window)
 #define P6_LW_TILEINFO     0x002F1700u // 2 * 0x400 * 5     = 0x2800  -> 0x2F3F00 (LIVE: LoadTileConfig)
 #define P6_LW_MODELLIST    0x002F3F00u // 0x100 * 44        = 0x2C00  -> 0x2F6B00 (Clear3DScenes MEM_ZERO target)
                                        // free 0x2F6B00..0x2FAC00 = 0x4100 margin
@@ -457,6 +466,9 @@ extern int32 streamLoopPoint;
 // run body mirrors it into the p6_w_sfx_skips witness.
 namespace RSDK {
 __attribute__((used)) int32 p6_saturn_sfx_skips = 0;
+// P6.7 W11: tempEntityList overflow witness (Scene.cpp clamp; expectation
+// zero at every measured 1.03 scene under the GHZ-scale retarget).
+__attribute__((used)) int32 p6_saturn_tempentity_skips = 0;
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -968,6 +980,10 @@ extern "C" void p6_scene_run(void)
 {
     // 0) Zero the WRAM-L windows (SLSTART zeroes only WRAM-H __bstart..__bend).
     memset((void *)P6_LW_ZERO_BASE, 0, P6_LW_ZERO_END - P6_LW_ZERO_BASE);
+    // P6.7 W11: zero the WRAM-H packed-collision window in the PRE-STATE --
+    // the 3d TileConfig witness hashes it (zero model at Title; step 9's
+    // GHZ load fills it afterwards).
+    memset((void *)P6_HW_PACKEDCOL, 0, 0x10000);
 
     // 1) Engine storage pools (5 mallocs through OUR _sbrk -> WRAM-L heap).
     p6_w_scene_initstorage = (int32)InitStorage();
@@ -1275,9 +1291,12 @@ extern "C" void p6_scene_run(void)
     //     1.03 pack; any stray write fires the gate) and the canonical
     //     fullPalette[0] (512 B big-endian uint16[256] image).
     {
-        const uint8 *cm = (const uint8 *)P6_LW_COLLMASKS;
+        // P6.7 W11: the raw-mask window is DEAD (packed arm); the TileConfig
+        // witness now hashes the PACKED window -- zero at Title (its
+        // TileConfig is absent and step 9's GHZ load runs AFTER this copy).
+        const uint8 *cm = (const uint8 *)P6_HW_PACKEDCOL;
         uint32 h = 5381u;
-        for (uint32 i = 0; i < 0x20000u; ++i)
+        for (uint32 i = 0; i < 0x10000u; ++i)
             h = ((h << 5) + h) ^ (uint32)cm[i];
         p6_w_til_cmhash = (int32)h;
 
@@ -1416,7 +1435,7 @@ extern "C" void p6_scene_run(void)
     //    witnesses (step 3d) so their zero-window model is undisturbed
     //    (tileInfo gets GHZ angles only here).
     {
-        memset((void *)P6_HW_PACKEDCOL, 0, 0x10000);
+        // (window zeroed in the pre-state -- the 3d witness reads it first)
         LoadTileConfig((char *)"Data/Stages/GHZ/TileConfig.bin");
         p6_w_col_loaded = 1;
 

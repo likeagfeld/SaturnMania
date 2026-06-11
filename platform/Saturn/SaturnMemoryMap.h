@@ -75,8 +75,11 @@
                                                // STORAGE_ENTRY_COUNT 0x800 --
                                                // Saturn branch, Storage.hpp;
                                                // P6.7c discovered tenant)
-#define P68_LWRAM_TILELAYERS_BYTES   (0xD200)  // 4 x 13,384 = 53,536 + pad
-                                               // (P6.7c discovered tenant)
+#define P68_LWRAM_TILELAYERS_BYTES   (0x1A300) // 8 x 13,384 = 107,072 + pad --
+                                               // P6.7 W11 census: stages use
+                                               // up to 8 layers (FBZ/TMZ1);
+                                               // the P4 "<=4" trim falsified
+                                               // (GHZ1 itself uses 5)
 #define P68_LWRAM_DATAFILELIST_BYTES (0xE000)  // RSDKFileInfo[0x700]
 #define P68_LWRAM_GROUPB_BYTES       (0xC000)  // palettes/gfxSurface/IDs/rgb
                                                // tables (diag actual 21.2 KB)
@@ -138,6 +141,57 @@
 // approximation RETIRED; byte-exact + 128-probe proof = qa_p6_collision).
 // The raw x1 collisionMasks WRAM-L window (0x20000 B) is now DEAD -- a
 // future WRAM-L reclaim of 131,072 B.
+
+// ---- P6.7 W11 (Task #210, 2026-06-11): LAYER-LAYOUT RESIDENCY -- DECLARED
+// OPEN GAP (the P6.7c-collision pattern: measured, declared, gated; design
+// of record below, implementation = its own iteration).
+// MEASURED (whole-game Scene.bin census via the parse_title_entities walk):
+//   GHZ1: 5 layers, layouts 551,168 B (FG Low/High 1024x128 = 262,144 each
+//         + BG Outside 24,576 + BG Caves 2x1,152)
+//   worst zone: FBZ/Scene2 = 8 layers, layouts 3,006,976 B
+//   distinct layout words: GHZ FG Low 1,149 / FG High 765 (8-bit indirection
+//   does NOT fit; 12-bit would, but saves only 128 KB and cannot touch FBZ)
+// The engine allocates layouts from DATASET_STG (Scene.cpp:421, xsize*ysize*2)
+// and reads them at 27 sites (16 Collision.cpp sensor fetches + GetTile/
+// SetTile/CopyTileLayer + the VDP2 present). FULL residency is IMPOSSIBLE at
+// FBZ scale on any packing. DESIGN OF RECORD (forced -- every consumer is
+// camera-local: sensors run only for inRange entities, the VDP2 present
+// streams the visible region): a CAMERA-LOCAL SLIDING WINDOW per layer over
+// band-recompressed layouts -- LoadSceneAssets streams each layer's inflate
+// into fixed row-band chunks in a budgeted store; a windowed accessor seam
+// (the RSDK_*_MASK macro pattern) serves reads from per-layer windows
+// refilled on camera crossings; SetTile writes through to the band store.
+// Declared budgets (enforced by qa_p6_memmap; the full-ledger arithmetic
+// CLOSES only with the W11 CLOSER SET below -- each a real, mechanical,
+// individually-gateable change; PLANNED until its line flips to LANDED):
+#define P68_LAYOUT_WINDOW_BYTES (0x8000)  // COLLIDABLE layers only (FG
+                                          // Low/High): 2 x 64-col x 128-row
+                                          // x 2 B windows; render-only BG
+                                          // layers decode bands straight to
+                                          // VDP2 pages at crossings (no
+                                          // resident window)
+#define P68_LAYOUT_BANDSTORE_BYTES (0x14000) // deflated band store (GHZ1
+                                          // layouts deflate to ~60 KB;
+                                          // FBZ2 re-measured at impl)
+#define P68_W11_LAYOUTS_OPEN  (1)         // flips to 0 when the window seam
+                                          // lands with its byte-exact gate
+//
+// W11 CLOSER SET (ledger deltas vs the pre-W11 contract; PLANNED):
+//   C1 per-dataset STORAGE_ENTRY_COUNT (STG 0x800, others 0x100):
+//      dataStorage bookkeeping 82,176 -> 24,832  (P68_LWRAM_DATASTORAGE_BYTES)
+//   C2 DATASET_TMP 128K -> 64K + STREAMING layout inflate (largest TMP
+//      transient after the capped tempEntityList is the GIF decoder ~25 KB;
+//      layout inflate streams in 16 KB chunks into the band packer)
+//   C3 dataFileList 1677 x 32 -> 24-byte packed records: 57,344 -> 40,960
+//   C4 GROUPB pad trim 49,152 -> 32,768 (diag actual 21.2 KB)
+//   C5 heap window = pools-exact + miniz transient: 0x52000 -> 0x3F000
+// Post-closer WRAM-L: 258,048 heap + 440,320 entityList + 24,832 ds +
+// 107,072 tileLayers + 40,960 dfl + 32,768 groupB + 32,768 window +
+// 81,920 bands = 1,018,688 -> margin 29,888 >= the 28,672 floor.
+#define P68_LWRAM_DATASTORAGE_PLANNED (0x6100)  // C1
+#define P68_LWRAM_DATAFILELIST_PLANNED (0xA000) // C3
+#define P68_LWRAM_GROUPB_PLANNED      (0x8000)  // C4
+#define P68_LWRAM_HEAP_PLANNED        (0x3F000) // C2+C5
 
 // ---- P6.7 WAVE-1 (Task #210): GAME GLOBALS WINDOW ----------------------------
 // GlobalVariables lives at a FIXED WRAM-H window inside the P6.7d.2-freed

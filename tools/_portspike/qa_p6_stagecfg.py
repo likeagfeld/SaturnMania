@@ -238,10 +238,11 @@ def model_tileconfig(pack):
     if blob is None:
         # MEASURED (2026-06-10): the 1.03 pack has NO Title TileConfig.bin
         # (GHZ's exists, 2,620 B). LoadTileConfig's LoadFile fails ->
-        # returns at Scene.cpp:738 -> the windows stay ZERO. The model is
-        # the zero image; the byte-exact parse replication below exercises
-        # automatically once the diag scene is a stage WITH a TileConfig.
-        return djb2(bytes(2 * 0x400 * 64)), djb2(bytes(2 * 0x400 * 5))
+        # returns at Scene.cpp:738 -> the windows stay ZERO. P6.7 W11: the
+        # mask witness now hashes the PACKED window (0x10000 B; the raw x1
+        # window is dead since the packed-collision arm); the GHZ-data
+        # byte-exact proof lives in qa_p6_collision K3-K5.
+        return djb2(bytes(2 * 0x400 * 32)), djb2(bytes(2 * 0x400 * 5))
     if blob[:4] != b"TIL\x00":
         raise ValueError("TileConfig signature")
     raw, _ = read_compressed(blob, 4)

@@ -106,10 +106,24 @@ def main():
     drawgroups = c["P68_DRAWGROUP_COUNT"] * (2 * c["P68_DRAWGROUP_ENTRY_CAP"] + 40)
     classlist  = c["P68_OBJECT_COUNT"] * OBJECTCLASS_SIZE
 
-    lwram_used = (c["P68_LWRAM_HEAP_BYTES"] + entitylist +
-                  c["P68_LWRAM_DATASTORAGE_BYTES"] +
+    # P6.7 W11: layer-layout residency rides the WRAM-L ledger as the
+    # declared sliding-window pool + band store (full residency measured
+    # IMPOSSIBLE: FBZ/Scene2 layouts = 3,006,976 B raw).
+    layout_w11 = (c.get("P68_LAYOUT_WINDOW_BYTES", 0)
+                  + c.get("P68_LAYOUT_BANDSTORE_BYTES", 0))
+    # W11 closer set: while a closer is PLANNED the ledger uses its planned
+    # value (the contract that CLOSES); when each lands, the main constant
+    # is updated and the planned define removed -- the gate arithmetic is
+    # identical either way, and any closer that fails to land at its
+    # declared size fires M4 immediately.
+    heap = c.get("P68_LWRAM_HEAP_PLANNED", c["P68_LWRAM_HEAP_BYTES"])
+    ds = c.get("P68_LWRAM_DATASTORAGE_PLANNED", c["P68_LWRAM_DATASTORAGE_BYTES"])
+    dfl = c.get("P68_LWRAM_DATAFILELIST_PLANNED", c["P68_LWRAM_DATAFILELIST_BYTES"])
+    grpb = c.get("P68_LWRAM_GROUPB_PLANNED", c["P68_LWRAM_GROUPB_BYTES"])
+    lwram_used = (heap + entitylist + ds +
                   c["P68_LWRAM_TILELAYERS_BYTES"] +
-                  c["P68_LWRAM_DATAFILELIST_BYTES"] + c["P68_LWRAM_GROUPB_BYTES"])
+                  dfl + grpb +
+                  layout_w11)
     lwram_margin = 0x100000 - lwram_used
 
     hwram_used = (c["P68_HWRAM_CODE_BYTES"] + c["P68_HWRAM_SGL_RESERVE"] +
@@ -148,7 +162,19 @@ def main():
          % (c["P68_COLL_RAW_BYTES"], c["P68_COLL_PACKED_BYTES"]),
          c["P68_COLL_RAW_BYTES"] == 2 * 0x400 * 64 + 2 * 0x400 * 5
          and c["P68_COLL_PACKED_BYTES"] == 2 * 0x400 * 32 + 2 * 0x400 * 5, ""),
+        ("M8 W11 layout residency DECLARED: window pool %d (>= 2 collidable "
+         "FG windows, 64x128x2 each) + band store %d; tileLayers 8x13,384"
+         % (c.get("P68_LAYOUT_WINDOW_BYTES", 0),
+            c.get("P68_LAYOUT_BANDSTORE_BYTES", 0)),
+         c.get("P68_LAYOUT_WINDOW_BYTES", 0) >= 2 * 64 * 128 * 2
+         and c.get("P68_LAYOUT_BANDSTORE_BYTES", 0) > 0
+         and c["P68_LWRAM_TILELAYERS_BYTES"] >= 8 * 13384, ""),
     ]
+    if c.get("P68_W11_LAYOUTS_OPEN", 0):
+        print("  [WARN ] W11 layer-layout residency is a DECLARED OPEN GAP --")
+        print("          camera-local sliding-window design of record in")
+        print("          SaturnMemoryMap.h; budgets counted in the ledger above;")
+        print("          implementation = its own gated iteration.")
     if not c["P68_COLLISION_PLACED"]:
         print("  [WARN ] collision residency (raw %d / packed %d B) is a DECLARED"
               % (c["P68_COLL_RAW_BYTES"], c["P68_COLL_PACKED_BYTES"]))

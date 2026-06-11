@@ -25,18 +25,12 @@ namespace RSDK
 
 #define DEFAULT_PIXWIDTH (424)
 
-#if RETRO_PLATFORM == RETRO_SATURN
-// P4 data retarget (Task #203): tileLayers[LAYER_COUNT] costs 13384 B/layer (104.6 KB
-// at 8). The P5 proof scene has NO tile layers; a real GHZ scene uses <=4. Cap to 4
-// (53.5 KB) to reclaim 53.5 KB of .bss. LoadScene (Scene.cpp) is Saturn-clamped so a
-// scene declaring >4 layers truncates (visible: missing far-bg layers) instead of
-// overflowing tileLayers[] -- the Phase 1.4-1.15 .bss-corruption class. On Saturn,
-// layers render via VDP2 hardware, not the software DrawLayer* path (Saturn-gated off
-// in Object.cpp). P6 RESTORATION: drop the Saturn branch -> LAYER_COUNT returns to 8.
-#define LAYER_COUNT     (4)
-#else
+// P6.7 W11 census (Task #210, 2026-06-11): the P4 "a real GHZ scene uses <=4
+// layers" assumption is FALSIFIED by the whole-game Scene.bin census --
+// GHZ1 uses 5 (BG Outside + BG Cave 1/2 + FG Low/High) and the maximum is 8
+// (FBZ/Scene2, TMZ1/Scene1). The stock LAYER_COUNT is restored on Saturn;
+// the 8 x 13,384 B tileLayers cost is a SaturnMemoryMap.h W11 ledger item.
 #define LAYER_COUNT     (8)
-#endif
 #define DRAWGROUP_COUNT (16)
 
 #define SHADER_COUNT (0x20)
