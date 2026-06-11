@@ -197,6 +197,10 @@ done
     -I"$NEWLIB" \
     -c -o "$P6/p6_vsprintf.o" "$P6/p6_vsprintf.c"
 
+echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding windows; miniz inflate decoder) ..."
+$CC $CXXFLAGS $MINIZ_DEFS -I"$DEPS" -I"$NEWLIB" \
+    -c -o "$P6/SaturnLayout.o" "$PLAT/SaturnLayout.cpp"
+
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
 # (MD5Table_Saturn.inc; Text.cpp Saturn branch) because (a) its upstream
@@ -232,7 +236,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Core_RetroEngine.o" \
     "$P6/Scene_Objects_DefaultObject.o" "$P6/Scene_Objects_DevOutput.o" \
     "$P6/Game_Localization.o" "$P6/Game_LogHelpers.o" "$P6/Game_Options.o" \
-    "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" \
+    "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" \
     -o "$P6/p6_scene_pack.o"
 # P6.7d.3: p6_ring2.o is NOT a pack member -- it links into the fixed-base

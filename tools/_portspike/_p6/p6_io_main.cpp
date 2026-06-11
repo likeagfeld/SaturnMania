@@ -338,7 +338,13 @@ extern "C" void p6_io_proof(void)
 // collisionMasks pointer needs as an address.
 #define P6_LW_COLLMASKS    0x00262400u // DEAD sink (raw masks unwritten on
                                        // Saturn since the packed arm); the
-                                       // extern pointer needs an address
+                                       // extern pointer needs an address.
+                                       // W11a: the SAME window carries the
+                                       // LIVE band store below -- safe
+                                       // because ZERO Saturn code paths
+                                       // access collisionMasks (measured;
+                                       // macro seam + P6_CM arm)
+#define P6_LW_LAYOUTBANDS  0x00262400u // cd/GHZ1LAYT.BIN, 51,094 B <= 0xD200
 #define P6_LW_DATASTORAGE  0x0026F600u // 5 * 16404         = 0x14064 -> 0x283664 (pad to 0x283700)
 #define P6_LW_DATAFILELIST 0x00283700u // 0x700 * 32        = 0xE000  -> 0x291700
 #define P6_LW_TILESETPX    0x00291700u // TILESET_SIZE      = 0x40000 -> 0x2D1700 (LIVE since P6.5a)
@@ -718,6 +724,11 @@ __attribute__((used)) int32 p6_w_col_packedhash = 0;  // djb2 over the 65,536 B 
 __attribute__((used)) int32 p6_w_col_infohash   = 0;  // djb2 over the 10,240 B tileInfo window
 __attribute__((used)) int32 p6_w_col_probes     = -1; // accessor probes matched (exp 128)
 __attribute__((used)) int32 p6_w_col_firstbad   = -1; // first mismatching probe index
+// P6.7 W11a layout band store (qa_p6_layout.py).
+__attribute__((used)) int32 p6_w_lay_bytes    = -1;  // GFS bytes of cd/GHZ1LAYT.BIN
+__attribute__((used)) int32 p6_w_lay_hash     = 0;   // djb2 over the loaded band store
+__attribute__((used)) int32 p6_w_lay_probes   = -1;  // windowed-accessor probes matched
+__attribute__((used)) int32 p6_w_lay_firstbad = -1;  // first mismatching probe index
 }
 
 // The api block + the registration thunk the entry calls back through (the
@@ -1021,6 +1032,27 @@ extern "C" void p6_scene_run(void)
             p6_w_ovl_hash = (int32)h;
             for (uint32 a = P6_OVL_BASE; a < P6_OVL_BASE + P6_OVL_WINDOW; a += 16)
                 *(volatile uint16 *)(a | 0x40000000u) = 0;  // line invalidate
+        }
+    }
+
+    // 1.6) P6.7 W11a: chain-load the GHZ1 layout BAND STORE (built by
+    //      tools/build_layout_bands.py; zlib-banded layouts -- W11 design of
+    //      record in SaturnMemoryMap.h). Same GFS-ordering rule as the
+    //      overlay above: the open/close must precede the pack mount. It
+    //      lands in the WRAM-L window the dead raw collisionMasks vacated
+    //      (the pointer keeps the base as its address sink; ZERO remaining
+    //      Saturn references read or write through it -- the macro seam +
+    //      P6_CM arm cover every site, measured).
+    {
+        int n = rsdk_storage_load_to_lwram("GHZ1LAYT.BIN",
+                                           (void *)P6_LW_LAYOUTBANDS, 0xD200);
+        p6_w_lay_bytes = n;
+        if (n > 0) {
+            const unsigned char *w = (const unsigned char *)P6_LW_LAYOUTBANDS;
+            uint32 h = 5381u;
+            for (int32 i = 0; i < n; ++i)
+                h = ((h << 5) + h) ^ (uint32)w[i];
+            p6_w_lay_hash = (int32)h;
         }
     }
 
@@ -1468,6 +1500,53 @@ extern "C" void p6_scene_run(void)
                 p6_w_col_firstbad = i;
         }
         p6_w_col_probes = good;
+    }
+
+    // 10) P6.7 W11a (qa_p6_layout L2-L4): mount the band store loaded at
+    //     step 1.6 and replay the offline probe set through the REAL
+    //     windowed accessor -- in-window hits, window crossings (the
+    //     clustered x-walk in the probe table forces refills), and BG
+    //     layers via slot rebinding. No CD I/O here (the store is RAM).
+    {
+        extern int32 SaturnLayout_Mount(const void *blob);
+        extern void SaturnLayout_Bind(int32 slot, int32 layer);
+        extern uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty);
+        extern void SaturnLayout_SetScratch(void *buf, uint32 cap);
+
+        // band-inflate scratch from DATASET_TMP (a heap malloc inside
+        // SaturnLayout MEASURED NULL -- the pack heap slack is ~19 KB after
+        // pools + miniz's ~44 KB inflate transient)
+        void *layScratch = NULL;
+        AllocateStorage(&layScratch, 0x8000, DATASET_TMP, false);
+        SaturnLayout_SetScratch(layScratch, layScratch ? 0x8000 : 0);
+
+        if (p6_w_lay_bytes > 0 && SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS) > 0) {
+#include "p6_layout_probes.inc"
+            int32 bound0 = -1;
+            SaturnLayout_Bind(1, 4); // FG High stays resident on slot 1
+            int32 good = 0;
+            p6_w_lay_firstbad = -1;
+            for (int32 i = 0; i < (int32)(sizeof(p6LayoutProbes) / sizeof(p6LayoutProbes[0])); ++i) {
+                int32 ly = p6LayoutProbes[i].layer;
+                int32 slot;
+                if (ly == 4)
+                    slot = 1;
+                else {
+                    if (bound0 != ly) {
+                        SaturnLayout_Bind(0, ly);
+                        bound0 = ly;
+                    }
+                    slot = 0;
+                }
+                uint16 got = SaturnLayout_GetTile(slot, p6LayoutProbes[i].x,
+                                                  p6LayoutProbes[i].y);
+                if (got == p6LayoutProbes[i].expect)
+                    ++good;
+                else if (p6_w_lay_firstbad < 0)
+                    p6_w_lay_firstbad = i;
+            }
+            p6_w_lay_probes = good;
+        }
     }
 
     // 7c-moved) P6.7c ORDERING FIX (measured: gate T5 RED at the old
