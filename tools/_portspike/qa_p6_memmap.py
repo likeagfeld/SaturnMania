@@ -91,13 +91,19 @@ def main():
     storage_hpp = open(os.path.join(ROOT, "rsdkv5-src", "RSDKv5", "RSDK",
                                     "Storage", "Storage.hpp"),
                        encoding="utf-8", errors="replace").read()
-    m = re.search(r"RETRO_PLATFORM == RETRO_SATURN.*?#define\s+STORAGE_ENTRY_COUNT\s+\((0x[0-9A-Fa-f]+)\)",
-                  storage_hpp, re.S)
-    if not m:
-        print("RESULT: RED -- Storage.hpp lacks the Saturn STORAGE_ENTRY_COUNT branch")
+    # P6.7 W11 closer C1: per-dataset entry capacities (STG 0x800, others
+    # 0x100); the Saturn DataStorage is a 32 B struct of pointers + caps,
+    # backings carved by InitStorage. Re-derive LIVE so a build skew back to
+    # embedded arrays (or different caps) fires immediately.
+    m_stg = re.search(r"#define\s+STORAGE_ENTRY_COUNT_STG\s+\((0x[0-9A-Fa-f]+)\)", storage_hpp)
+    m_sml = re.search(r"#define\s+STORAGE_ENTRY_COUNT_SMALL\s+\((0x[0-9A-Fa-f]+)\)", storage_hpp)
+    if not (m_stg and m_sml):
+        print("RESULT: RED -- Storage.hpp lacks the C1 per-dataset capacity defines")
         return 1
-    entry_count = int(m.group(1), 0)
-    datastorage_real = 5 * (2 * entry_count * 4 + 20)  # Storage.hpp:17-25
+    cap_stg = int(m_stg.group(1), 0)
+    cap_small = int(m_sml.group(1), 0)
+    entry_count = cap_stg  # for the M6 print
+    datastorage_real = 5 * 32 + (cap_stg + 4 * cap_small) * 8
 
     ghz = count_ghz_entities()
     entity_count = c["P68_RESERVE_ENTITIES"] + c["P68_SCENE_ENTITIES"] + c["P68_TEMP_ENTITIES"]
@@ -153,11 +159,12 @@ def main():
          lwram_margin >= c["P68_LWRAM_MARGIN_MIN"], ""),
         ("M5 WRAM-H fits: margin %d >= %d" % (hwram_margin, c["P68_HWRAM_MARGIN_MIN"]),
          hwram_margin >= c["P68_HWRAM_MARGIN_MIN"], ""),
-        ("M6 dataStorage stride contract: window %d >= 5*sizeof(DataStorage) %d "
-         "(STORAGE_ENTRY_COUNT 0x%X live from Storage.hpp)"
-         % (c["P68_LWRAM_DATASTORAGE_BYTES"], datastorage_real, entry_count),
+        ("M6 dataStorage C1 contract: window %d >= structs+backings %d "
+         "(caps STG 0x%X / small 0x%X live from Storage.hpp)"
+         % (c["P68_LWRAM_DATASTORAGE_BYTES"], datastorage_real,
+            cap_stg, cap_small),
          c["P68_LWRAM_DATASTORAGE_BYTES"] >= datastorage_real
-         and entry_count == 0x800, ""),
+         and cap_stg == 0x800 and cap_small == 0x100, ""),
         ("M7 collision-gap declaration: raw %d / packed %d arithmetic"
          % (c["P68_COLL_RAW_BYTES"], c["P68_COLL_PACKED_BYTES"]),
          c["P68_COLL_RAW_BYTES"] == 2 * 0x400 * 64 + 2 * 0x400 * 5

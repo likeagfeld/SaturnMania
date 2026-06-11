@@ -13,6 +13,18 @@ namespace RSDK
 // dataset. Storage.cpp's GC/defrag loops are bounded by entryCount, not the
 // array size, so no 0x1000 assumption exists outside this define.
 #define STORAGE_ENTRY_COUNT (0x800)
+// P6.7 W11 closer C1 (Task #210): PER-DATASET entry capacities. Only
+// DATASET_STG carries hundreds of live allocations (sheets/anims/layers/
+// statics); MUS/SFX/STR/TMP peak in the tens (diag-measured < 100 each).
+// The uniform 0x800 costs 5 x 16,404 = 82,020 B of bookkeeping; per-dataset
+// (STG 0x800, others 0x100) costs 160 B of structs + 24,576 B of backings
+// = 24,736 B -- the P68_LWRAM_DATASTORAGE_PLANNED contract line. The entry
+// arrays become POINTERS into backings carved by InitStorage from the same
+// dataStorage window; every indexing site compiles identically, and the
+// existing append bounds checks compare against entryCapacity via
+// STORAGE_ENTRY_CAP below (overflow stays checked, now per-dataset).
+#define STORAGE_ENTRY_COUNT_STG   (0x800)
+#define STORAGE_ENTRY_COUNT_SMALL (0x100)
 #else
 #define STORAGE_ENTRY_COUNT (0x1000)
 #endif
@@ -26,6 +38,19 @@ enum StorageDataSets {
     DATASET_MAX, // used to signify limits
 };
 
+#if RETRO_PLATFORM == RETRO_SATURN
+struct DataStorage {
+    uint32 *memoryTable;
+    uint32 usedStorage;
+    uint32 storageLimit;
+    uint32 ***dataEntries;   // -> backing[entryCapacity] (C1: was embedded)
+    uint32 **storageEntries; // -> backing[entryCapacity]
+    uint32 entryCapacity;    // C1: per-dataset bound for the append checks
+    uint32 entryCount;
+    uint32 clearCount;
+};
+#define STORAGE_ENTRY_CAP(storagePtr) ((storagePtr)->entryCapacity)
+#else
 struct DataStorage {
     uint32 *memoryTable;
     uint32 usedStorage;
@@ -35,6 +60,8 @@ struct DataStorage {
     uint32 entryCount;
     uint32 clearCount;
 };
+#define STORAGE_ENTRY_CAP(storagePtr) (STORAGE_ENTRY_COUNT)
+#endif
 
 template <typename T> class List
 {

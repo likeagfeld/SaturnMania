@@ -71,10 +71,12 @@
                                                // slack (diag-PROVEN since
                                                // P6.5b1; was 0x60000 spec)
 // objectEntityList                  (440,320 B, derived above)
-#define P68_LWRAM_DATASTORAGE_BYTES  (0x14100) // 5 x 16,404 (DataStorage at
-                                               // STORAGE_ENTRY_COUNT 0x800 --
-                                               // Saturn branch, Storage.hpp;
-                                               // P6.7c discovered tenant)
+#define P68_LWRAM_DATASTORAGE_BYTES  (0x6100)  // C1 LANDED: 5 x 32 B structs
+                                               // + per-dataset entry backings
+                                               // (STG 0x800, others 0x100) x
+                                               // 8 B = 24,736 (Storage.hpp/
+                                               // .cpp C1 arms; was 82,176 at
+                                               // the uniform 0x800)
 #define P68_LWRAM_TILELAYERS_BYTES   (0x1A300) // 8 x 13,384 = 107,072 + pad --
                                                // P6.7 W11 census: stages use
                                                // up to 8 layers (FBZ/TMZ1);
@@ -177,8 +179,8 @@
                                           // lands with its byte-exact gate
 //
 // W11 CLOSER SET (ledger deltas vs the pre-W11 contract; PLANNED):
-//   C1 per-dataset STORAGE_ENTRY_COUNT (STG 0x800, others 0x100):
-//      dataStorage bookkeeping 82,176 -> 24,832  (P68_LWRAM_DATASTORAGE_BYTES)
+//   C1 [LANDED 2026-06-11] per-dataset STORAGE_ENTRY_COUNT (STG 0x800,
+//      others 0x100): dataStorage bookkeeping 82,176 -> 24,832
 //   C2 DATASET_TMP 128K -> 64K + STREAMING layout inflate (largest TMP
 //      transient after the capped tempEntityList is the GIF decoder ~25 KB;
 //      layout inflate streams in 16 KB chunks into the band packer)
@@ -188,7 +190,6 @@
 // Post-closer WRAM-L: 258,048 heap + 440,320 entityList + 24,832 ds +
 // 107,072 tileLayers + 40,960 dfl + 32,768 groupB + 32,768 window +
 // 81,920 bands = 1,018,688 -> margin 29,888 >= the 28,672 floor.
-#define P68_LWRAM_DATASTORAGE_PLANNED (0x6100)  // C1
 #define P68_LWRAM_DATAFILELIST_PLANNED (0xA000) // C3
 #define P68_LWRAM_GROUPB_PLANNED      (0x8000)  // C4
 #define P68_LWRAM_HEAP_PLANNED        (0x3F000) // C2+C5

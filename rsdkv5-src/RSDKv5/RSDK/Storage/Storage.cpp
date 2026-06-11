@@ -73,6 +73,28 @@ bool32 RSDK::InitStorage()
     dataStorage[DATASET_TMP].storageLimit = 8 * 1024 * 1024;  //  8MB
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P6.7 W11 closer C1: carve the per-dataset entry backings from the
+    // dataStorage window itself, right after the 5 structs (Storage.hpp C1
+    // comment; STG 0x800 entries, the rest 0x100 -- total 160 + 24,576 B
+    // inside the P68_LWRAM_DATASTORAGE_PLANNED 24,832 B contract line).
+    {
+        static const uint16 p6EntryCaps[DATASET_MAX] = {
+            STORAGE_ENTRY_COUNT_STG, STORAGE_ENTRY_COUNT_SMALL,
+            STORAGE_ENTRY_COUNT_SMALL, STORAGE_ENTRY_COUNT_SMALL,
+            STORAGE_ENTRY_COUNT_SMALL
+        };
+        uint8 *backing = (uint8 *)&dataStorage[DATASET_MAX];
+        for (int32 s = 0; s < DATASET_MAX; ++s) {
+            dataStorage[s].dataEntries = (uint32 ***)backing;
+            backing += (uint32)p6EntryCaps[s] * sizeof(uint32 **);
+            dataStorage[s].storageEntries = (uint32 **)backing;
+            backing += (uint32)p6EntryCaps[s] * sizeof(uint32 *);
+            dataStorage[s].entryCapacity = p6EntryCaps[s];
+        }
+    }
+#endif
+
     for (int32 s = 0; s < DATASET_MAX; ++s) {
         dataStorage[s].usedStorage = 0;
         dataStorage[s].entryCount  = 0;
@@ -122,7 +144,7 @@ void RSDK::AllocateStorage(void **dataPtr, uint32 size, StorageDataSets dataSet,
         if (size_aligned < size)
             size = size_aligned + sizeof(void *);
 
-        if (dataStorage[dataSet].entryCount < STORAGE_ENTRY_COUNT) {
+        if (dataStorage[dataSet].entryCount < STORAGE_ENTRY_CAP(&dataStorage[dataSet])) {
             DataStorage *storage = &dataStorage[dataSet];
 
 #if !RETRO_USE_ORIGINAL_CODE
@@ -194,7 +216,7 @@ void RSDK::AllocateStorage(void **dataPtr, uint32 size, StorageDataSets dataSet,
             }
 
             // If there are too many storage entries, then perform garbage collection.
-            if (storage->entryCount >= STORAGE_ENTRY_COUNT)
+            if (storage->entryCount >= STORAGE_ENTRY_CAP(storage))
                 GarbageCollectStorage(dataSet);
 
             // Clear the allocated memory if requested.
@@ -248,7 +270,7 @@ void RSDK::RemoveStorageEntry(void **dataPtr)
 
         dataStorage[HEADER(data, HEADER_SET_ID)].entryCount = newEntryCount;
 
-        for (uint32 e = newEntryCount; e < STORAGE_ENTRY_COUNT; ++e) {
+        for (uint32 e = newEntryCount; e < STORAGE_ENTRY_CAP(&dataStorage[HEADER(data, HEADER_SET_ID)]); ++e) {
             dataStorage[HEADER(data, HEADER_SET_ID)].dataEntries[e]    = NULL;
             dataStorage[HEADER(data, HEADER_SET_ID)].storageEntries[e] = NULL;
         }
@@ -349,13 +371,13 @@ void RSDK::CopyStorage(uint32 **src, uint32 **dst)
         uint32 *dstPtr = *dst;
         *src           = *dst;
 
-        if (dataStorage[HEADER(dstPtr, HEADER_SET_ID)].entryCount < STORAGE_ENTRY_COUNT) {
+        if (dataStorage[HEADER(dstPtr, HEADER_SET_ID)].entryCount < STORAGE_ENTRY_CAP(&dataStorage[HEADER(dstPtr, HEADER_SET_ID)])) {
             dataStorage[HEADER(dstPtr, HEADER_SET_ID)].dataEntries[dataStorage[HEADER(dstPtr, HEADER_SET_ID)].entryCount]    = src;
             dataStorage[HEADER(dstPtr, HEADER_SET_ID)].storageEntries[dataStorage[HEADER(dstPtr, HEADER_SET_ID)].entryCount] = *src;
 
             ++dataStorage[HEADER(dstPtr, HEADER_SET_ID)].entryCount;
 
-            if (dataStorage[HEADER(dstPtr, HEADER_SET_ID)].entryCount >= STORAGE_ENTRY_COUNT)
+            if (dataStorage[HEADER(dstPtr, HEADER_SET_ID)].entryCount >= STORAGE_ENTRY_CAP(&dataStorage[HEADER(dstPtr, HEADER_SET_ID)]))
                 GarbageCollectStorage((StorageDataSets)HEADER(dstPtr, HEADER_SET_ID));
         }
     }
@@ -389,7 +411,7 @@ void RSDK::GarbageCollectStorage(StorageDataSets set)
         }
         dataStorage[set].entryCount = newEntryCount;
 
-        for (int32 e = dataStorage[set].entryCount; e < STORAGE_ENTRY_COUNT; ++e) {
+        for (int32 e = dataStorage[set].entryCount; e < (int32)STORAGE_ENTRY_CAP(&dataStorage[set]); ++e) {
             dataStorage[set].dataEntries[e]    = NULL;
             dataStorage[set].storageEntries[e] = NULL;
         }
