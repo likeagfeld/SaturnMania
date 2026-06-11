@@ -57,7 +57,15 @@ bool32 RSDK::InitStorage()
     dataStorage[DATASET_MUS].storageLimit = 16 * 1024;  //  16 KB (proof-trim)
     dataStorage[DATASET_SFX].storageLimit = 32 * 1024;  //  32 KB (proof-trim)
     dataStorage[DATASET_STR].storageLimit = 32 * 1024;  //  32 KB
-    dataStorage[DATASET_TMP].storageLimit = 128 * 1024; // 128 KB
+    // P6.7 W11 closer C2: 128K -> 80K. The W11 band store removes the big
+    // LAYOUT inflates from TMP (Saturn layouts never route through
+    // ReadCompressed at the W11b wiring), but TileConfig's verbatim
+    // ReadCompressed buffer is 77,824 B decompressed (2 x 1024 x 38 --
+    // MEASURED: a 64K trim fired qa_p6_collision K3-K5 RED, alloc fail ->
+    // packed window stayed zero) and bounds the pool. Other tenants
+    // (capped tempEntityList 22,016 + GIF decoder 24,892 + the 32,768 B
+    // band scratch) are non-concurrent peaks below it.
+    dataStorage[DATASET_TMP].storageLimit = 80 * 1024;  //  80 KB (C2)
 #else
     dataStorage[DATASET_STG].storageLimit = 256 * 1024; // 256 KB
     dataStorage[DATASET_MUS].storageLimit = 64 * 1024;  //  64 KB

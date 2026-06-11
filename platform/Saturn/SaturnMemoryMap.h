@@ -66,10 +66,13 @@
 // drawGroups = 16*(2*0x100+40)  =  8,832 B
 
 // ---- WRAM-L (0x00200000, 1 MB) tenants, placement order ----------------------
-#define P68_LWRAM_HEAP_BYTES         (0x52000) // storage pools 272 KB + miniz
-                                               // inflate ~44 KB transient +
-                                               // slack (diag-PROVEN since
-                                               // P6.5b1; was 0x60000 spec)
+#define P68_LWRAM_HEAP_BYTES         (0x43000) // C2+C5 LANDED: pools 224 KB
+                                               // (TMP 80K -- TileConfig's
+                                               // verbatim inflate is 77,824 B
+                                               // decompressed and bounds it;
+                                               // a 64K trim fired the
+                                               // collision gate RED) + miniz
+                                               // ~44 KB transient + slack
 // objectEntityList                  (440,320 B, derived above)
 #define P68_LWRAM_DATASTORAGE_BYTES  (0x6100)  // C1 LANDED: 5 x 32 B structs
                                                // + per-dataset entry backings
@@ -83,9 +86,10 @@
                                                // the P4 "<=4" trim falsified
                                                // (GHZ1 itself uses 5)
 #define P68_LWRAM_DATAFILELIST_BYTES (0xE000)  // RSDKFileInfo[0x700]
-#define P68_LWRAM_GROUPB_BYTES       (0xC000)  // palettes/gfxSurface/IDs/rgb
-                                               // tables (diag actual 21.2 KB)
-                                               // + pad (was 0x15000 spec)
+#define P68_LWRAM_GROUPB_BYTES       (0x8000)  // C4 LANDED: palettes/
+                                               // gfxSurface/IDs/rgb tables --
+                                               // diag actual 21,184 B + pad
+                                               // (was 0xC000)
 #define P68_LWRAM_MARGIN_MIN         (0x7000)  // 28,672 B contracted floor
                                                // (actual 30,176 B -- see gate)
 
@@ -172,27 +176,27 @@
                                           // layers decode bands straight to
                                           // VDP2 pages at crossings (no
                                           // resident window)
-#define P68_LAYOUT_BANDSTORE_BYTES (0x14000) // deflated band store (GHZ1
-                                          // layouts deflate to ~60 KB;
-                                          // FBZ2 re-measured at impl)
+#define P68_LAYOUT_BANDSTORE_BYTES (0xE000)  // deflated band store: GHZ1
+                                          // MEASURED 51,094 B + slack
+                                          // (funds the C2 TMP correction;
+                                          // big zones trade against their
+                                          // overlay slack per-zone)
 #define P68_W11_LAYOUTS_OPEN  (1)         // flips to 0 when the window seam
                                           // lands with its byte-exact gate
 //
 // W11 CLOSER SET (ledger deltas vs the pre-W11 contract; PLANNED):
 //   C1 [LANDED 2026-06-11] per-dataset STORAGE_ENTRY_COUNT (STG 0x800,
 //      others 0x100): dataStorage bookkeeping 82,176 -> 24,832
-//   C2 DATASET_TMP 128K -> 64K + STREAMING layout inflate (largest TMP
+//   C2 [LANDED 2026-06-11] DATASET_TMP 128K -> 80K (largest TMP
 //      transient after the capped tempEntityList is the GIF decoder ~25 KB;
 //      layout inflate streams in 16 KB chunks into the band packer)
 //   C3 dataFileList 1677 x 32 -> 24-byte packed records: 57,344 -> 40,960
-//   C4 GROUPB pad trim 49,152 -> 32,768 (diag actual 21.2 KB)
-//   C5 heap window = pools-exact + miniz transient: 0x52000 -> 0x3F000
+//   C4 [LANDED 2026-06-11] GROUPB pad trim 49,152 -> 32,768
+//   C5 [LANDED 2026-06-11] heap window pools-exact: 0x52000 -> 0x3F000
 // Post-closer WRAM-L: 258,048 heap + 440,320 entityList + 24,832 ds +
 // 107,072 tileLayers + 40,960 dfl + 32,768 groupB + 32,768 window +
 // 81,920 bands = 1,018,688 -> margin 29,888 >= the 28,672 floor.
 #define P68_LWRAM_DATAFILELIST_PLANNED (0xA000) // C3
-#define P68_LWRAM_GROUPB_PLANNED      (0x8000)  // C4
-#define P68_LWRAM_HEAP_PLANNED        (0x3F000) // C2+C5
 
 // ---- P6.7 WAVE-1 (Task #210): GAME GLOBALS WINDOW ----------------------------
 // GlobalVariables lives at a FIXED WRAM-H window inside the P6.7d.2-freed
