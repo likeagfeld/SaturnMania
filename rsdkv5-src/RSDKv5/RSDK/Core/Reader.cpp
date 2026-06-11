@@ -149,10 +149,18 @@ bool32 RSDK::LoadDataPack(const char *filePath, size_t fileOffset, bool32 useBuf
             dataFileList[f].offset = ReadInt32(&info, false);
             dataFileList[f].size   = ReadInt32(&info, false);
 
+#if RETRO_PLATFORM == RETRO_SATURN
+            // W11 closer C3 (Task #210): the 24 B packed record keeps the RAW
+            // size word -- bit 31 IS the encrypted flag (same bit the PC arm
+            // derives from below), read back via RSDKFILE_ENCRYPTED/_SIZE.
+            // Single pack, no in-RAM buffer: packID/useFileBuffer are the
+            // constant-0 accessor macros (Reader.hpp).
+#else
             dataFileList[f].encrypted = (dataFileList[f].size & 0x80000000) != 0;
             dataFileList[f].size &= 0x7FFFFFFF;
             dataFileList[f].useFileBuffer = useBuffer;
             dataFileList[f].packID        = dataPackCount;
+#endif
         }
 
         dataPacks[dataPackCount].fileBuffer = NULL;
@@ -197,9 +205,12 @@ bool32 RSDK::OpenDataFile(FileInfo *info, const char *filename)
         if (!HASH_MATCH_MD5(hash, file->hash))
             continue;
 
-        info->usingFileBuffer = file->useFileBuffer;
-        if (!file->useFileBuffer) {
-            info->file = fOpen(dataPacks[file->packID].name, "rb");
+        // W11 closer C3 (Task #210): field reads go through the RSDKFILE_*
+        // accessors (Reader.hpp) -- on PC they expand to the original member
+        // reads (byte-identical); on Saturn they decode the 24 B packed record.
+        info->usingFileBuffer = RSDKFILE_USEBUF(file);
+        if (!RSDKFILE_USEBUF(file)) {
+            info->file = fOpen(dataPacks[RSDKFILE_PACKID(file)].name, "rb");
             if (!info->file) {
                 PrintLog(PRINT_NORMAL, "File not found (Unable to open datapack): %s", filename);
                 return false;
@@ -209,16 +220,16 @@ bool32 RSDK::OpenDataFile(FileInfo *info, const char *filename)
         }
         else {
             // a bit of a hack, but it is how it is in the original
-            info->file = (FileIO *)&dataPacks[file->packID].fileBuffer[file->offset];
+            info->file = (FileIO *)&dataPacks[RSDKFILE_PACKID(file)].fileBuffer[file->offset];
 
             uint8 *fileBuffer = (uint8 *)info->file;
             info->fileBuffer  = fileBuffer;
         }
 
-        info->fileSize   = file->size;
+        info->fileSize   = RSDKFILE_SIZE(file);
         info->readPos    = 0;
         info->fileOffset = file->offset;
-        info->encrypted  = file->encrypted;
+        info->encrypted  = RSDKFILE_ENCRYPTED(file);
         memset(info->encryptionKeyA, 0, 0x10 * sizeof(uint8));
         memset(info->encryptionKeyB, 0, 0x10 * sizeof(uint8));
         if (info->encrypted) {

@@ -105,6 +105,29 @@ def main():
     entry_count = cap_stg  # for the M6 print
     datastorage_real = 5 * 32 + (cap_stg + 4 * cap_small) * 8
 
+    # P6.7 W11 closer C3: re-derive the dataFileList record size LIVE from
+    # Reader.hpp (same coupling class as M6). The Saturn RSDKFileInfo must be
+    # the 24 B packed record {hash[16], raw size word (bit31 = encrypted),
+    # offset} -- packID/useFileBuffer are constant-0 accessor macros on a
+    # single-pack platform. The first struct arm in the file is the Saturn
+    # branch; field census -> sizeof with 4 B tail alignment.
+    reader_hpp = open(os.path.join(ROOT, "rsdkv5-src", "RSDKv5", "RSDK",
+                                   "Core", "Reader.hpp"),
+                      encoding="utf-8", errors="replace").read()
+    m_dfc = re.search(r"#define\s+DATAFILE_COUNT\s+\((0x[0-9A-Fa-f]+|\d+)\)", reader_hpp)
+    m_rec = re.search(r"struct RSDKFileInfo \{([^}]*)\}", reader_hpp)
+    if not (m_dfc and m_rec):
+        print("RESULT: RED -- Reader.hpp lacks DATAFILE_COUNT / RSDKFileInfo")
+        return 1
+    datafile_count = int(m_dfc.group(1), 0)
+    body = m_rec.group(1)
+    rec_size = 16  # RETRO_HASH_MD5(hash) = uint32[4]
+    rec_size += 4 * len(re.findall(r"\bint32\s+\w+;", body))
+    rec_size += len(re.findall(r"\buint8\s+\w+;", body))
+    rec_size = (rec_size + 3) & ~3
+    dfl_real = datafile_count * rec_size
+    PACK_FILECOUNT_103 = 1677  # MEASURED 1.03 Data.rsdk registry (P6.4)
+
     ghz = count_ghz_entities()
     entity_count = c["P68_RESERVE_ENTITIES"] + c["P68_SCENE_ENTITIES"] + c["P68_TEMP_ENTITIES"]
     entitylist = entity_count * ENTITYBASE_SIZE
@@ -176,6 +199,13 @@ def main():
          c.get("P68_LAYOUT_WINDOW_BYTES", 0) >= 2 * 64 * 128 * 2
          and c.get("P68_LAYOUT_BANDSTORE_BYTES", 0) > 0
          and c["P68_LWRAM_TILELAYERS_BYTES"] >= 8 * 13384, ""),
+        ("M9 dataFileList C3 contract: record %d B x DATAFILE_COUNT 0x%X = %d "
+         "<= window %d; record == 24; count >= measured pack 1677"
+         % (rec_size, datafile_count, dfl_real,
+            c["P68_LWRAM_DATAFILELIST_BYTES"]),
+         rec_size == 24
+         and dfl_real <= c["P68_LWRAM_DATAFILELIST_BYTES"]
+         and datafile_count >= PACK_FILECOUNT_103, ""),
     ]
     if c.get("P68_W11_LAYOUTS_OPEN", 0):
         print("  [WARN ] W11 layer-layout residency is a DECLARED OPEN GAP --")

@@ -71,13 +71,16 @@ namespace RSDK
 // Saturn CD shipped no pack. P6.4 (Task #225) REVERSES that: the Saturn disc now
 // stages the ORIGINAL Data.rsdk (MEASURED 2026-06-10: 'RSDKv5' magic, fileCount
 // 1677, 182,962,115 B) and the engine mounts it natively, so the registry must
-// hold every real entry. 0x700 = 1792 >= 1677 with headroom, 32 B/RSDKFileInfo
-// -> 57,344 B, relocated to WRAM-L under P6_SCENE_TEST (absolute symbol in
-// p6_io_main.cpp; definition below is compiled out) because WRAM-H has no room
-// (SGL floor 0x060C0000). LoadDataPack's Saturn clamp (Reader.cpp:137) still
-// guards a hostile/over-declared pack -- the Phase 1.4-1.15 .bss-corruption
-// class. P6 RESTORATION: drop the Saturn branch -> 0x1000.
-#define DATAFILE_COUNT (0x700)
+// hold every real entry. W11 closer C3 (Task #210) packs RSDKFileInfo to 24 B
+// (struct below) and trims the count to 0x6A0 = 1696 >= 1677 (+19 headroom)
+// -> 40,704 B <= the 0xA000 P68_LWRAM_DATAFILELIST_BYTES window, relocated to
+// WRAM-L under P6_SCENE_TEST (absolute symbol in p6_io_main.cpp; definition
+// below is compiled out) because WRAM-H has no room (SGL floor 0x060C0000).
+// LoadDataPack's Saturn clamp (Reader.cpp:137) still guards a hostile/
+// over-declared pack -- the Phase 1.4-1.15 .bss-corruption class; a REAL pack
+// with more files than this fires qa_p6_pack (unresolvable hashes), not
+// silent corruption. P6 RESTORATION: drop the Saturn branch -> 0x1000.
+#define DATAFILE_COUNT (0x6A0)
 #else
 #define DATAFILE_COUNT (0x1000)
 #endif
@@ -106,6 +109,28 @@ struct FileInfo {
     uint8 eKeyNo;
 };
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.7 W11 closer C3 (Task #210): 24-byte packed registry record. The PC
+// struct below is 32 B (2 pad bytes + 3 derived fields); at the measured
+// 1.03 pack fileCount of 1677 the registry costs 57,344 B at DATAFILE_COUNT
+// 0x700. On Saturn there is exactly ONE pack mounted once (LoadDataPack on
+// cd/DATA.RSDK, never an in-RAM pack buffer), so packID == 0 and
+// useFileBuffer == 0 ALWAYS; `encrypted` is bit 31 of the size word AS
+// STORED IN THE PACK (Reader.cpp:152 derives it from that bit on PC too --
+// the Saturn parse simply keeps the raw word instead of stripping it).
+// Every consumer goes through the RSDKFILE_* accessors below; the PC arms
+// expand to the original field reads, byte-identical upstream behavior.
+// qa_p6_memmap M9 re-derives this record size live.
+struct RSDKFileInfo {
+    RETRO_HASH_MD5(hash);
+    int32 size; // raw pack word: bit 31 = encrypted, low 31 bits = byte size
+    int32 offset;
+};
+#define RSDKFILE_SIZE(file)      ((file)->size & 0x7FFFFFFF)
+#define RSDKFILE_ENCRYPTED(file) (((file)->size & 0x80000000) != 0)
+#define RSDKFILE_PACKID(file)    (0)
+#define RSDKFILE_USEBUF(file)    (false)
+#else
 struct RSDKFileInfo {
     RETRO_HASH_MD5(hash);
     int32 size;
@@ -114,6 +139,11 @@ struct RSDKFileInfo {
     uint8 useFileBuffer;
     int32 packID;
 };
+#define RSDKFILE_SIZE(file)      ((file)->size)
+#define RSDKFILE_ENCRYPTED(file) ((file)->encrypted)
+#define RSDKFILE_PACKID(file)    ((file)->packID)
+#define RSDKFILE_USEBUF(file)    ((file)->useFileBuffer)
+#endif
 
 struct RSDKContainer {
     char name[0x100];

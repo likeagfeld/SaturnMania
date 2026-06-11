@@ -346,7 +346,7 @@ extern "C" void p6_io_proof(void)
                                        // macro seam + P6_CM arm)
 #define P6_LW_LAYOUTBANDS  0x00262400u // cd/GHZ1LAYT.BIN, 51,094 B <= 0xD200
 #define P6_LW_DATASTORAGE  0x0026F600u // 5 * 16404         = 0x14064 -> 0x283664 (pad to 0x283700)
-#define P6_LW_DATAFILELIST 0x00283700u // 0x700 * 32        = 0xE000  -> 0x291700
+#define P6_LW_DATAFILELIST 0x00283700u // C3: 0x6A0 * 24    = 0x9F00  -> 0x28D600 (window 0xA000; next region keeps its v5 base = slack)
 #define P6_LW_TILESETPX    0x00291700u // TILESET_SIZE      = 0x40000 -> 0x2D1700 (LIVE since P6.5a)
 #define P6_LW_TILELAYERS   0x002D1700u // 8 * 13384         = 0x1A240 -> 0x2EB940 (in the dead raw-mask window)
 #define P6_LW_TILEINFO     0x002F1700u // 2 * 0x400 * 5     = 0x2800  -> 0x2F3F00 (LIVE: LoadTileConfig)
@@ -860,9 +860,11 @@ void DrawAchievements() {}
 // closure. p6_scene_run() zeroes the whole window before any engine call.
 #define P6_GROUPB_ABS(sym, addr) \
     __asm__(".global " sym "\n\t.equ " sym ", " addr)
-// P6.4: dataFileList[0x700] -- the Data.rsdk registry LoadDataPack fills
+// P6.4: dataFileList -- the Data.rsdk registry LoadDataPack fills
 // (Reader.cpp:140-154) and OpenDataFile hash-scans (Reader.cpp:192-196).
-P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x00283700"); // RSDKFileInfo[0x700] = 0xE000 (map v5: follows P6_LW_DATAFILELIST)
+// W11 closer C3: 24 B packed records x DATAFILE_COUNT 0x6A0 = 40,704
+// <= the 0xA000 window (was 0x700 x 32 = 0xE000); address unchanged.
+P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x00283700"); // RSDKFileInfo[0x6A0] = 40,704 <= 0xA000 (map v5: follows P6_LW_DATAFILELIST)
 P6_GROUPB_ABS("__ZN4RSDK11fullPaletteE",     "0x002FAC00"); // uint16[8][256] = 0x1000
 P6_GROUPB_ABS("__ZN4RSDK13globalPaletteE",   "0x002FBC00"); // uint16[8][256] = 0x1000
 P6_GROUPB_ABS("__ZN4RSDK12stagePaletteE",    "0x002FCC00"); // uint16[8][256] = 0x1000

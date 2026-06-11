@@ -85,7 +85,14 @@
                                                // up to 8 layers (FBZ/TMZ1);
                                                // the P4 "<=4" trim falsified
                                                // (GHZ1 itself uses 5)
-#define P68_LWRAM_DATAFILELIST_BYTES (0xE000)  // RSDKFileInfo[0x700]
+#define P68_LWRAM_DATAFILELIST_BYTES (0xA000)  // C3 LANDED: RSDKFileInfo
+                                               // packed to 24 B (raw size
+                                               // word keeps bit31=encrypted;
+                                               // packID/useFileBuffer =
+                                               // constant-0 macros, single
+                                               // pack) x DATAFILE_COUNT
+                                               // 0x6A0 = 40,704 (1.03 pack
+                                               // = 1677 files measured)
 #define P68_LWRAM_GROUPB_BYTES       (0x8000)  // C4 LANDED: palettes/
                                                // gfxSurface/IDs/rgb tables --
                                                // diag actual 21,184 B + pad
@@ -190,13 +197,14 @@
 //   C2 [LANDED 2026-06-11] DATASET_TMP 128K -> 80K (largest TMP
 //      transient after the capped tempEntityList is the GIF decoder ~25 KB;
 //      layout inflate streams in 16 KB chunks into the band packer)
-//   C3 dataFileList 1677 x 32 -> 24-byte packed records: 57,344 -> 40,960
+//   C3 [LANDED 2026-06-11] dataFileList 24-byte packed records (raw size
+//      word, accessor macros RSDKFILE_* in Reader.hpp; DATAFILE_COUNT
+//      0x700 -> 0x6A0): 57,344 -> 40,960
 //   C4 [LANDED 2026-06-11] GROUPB pad trim 49,152 -> 32,768
 //   C5 [LANDED 2026-06-11] heap window pools-exact: 0x52000 -> 0x3F000
 // Post-closer WRAM-L: 258,048 heap + 440,320 entityList + 24,832 ds +
 // 107,072 tileLayers + 40,960 dfl + 32,768 groupB + 32,768 window +
 // 81,920 bands = 1,018,688 -> margin 29,888 >= the 28,672 floor.
-#define P68_LWRAM_DATAFILELIST_PLANNED (0xA000) // C3
 
 // ---- P6.7 WAVE-1 (Task #210): GAME GLOBALS WINDOW ----------------------------
 // GlobalVariables lives at a FIXED WRAM-H window inside the P6.7d.2-freed
