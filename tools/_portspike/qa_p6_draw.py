@@ -121,7 +121,9 @@ def main(argv):
     obj_alive = False
     obj_fid = obj_posy = 0
     if obj_classid_sym is not None:
-        obj_alive = _scene.peek_u32(mod, sections, obj_classid_sym, perm, signed=True) == 1
+        # P6.7c: Ring's stage classID is 2 (engine StageConfig path + the
+        # witnessed harness append; was 1 under the P6.7a hand-wiring).
+        obj_alive = _scene.peek_u32(mod, sections, obj_classid_sym, perm, signed=True) == 2
         obj_fid  = _scene.peek_u32(mod, sections, _scene.map_symbol(map_text, "_p6_w_obj_frameid"), perm, signed=True) or 0
         obj_posy = _scene.peek_u32(mod, sections, _scene.map_symbol(map_text, "_p6_w_obj_posy"), perm, signed=True) or 0
 

@@ -317,14 +317,27 @@ extern "C" void p6_io_proof(void)
 // malloc FAILED, inflateInit returned MZ_MEM_ERROR, the engine ignored the
 // return (upstream behavior), and every layer layout silently stayed ZERO
 // since P6.3 -- invisible until qa_p6_vdp2.py's layout-derived witnesses.
+// P6.7c map v5: LoadSceneFolder goes LIVE, rooting LoadTileConfig (writes
+// collisionMasks/tileInfo) and the inline Clear3DScenes (MEM_ZEROs
+// modelList[0x100] = 11,264 B -- through the old 256 B DEAD dummy that would
+// have zeroed PAST the end of WRAM-L). Three new REAL windows are funded by
+// (a) correcting the STALE entityList sizing (448 was pre-P6.7a; ENTITY_COUNT
+// is 0xC0 = 192 since the Title-scale retarget, Object.hpp Saturn branch) and
+// (b) the STORAGE_ENTRY_COUNT 0x1000->0x800 Saturn retarget (Storage.hpp,
+// 32,788 -> 16,404 B per dataset). GROUPB + DEAD addresses are UNCHANGED so
+// the .equ absolutes below and every consumer survive verbatim.
 #define P6_LW_HEAP_BASE    0x00200000u
 #define P6_LW_HEAP_END     0x00252000u // pools 272 KB + inflate ~44 KB transient + slack
-#define P6_LW_ENTITYLIST   0x00252000u // 448 * 344         = 0x25A00 -> 0x277A00
-#define P6_LW_TILELAYERS   0x00277A00u // 4 * 13384         = 0xD120  -> 0x284B20
-#define P6_LW_DATASTORAGE  0x00284B20u // 5 * 32788         = 0x28064 -> 0x2ACB84
-#define P6_LW_DATAFILELIST 0x002ACC00u // 0x700 * 32        = 0xE000  -> 0x2BAC00
-#define P6_LW_TILESETPX    0x002BAC00u // TILESET_SIZE      = 0x40000 -> 0x2FAC00 (LIVE since P6.5a)
-#define P6_LW_GROUPB_BASE  0x002FAC00u // absolute arrays below
+#define P6_LW_ENTITYLIST   0x00252000u // 192 * 344         = 0x10200 -> 0x262200 (pad to 0x262400)
+#define P6_LW_TILELAYERS   0x00262400u // 4 * 13384         = 0xD120  -> 0x26F520 (pad to 0x26F600)
+#define P6_LW_DATASTORAGE  0x0026F600u // 5 * 16404         = 0x14064 -> 0x283664 (pad to 0x283700)
+#define P6_LW_DATAFILELIST 0x00283700u // 0x700 * 32        = 0xE000  -> 0x291700
+#define P6_LW_TILESETPX    0x00291700u // TILESET_SIZE      = 0x40000 -> 0x2D1700 (LIVE since P6.5a)
+#define P6_LW_COLLMASKS    0x002D1700u // 2 * 0x400 * 64    = 0x20000 -> 0x2F1700 (LIVE: LoadTileConfig)
+#define P6_LW_TILEINFO     0x002F1700u // 2 * 0x400 * 5     = 0x2800  -> 0x2F3F00 (LIVE: LoadTileConfig)
+#define P6_LW_MODELLIST    0x002F3F00u // 0x100 * 44        = 0x2C00  -> 0x2F6B00 (Clear3DScenes MEM_ZERO target)
+                                       // free 0x2F6B00..0x2FAC00 = 0x4100 margin
+#define P6_LW_GROUPB_BASE  0x002FAC00u // absolute arrays below (UNCHANGED)
 #define P6_LW_GROUPB_END   0x002FFEC0u
 #define P6_LW_DEAD         0x002FFF00u // shared dummy for measured-DEAD pointers (256 B tail)
 #define P6_LW_ZERO_BASE    P6_LW_ENTITYLIST
@@ -403,6 +416,22 @@ __attribute__((used)) int32 p6_w_str_slot  = -2; // PlayStream return
 __attribute__((used)) int32 p6_w_str_state = -1; // channels[slot].state after device load
 __attribute__((used)) int32 p6_w_str_path  = 0;  // djb2 over streamFilePath (engine sprintf)
 __attribute__((used)) int32 p6_w_str_track = -1; // resolved CD-DA track
+// P6.7c (Task #210, qa_p6_stagecfg.py): engine LoadGameConfig/LoadSceneFolder
+// scene-driven class-registration witnesses. All expectations derive LIVE in
+// the gate from the original 1.03 data files.
+__attribute__((used)) int32 p6_w_cfg_titlehash   = 0;  // djb2 over gameVerInfo.gameTitle
+__attribute__((used)) int32 p6_w_cfg_globalcount = -1; // globalObjectCount after LoadGameConfig
+__attribute__((used)) int32 p6_w_cfg_ringgid     = -1; // globalObjectIDs[2] (engine hash-matched Ring)
+__attribute__((used)) int32 p6_w_cfg_catcount    = -1; // sceneInfo.categoryCount
+__attribute__((used)) int32 p6_w_cfg_startpos    = -1; // engine-set listPos (cat0 offset + startScene)
+__attribute__((used)) int32 p6_w_cfg_titlepos    = -1; // harness-discovered Title listPos
+__attribute__((used)) int32 p6_w_cfg_classcount0 = -1; // sceneInfo.classCount after LoadSceneFolder
+__attribute__((used)) int32 p6_w_cfg_classcount  = -1; // after the witnessed harness Ring append
+__attribute__((used)) int32 p6_w_sfx_skips       = -1; // Saturn LoadSfxToSlot alloc-guard skips
+__attribute__((used)) int32 p6_w_til_cmhash      = 0;  // djb2 over collisionMasks window (0x20000 B)
+__attribute__((used)) int32 p6_w_til_tihash      = 0;  // djb2 over tileInfo window (0x2800 B)
+__attribute__((used)) int32 p6_w_pal_hash        = 0;  // djb2 over fullPalette[0] (512 B BE image)
+__attribute__((used)) int32 p6_w_createslot      = -1; // sceneInfo.createSlot after InitObjects (TEMPENTITY_START)
 // p6_snd.c: CD-DA start through the proven jo_audio_play_cd_track path.
 void p6_cdda_play(int track, int loop);
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
@@ -421,6 +450,14 @@ void p6_vdp1_blit(int x, int y, int w, int h, int sx, int sy);
 // AudioDevice::HandleStreamLoad below reads both to resolve the CD track.
 extern char streamFilePath[0x40];
 extern int32 streamLoopPoint;
+
+// P6.7c: the Saturn LoadSfxToSlot pool-exhaustion guard counter. Audio.cpp's
+// block-scope `extern int32 p6_saturn_sfx_skips` (inside RSDK::LoadSfxToSlot)
+// binds to namespace RSDK under GCC 8.2, so the definition lives there; the
+// run body mirrors it into the p6_w_sfx_skips witness.
+namespace RSDK {
+__attribute__((used)) int32 p6_saturn_sfx_skips = 0;
+}
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
 // Headers give the pointer extern under P6_SCENE_TEST (Scene.hpp:193-196,215-218,
@@ -464,14 +501,24 @@ int32 cameraCount = 0;
 // _end vs the 0x060C0000 floor, asserted from game.map after every build).
 static SpriteAnimation p6_sprAnimBacking[SPRFILE_COUNT];
 SpriteAnimation *spriteAnimationList = p6_sprAnimBacking;
-Model *modelList             = (Model *)P6_LW_DEAD;
+// LIVE since P6.7c: LoadSceneFolder's inline Clear3DScenes (Scene3D.hpp:225)
+// MEM_ZEROs all MODEL_COUNT (0x100) Model entries = 11,264 B -- through the
+// old 256 B DEAD dummy it would have zeroed past the END of WRAM-L. Real
+// window in map v5.
+Model *modelList             = (Model *)P6_LW_MODELLIST;
 // LIVE since P6.5a: LoadStageGIF points the decoder at this backing and the
 // engine's ReadGifPictureData writes all 262,144 indexed pixels into it.
 uint8 *tilesetPixels         = (uint8 *)P6_LW_TILESETPX;
+// LIVE since P6.7c: LoadSceneFolder calls LoadTileConfig (Scene.cpp:163-164,
+// :733-880) which writes both arrays. Title has NO TileConfig.bin in the 1.03
+// pack (MEASURED: hash absent; GHZ's is 2,620 B) so at Title the LoadFile
+// fails at Scene.cpp:738 and the windows stay ZERO -- the qa_p6_stagecfg C6
+// hashes assert exactly that (and flip to the byte-exact parse model the
+// moment the diag scene is a stage WITH a TileConfig).
 CollisionMask (*collisionMasks)[TILE_COUNT * COLLISION_FLIPCOUNT] =
-    (CollisionMask (*)[TILE_COUNT * COLLISION_FLIPCOUNT])P6_LW_DEAD;
+    (CollisionMask (*)[TILE_COUNT * COLLISION_FLIPCOUNT])P6_LW_COLLMASKS;
 TileInfo (*tileInfo)[TILE_COUNT * COLLISION_FLIPCOUNT] =
-    (TileInfo (*)[TILE_COUNT * COLLISION_FLIPCOUNT])P6_LW_DEAD;
+    (TileInfo (*)[TILE_COUNT * COLLISION_FLIPCOUNT])P6_LW_TILEINFO;
 
 // ---- (b3) Small engine scalars (WRAM-H .bss, zero-init by SLSTART) -----------
 int32 objectClassCount        = 0;
@@ -676,15 +723,18 @@ namespace SKU {
 void DrawAchievements() {}
 } // namespace SKU
 
-// A valid static Object for the blank class @0 (registry slot scene entities
-// resolve to through the zeroed stageObjectIDs -- update/draw NULL, skipped).
-static Object  p6_blankObject;
-static Object *p6_blankStaticVars = &p6_blankObject;
-
+// P6.7c: the "Blank Object" @0 placeholder is RETIRED -- the canonical
+// InitGameLink preamble (RetroEngine.cpp:1216-1235) registers the REAL
+// engine DefaultObject @0 + DevOutput @1 (their TUs are now in the pack).
+//
 // The proof entity's fixed slot: inside the RESERVE area (0x00..0x3F), below
 // every scene-parsed entity -- deterministic for the gate.
+// CLASSID: with the engine's own StageConfig path live (Title
+// useGlobalObjects=0 -> classCount = TYPE_DEFAULT_COUNT = 2 after
+// LoadSceneFolder, Scene.cpp:186-190), the harness appends Ring as stage
+// class 2 (the Scene.cpp:199-205 mirror in the run body).
 #define P6_OBJ_RING_SLOT (RESERVE_ENTITY_COUNT - 1)
-#define P6_OBJ_RING_CLASSID 1
+#define P6_OBJ_RING_CLASSID 2
 } // namespace RSDK
 
 // ---- (b2) Group-B arrays as absolute WRAM-L symbols ---------------------------
@@ -698,7 +748,7 @@ static Object *p6_blankStaticVars = &p6_blankObject;
     __asm__(".global " sym "\n\t.equ " sym ", " addr)
 // P6.4: dataFileList[0x700] -- the Data.rsdk registry LoadDataPack fills
 // (Reader.cpp:140-154) and OpenDataFile hash-scans (Reader.cpp:192-196).
-P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x002ACC00"); // RSDKFileInfo[0x700] = 0xE000
+P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x00283700"); // RSDKFileInfo[0x700] = 0xE000 (map v5: follows P6_LW_DATAFILELIST)
 P6_GROUPB_ABS("__ZN4RSDK11fullPaletteE",     "0x002FAC00"); // uint16[8][256] = 0x1000
 P6_GROUPB_ABS("__ZN4RSDK13globalPaletteE",   "0x002FBC00"); // uint16[8][256] = 0x1000
 P6_GROUPB_ABS("__ZN4RSDK12stagePaletteE",    "0x002FCC00"); // uint16[8][256] = 0x1000
@@ -829,15 +879,42 @@ extern "C" void p6_scene_run(void)
         return; // loaded stays 0 -> gate RED with initstorage diagnosis
     p6_w_scene_step = 1;
 
-    // 2) Scene pre-state: a one-entry scene list ("Title"/"1") + filter.
-    static SceneListEntry p6_entry; // zero .bss; hash/name irrelevant to the parse
-    strcpy(p6_entry.folder, "Title");
-    strcpy(p6_entry.id, "1");
-    p6_entry.filter    = 0xFF;
-    sceneInfo.listData = &p6_entry;
-    sceneInfo.listPos  = 0;
-    sceneInfo.filter   = 0xFF;
-    strcpy(currentSceneFolder, "Title");
+    // 2) P6.7c: the hand-built one-entry scene list is RETIRED -- the ENGINE
+    //    builds the real 92-entry list from GameConfig.bin below. The render
+    //    palette tables fill FIRST (the EXACT engine fill, Drawing.cpp:274-276)
+    //    because LoadGameConfig's global-palette read (RetroEngine.cpp:1070)
+    //    and every later merge route through them. currentSceneFolder/
+    //    currentSceneID stay EMPTY: a non-empty pair flips LoadGameConfig's
+    //    "_RSDK_SCENE" override branch (RetroEngine.cpp:1091-1112) and
+    //    corrupts the list; emptiness also keeps LoadSceneFolder off its
+    //    same-folder reload early-return (Scene.cpp:71).
+    for (int32 c = 0; c < 0x100; ++c) {
+        rgb32To16_R[c] = (c & 0xFFF8) << 8;
+        rgb32To16_G[c] = (c & 0xFFFC) << 3;
+        rgb32To16_B[c] = c >> 3;
+    }
+
+    // 2b) Registration preamble -- the InitGameLink mirror (RetroEngine.cpp
+    //     :1216-1235, REV02 arm): the REAL engine DefaultObject @0 +
+    //     DevOutput @1 (their TUs are pack members as of P6.7c), then the
+    //     game objects -- here the VERBATIM decomp Ring @2 -- then the
+    //     globalObjectIDs preseed LoadGameConfig's hash loop extends.
+    //     SetupFunctionTables FIRST: object code dispatches through it.
+    SetupFunctionTables();
+
+    RegisterObject((Object **)&DefaultObject, ":DefaultObject:", sizeof(EntityBase), sizeof(ObjectDefaultObject), DefaultObject_Update,
+                   DefaultObject_LateUpdate, DefaultObject_StaticUpdate, DefaultObject_Draw, DefaultObject_Create, DefaultObject_StageLoad,
+                   DefaultObject_EditorLoad, DefaultObject_EditorDraw, DefaultObject_Serialize);
+    RegisterObject((Object **)&DevOutput, ":DevOutput:", sizeof(EntityDevOutput), sizeof(ObjectDevOutput), DevOutput_Update, DevOutput_LateUpdate,
+                   DevOutput_StaticUpdate, DevOutput_Draw, DevOutput_Create, DevOutput_StageLoad, DevOutput_EditorLoad, DevOutput_EditorDraw,
+                   DevOutput_Serialize);
+    RegisterObject((Object **)p6_ring2_staticvars_slot, "Ring", p6_ring2_entity_size, 20,
+                   Ring_Update, NULL, NULL, Ring_Draw, NULL, NULL, NULL, NULL, NULL);
+
+    globalObjectIDs[0] = TYPE_DEFAULTOBJECT; // RetroEngine.cpp:1230
+    globalObjectIDs[1] = TYPE_DEVOUTPUT;     // :1232 (REV02)
+    globalObjectCount  = TYPE_DEFAULT_COUNT; // :1235
+    p6_w_obj_classcount = objectClassCount;  // qa_p6_obj O1: now 3
     p6_w_scene_step = 2;
 
     // 2.5) P6.4 (Task #225): mount the ORIGINAL Data.rsdk pack (cd/DATA.RSDK,
@@ -853,124 +930,12 @@ extern "C" void p6_scene_run(void)
     if (!p6_w_pack_mounted)
         return; // loaded stays 0 -> gate RED with the mount diagnosis
 
-    // 3) THE CALL UNDER TEST: unmodified engine scene parse of
-    //    "Data/Stages/Title/Scene1.bin", now resolved INSIDE Data.rsdk.
-    LoadSceneAssets();
-    p6_w_scene_step = 3;
-
-    // 3.5) Pack-routing witness: re-open the scene file exactly as the engine
-    //      did and record where it came from. OpenDataFile stamps the in-pack
-    //      byte offset into FileInfo.fileOffset (Reader.cpp:218); pack data
-    //      always sits past the header+registry, so fileOffset > 0 iff the
-    //      open rode the pack (a loose open leaves InitFileInfo's zero).
-    {
-        FileInfo pfi;
-        InitFileInfo(&pfi);
-        if (LoadFile(&pfi, "Data/Stages/Title/Scene1.bin", FMODE_RB)) {
-            p6_w_pack_used = (pfi.fileOffset > 0) ? 1 : 0;
-            CloseFile(&pfi);
-        }
-    }
-
-    // 4) P6.5a (Task #208): THE DECODE UNDER TEST -- the engine's own GIF
-    //    decoder pulls the REAL Title tileset out of the pack into the
-    //    WRAM-L tilesetPixels backing. LoadStageGIF (Scene.cpp:980-998)
-    //    header-opens via the pack hash, points the decoder at tilesetPixels,
-    //    LZW-decodes all 16x16384 = 262,144 indexed pixels (the Saturn build
-    //    skips the FLIP pre-expansion, Scene.cpp:1000), and merges the GIF
-    //    palette into fullPalette[0] (values land zero here: the rgb32To16_*
-    //    lookup tables are render-backend init, P6.5b -- not gated).
-    //    qa_p6_gif.py compares the on-SH-2 djb2-xor of the WHOLE buffer
-    //    against a Pillow decode of the same GIF.
-    {
-        // Render-backend palette tables FIRST (P6.5b1): the EXACT engine fill
-        // from Drawing.cpp:274-276, so LoadStageGIF's palette merge
-        // (Scene.cpp:995) lands the ORIGINAL GIF palette in fullPalette[0] as
-        // engine-canonical RGB565 instead of zeros.
-        for (int32 c = 0; c < 0x100; ++c) {
-            rgb32To16_R[c] = (c & 0xFFF8) << 8;
-            rgb32To16_G[c] = (c & 0xFFFC) << 3;
-            rgb32To16_B[c] = c >> 3;
-        }
-
-        char gifPath[0x40];
-        strcpy(gifPath, "Data/Stages/Title/16x16Tiles.gif");
-        LoadStageGIF(gifPath);
-
-        const uint8 *px = (const uint8 *)P6_LW_TILESETPX;
-        uint32 h        = 5381u;
-        for (uint32 i = 0; i < 0x40000u; ++i)
-            h = ((h << 5) + h) ^ (uint32)px[i];
-        p6_w_gif_hash   = (int32)h;
-        p6_w_gif_b0     = (int32)px[0];
-        p6_w_gif_loaded = 1;
-    }
-
-    // 5) P6.5b1: FIRST ENGINE-RENDERED PIXELS -- present the engine-decoded
-    //    Island layer (tileLayers[3]) through VDP2 NBG1 from the engine's own
-    //    tilesetPixels + layout + fullPalette[0]. main.c then parks the diag
-    //    build on jo_core_run so the layer stays on screen for the capture.
-    p6_vdp2_present((const unsigned char *)P6_LW_TILESETPX,
-                    (const unsigned short *)tileLayers[3].layout,
-                    tileLayers[3].widthShift,
-                    (const unsigned short *)fullPalette[0]);
-    p6_w_vdp2_done = 1;
-
-    // 6) P6.5b2: ENGINE OBJECT SPRITES -- the engine loads the REAL
-    //    Global/Ring.bin animation set from the pack (LoadSpriteAnimation ->
-    //    LoadSpriteSheet -> ImageGIF, Animation.cpp:11-94 + Sprite.cpp:906),
-    //    the proof copies the parsed metadata into witnesses byte-for-byte
-    //    (qa_p6_sprite.py model = parse_spr on the same Ring.bin), uploads
-    //    anim-0 frame-0's sheet rect to VDP1, and arms the engine animator
-    //    that p6_scene_tick() advances with the engine's own ProcessAnimation.
-    {
-        uint16 sprID = LoadSpriteAnimation("Global/Ring.bin", SCOPE_STAGE);
-        p6_w_spr_id  = (sprID == (uint16)-1) ? -1 : (int32)sprID;
-        if (p6_w_spr_id >= 0) {
-            SpriteAnimation *spr = &spriteAnimationList[sprID];
-            p6_w_spr_animcount   = (int32)spr->animCount;
-            SpriteFrame *f0      = &spr->frames[spr->animations[0].frameListOffset];
-            p6_w_spr_f0xy        = ((int32)f0->sprX << 16) | (int32)f0->sprY;
-            p6_w_spr_f0wh        = ((int32)f0->width << 16) | (int32)f0->height;
-            p6_w_spr_f0pv = (((int32)f0->pivotX & 0xFFFF) << 16) | ((int32)f0->pivotY & 0xFFFF);
-            p6_w_spr_f0dur       = (int32)f0->duration;
-
-            // MEASURED FAILURE MODE (P6.5b2 T2): a failed LoadSpriteSheet
-            // returns (uint16)-1 which the uint8 sheetIDs[] truncates to 0xFF
-            // (Animation.cpp:39/62) -- gfxSurface[0xFF] is OOB (SURFACE_COUNT
-            // slots) and the unguarded hash loop dereferenced a wild pixels
-            // pointer, killing the whole run body (scene_step stuck at 3,
-            // every witness after block 6 unwritten). Witness the raw id and
-            // only touch gfxSurface when it is a real, populated slot.
-            p6_w_spr_sheetid = (int32)f0->sheetID;
-            GFXSurface *sheet = &gfxSurface[f0->sheetID];
-            if (f0->sheetID < SURFACE_COUNT && sheet->scope != SCOPE_NONE && sheet->pixels) {
-                uint32 sh     = 5381u;
-                uint32 nbytes = (uint32)sheet->width * (uint32)sheet->height;
-                for (uint32 i = 0; i < nbytes; ++i)
-                    sh = ((sh << 5) + sh) ^ (uint32)sheet->pixels[i];
-                p6_w_spr_sheethash = (int32)sh;
-
-                SetSpriteAnimation(sprID, 0, &p6_ringAnimator, true, 0);
-                p6_objRingFrames = &spr->frames[spr->animations[0].frameListOffset]; // P6.7a
-
-                // P6.5b3: DrawSprite environment. Drawing.cpp:2683 translates
-                // through currentScreen->position; :2676/:2687 dereference
-                // sceneInfo.entity unconditionally. screens[0] sits zeroed in
-                // WRAM-L (Group-B absolute, memset in step 0) -> position
-                // (0,0); entity slot 0 is zeroed -> drawFX=FX_NONE,
-                // inkEffect=INK_NONE, FLIP_NONE.
-                currentScreen      = &screens[0];
-                screens[0].size.x  = SCREEN_XMAX;
-                screens[0].size.y  = SCREEN_YSIZE;
-                sceneInfo.entity   = &objectEntityList[0];
-
-                p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
-                                   (const unsigned short *)fullPalette[0]);
-            }
-        }
-    }
-
+    // 3-pre) P6.6 audio proofs run BEFORE LoadGameConfig so the 32 KB
+    //    DATASET_SFX pool serves them deterministically: LoadGameConfig's
+    //    52-entry global SFX loop lands after, and whatever exceeds the
+    //    remaining pool is skipped-and-witnessed by the Saturn LoadSfxToSlot
+    //    alloc-guard (Audio.cpp, P6.7c) instead of streaming writes through a
+    //    NULL buffer.
     // 7) P6.6a: ENGINE AUDIO CORE -- the Saturn AudioDevice::Init backend runs
     //    the engine's own InitAudioChannels, the UNMODIFIED engine loads the
     //    REAL Global/ScoreAdd.wav from the pack (LoadSfx -> LoadSfxToSlot WAV
@@ -1050,6 +1015,233 @@ extern "C" void p6_scene_run(void)
         }
     }
 
+
+    // 3a) P6.7c THE CALL UNDER TEST #1: the engine's OWN LoadGameConfig
+    //     (RetroEngine.cpp:1020-1195) parses the REAL 1.03 GameConfig.bin
+    //     from the pack: title strings, activeCategory/startScene, the
+    //     46-name global-object hash loop (matches our registered Ring),
+    //     the global palette (through the rgb32To16 tables filled in step
+    //     2), the 52-entry global SFX list (alloc-guard skips what exceeds
+    //     the pool), and the full 92-scene 8-category list into STG storage.
+    LoadGameConfig();
+    {
+        uint32 th = 5381u;
+        for (const char *p = gameVerInfo.gameTitle; *p; ++p)
+            th = ((th << 5) + th) ^ (uint32)(uint8)*p;
+        p6_w_cfg_titlehash   = (int32)th;
+        p6_w_cfg_globalcount = globalObjectCount;
+        p6_w_cfg_ringgid     = globalObjectIDs[2];
+        p6_w_cfg_catcount    = sceneInfo.categoryCount;
+        p6_w_cfg_startpos    = sceneInfo.listPos;
+        p6_w_sfx_skips       = p6_saturn_sfx_skips;
+    }
+
+    // 3b) Harness stage-select (the dev-menu equivalent): find the Title
+    //     entry in the ENGINE-built list by folder name and park listPos on
+    //     it. The discovery is witnessed; the gate asserts it equals the
+    //     offline parse (listPos 1, category 0).
+    {
+        SceneListInfo *cat0 = &sceneInfo.listCategory[0];
+        for (int32 i = cat0->sceneOffsetStart; i <= cat0->sceneOffsetEnd; ++i) {
+            if (!strcmp(sceneInfo.listData[i].folder, "Title")) {
+                sceneInfo.listPos = i;
+                p6_w_cfg_titlepos = i;
+                break;
+            }
+        }
+    }
+
+    // 3c) P6.7c THE CALL UNDER TEST #2: the engine's OWN scene-load chain,
+    //     mirroring ProcessEngine's ENGINESTATE_LOAD case (RetroEngine.cpp
+    //     :359-361) -- LoadSceneFolder(); LoadSceneAssets(); InitObjects();
+    //     (SKU::userCore->StageLoad() omitted: userCore is the NULL pack
+    //     stub; ProcessInput deferred with the input backend, P6.8 item.)
+    //     LoadSceneFolder clears groups/anims/surfaces, parses TileConfig
+    //     (absent for Title -> windows stay zero, witnessed), parses the
+    //     REAL StageConfig (useGlobalObjects=0 -> classCount=2), loads the
+    //     stage palette rows, and LoadStageGIF-decodes the tileset with the
+    //     CANONICAL palette merge (GIF colors only into inactive rows,
+    //     Scene.cpp:988-998).
+    LoadSceneFolder();
+    p6_w_cfg_classcount0 = sceneInfo.classCount;
+
+    //     Harness Ring append -- the EXACT engine stage-class append shape
+    //     (Scene.cpp:199-205 + the static-vars classID/active lines
+    //     :237-239): Title's StageConfig doesn't list Ring, but the proof
+    //     entity must stay registered as a stage class. Witnessed; the
+    //     engine path does the identical writes for hash-matched classes.
+    {
+        Object *ringStatic = *(Object **)p6_ring2_staticvars_slot;
+        stageObjectIDs[sceneInfo.classCount] = P6_OBJ_RING_CLASSID; // objectClassList id 2
+        ringStatic->classID = sceneInfo.classCount;                 // Scene.cpp:237
+        ringStatic->active  = ACTIVE_NORMAL;                        // Scene.cpp:238-239
+        sceneInfo.classCount++;                                     // Scene.cpp:203
+    }
+    p6_w_cfg_classcount = sceneInfo.classCount;
+
+    //     THE CALL UNDER TEST (P6.3, unchanged): unmodified engine scene
+    //     parse of "Data/Stages/Title/Scene1.bin" from the pack. Scene
+    //     classes hash-resolve against stageObjectIDs[0..classCount): none
+    //     of Title's classes are registered -> classID 0 fallback, entity
+    //     slots + positions land byte-identically to P6.3 (gate W4-W6).
+    LoadSceneAssets();
+    p6_w_scene_step = 3;
+
+    //     InitObjects (Object.cpp:327-362): stageLoad dispatch over the 3
+    //     stage classes (DefaultObject/DevOutput empty bodies; Ring NULL),
+    //     create for classID!=0 entities (none at Title), then the engine
+    //     itself sets sceneInfo.state = ENGINESTATE_REGULAR (:358) and adds
+    //     camera 0 (:360-361) -- both retired from the hand-wiring.
+    //     createSlot: the stock `ENTITY_COUNT - 0x100` literal would wrap the
+    //     uint16 to 0xFFC0 at the 0xC0 retarget (a WILD CreateEntity index at
+    //     0x017CE800, outside WRAM-L -- P6.7c verification finding); the
+    //     engine line now uses TEMPENTITY_START (PC-byte-identical), and the
+    //     witness below asserts the value (0x80 at Title scale).
+    InitObjects();
+    p6_w_createslot = (int32)sceneInfo.createSlot;
+
+    // 3d) P6.7c witnesses over the LoadSceneFolder side effects: the
+    //     TileConfig windows (zero for Title -- MEASURED absent from the
+    //     1.03 pack; any stray write fires the gate) and the canonical
+    //     fullPalette[0] (512 B big-endian uint16[256] image).
+    {
+        const uint8 *cm = (const uint8 *)P6_LW_COLLMASKS;
+        uint32 h = 5381u;
+        for (uint32 i = 0; i < 0x20000u; ++i)
+            h = ((h << 5) + h) ^ (uint32)cm[i];
+        p6_w_til_cmhash = (int32)h;
+
+        const uint8 *ti = (const uint8 *)P6_LW_TILEINFO;
+        h = 5381u;
+        for (uint32 i = 0; i < 0x2800u; ++i)
+            h = ((h << 5) + h) ^ (uint32)ti[i];
+        p6_w_til_tihash = (int32)h;
+
+        const uint8 *pal = (const uint8 *)fullPalette[0];
+        h = 5381u;
+        for (uint32 i = 0; i < 512u; ++i)
+            h = ((h << 5) + h) ^ (uint32)pal[i];
+        p6_w_pal_hash = (int32)h;
+    }
+
+    // 3.5) Pack-routing witness: re-open the scene file exactly as the engine
+    //      did and record where it came from. OpenDataFile stamps the in-pack
+    //      byte offset into FileInfo.fileOffset (Reader.cpp:218); pack data
+    //      always sits past the header+registry, so fileOffset > 0 iff the
+    //      open rode the pack (a loose open leaves InitFileInfo's zero).
+    {
+        FileInfo pfi;
+        InitFileInfo(&pfi);
+        if (LoadFile(&pfi, "Data/Stages/Title/Scene1.bin", FMODE_RB)) {
+            p6_w_pack_used = (pfi.fileOffset > 0) ? 1 : 0;
+            CloseFile(&pfi);
+        }
+    }
+
+    // 4) P6.5a (Task #208): the tileset-decode witness. P6.7c: the hand
+    //    LoadStageGIF call is RETIRED -- the engine's own LoadSceneFolder ran
+    //    it (Scene.cpp:272-273) with the CANONICAL palette merge (GIF colors
+    //    only into rows inactive in both masks, Scene.cpp:988-998; active
+    //    rows come from the global/stage palettes via LoadSceneAssets:308-319
+    //    -- witnessed by p6_w_pal_hash in step 3d). The rgb32To16 fill moved
+    //    to step 2 (LoadGameConfig's global-palette read needs it). The pixel
+    //    bytes are merge-independent, so qa_p6_gif.py's Pillow model holds
+    //    unchanged.
+    {
+        const uint8 *px = (const uint8 *)P6_LW_TILESETPX;
+        uint32 h        = 5381u;
+        for (uint32 i = 0; i < 0x40000u; ++i)
+            h = ((h << 5) + h) ^ (uint32)px[i];
+        p6_w_gif_hash   = (int32)h;
+        p6_w_gif_b0     = (int32)px[0];
+        p6_w_gif_loaded = 1;
+    }
+
+    // 5) P6.5b1: FIRST ENGINE-RENDERED PIXELS -- present the engine-decoded
+    //    Island layer (tileLayers[3]) through VDP2 NBG1 from the engine's own
+    //    tilesetPixels + layout + fullPalette[0]. main.c then parks the diag
+    //    build on jo_core_run so the layer stays on screen for the capture.
+    p6_vdp2_present((const unsigned char *)P6_LW_TILESETPX,
+                    (const unsigned short *)tileLayers[3].layout,
+                    tileLayers[3].widthShift,
+                    (const unsigned short *)fullPalette[0]);
+    p6_w_vdp2_done = 1;
+
+    // 6) P6.5b2: ENGINE OBJECT SPRITES -- the engine loads the REAL
+    //    Global/Ring.bin animation set from the pack (LoadSpriteAnimation ->
+    //    LoadSpriteSheet -> ImageGIF, Animation.cpp:11-94 + Sprite.cpp:906),
+    //    the proof copies the parsed metadata into witnesses byte-for-byte
+    //    (qa_p6_sprite.py model = parse_spr on the same Ring.bin), uploads
+    //    anim-0 frame-0's sheet rect to VDP1, and arms the engine animator
+    //    that p6_scene_tick() advances with the engine's own ProcessAnimation.
+    {
+        uint16 sprID = LoadSpriteAnimation("Global/Ring.bin", SCOPE_STAGE);
+        p6_w_spr_id  = (sprID == (uint16)-1) ? -1 : (int32)sprID;
+        if (p6_w_spr_id >= 0) {
+            SpriteAnimation *spr = &spriteAnimationList[sprID];
+            p6_w_spr_animcount   = (int32)spr->animCount;
+            SpriteFrame *f0      = &spr->frames[spr->animations[0].frameListOffset];
+            p6_w_spr_f0xy        = ((int32)f0->sprX << 16) | (int32)f0->sprY;
+            p6_w_spr_f0wh        = ((int32)f0->width << 16) | (int32)f0->height;
+            p6_w_spr_f0pv = (((int32)f0->pivotX & 0xFFFF) << 16) | ((int32)f0->pivotY & 0xFFFF);
+            p6_w_spr_f0dur       = (int32)f0->duration;
+
+            // MEASURED FAILURE MODE (P6.5b2 T2): a failed LoadSpriteSheet
+            // returns (uint16)-1 which the uint8 sheetIDs[] truncates to 0xFF
+            // (Animation.cpp:39/62) -- gfxSurface[0xFF] is OOB (SURFACE_COUNT
+            // slots) and the unguarded hash loop dereferenced a wild pixels
+            // pointer, killing the whole run body (scene_step stuck at 3,
+            // every witness after block 6 unwritten). Witness the raw id and
+            // only touch gfxSurface when it is a real, populated slot.
+            p6_w_spr_sheetid = (int32)f0->sheetID;
+            GFXSurface *sheet = &gfxSurface[f0->sheetID];
+            if (f0->sheetID < SURFACE_COUNT && sheet->scope != SCOPE_NONE && sheet->pixels) {
+                uint32 sh     = 5381u;
+                uint32 nbytes = (uint32)sheet->width * (uint32)sheet->height;
+                for (uint32 i = 0; i < nbytes; ++i)
+                    sh = ((sh << 5) + sh) ^ (uint32)sheet->pixels[i];
+                p6_w_spr_sheethash = (int32)sh;
+
+                SetSpriteAnimation(sprID, 0, &p6_ringAnimator, true, 0);
+                p6_objRingFrames = &spr->frames[spr->animations[0].frameListOffset]; // P6.7a
+
+                // P6.5b3: DrawSprite environment. Drawing.cpp:2683 translates
+                // through currentScreen->position; :2676/:2687 dereference
+                // sceneInfo.entity unconditionally. screens[0] sits zeroed in
+                // WRAM-L (Group-B absolute, memset in step 0) -> position
+                // (0,0); entity slot 0 is zeroed -> drawFX=FX_NONE,
+                // inkEffect=INK_NONE, FLIP_NONE.
+                currentScreen      = &screens[0];
+                screens[0].size.x  = SCREEN_XMAX;
+                screens[0].size.y  = SCREEN_YSIZE;
+                sceneInfo.entity   = &objectEntityList[0];
+
+                p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
+                                   (const unsigned short *)fullPalette[0]);
+            }
+        }
+    }
+
+    // 8) P6.7c: spawn the proof entity through the engine path. Registration
+    //    + SetupFunctionTables moved to step 2b (the InitGameLink mirror);
+    //    stageObjectIDs/classCount now come from the ENGINE's StageConfig
+    //    path + the witnessed harness append (step 3c); ENGINESTATE_REGULAR
+    //    is set by the engine's own InitObjects (Object.cpp:358). Remaining
+    //    NO-CTORS environment: videoSettings + engine fields, set explicitly
+    //    (ProcessObjectDrawLists reads both, Object.cpp:736-752).
+    if (p6_objRingFrames) {
+        videoSettings.screenCount  = 1;
+        engine.drawGroupVisible[3] = true;
+        p6_obj_spawn_ring();
+    }
+
+    // 7c-moved) P6.7c ORDERING FIX (measured: gate T5 RED at the old
+    //    pre-LoadGameConfig spot): CD-DA playback and GFS data reads share
+    //    the CD block -- the 50+ pack reads of the scene chain DISPLACE an
+    //    already-armed CD-DA play. PlayStream therefore runs LAST, after
+    //    every pack read -- which is ALSO the canonical order (decomp
+    //    Music_PlayTrack fires from the scene's own logic AFTER the stage
+    //    load completes, TitleSetup.c:145).
     // 7c) P6.6c: ENGINE MUSIC -- the canonical PlayStream call shape (decomp
     //     Music_PlayTrack -> RSDK.PlayStream(track->fileName, 0, 0, loop,
     //     true); the Title scene requests TitleScreen.ogg via TRACK_STAGE,
@@ -1070,37 +1262,6 @@ extern "C" void p6_scene_run(void)
         for (const char *p = streamFilePath; *p; ++p)
             ph = ((ph << 5) + ph) ^ (uint32)(uint8)*p;
         p6_w_str_path = (int32)ph;
-    }
-
-    // 8) P6.7a: ENGINE OBJECT LOOP -- populate the engine's own function
-    //    table (real SetupFunctionTables, Core/Link.cpp; the P6.1-proven
-    //    dispatch path -- the flat Ring TU's RSDK.* calls route through it),
-    //    register Blank @0 + the VERBATIM decomp Ring @1 through the real
-    //    RegisterObject (Object.cpp:62-108), and spawn the proof entity via
-    //    ResetEntitySlot. The tick then runs the engine's ProcessObjects +
-    //    ProcessObjectDrawLists every frame (mirrors p6_main.cpp:120-150,
-    //    the P6.1 standalone template).
-    if (p6_objRingFrames) {
-        SetupFunctionTables();
-
-        RegisterObject(&p6_blankStaticVars, "Blank Object", sizeof(EntityBase), sizeof(Object),
-                       NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
-        RegisterObject((Object **)p6_ring2_staticvars_slot, "Ring", p6_ring2_entity_size, 20,
-                       Ring_Update, NULL, NULL, Ring_Draw, NULL, NULL, NULL, NULL, NULL);
-        p6_w_obj_classcount = objectClassCount;
-
-        stageObjectIDs[0]    = 0;
-        stageObjectIDs[P6_OBJ_RING_CLASSID] = 1;
-        sceneInfo.classCount = 2;
-
-        // ProcessObjectDrawLists environment (Object.cpp:736-752): one
-        // screen, the proof draw group visible. NO-CTORS: videoSettings +
-        // engine fields set explicitly.
-        videoSettings.screenCount  = 1;
-        engine.drawGroupVisible[3] = true;
-        sceneInfo.state            = ENGINESTATE_REGULAR;
-
-        p6_obj_spawn_ring();
     }
 
     // 4) Witness copy (WRAM-H .bss survives the later title boot's WRAM-L use).

@@ -327,7 +327,13 @@ void RSDK::LoadStaticVariables(uint8 *classPtr, uint32 *hash, int32 readOffset)
 void RSDK::InitObjects()
 {
     sceneInfo.entitySlot = 0;
-    sceneInfo.createSlot = ENTITY_COUNT - 0x100;
+    // P6.7c (Task #210): the stock literal `ENTITY_COUNT - 0x100` IS
+    // TEMPENTITY_START on PC (TEMPENTITY_COUNT == 0x100) but createSlot is
+    // uint16 (Scene.hpp), so at the Saturn ENTITY_COUNT retarget (0xC0) the
+    // subtraction wraps to 0xFFC0 -- a WILD CreateEntity index addressing
+    // 0x017CE800 (outside WRAM-L). TEMPENTITY_START is byte-identical on PC
+    // and correct on every retarget. MEASURED by the P6.7c verification pass.
+    sceneInfo.createSlot = TEMPENTITY_START;
     cameraCount          = 0;
 
     for (int32 o = 0; o < sceneInfo.classCount; ++o) {

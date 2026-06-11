@@ -376,6 +376,32 @@ void RSDK::LoadSfxToSlot(char *filename, uint8 slot, uint8 plays, uint8 scope)
                     length /= 2;
 
                 AllocateStorage((void **)&sfxList[slot].buffer, sizeof(float) * length, DATASET_SFX, false);
+#if RETRO_PLATFORM == RETRO_SATURN
+                // P6.7c (Task #210) pool-exhaustion guard: the Saturn
+                // DATASET_SFX pool is 32 KB while Mania's GameConfig lists 52
+                // global SFX whose F32 buffers total megabytes -- a failed
+                // AllocateStorage leaves buffer NULL and the unguarded convert
+                // loop below would stream writes from address 0 (the engine's
+                // own comment at the data-header scan above already documents
+                // the un-reset-scope bug class). Reset the slot to SCOPE_NONE
+                // (it was claimed at the top of this if-block) so it stays
+                // reusable and GetSfx/PlaySfx-invisible, witness the skip, and
+                // bail. The shipping SFX residency architecture (S16 in sound
+                // RAM, not F32 in WRAM) is a tracked P6.8 design item.
+                if (!sfxList[slot].buffer) {
+                    extern int32 p6_saturn_sfx_skips;
+                    ++p6_saturn_sfx_skips;
+                    // MEM_ZERO the WHOLE slot (the ClearStageSfx shape,
+                    // below in this file): the hash was copied before the
+                    // alloc and GetSfx matches on hash ALONE -- a stale hash
+                    // left here would shadow a later same-name load that
+                    // succeeds into a higher slot (permanently muted SFX).
+                    // Zeroing also yields scope = SCOPE_NONE (reusable slot).
+                    MEM_ZERO(sfxList[slot]);
+                    CloseFile(&info);
+                    return;
+                }
+#endif
                 sfxList[slot].length = length;
 
                 // Convert the sample data to F32 format

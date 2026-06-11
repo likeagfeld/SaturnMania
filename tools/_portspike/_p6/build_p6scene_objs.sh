@@ -133,6 +133,18 @@ echo "[7h] Core_Math.o (engine Math.cpp, Saturn baked trig tables per Task #212 
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Core_Math.o" "$SRC/RSDK/Core/Math.cpp"
 
+echo "[7hb] Core_RetroEngine.o (engine RetroEngine.cpp -- the REAL LoadGameConfig for P6.7c; gc keeps only its closure; engine/globalVarsPtr def conflicts resolved via the P6_SCENE_TEST guard + stub removal; 1.03 per-scene-filter shim in-file under RETRO_SATURN) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Core_RetroEngine.o" "$SRC/RSDK/Core/RetroEngine.cpp"
+
+echo "[7hc] Scene_Objects_DefaultObject.o (REAL engine DefaultObject @classID 0 -- the InitGameLink preamble mirror, P6.7c) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Scene_Objects_DefaultObject.o" "$SRC/RSDK/Scene/Objects/DefaultObject.cpp"
+
+echo "[7hd] Scene_Objects_DevOutput.o (REAL engine DevOutput @classID 1) ..."
+$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Scene_Objects_DevOutput.o" "$SRC/RSDK/Scene/Objects/DevOutput.cpp"
+
 echo "[7i] UserCore_Saturn.o (-DRSDK_SKU_GLOBALS_IN_LINK so Core_Link.o solely owns the SKU globals; recipe from link_p6.sh:321-324) ..."
 $CC $CXXFLAGS $ENG_DEFS -DRSDK_SKU_GLOBALS_IN_LINK $CORE_INC \
     -c -o "$P6/UserCore_Saturn.o" "$PLAT/UserCore_Saturn.cpp"
@@ -177,6 +189,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Storage_Text.o" "$P6/Graphics_Sprite.o" "$P6/p6_vdp2.o" \
     "$P6/Graphics_Animation.o" "$P6/Audio_Audio.o" \
     "$P6/Scene_Object.o" "$P6/Core_Link.o" "$P6/Core_Math.o" \
+    "$P6/Core_RetroEngine.o" \
+    "$P6/Scene_Objects_DefaultObject.o" "$P6/Scene_Objects_DevOutput.o" \
     "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" "$P6/p6_ring2.o" \
     -o "$P6/p6_scene_pack.o"
 

@@ -65,6 +65,16 @@ int32 inputDeviceCount = 0;
 int32 inputSlots[PLAYER_COUNT];
 InputDevice *inputSlotDevices[PLAYER_COUNT];
 int32 GetInputDeviceType(uint32 deviceID) { return 0; }
+// P6.7c: the pad-state arrays (Input.hpp:463-470, defined in Input.cpp which
+// is not a pack TU). DefaultObject_Update reads controller[CONT_ANY]
+// (DefaultObject.cpp:17-31); zeroed state = no buttons held, the dispatch is
+// inert until the Saturn input backend lands (P6.8 item).
+ControllerState controller[PLAYER_COUNT + 1];
+AnalogState stickL[PLAYER_COUNT + 1];
+AnalogState stickR[PLAYER_COUNT + 1];
+TriggerState triggerL[PLAYER_COUNT + 1];
+TriggerState triggerR[PLAYER_COUNT + 1];
+TouchInfo touchInfo;
 
 // ---- Dev / misc ---------------------------------------------------------------
 int32 debugHitboxCount = 0;
@@ -73,7 +83,11 @@ int32 AddDebugHitbox(uint8 type, uint8 dir, Entity *entity, Hitbox *hitbox) { re
 void AddViewableVariable(const char *name, void *value, int32 type, int32 min, int32 max) {}
 void UpdateGameWindow() {}
 bool32 useEndLine = true;
-int32 *globalVarsPtr = NULL; // RetroEngine.hpp:731
+// P6.7c: globalVarsPtr stub REMOVED -- Core_RetroEngine.o (real TU, in the
+// pack for LoadGameConfig) defines it at RetroEngine.cpp:18. NULL is the
+// verified-safe state: the GameConfig var loop breaks immediately at
+// RetroEngine.cpp:1172-1173 (the Mania globals buffer needs ~262 KB and is a
+// P6.8 design item -- the var offsets reach index 66,995).
 
 namespace SKU {
 UserCore *userCore = NULL;

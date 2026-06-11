@@ -20,7 +20,13 @@ int32 *RSDK::globalVarsPtr = NULL;
 void (*RSDK::globalVarsInitCB)(void *globals) = NULL;
 #endif
 
+#if !defined(P6_SCENE_TEST) // P6.7c: pack backing in p6_io_main.cpp -- plain
+                            // zero-init .bss (the `= RetroEngine()` form is a
+                            // dynamic initializer SLSTART never runs; fields
+                            // the proof needs are set explicitly, the
+                            // engine.streamsEnabled NO-CTORS class)
 RetroEngine RSDK::engine = RetroEngine();
+#endif
 
 int32 RSDK::RunRetroEngine(int32 argc, char *argv[])
 {
@@ -1152,9 +1158,21 @@ void RSDK::LoadGameConfig()
                 ReadString(&info, scene->id);
 
 #if RETRO_REV02
+#if RETRO_PLATFORM == RETRO_SATURN
+                // P6.7c (Task #210) DATA-FORMAT SHIM, MEASURED 2026-06-10: the
+                // shipped Saturn pack is Mania 1.03.0829 (pre-Plus), whose
+                // GameConfig scene entries carry NO filter byte (the REV01
+                // layout -- a REV01-form offline parse consumes the 4,008-byte
+                // file exactly end-to-end; reading a filter byte here desyncs
+                // at the FIRST scene entry). The engine itself builds REV02 for
+                // the v5U-era logic paths, so skip the read and apply the
+                // engine's own 0x00->0xFF convention (line below) directly.
+                scene->filter = 0xFF;
+#else
                 scene->filter = ReadInt8(&info);
                 if (scene->filter == 0x00)
                     scene->filter = 0xFF;
+#endif
 #endif
             }
             category->sceneOffsetEnd = category->sceneCount ? category->sceneOffsetStart + category->sceneCount - 1 : 0;

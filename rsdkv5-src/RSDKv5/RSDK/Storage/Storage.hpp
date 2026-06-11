@@ -3,7 +3,19 @@
 
 namespace RSDK
 {
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.7c (Task #210) data retarget, same class as the P4 x4->x1 flips: the two
+// entry arrays below are 4 B/slot each, so 0x1000 slots = 32,788 B per
+// DataStorage x 5 datasets = 163,940 B of WRAM-L bookkeeping. The Title proof
+// path allocates < 100 entries per pool and GHZ-scale stays in the low
+// hundreds (sheets/anims/layers/sfx/staticvars -- entities do NOT allocate
+// per-instance); 0x800 (2048) slots halve the bookkeeping to 16,404 B per
+// dataset. Storage.cpp's GC/defrag loops are bounded by entryCount, not the
+// array size, so no 0x1000 assumption exists outside this define.
+#define STORAGE_ENTRY_COUNT (0x800)
+#else
 #define STORAGE_ENTRY_COUNT (0x1000)
+#endif
 
 enum StorageDataSets {
     DATASET_STG = 0,
