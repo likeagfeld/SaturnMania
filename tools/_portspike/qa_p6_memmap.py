@@ -115,6 +115,9 @@ def main():
     hwram_used = (c["P68_HWRAM_CODE_BYTES"] + c["P68_HWRAM_SGL_RESERVE"] +
                   c["P68_HWRAM_TILESET_BYTES"] + typegroups + drawgroups +
                   classlist + c["P68_HWRAM_MISC_BYTES"])
+    if c["P68_COLLISION_PLACED"]:
+        # P6.7d.2: collision is a placed WRAM-H tenant (packed form).
+        hwram_used += c.get("P68_HWRAM_COLL_BYTES", c["P68_COLL_PACKED_BYTES"])
     hwram_margin = 0x100000 - hwram_used
 
     print("  GHZ1 live entity count: %d" % ghz)

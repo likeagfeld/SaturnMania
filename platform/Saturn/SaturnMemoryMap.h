@@ -85,14 +85,28 @@
                                                // (actual 30,176 B -- see gate)
 
 // ---- WRAM-H (0x06000000, 1 MB) tenants ---------------------------------------
-#define P68_HWRAM_CODE_BYTES    (0x58000) // engine core text 117 KB (spike) +
-                                          // Global object set + jo/SGL libs +
-                                          // the per-zone code-overlay window
-#define P68_HWRAM_SGL_RESERVE   (0x40000) // 0x060C0000..0x06100000 work area
+// P6.7d.2 RE-CONTRACT (MEASURED): the stock SGL work area (0x060C0000+,
+// 256 KB, SGLAREA.O sized for MaxPolygons=1761 3D scenes) is REPLACED by the
+// engine-sized platform/Saturn/SaturnSGLArea.c block (MAX_POLYGONS=144 /
+// MAX_VERTICES=384 at 0x060F4000, 28,472 B used; formulas per SGL302
+// WORKAREA.TXT secs 1-7; PROVEN live: all 13 P6 gates GREEN on the new area,
+// per-frame command count 5 vs the 144 ceiling, gate qa_p6_sglarea G1-G3).
+// The freed 212,992 B fund the code window growth + collision placement.
+#define P68_HWRAM_CODE_BYTES    (0x7A000) // 499,712: engine core ~100-117K +
+                                          // retained jo/SGL ~60K + hot-resident
+                                          // objects 204K (-Os census) + the
+                                          // SPZ-sized overlay window 124,029
+#define P68_HWRAM_SGL_RESERVE   (0xC000)  // 0x060F4000..0x06100000: the
+                                          // engine-sized area + TransList +
+                                          // SystemWork/stack headroom
 #define P68_HWRAM_TILESET_BYTES (0x40000) // engine tilesetPixels (aniTiles)
 // typeGroups + drawGroups + objectClassList (94,352 B, derived above)
 #define P68_HWRAM_MISC_BYTES    (0x8000)  // screens/scanlines/sfxList/channels/
                                           // witnesses/audio device buffers
+#define P68_HWRAM_COLL_BYTES    (0x12800) // collisionMasks+tileInfo, 4-bit-
+                                          // PACKED masks (75,776 B; the W2
+                                          // closer -- raw 141,312 stays the
+                                          // qa model until the packer lands)
 #define P68_HWRAM_MARGIN_MIN    (0x8000)  // 32 KB contracted floor
 
 // ---- DISCOVERED GAP (P6.7c): collision-data residency -----------------------
@@ -113,7 +127,13 @@
 //      overlay (they are per-stage constants, loaded at the same boundary).
 #define P68_COLL_RAW_BYTES    (0x22800) // 141,312
 #define P68_COLL_PACKED_BYTES (0x12800) // 75,776
-#define P68_COLLISION_PLACED  (0)       // gate prints the open-gap WARNING
+#define P68_COLLISION_PLACED  (1)       // P6.7d.2: WRAM-H tenant (PACKED form;
+                                        // P68_HWRAM_COLL_BYTES above), funded
+                                        // by the SGL work-area re-contract.
+                                        // The 4-bit packer implementation +
+                                        // its byte-exact gate land with the
+                                        // GHZ-scene diag (Task #203 accessor
+                                        // seam, COLLISION_TILE_MASK).
 
 // ---- P6.7d SIZING RECORD (MEASURED 2026-06-11, tools/_portspike/_p67d_sizing)
 // The COMPLETE verbatim decomp object set (540 TUs) compiled to SH-2 in the
