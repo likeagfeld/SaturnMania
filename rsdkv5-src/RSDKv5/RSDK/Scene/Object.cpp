@@ -469,7 +469,18 @@ void RSDK::ProcessObjects()
                 if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update)
                     objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update();
 
+#if RETRO_PLATFORM == RETRO_SATURN
+                // P6.7b (Task #210): the Saturn group lists are entry-capped
+                // (SaturnMemoryMap.h P68_DRAWGROUP_ENTRY_CAP at the P6.8
+                // flip); an uncapped write past entries[] is the silent
+                // .bss-corruption class (Phase 1.4-1.15). Clamp -- a full
+                // list drops the entity from DRAW this frame (visible,
+                // diagnosable) instead of corrupting the adjacent group.
+                if (sceneInfo.entity->drawGroup < DRAWGROUP_COUNT
+                    && drawGroups[sceneInfo.entity->drawGroup].entityCount < ENTITY_COUNT)
+#else
                 if (sceneInfo.entity->drawGroup < DRAWGROUP_COUNT)
+#endif
                     drawGroups[sceneInfo.entity->drawGroup].entries[drawGroups[sceneInfo.entity->drawGroup].entityCount++] = sceneInfo.entitySlot;
             }
         }
@@ -491,12 +502,27 @@ void RSDK::ProcessObjects()
         sceneInfo.entity = &objectEntityList[e];
 
         if (sceneInfo.entity->inRange && sceneInfo.entity->interaction) {
+#if RETRO_PLATFORM == RETRO_SATURN
+            // P6.7b: same entry-cap clamp as the drawGroups write above
+            // (typeGroups carry only inRange entities; cap per
+            // SaturnMemoryMap.h at the P6.8 flip).
+            if (typeGroups[GROUP_ALL].entryCount < ENTITY_COUNT)
+                typeGroups[GROUP_ALL].entries[typeGroups[GROUP_ALL].entryCount++] = e;
+
+            if (typeGroups[sceneInfo.entity->classID].entryCount < ENTITY_COUNT)
+                typeGroups[sceneInfo.entity->classID].entries[typeGroups[sceneInfo.entity->classID].entryCount++] = e;
+
+            if (sceneInfo.entity->group >= TYPE_COUNT
+                && typeGroups[sceneInfo.entity->group].entryCount < ENTITY_COUNT)
+                typeGroups[sceneInfo.entity->group].entries[typeGroups[sceneInfo.entity->group].entryCount++] = e;
+#else
             typeGroups[GROUP_ALL].entries[typeGroups[GROUP_ALL].entryCount++] = e; // All active objects
 
             typeGroups[sceneInfo.entity->classID].entries[typeGroups[sceneInfo.entity->classID].entryCount++] = e; // class-based groups
 
             if (sceneInfo.entity->group >= TYPE_COUNT)
                 typeGroups[sceneInfo.entity->group].entries[typeGroups[sceneInfo.entity->group].entryCount++] = e; // extra groups
+#endif
         }
 
         sceneInfo.entitySlot++;
