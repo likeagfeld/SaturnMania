@@ -30,12 +30,36 @@ $CC -x c -std=gnu99 -m2 -O2 -fno-builtin \
     -c -o /work/platform/Saturn/SaturnSGLArea.o \
     /work/platform/Saturn/SaturnSGLArea.c
 
-echo "[3/4] jo image (P6SCENE flavor, flavor-switch rm, SYSOBJS override) ..."
+echo "[3/5] jo image (P6SCENE flavor, flavor-switch rm, SYSOBJS override) ..."
 cd /work
 rm -f src/main.o game.elf game.map
 make P6SCENE=1 SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
-echo "[4/4] sanity: _end + engine-area symbols ..."
+echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
+LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
+OBJCOPY=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-objcopy
+P6=/work/tools/_portspike/_p6
+cd "$P6"   # ovl_ring.ld names input objects by basename
+# game.elf is COFF-SH (sgl.linker OUTPUT_FORMAT) while the overlay objects
+# are ELF: disambiguate per-input with -b (MEASURED: bare -R errors "file
+# format is ambiguous: coff-sh coff-sh-small").
+# BASENAMES REQUIRED (measured): ovl_ring.ld's `p6_ovl_ring.o(.text*)`
+# pattern only FILTERS when it matches a command-line input by the same
+# spelling; with absolute paths it becomes an extra INPUT statement and the
+# object loads twice (multiple definition of p6_overlay_entry).
+$LD -b coff-sh -R /work/game.elf -b elf32-sh \
+    -T ovl_ring.ld -Map ovl_ring.map \
+    p6_ovl_ring.o p6_ring2.o -o ovl_ring.elf
+$OBJCOPY -O binary "$P6/ovl_ring.elf" /work/cd/OVLRING.BIN
+ls -l /work/cd/OVLRING.BIN
+cd /work
+
+echo "[4/5] re-master the ISO with the overlay on disc ..."
+rm -f game.iso
+make P6SCENE=1 SYSOBJS=platform/Saturn/SaturnSGLArea.o
+
+echo "[5/5] sanity: _end + engine-area symbols + overlay entry address ..."
 grep " _end = " game.map
 grep -m1 " MaxPolygons" game.map
-echo "DONE [diag image built: game.iso/game.cue]."
+grep -m1 "p6_overlay_entry" "$P6/ovl_ring.map" || true
+echo "DONE [diag image built: game.iso/game.cue + cd/OVLRING.BIN]."

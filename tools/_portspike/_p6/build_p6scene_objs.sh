@@ -156,9 +156,15 @@ $CC $CXXFLAGS $ENG_DEFS -DP6_PACK_STUBS $CORE_INC \
 echo "[7jb] p6_pack_stubs.o (the measured 43-symbol function-table closure remainder; real TUs replace these P6.7b+) ..."
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC -c -o "$P6/p6_pack_stubs.o" "$P6/p6_pack_stubs.cpp"
 
-echo "[7k] p6_ring2.o (VERBATIM decomp Ring for the pack -- flat TU, bridges into the engine table; p6_gameapi.h two-TU split) ..."
+echo "[7k] p6_ring2.o (VERBATIM decomp Ring -- P6.7d.3: OVERLAY member, NOT a pack member; flat TU, bridges into the engine table) ..."
 $CC $CXXFLAGS -DRETRO_SATURN_FILEIO -I"$P6" -I"$NEWLIB" \
     -c -o "$P6/p6_ring2.o" "$P6/p6_ring2.cpp"
+
+echo "[7l] p6_ovl_ring.o (overlay ENTRY TU -- NO -ffunction-sections so the entry lands first at the window base) ..."
+$CC -x c++ -std=gnu++11 -m2 -O2 -include stdlib.h -fno-exceptions -fno-rtti \
+    -fno-threadsafe-statics -fno-builtin \
+    -DRETRO_SATURN_FILEIO -I"$P6" -I"$NEWLIB" \
+    -c -o "$P6/p6_ovl_ring.o" "$P6/p6_ovl_ring.cpp"
 
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
@@ -178,6 +184,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_scene_run \
     -u _p6_scene_tick \
     -u _p6_w_magic \
+    -u _p6_bridge_proc_anim -u _p6_bridge_draw_sprite -u _p6_scene_entity \
+    -u _p6_w_obj_classid -u _p6_w_obj_timer -u _p6_w_obj_vely \
+    -u _p6_w_obj_posy -u _p6_w_obj_scalex -u _p6_w_obj_frameid \
     -u __sbrk -u __exit -u __close -u __fstat -u __isatty -u __lseek \
     -u __read -u __write -u __open -u __getpid -u __kill -u __fork \
     -u __wait -u __link -u __unlink -u __stat -u __times \
@@ -191,8 +200,12 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Scene_Object.o" "$P6/Core_Link.o" "$P6/Core_Math.o" \
     "$P6/Core_RetroEngine.o" \
     "$P6/Scene_Objects_DefaultObject.o" "$P6/Scene_Objects_DevOutput.o" \
-    "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" "$P6/p6_ring2.o" \
+    "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" \
     -o "$P6/p6_scene_pack.o"
+# P6.7d.3: p6_ring2.o is NOT a pack member -- it links into the fixed-base
+# OVERLAY (build_diag.sh stage [3b]) against the finished game.elf. The
+# bridge/witness -u roots above keep the overlay's -R import surface alive
+# through this gc (nothing inside the pack references them anymore).
 
 echo "--------------------------------------------------------------"
 ls -l "$P6/p6_io_main.o" "$P6/p6_gfs.o" "$P6/Core_Reader.o" \

@@ -35,16 +35,19 @@ static ObjectRing g_ringStatic;
 ObjectRing *Ring = &g_ringStatic;
 
 // ---- P6.7a witnesses (C linkage; read by qa_p6_obj.py) ----------------------
+// P6.7d.3: DEFINED in p6_io_main.cpp (the MAIN image -- gates read game.map);
+// this TU now lives in the fixed-base OVERLAY and writes them through the
+// ld -R symbol import.
 extern "C" {
-__attribute__((used)) int32 p6_w_obj_classcount = 0;  // engine objectClassCount after registration
-__attribute__((used)) int32 p6_w_obj_classid    = 0;  // entity classID at capture (1 alive, 0 dead phase)
-__attribute__((used)) int32 p6_w_obj_timer      = 0;  // verbatim LostFX ++timer
-__attribute__((used)) int32 p6_w_obj_vely       = 0;  // velocity.y == 0x1800 * timer
-__attribute__((used)) int32 p6_w_obj_posy       = 0;  // y0 + 0x1800 * timer*(timer+1)/2
-__attribute__((used)) int32 p6_w_obj_scalex     = 0;  // 0x10 * timer (memset start)
-__attribute__((used)) int32 p6_w_obj_frameid    = 0;  // entity animator frame (engine ProcessAnimation)
-__attribute__((used)) int32 p6_w_obj_draws      = 0;  // Ring_Draw dispatches from the draw-group walk
-__attribute__((used)) int32 p6_w_obj_spawns     = 0;  // engine CreateEntity respawns
+extern int32 p6_w_obj_classcount;
+extern int32 p6_w_obj_classid;
+extern int32 p6_w_obj_timer;
+extern int32 p6_w_obj_vely;
+extern int32 p6_w_obj_posy;
+extern int32 p6_w_obj_scalex;
+extern int32 p6_w_obj_frameid;
+extern int32 p6_w_obj_draws;
+extern int32 p6_w_obj_spawns;
 }
 
 // =============================================================================

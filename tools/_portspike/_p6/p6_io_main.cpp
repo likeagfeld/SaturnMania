@@ -658,22 +658,56 @@ void AudioDevice::HandleStreamLoad(ChannelInfo *channel, bool32 async)
 }
 } // namespace RSDK
 
-// ---- P6.7a: flat-Ring-TU surface + function-table bridges --------------------
+// ---- P6.7a/P6.7d.3: flat-Ring surface + function-table bridges ----------------
 // The verbatim p6_ring2.cpp dispatches RSDK.* through these bridges, which
 // route through the engine's OWN RSDKFunctionTable[] (populated by the real
 // SetupFunctionTables, Core/Link.cpp -- the P6.1-proven path). DrawSprite's
 // slot now carries the REAL Saturn backend (P6.5b3), so the engine-looped
 // ring is VISIBLE.
+//
+// P6.7d.3: the Ring TUs are NO LONGER pack members -- they live in the
+// fixed-base OVERLAY (cd/OVLRING.BIN, linked at P6_OVL_BASE against this
+// image via ld -R), chain-loaded at boot. The main image names ZERO overlay
+// symbols: everything routes through the entry pointer + the api vtable.
+// The p6_w_obj_* witnesses are therefore DEFINED here (gates read them from
+// game.map) and the overlay writes them via the -R import.
+#include "p6_ovl_api.h"
 extern "C" {
-extern void *p6_ring2_staticvars_slot;
-extern unsigned p6_ring2_entity_size;
-extern int32 p6_w_obj_classcount;
-extern int32 p6_w_obj_spawns;
-extern int32 p6_w_obj_draws;
-void Ring_Update(void);
-void Ring_Draw(void);
-void p6_ring2_arm(void *slot, void *frames);
-void p6_ring2_witness(const void *slot);
+__attribute__((used)) int32 p6_w_obj_classcount = 0;  // engine classCount after registration
+__attribute__((used)) int32 p6_w_obj_classid    = 0;  // entity classID at capture
+__attribute__((used)) int32 p6_w_obj_timer      = 0;  // verbatim LostFX ++timer
+__attribute__((used)) int32 p6_w_obj_vely       = 0;  // velocity.y == 0x1800 * timer
+__attribute__((used)) int32 p6_w_obj_posy       = 0;  // y0 + 0x1800 * timer*(timer+1)/2
+__attribute__((used)) int32 p6_w_obj_scalex     = 0;  // 0x10 * timer
+__attribute__((used)) int32 p6_w_obj_frameid    = 0;  // entity animator frame
+__attribute__((used)) int32 p6_w_obj_draws      = 0;  // Ring_Draw dispatches
+__attribute__((used)) int32 p6_w_obj_spawns     = 0;  // engine respawns
+// P6.7d.3 (qa_p6_overlay.py): overlay chain-load witnesses.
+__attribute__((used)) int32 p6_w_ovl_bytes    = -1; // GFS bytes loaded into the window
+__attribute__((used)) int32 p6_w_ovl_hash     = 0;  // djb2 over the loaded bytes (on SH-2)
+__attribute__((used)) int32 p6_w_ovl_classes  = -1; // objectClassCount after the entry ran
+__attribute__((used)) int32 p6_w_ovl_updatefn = 0;  // Ring_Update ptr the entry returned
+}
+
+// The api block + the registration thunk the entry calls back through (the
+// flat-TU rule: overlay code names no C++ engine symbols; pointers only).
+static p6_ovl_api s_ovl;
+extern "C" void p6_ovl_register_object(void **staticVars, const char *name,
+                                       unsigned entityClassSize,
+                                       unsigned staticClassSize,
+                                       void (*update)(void), void (*draw)(void))
+{
+    RSDK::RegisterObject((RSDK::Object **)staticVars, name, entityClassSize,
+                         staticClassSize, update, NULL, NULL, draw,
+                         NULL, NULL, NULL, NULL, NULL);
+}
+
+// src/rsdk/storage.c (hand-port TU, linked in this image): generic GFS
+// load-to-address -- the overlay loader. Name is historical; any address.
+extern "C" int rsdk_storage_load_to_lwram(const char *iso9660_name,
+                                          void *dst, uint32 max_bytes);
+
+extern "C" {
 
 void *p6_scene_entity(void) { return (void *)RSDK::sceneInfo.entity; }
 
@@ -857,7 +891,8 @@ static SpriteFrame *p6_objRingFrames = NULL;
 static void p6_obj_spawn_ring(void)
 {
     ResetEntitySlot(P6_OBJ_RING_SLOT, P6_OBJ_RING_CLASSID, NULL);
-    p6_ring2_arm(&objectEntityList[P6_OBJ_RING_SLOT], (void *)p6_objRingFrames);
+    if (s_ovl.arm_fn)  // overlay vtable (P6.7d.3) -- same verbatim arm body
+        s_ovl.arm_fn(&objectEntityList[P6_OBJ_RING_SLOT], (void *)p6_objRingFrames);
     objectEntityList[P6_OBJ_RING_SLOT].position.x = 260 << 16;
     objectEntityList[P6_OBJ_RING_SLOT].position.y = 60 << 16;
     ++p6_w_obj_spawns;
@@ -878,6 +913,40 @@ extern "C" void p6_scene_run(void)
     if (!p6_w_scene_initstorage)
         return; // loaded stays 0 -> gate RED with initstorage diagnosis
     p6_w_scene_step = 1;
+
+    // 1.5) P6.7d.3: chain-load the Ring OVERLAY -- MUST precede BOTH the
+    //      registration preamble at 2b (the entry registers Ring) AND the
+    //      pack mount at 2.5 (the P6.5b2 second-GFS_Open trap). Original
+    //      placement at 2.4 was AFTER the preamble -- measured: guard
+    //      skipped, Ring unregistered, gates V2/V3 + C2 RED.
+    //      [chain-load the Ring OVERLAY into the window the P6.7d.2
+    //      SGL-area re-contract freed. ORDERING IS BINDING (the P6.5b2 GFS
+    //      trap): a second concurrent GFS_Open FAILS while the Data.rsdk
+    //      handle is open, so this open/close must complete BEFORE the pack
+    //      mounts at 2.5. After the copy: zero the window tail (the overlay's
+    //      .bss) and PURGE the SH-2 cache over the window -- instruction
+    //      fetches go through the cache and any stale READ line would execute
+    //      garbage (SH7604: writing a 16-bit 0 to address|0x40000000
+    //      invalidates that 16-byte line -- the documented cache address
+    //      array mechanism; writes are write-through/no-allocate, so the
+    //      loaded bytes themselves are already in RAM).]
+    {
+        int n = rsdk_storage_load_to_lwram("OVLRING.BIN",
+                                           (void *)P6_OVL_BASE, P6_OVL_WINDOW);
+        p6_w_ovl_bytes = n;
+        if (n > 0) {
+            unsigned char *w = (unsigned char *)P6_OVL_BASE;
+            for (uint32 i = (uint32)n; i < P6_OVL_WINDOW; ++i)
+                w[i] = 0;                       // overlay .bss
+            uint32 h = 5381u;
+            for (int32 i = 0; i < n; ++i)
+                h = ((h << 5) + h) ^ (uint32)w[i];
+            p6_w_ovl_hash = (int32)h;
+            for (uint32 a = P6_OVL_BASE; a < P6_OVL_BASE + P6_OVL_WINDOW; a += 16)
+                *(volatile uint16 *)(a | 0x40000000u) = 0;  // line invalidate
+        }
+    }
+
 
     // 2) P6.7c: the hand-built one-entry scene list is RETIRED -- the ENGINE
     //    builds the real 92-entry list from GameConfig.bin below. The render
@@ -908,8 +977,15 @@ extern "C" void p6_scene_run(void)
     RegisterObject((Object **)&DevOutput, ":DevOutput:", sizeof(EntityDevOutput), sizeof(ObjectDevOutput), DevOutput_Update, DevOutput_LateUpdate,
                    DevOutput_StaticUpdate, DevOutput_Draw, DevOutput_Create, DevOutput_StageLoad, DevOutput_EditorLoad, DevOutput_EditorDraw,
                    DevOutput_Serialize);
-    RegisterObject((Object **)p6_ring2_staticvars_slot, "Ring", p6_ring2_entity_size, 20,
-                   Ring_Update, NULL, NULL, Ring_Draw, NULL, NULL, NULL, NULL, NULL);
+    // P6.7d.3: Ring registers from the OVERLAY -- the entry at P6_OVL_BASE
+    // calls back through the registration thunk (the per-zone pack shape).
+    // Verbatim same RegisterObject arguments, same ordering, classID 2.
+    if (p6_w_ovl_bytes > 0) {
+        s_ovl.register_object = p6_ovl_register_object;
+        ((p6_ovl_entry_t)P6_OVL_BASE)(&s_ovl);
+        p6_w_ovl_classes  = objectClassCount;
+        p6_w_ovl_updatefn = (int32)(uint32)s_ovl.update_fn;
+    }
 
     globalObjectIDs[0] = TYPE_DEFAULTOBJECT; // RetroEngine.cpp:1230
     globalObjectIDs[1] = TYPE_DEVOUTPUT;     // :1232 (REV02)
@@ -1071,7 +1147,7 @@ extern "C" void p6_scene_run(void)
     //     entity must stay registered as a stage class. Witnessed; the
     //     engine path does the identical writes for hash-matched classes.
     {
-        Object *ringStatic = *(Object **)p6_ring2_staticvars_slot;
+        Object *ringStatic = *(Object **)s_ovl.staticvars_slot; // overlay vtable
         stageObjectIDs[sceneInfo.classCount] = P6_OBJ_RING_CLASSID; // objectClassList id 2
         ringStatic->classID = sceneInfo.classCount;                 // Scene.cpp:237
         ringStatic->active  = ACTIVE_NORMAL;                        // Scene.cpp:238-239
@@ -1330,7 +1406,8 @@ extern "C" void p6_scene_tick(void)
             p6_obj_spawn_ring();
         ProcessObjects();
         ProcessObjectDrawLists();
-        p6_ring2_witness(&objectEntityList[P6_OBJ_RING_SLOT]);
+        if (s_ovl.witness_fn)
+            s_ovl.witness_fn(&objectEntityList[P6_OBJ_RING_SLOT]);
     }
 }
 #endif // P6_SCENE_TEST
