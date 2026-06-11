@@ -115,4 +115,25 @@
 #define P68_COLL_PACKED_BYTES (0x12800) // 75,776
 #define P68_COLLISION_PLACED  (0)       // gate prints the open-gap WARNING
 
+// ---- P6.7d SIZING RECORD (MEASURED 2026-06-11, tools/_portspike/_p67d_sizing)
+// The COMPLETE verbatim decomp object set (540 TUs) compiled to SH-2 in the
+// SHIPPING configuration (-Os, -DGAME_VERSION=3 = 1.03 pre-Plus, REVISION=2;
+// 21 Plus-only TUs correctly absent). text+rodata:
+//   TOTAL all objects                1,494,886 B
+//   resident cand. (Glob+Com+Help)    224,018 B  (hot subset after TA/
+//                                                 Competition demotion ~204 KB)
+//   overlay window = max zone (SPZ)    124,029 B  (LRZ 120,983; GHZ 57,241;
+//                                                 Menu pre-Plus 96,669)
+// Entity slots (compiler-truth probe, entity_sizes_103.json): 68 of 554
+// classes exceed the 344 B slot; gameplay-hot offenders are ONLY Player
+// (556 B) and TitleCard (864 B) -> stride STAYS 344, per-class Saturn shrink
+// behind the static_assert wall (the +287 KB stride-raise path is dead).
+// W4 CODE-BUDGET GAP (declared open, decided with the overlay design):
+// hot-resident + window + engine core + retained jo/SGL exceeds the
+// 0x58000 code reserve by roughly 115-155 KB before collision placement.
+// Candidate closers, in checkpoint order: SGL work-area 0x40000 -> 0x20000
+// (+131 KB; requires ST-238 work-area verification), TMP pool trim
+// (+32 KB), further cold-Global demotion into overlays. The formal
+// re-contract of P68_HWRAM_CODE_BYTES lands WITH the P6.7d overlay design.
+
 #endif // SATURN_MEMORY_MAP_H

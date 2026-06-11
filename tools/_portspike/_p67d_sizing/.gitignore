@@ -1,0 +1,5 @@
+obj/
+obj_os/
+include/
+fail.log
+entity_size_probe.o
