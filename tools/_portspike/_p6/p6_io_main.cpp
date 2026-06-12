@@ -1097,8 +1097,41 @@ static void p6_obj_spawn_ring(void)
 // sceneInfo.listData[listPos].id + currentSceneFolder; :693 keeps an entity iff
 // sceneInfo.filter & entity->filter, entity->filter = 0xFF from :555 -- a zero
 // sceneInfo.filter silently wipes EVERY parsed entity at :702).
+// ---- SMPC single-task discipline for the synchronous load phase --------------
+// ST-169 (SMPC manual, "Command Issue Limitations", SMPC_Manual.txt:996-1000):
+// "When conducting command issue processing for the SMPC, a maximum effort
+// shall be made to conduct single tasks. If multiple issues are being
+// processed, problems, such as dual command issue, could occur, which could
+// cause the SMPC error or a deadlock to occur." MEASURED deadlock (Task #227,
+// p6_c5.mcs): SMPC SF=1 with PendingCommand == ExecutingCommand == -1 (NO
+// command in flight) while SGL's per-frame vblank INTBACK issuer
+// (slSmpcCashSend/Blow, sglI00) spins on SF forever -- the INTBACK
+// continue handshake raced the multi-frame CPU-polled CDC reads of the GHZ
+// InitObjects StageLoads (Player .bin parse, p6_w_anim_step=0x405). The
+// load phase is SYNCHRONOUS by decomp contract (ProcessEngine's
+// ENGINESTATE_LOAD polls no input), so p6_scene_run runs with all maskable
+// interrupts off: SGL issues NO INTBACK, dual-issue cannot exist. Any
+// in-flight command is drained (bounded SF wait) before masking; the saved
+// SR is restored on every exit path and SGL recovers on the next vblank.
+#define P6_SMPC_SF (*(volatile unsigned char *)0x20100063u)
+static int p6_saved_sr = 0;
+static void p6_load_phase_enter(void)
+{
+    for (volatile int i = 0; i < 2000000 && (P6_SMPC_SF & 1); ++i) {}
+    int sr;
+    __asm__ volatile("stc sr, %0" : "=r"(sr));
+    p6_saved_sr = sr;
+    sr = (sr & ~0xF0) | 0xF0; // SR.I3-I0 = 15: all maskable interrupts off
+    __asm__ volatile("ldc %0, sr" : : "r"(sr));
+}
+static void p6_load_phase_exit(void)
+{
+    __asm__ volatile("ldc %0, sr" : : "r"(p6_saved_sr));
+}
+
 extern "C" void p6_scene_run(void)
 {
+    p6_load_phase_enter();
     // 0) Zero the WRAM-L windows (SLSTART zeroes only WRAM-H __bstart..__bend).
     memset((void *)P6_LW_ZERO_BASE, 0, P6_LW_ZERO_END - P6_LW_ZERO_BASE);
     // P6.7 W11: zero the WRAM-H packed-collision window in the PRE-STATE --
@@ -1112,8 +1145,10 @@ extern "C" void p6_scene_run(void)
 
     // 1) Engine storage pools (5 mallocs through OUR _sbrk -> WRAM-L heap).
     p6_w_scene_initstorage = (int32)InitStorage();
-    if (!p6_w_scene_initstorage)
+    if (!p6_w_scene_initstorage) {
+        p6_load_phase_exit();
         return; // loaded stays 0 -> gate RED with initstorage diagnosis
+    }
     p6_w_scene_step = 1;
 
     // 1.5) P6.7d.3: chain-load the Ring OVERLAY -- MUST precede BOTH the
@@ -1332,8 +1367,10 @@ extern "C" void p6_scene_run(void)
     //      pack-routed proof by construction).
     p6_w_pack_mounted   = (int32)LoadDataPack("Data.rsdk", 0, false);
     p6_w_pack_filecount = (int32)dataPacks[0].fileCount;
-    if (!p6_w_pack_mounted)
+    if (!p6_w_pack_mounted) {
+        p6_load_phase_exit();
         return; // loaded stays 0 -> gate RED with the mount diagnosis
+    }
 
     // 3-pre) P6.6 audio proofs run BEFORE LoadGameConfig so the 32 KB
     //    DATASET_SFX pool serves them deterministically: LoadGameConfig's
@@ -1881,6 +1918,7 @@ extern "C" void p6_scene_run(void)
     }
     p6_w_scene_loaded = 1;
     p6_w_scene_step   = 4;
+    p6_load_phase_exit();
 }
 
 // P6.5b2: per-frame tick, registered as a jo callback by main.c (the diag
