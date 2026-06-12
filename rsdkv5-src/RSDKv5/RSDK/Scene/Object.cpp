@@ -1146,6 +1146,13 @@ void RSDK::ResetEntity(Entity *entity, uint16 classID, void *data)
 // decomp never does this (oversize entities live in reserve/temp by
 // construction, see Object.hpp pool comment); nonzero = a wave violated it.
 int32 p6_saturn_entity_slot_refusals = 0;
+// W14b (Task #227): reserve-slot reset call log -- discriminates "Camera's
+// ResetEntitySlot(SLOT_CAMERA1) never issued" from "issued, then the slot
+// was clobbered" (MEASURED p6_f9: slot 60 classID 0 at tick time while the
+// Camera staticVars are live). Ring of (slot<<16)|classID, reserve slots only.
+int32 p6_w_rslot_log[16]  = { 0 };
+int32 p6_w_rslot_step[16] = { 0 }; // p6_w_initobj_step at call time (names the caller)
+int32 p6_w_rslot_logn     = 0;
 #endif
 
 void RSDK::ResetEntitySlot(uint16 slot, uint16 classID, void *data)
@@ -1157,6 +1164,11 @@ void RSDK::ResetEntitySlot(uint16 slot, uint16 classID, void *data)
     if (object->entityClassSize > sizeof(EntityBase) && slot >= RESERVE_ENTITY_COUNT && slot < TEMPENTITY_START) {
         ++p6_saturn_entity_slot_refusals;
         return;
+    }
+    if (slot < RESERVE_ENTITY_COUNT && p6_w_rslot_logn < 16) {
+        extern int32 p6_w_initobj_step;
+        p6_w_rslot_step[p6_w_rslot_logn] = p6_w_initobj_step; // caller phase/class
+        p6_w_rslot_log[p6_w_rslot_logn++] = ((int32)slot << 16) | (int32)classID;
     }
 #endif
 

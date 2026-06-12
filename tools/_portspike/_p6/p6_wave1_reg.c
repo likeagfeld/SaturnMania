@@ -88,6 +88,22 @@ extern int32 p6_w_plr_animframes;
 extern int32 p6_w_plr_animid;
 extern int32 p6_w_plr_drawflags;
 extern int32 p6_w_plr_sheetid_t;
+extern int32 p6_w_cam_static;
+extern int32 p6_w_zone_static;
+extern int32 p6_w_cam_entclass;
+extern int32 p6_w_cam_state;
+extern int32 p6_w_cam_target;
+extern int32 p6_w_cam_x;
+extern int32 p6_w_cam_y;
+extern int32 p6_w_scr_x;
+extern int32 p6_w_scr_y;
+extern int32 p6_w_cam_entclass0;
+extern int32 p6_w_api_screencount; // game-side RSDK.GetVideoSetting(SCREENCOUNT) result
+extern int32 p6_w_api_credits;     // game-side RSDK.CheckSceneFolder("Credits") result
+extern int32 p6_w_zone_boundsR;
+extern int32 p6_w_zone_boundsB;
+extern int32 p6_w_cam_boundsR;
+extern int32 p6_w_cam_boundsB;
 
 // =============================================================================
 // p6_wave1_link -- the LinkGameLogicDLL role (Game.c:111-136 pre-Plus shape,
@@ -185,6 +201,11 @@ void p6_wave1_witness(void)
 void p6_player_witness_pre(int32 startSlot, int32 sceneCount)
 {
     p6_w_plr_staticsize = (int32)sizeof(ObjectPlayer);
+    // W14b: replay Camera_StageLoad's two gating calls (Camera.c:94-95)
+    // through the SAME game-side table slots, right before InitObjects --
+    // discriminates a REV-shifted table slot from an engine-state gap.
+    p6_w_api_screencount = RSDK.GetVideoSetting(VIDEOSETTING_SCREENCOUNT);
+    p6_w_api_credits     = (int32)RSDK.CheckSceneFolder("Credits");
     if (!Player || !Player->classID)
         return;
     p6_w_plr_classid = (int32)Player->classID;
@@ -215,6 +236,12 @@ void p6_player_witness_post(void)
     // P7 (STG sizing): LoadSpriteAnimation("Players/Sonic.bin") result --
     // 0xFFFF == the alloc-fail refusal (Player.c:795 assigns the uint16 -1).
     p6_w_plr_sonicframes = (int32)Player->sonicFrames;
+    // W14b: SLOT_CAMERA1 classID immediately after InitObjects (Camera_StageLoad
+    // ResetEntitySlot'd it during the StageLoad phase, Camera.c:96).
+    {
+        Entity *cam0 = RSDK.GetEntity(SLOT_CAMERA1);
+        p6_w_cam_entclass0 = cam0 ? (int32)cam0->classID : -2;
+    }
 }
 
 // =============================================================================
@@ -245,4 +272,26 @@ void p6_player_witness_tick(void)
                                         p1->animator.frameID);
         p6_w_plr_sheetid_t = fr ? (int32)fr->sheetID : -1;
     }
+    // W14b camera chain (Camera.c:14-44/103-126): Camera_LateUpdate is the
+    // ONLY screen->position writer; these tick-time snapshots discriminate
+    // "Camera entity never created" (entclass 0) from "created but stateless"
+    // (state 0) from "ran but clamped to (0,0)" (scr pos vs cam pos).
+    p6_w_cam_static  = (int32)(size_t)Camera;
+    p6_w_zone_static = (int32)(size_t)Zone;
+    if (Camera && Camera->classID) {
+        EntityCamera *cam = RSDK_GET_ENTITY(SLOT_CAMERA1, Camera);
+        p6_w_cam_entclass = (int32)cam->classID;
+        p6_w_cam_state    = (int32)(size_t)cam->state;
+        p6_w_cam_target   = (int32)(size_t)cam->target;
+        p6_w_cam_x        = cam->position.x;
+        p6_w_cam_y        = cam->position.y;
+        p6_w_cam_boundsR  = cam->boundsR;
+        p6_w_cam_boundsB  = cam->boundsB;
+    }
+    if (Zone && Zone->classID) {
+        p6_w_zone_boundsR = Zone->cameraBoundsR[0];
+        p6_w_zone_boundsB = Zone->cameraBoundsB[0];
+    }
+    p6_w_scr_x = ScreenInfo->position.x;
+    p6_w_scr_y = ScreenInfo->position.y;
 }

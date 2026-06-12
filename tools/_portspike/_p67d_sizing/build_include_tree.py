@@ -24,11 +24,44 @@ ROOT_HEADERS = [("SonicMania_Game.h", "Game.h"),
                 ("SonicMania_GameObjects.h", "GameObjects.h"),
                 ("SonicMania_All.h", "All.h")]
 
+# W14b (Task #227, MEASURED p6_ff 2026-06-12): the game-side RSDKScreenInfo
+# MUST mirror the engine's Saturn ScreenInfo retarget (Drawing.hpp:110-122,
+# frameBuffer[1]) -- both sides share the ONE screens[] instance through the
+# EngineInfo link, so the full PC frameBuffer puts every game-side
+# position/size/center access 143,356 B past the engine struct
+# (Camera_Create read a garbage center; Camera_SetCameraBounds wrote
+# screens[0].position into pack .bss 143 KB away; the Player never went
+# onScreen). Gated on SATURN_GLOBALS_RETARGET (the game-TU census knob).
+# No TU in the verbatim closure touches frameBuffer (grep-verified).
+GAMELINK_FB_STOCK = """    // uint16 *frameBuffer;
+    uint16 frameBuffer[SCREEN_XMAX * SCREEN_YSIZE];
+"""
+GAMELINK_FB_SATURN = """#if defined(SATURN_GLOBALS_RETARGET)
+    // Saturn retarget (W14b): mirrors engine Drawing.hpp frameBuffer[1] --
+    // see build_include_tree.py for the measured rationale.
+    uint16 frameBuffer[1];
+#else
+    // uint16 *frameBuffer;
+    uint16 frameBuffer[SCREEN_XMAX * SCREEN_YSIZE];
+#endif
+"""
+
+
+def patch_gamelink(path):
+    with open(path, "r", newline="") as f:
+        text = f.read()
+    if GAMELINK_FB_STOCK not in text:
+        raise SystemExit("GameLink.h frameBuffer block not found -- "
+                         "decomp header shape changed; re-derive the W14b patch")
+    with open(path, "w", newline="") as f:
+        f.write(text.replace(GAMELINK_FB_STOCK, GAMELINK_FB_SATURN, 1))
+
 
 def main():
     os.makedirs(INC, exist_ok=True)
     for flat, name in ROOT_HEADERS:
         shutil.copy(os.path.join(RAW, flat), os.path.join(INC, name))
+    patch_gamelink(os.path.join(INC, "GameLink.h"))
     n = 0
     for p in glob.glob(os.path.join(RAW, "SonicMania_Objects_*.h")):
         base = os.path.basename(p)[len("SonicMania_Objects_"):-2]

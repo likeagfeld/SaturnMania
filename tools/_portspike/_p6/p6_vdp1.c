@@ -226,3 +226,38 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
                      x + padw / 2 - JO_TV_WIDTH_2,
                      y + h / 2 - JO_TV_HEIGHT_2, 450);
 }
+
+/* W14c (Task #227): flipped draw -- the DrawSprite FX_FLIP arm. VDP1 HF/VF
+ * (CMDCTRL Dir bits, ST-013-R3 sec 5.5.4) mirror the PIXELS inside the
+ * part's bbox; jo exposes them as the h/v flip attribute toggles
+ * (sprites.h:292-312). The caller passes the RSDK world TOP-LEFT already
+ * flip-adjusted (Drawing.cpp:2796-2808: x - width - pivotX for FLIP_X), so
+ * only the right-pad needs compensating: HF mirrors content into the
+ * [padw-w, padw) columns of the padded box, so the box shifts LEFT by
+ * (padw - w) to keep content exactly at [x, x+w). Heights are never padded
+ * -- VF needs no shift. */
+void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
+                          int flipX, int flipY)
+{
+    int slot, padw;
+
+    if (sheet < 0 || sheet >= s_sheet_count)
+        return;
+    slot = p6_slot_for(sheet, sx, sy, w, h);
+    if (slot < 0)
+        return;
+
+    padw = (w + 7) & ~7;
+    jo_sprite_set_palette(1);
+    if (flipX)
+        jo_sprite_enable_horizontal_flip();
+    if (flipY)
+        jo_sprite_enable_vertical_flip();
+    jo_sprite_draw3D(s_slots[slot].jo_id,
+                     (flipX ? x + w - padw / 2 : x + padw / 2) - JO_TV_WIDTH_2,
+                     y + h / 2 - JO_TV_HEIGHT_2, 450);
+    if (flipX)
+        jo_sprite_disable_horizontal_flip();
+    if (flipY)
+        jo_sprite_disable_vertical_flip();
+}

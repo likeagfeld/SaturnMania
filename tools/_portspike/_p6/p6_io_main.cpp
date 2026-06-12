@@ -517,6 +517,30 @@ __attribute__((used)) int32 p6_w_bind_log[8]    = { 0 }; // (surfaceId<<8)|(hand
 __attribute__((used)) int32 p6_w_bind_logn      = 0;
 __attribute__((used)) int32 p6_w_plr_sheetid_t  = -1; // Player frame's sheetID after the ticks (GetFrame, stride-safe)
 __attribute__((used)) int32 p6_w_plr_handle     = -2; // p6_vdp1HandleBySurface[that sheetID]
+// W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
+// post-hoc capture lands after the later Title pass, whose STG dataset clear
+// NULLs every tracked staticVars pointer (MEASURED p6_f8: Player/Zone/Camera
+// all 0 in the capture while the GHZ-tick witnesses show the Player live).
+__attribute__((used)) int32 p6_w_cam_static   = -1; // game Camera staticVars ptr at tick time
+__attribute__((used)) int32 p6_w_zone_static  = -1; // game Zone staticVars ptr at tick time
+__attribute__((used)) int32 p6_w_cam_entclass = -1; // SLOT_CAMERA1 entity classID after the ticks
+__attribute__((used)) int32 p6_w_cam_state    = -1; // EntityCamera state fn ptr
+__attribute__((used)) int32 p6_w_cam_target   = -1; // EntityCamera target ptr (expect SLOT_PLAYER1)
+__attribute__((used)) int32 p6_w_cam_x        = 0;  // EntityCamera position after the ticks
+__attribute__((used)) int32 p6_w_cam_y        = 0;
+__attribute__((used)) int32 p6_w_scr_x        = ~0; // screens[0].position after the ticks
+__attribute__((used)) int32 p6_w_scr_y        = ~0; // (Camera_SetCameraBounds, Camera.c:105-107)
+__attribute__((used)) int32 p6_w_api_screencount = -1; // game RSDK.GetVideoSetting(SCREENCOUNT) pre-InitObjects
+__attribute__((used)) int32 p6_w_api_credits     = -1; // game RSDK.CheckSceneFolder("Credits") pre-InitObjects
+__attribute__((used)) int32 p6_w_eng_screencount = -1; // engine-side direct GetVideoSetting (table-slot discriminator)
+__attribute__((used)) int32 p6_w_eng_vs_count    = -1; // engine-side raw videoSettings.screenCount readback
+__attribute__((used)) int32 p6_w_cam_entclass0 = -1; // SLOT_CAMERA1 classID right AFTER InitObjects
+__attribute__((used)) int32 p6_w_zone_boundsR = -1; // Zone->cameraBoundsR[0] at tick time (Zone.c:223 = GetLayerSize x)
+__attribute__((used)) int32 p6_w_zone_boundsB = -1; // Zone->cameraBoundsB[0] (Zone.c:225 = GetLayerSize y)
+__attribute__((used)) int32 p6_w_cam_boundsR  = -1; // EntityCamera boundsR after ticks (HandleHBounds-evolved)
+__attribute__((used)) int32 p6_w_cam_boundsB  = -1;
+                                                     // (vs entclass after ticks: created-then-clobbered
+                                                     // discriminator)
 // P6.7 W12 (Task #227, qa_p6_sheet.py): probe-replay witnesses (staged/
 // fetches counters live in SaturnSheet.cpp).
 __attribute__((used)) int32 p6_w_sht_probes   = -1; // byte-exact rects (model 15)
@@ -540,6 +564,8 @@ int  p6_vdp1_sheet_bind(const unsigned char *sheetPixels, int sheetWidth,
 int  p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
                                const unsigned short *pal565);
 void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy);
+void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
+                          int flipX, int flipY);
 }
 // W12b: surfaceID -> vdp1 sheet handle (filled at bind time; -1 = unbound).
 static int8 p6_vdp1HandleBySurface[SURFACE_COUNT];
@@ -709,6 +735,26 @@ ScreenInfo *currentScreen     = NULL;
 // onto the jo-side VDP1 blitter. Object Draw callbacks (e.g. decomp Ring_Draw:
 // `RSDK.DrawSprite(&self->animator, NULL, false)`) consume exactly this
 // signature, so proving it proves the object-facing draw contract.
+// W14c: the shared blit tail every DrawSprite arm lands on. Mirrors
+// DrawSpriteFlipped's clip-accept (Drawing.cpp:2882-2905: a fully-off rect
+// returns BEFORE validDraw) -- an accepted draw sets validDraw, which
+// ProcessObjectDrawLists folds into entity->onScreen (Object.cpp:843).
+// Partial overlap draws the full part; VDP1 clips at the framebuffer edge.
+static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
+{
+    if (x + frame->width <= currentScreen->clipBound_X1 || x >= currentScreen->clipBound_X2
+        || y + frame->height <= currentScreen->clipBound_Y1 || y >= currentScreen->clipBound_Y2)
+        return;
+    validDraw = true;
+    p6_vdp1_blit_flipped(p6_vdp1HandlesInit ? p6_vdp1HandleBySurface[frame->sheetID] : -1,
+                         x, y, frame->width, frame->height, frame->sprX, frame->sprY,
+                         (dir & FLIP_X) ? 1 : 0, (dir & FLIP_Y) ? 1 : 0);
+    p6_w_draw_xy      = ((x & 0xFFFF) << 16) | (y & 0xFFFF);
+    p6_w_draw_rect    = ((int32)frame->sprX << 16) | (int32)frame->sprY;
+    p6_w_draw_sheetid = (int32)frame->sheetID;
+    ++p6_w_draw_calls;
+}
+
 void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
 {
     if (animator && animator->frames) {
@@ -726,27 +772,127 @@ void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
             pos.y -= currentScreen->position.y;
         }
 
-        // Drawing.cpp:2687-2688 reads sceneInfo.entity->rotation/drawFX
-        // UNCONDITIONALLY -- callers must keep sceneInfo.entity valid.
-        switch (sceneInfo.entity->drawFX) {
+        // W14c (Task #227): mirror Drawing.cpp:2687-2781 -- the FX_ROTATE
+        // normalization that DEGRADES drawFX to the flip arm when the
+        // resolved rotation is 0 (the Player carries FX_ROTATE|FX_FLIP
+        // permanently, Player_Create; at rotation 0 the PC build draws it
+        // through DrawSpriteRotozoom's identity == the flipped path).
+        int32 rotation = sceneInfo.entity->rotation;
+        int32 drawFX   = sceneInfo.entity->drawFX;
+        if (sceneInfo.entity->drawFX & FX_ROTATE) {
+            switch (animator->rotationStyle) {
+                case ROTSTYLE_NONE:
+                    rotation = 0;
+                    if ((sceneInfo.entity->drawFX & FX_ROTATE) != FX_NONE)
+                        drawFX ^= FX_ROTATE;
+                    break;
+
+                case ROTSTYLE_FULL:
+                    rotation = sceneInfo.entity->rotation & 0x1FF;
+                    if (rotation == 0)
+                        drawFX ^= FX_ROTATE;
+                    break;
+
+                case ROTSTYLE_45DEG:
+                    rotation = (sceneInfo.entity->rotation + 0x20) & 0x1C0;
+                    if (rotation == 0)
+                        drawFX ^= FX_ROTATE;
+                    break;
+
+                case ROTSTYLE_90DEG:
+                    rotation = (sceneInfo.entity->rotation + 0x40) & 0x180;
+                    if (rotation == 0)
+                        drawFX ^= FX_ROTATE;
+                    break;
+
+                case ROTSTYLE_180DEG:
+                    rotation = (sceneInfo.entity->rotation + 0x80) & 0x100;
+                    if (rotation == 0)
+                        drawFX ^= FX_ROTATE;
+                    break;
+
+                case ROTSTYLE_STATICFRAMES:
+                    // Drawing.cpp:2721-2776 (Player rolling/tube frames).
+                    if (sceneInfo.entity->rotation >= 0x100)
+                        rotation = 0x08 - ((0x214 - sceneInfo.entity->rotation) >> 6);
+                    else
+                        rotation = (sceneInfo.entity->rotation + 20) >> 6;
+
+                    switch (rotation) {
+                        case 0:
+                        case 8:
+                            rotation = 0x00;
+                            if ((sceneInfo.entity->drawFX & FX_SCALE) != FX_NONE)
+                                drawFX ^= FX_ROTATE;
+                            break;
+                        case 1:
+                            rotation = 0x80;
+                            frame += animator->frameCount;
+                            if (sceneInfo.entity->direction)
+                                rotation = 0x00;
+                            break;
+                        case 2: rotation = 0x80; break;
+                        case 3:
+                            rotation = 0x100;
+                            frame += animator->frameCount;
+                            if (sceneInfo.entity->direction)
+                                rotation = 0x80;
+                            break;
+                        case 4: rotation = 0x100; break;
+                        case 5:
+                            rotation = 0x180;
+                            frame += animator->frameCount;
+                            if (sceneInfo.entity->direction)
+                                rotation = 0x100;
+                            break;
+                        case 6: rotation = 0x180; break;
+                        case 7:
+                            rotation = 0x180;
+                            frame += animator->frameCount;
+                            if (!sceneInfo.entity->direction)
+                                rotation = 0;
+                            break;
+                        default: break;
+                    }
+                    break;
+
+                default: break;
+            }
+        }
+        (void)rotation; // consumed by the FX_ROTATE arms (Phase Z FIXME below)
+
+        switch (drawFX) {
             case FX_NONE:
-                // Drawing.cpp:2785. inkEffect/alpha: the proof entity is
-                // zeroed (INK_NONE -> opaque), matching VDP1 CLUT-mode draw.
+                // Drawing.cpp:2785. inkEffect/alpha: INK_NONE -> opaque,
+                // matching VDP1 CLUT-mode draw.
                 // FIXME Phase Z: INK_ALPHA/ADD/SUB via VDP1 color calculation.
-                p6_vdp1_blit(p6_vdp1HandlesInit ? p6_vdp1HandleBySurface[frame->sheetID] : -1,
-                             pos.x + frame->pivotX, pos.y + frame->pivotY,
-                             frame->width, frame->height, frame->sprX, frame->sprY);
-                p6_w_draw_xy = (((pos.x + frame->pivotX) & 0xFFFF) << 16)
-                             | ((pos.y + frame->pivotY) & 0xFFFF);
-                p6_w_draw_rect    = ((int32)frame->sprX << 16) | (int32)frame->sprY;
-                p6_w_draw_sheetid = (int32)frame->sheetID;
-                ++p6_w_draw_calls;
+                p6_draw_flipped(pos.x + frame->pivotX, pos.y + frame->pivotY, frame, FLIP_NONE);
+                break;
+
+            case FX_FLIP:
+                // Drawing.cpp:2789-2812 -- the world top-left is flip-
+                // adjusted PER SPRITE (the Audit-3 composite rule):
+                // FLIP_X x = pos.x - width - pivotX.
+                switch (sceneInfo.entity->direction) {
+                    case FLIP_NONE:
+                        p6_draw_flipped(pos.x + frame->pivotX, pos.y + frame->pivotY, frame, FLIP_NONE);
+                        break;
+                    case FLIP_X:
+                        p6_draw_flipped(pos.x - frame->width - frame->pivotX, pos.y + frame->pivotY, frame, FLIP_X);
+                        break;
+                    case FLIP_Y:
+                        p6_draw_flipped(pos.x + frame->pivotX, pos.y - frame->height - frame->pivotY, frame, FLIP_Y);
+                        break;
+                    case FLIP_XY:
+                        p6_draw_flipped(pos.x - frame->width - frame->pivotX,
+                                        pos.y - frame->height - frame->pivotY, frame, FLIP_XY);
+                        break;
+                }
                 break;
 
             default:
-                // FIXME P6.5b4+: FX_FLIP via VDP1 HF/VF (CMDCTRL Dir bits,
-                // ST-013-R3 sec 5.5.4 -- position math per Drawing.cpp:
-                // 2789-2812), FX_ROTATE/FX_SCALE via scaled/distorted parts.
+                // FIXME P6.5b4+: FX_ROTATE (resolved rotation != 0) via VDP1
+                // scaled/distorted parts (ST-013-R3 sec 6); FX_SCALE same.
                 break;
         }
     }
@@ -1599,6 +1745,35 @@ extern "C" void p6_scene_run(void)
             // only from Music_State_PlayOnLoad, an Update state the diag
             // never ticks for GHZ. Scene-slot evidence is captured by the
             // game-side pre witness BEFORE the call (Player.c:781-815).
+            // W14 fix: the SCREEN env must exist BEFORE InitObjects --
+            // Camera_Create (dispatched inside it) reads ScreenInfo->center
+            // (Camera.c:63,66) and Camera_SetCameraBounds positions the
+            // screen as player_px - center (Camera.c:105-107); a zero
+            // center parks the viewport 16 px below the spawn and the
+            // Player never goes onScreen (MEASURED p6_f4: drawflags
+            // onScreen=0). Mirror the engine SetScreenSize shape:
+            // center = size/2.
+            videoSettings.screenCount = 1;
+            screens[0].size.x         = SCREEN_XMAX;
+            screens[0].size.y         = SCREEN_YSIZE;
+            screens[0].center.x       = SCREEN_XMAX / 2;
+            screens[0].center.y       = SCREEN_YSIZE / 2;
+            screens[0].pitch          = SCREEN_XMAX;
+            // W14c: clip bounds armed too -- the DrawSprite clip-accept
+            // (p6_draw_flipped) rejects against clipBound_*; ProcessObject-
+            // DrawLists only normalizes them AFTER each group's entity
+            // draws (Object.cpp:880-900), so zeroed bounds would reject
+            // every draw in the first pass.
+            screens[0].clipBound_X1   = 0;
+            screens[0].clipBound_Y1   = 0;
+            screens[0].clipBound_X2   = SCREEN_XMAX;
+            screens[0].clipBound_Y2   = SCREEN_YSIZE;
+            currentScreen             = &screens[0];
+            sceneInfo.entity          = RSDK_ENTITY_AT(0);
+            // W14b discriminator: read the count back through BOTH paths.
+            p6_w_eng_vs_count     = (int32)videoSettings.screenCount;
+            p6_w_eng_screencount  = GetVideoSetting(VIDEOSETTING_SCREENCOUNT);
+
             p6_player_witness_pre(RESERVE_ENTITY_COUNT, SCENEENTITY_COUNT);
             InitObjects();
             p6_player_witness_post();
@@ -1612,16 +1787,8 @@ extern "C" void p6_scene_run(void)
             // (Player_Draw -> ANIMPAK frames -> banded Sonic sheet ->
             // VDP1 slot cache). Two ticks; SLOT_PLAYER1 snapshotted after.
             {
-                // Draw environment BEFORE the ticks (the step-8 Ring env
-                // arrives too late for these): a live screen so
-                // CheckOnScreen passes, and every draw group visible so
-                // ProcessObjectDrawLists dispatches Player_Draw
-                // (Object.cpp:736-752 reads both).
-                videoSettings.screenCount = 1;
-                screens[0].size.x         = SCREEN_XMAX;
-                screens[0].size.y         = SCREEN_YSIZE;
-                currentScreen             = &screens[0];
-                sceneInfo.entity          = RSDK_ENTITY_AT(0);
+                // Draw groups visible for the ticks (the screen env is
+                // armed BEFORE InitObjects above -- Camera_Create needs it).
                 for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
                     engine.drawGroupVisible[g] = true;
 
@@ -1888,6 +2055,16 @@ extern "C" void p6_scene_run(void)
                 currentScreen      = &screens[0];
                 screens[0].size.x  = SCREEN_XMAX;
                 screens[0].size.y  = SCREEN_YSIZE;
+                // W14c: the Title pass repositions the screen too -- the GHZ
+                // ticks left it camera-parked at (0,780); the Ring proof
+                // entity sits at screen-abs (260,60). Clip bounds armed for
+                // the new DrawSprite clip-accept (p6_draw_flipped).
+                screens[0].position.x   = 0;
+                screens[0].position.y   = 0;
+                screens[0].clipBound_X1 = 0;
+                screens[0].clipBound_Y1 = 0;
+                screens[0].clipBound_X2 = SCREEN_XMAX;
+                screens[0].clipBound_Y2 = SCREEN_YSIZE;
                 sceneInfo.entity   = RSDK_ENTITY_AT(0);
 
                 // W12b: capture the bind HANDLE into the surfaceID map the

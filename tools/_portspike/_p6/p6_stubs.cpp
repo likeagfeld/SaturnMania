@@ -37,8 +37,169 @@ void InitSystemSurfaces() {}
 void GetDisplayInfo(int32 *displayID, int32 *width, int32 *height, int32 *refreshRate, char *text) {}
 void GetWindowSize(int32 *width, int32 *height) {}
 void SetScreenSize(uint8 screenID, uint16 width, uint16 height) {}
-int32 GetVideoSetting(int32 id) { return 0; }
-void SetVideoSetting(int32 id, int32 value) {}
+// W14b ROOT CAUSE (Task #227, MEASURED p6_fd 2026-06-12): this pair were
+// return-0/no-op P6.1 link-closure stubs, but Camera_StageLoad gates its
+// SLOT_CAMERA1 ResetEntitySlot loop on GetVideoSetting(VIDEOSETTING_
+// SCREENCOUNT) (Camera.c:95) -- the stub's 0 meant NO Camera entity was
+// ever created, Camera_LateUpdate never wrote screens[0].position
+// (Camera.c:105-107), and the Player never went onScreen (qa_p6_player P8
+// RED: drawflags onScreen=0, slotdelta=0 with binds/draws all live).
+// Discriminator chain: p6_w_eng_vs_count=1 vs p6_w_eng_screencount=0 in the
+// same function proved the call -- not the data -- was broken.
+// Bodies below are verbatim Drawing.cpp:414-448 and :450-559; Drawing.cpp
+// itself is not in the pack, so its file-scope changedVideoSettings /
+// videoSettingsBackup (extern, Drawing.hpp:333-334) are DEFINED here.
+// VIDEOSETTING_WRITE keeps no-op: SaveSettingsINI is the PC ini writer.
+VideoSettings videoSettingsBackup;
+bool32 changedVideoSettings = false;
+
+int32 GetVideoSetting(int32 id)
+{
+    switch (id) {
+        case VIDEOSETTING_WINDOWED: return videoSettings.windowed;
+        case VIDEOSETTING_BORDERED: return videoSettings.bordered;
+        case VIDEOSETTING_EXCLUSIVEFS: return videoSettings.exclusiveFS;
+        case VIDEOSETTING_VSYNC: return videoSettings.vsync;
+        case VIDEOSETTING_TRIPLEBUFFERED: return videoSettings.tripleBuffered;
+        case VIDEOSETTING_WINDOW_WIDTH: return videoSettings.windowWidth;
+        case VIDEOSETTING_WINDOW_HEIGHT: return videoSettings.windowHeight;
+        case VIDEOSETTING_FSWIDTH: return videoSettings.fsWidth;
+        case VIDEOSETTING_FSHEIGHT: return videoSettings.fsHeight;
+        case VIDEOSETTING_REFRESHRATE: return videoSettings.refreshRate;
+        case VIDEOSETTING_SHADERSUPPORT: return videoSettings.shaderSupport;
+        case VIDEOSETTING_SHADERID: return videoSettings.shaderID;
+        case VIDEOSETTING_SCREENCOUNT: return videoSettings.screenCount;
+#if RETRO_REV02
+        case VIDEOSETTING_DIMTIMER: return videoSettings.dimTimer;
+#endif
+        case VIDEOSETTING_STREAMSENABLED: return engine.streamsEnabled;
+        case VIDEOSETTING_STREAM_VOL: return (int32)(engine.streamVolume * 1024.0);
+        case VIDEOSETTING_SFX_VOL: return (int32)(engine.soundFXVolume * 1024.0);
+        case VIDEOSETTING_LANGUAGE:
+#if RETRO_REV02
+            return SKU::curSKU.language;
+#else
+            return gameVerInfo.language;
+#endif
+        case VIDEOSETTING_CHANGED: return changedVideoSettings;
+
+        default: break;
+    }
+
+    return 0;
+}
+
+void SetVideoSetting(int32 id, int32 value)
+{
+    bool32 boolVal = value;
+    switch (id) {
+        case VIDEOSETTING_WINDOWED:
+            if (videoSettings.windowed != boolVal) {
+                videoSettings.windowed = boolVal;
+                changedVideoSettings   = true;
+            }
+            break;
+
+        case VIDEOSETTING_BORDERED:
+            if (videoSettings.bordered != boolVal) {
+                videoSettings.bordered = boolVal;
+                changedVideoSettings   = true;
+            }
+            break;
+
+        case VIDEOSETTING_EXCLUSIVEFS:
+            if (videoSettings.exclusiveFS != boolVal) {
+                videoSettings.exclusiveFS = boolVal;
+                changedVideoSettings      = true;
+            }
+            break;
+
+        case VIDEOSETTING_VSYNC:
+            if (videoSettings.vsync != boolVal) {
+                videoSettings.vsync  = boolVal;
+                changedVideoSettings = true;
+            }
+            break;
+
+        case VIDEOSETTING_TRIPLEBUFFERED:
+            if (videoSettings.tripleBuffered != boolVal) {
+                videoSettings.tripleBuffered = boolVal;
+                changedVideoSettings         = true;
+            }
+            break;
+
+        case VIDEOSETTING_WINDOW_WIDTH:
+            if (videoSettings.windowWidth != value) {
+                videoSettings.windowWidth = value;
+                changedVideoSettings      = true;
+            }
+            break;
+
+        case VIDEOSETTING_WINDOW_HEIGHT:
+            if (videoSettings.windowHeight != value) {
+                videoSettings.windowHeight = value;
+                changedVideoSettings       = true;
+            }
+            break;
+
+        case VIDEOSETTING_FSWIDTH: videoSettings.fsWidth = value; break;
+        case VIDEOSETTING_FSHEIGHT: videoSettings.fsHeight = value; break;
+        case VIDEOSETTING_REFRESHRATE: videoSettings.refreshRate = value; break;
+        case VIDEOSETTING_SHADERSUPPORT: videoSettings.shaderSupport = value; break;
+        case VIDEOSETTING_SHADERID:
+            if (videoSettings.shaderID != value) {
+                videoSettings.shaderID = value;
+                changedVideoSettings   = true;
+            }
+            break;
+
+        case VIDEOSETTING_SCREENCOUNT: videoSettings.screenCount = value; break;
+#if RETRO_REV02
+        case VIDEOSETTING_DIMTIMER: videoSettings.dimLimit = value; break;
+#endif
+        case VIDEOSETTING_STREAMSENABLED:
+            if (engine.streamsEnabled != boolVal)
+                changedVideoSettings = true;
+
+            engine.streamsEnabled = boolVal;
+            break;
+
+        case VIDEOSETTING_STREAM_VOL:
+            if (engine.streamVolume != (value / 1024.0f)) {
+                engine.streamVolume  = (float)value / 1024.0f;
+                changedVideoSettings = true;
+            }
+            break;
+
+        case VIDEOSETTING_SFX_VOL:
+            if (engine.soundFXVolume != ((float)value / 1024.0f)) {
+                engine.soundFXVolume = (float)value / 1024.0f;
+                changedVideoSettings = true;
+            }
+            break;
+
+        case VIDEOSETTING_LANGUAGE:
+#if RETRO_REV02
+            SKU::curSKU.language = value;
+#else
+            gameVerInfo.language = value;
+#endif
+            break;
+
+        case VIDEOSETTING_STORE: memcpy(&videoSettingsBackup, &videoSettings, sizeof(videoSettings)); break;
+
+        case VIDEOSETTING_RELOAD:
+            changedVideoSettings = true;
+            memcpy(&videoSettings, &videoSettingsBackup, sizeof(videoSettingsBackup));
+            break;
+
+        case VIDEOSETTING_CHANGED: changedVideoSettings = boolVal; break;
+
+        case VIDEOSETTING_WRITE: break; // SaveSettingsINI is PC-only (no ini on disc)
+
+        default: break;
+    }
+}
 void SwapDrawListEntries(uint8 drawGroup, uint16 slot1, uint16 slot2, uint16 count) {}
 void FillScreen(uint32 color, int32 alphaR, int32 alphaG, int32 alphaB) {}
 #if !defined(P6_SCENE_TEST) // P6.5b3: real Saturn DrawSprite backend in p6_io_main.cpp
