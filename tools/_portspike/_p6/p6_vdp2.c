@@ -141,3 +141,127 @@ void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
     slBack1ColSet((void *)P6_VDP2_BAK, 0x8000); /* black backdrop = model's */
     slScrAutoDisp(NBG1ON | SPRON);
 }
+
+/* ============================================================================
+ * P6.7 W16 (Task #228): present the ENGINE-loaded GHZ1 FOREGROUND on NBG1,
+ * anchored to the LIVE camera. Same VRAM/PND geometry as the Title present
+ * above (cells A0+A1 charno=tile*8, 4-page 64x64-tile PL_SIZE_2x2 plane at
+ * B0, 2-word PND, CRAM bank 0), but the layout source is the W11a/b
+ * camera-local SLIDING-WINDOW accessor (SaturnLayout_GetTile -- GHZ layouts
+ * are NOT RAM-resident; SaturnLayout.cpp) and the scroll registers come
+ * from screens[0].position via slScrPosNbg1 (SL_DEF.H:1025; SGL transfers
+ * the FIXED value to SCXIN1/SCYIN1 = VDP2 0x180080/0x180084, ST-058-R2
+ * p.123 -- VDP2_Manual.txt:5406/5422).
+ *
+ * CONTRACT (W16): the camera rests bounds-clamped at (0, 780) after the 60
+ * GHZ ticks (W15 measured, p6_w_scr_x/y) -- the whole 320x224 view lies
+ * inside the plane's first 1024x1024 px, so the 64x64 PND rect is the
+ * IDENTITY rect (plane row y = layer row y, rows 0..63). The moving-camera
+ * page slide (vblank slDMACopy per memory rule saturn-vdp2-streaming-solved)
+ * is the follow-on wave; this present is the parked post-tick anchor.
+ *
+ * Cells for THIS present are uploaded by p6_vdp2_upload_cells during the
+ * GHZ load phase (between LoadSceneFolder's GIF decode and LoadSceneAssets'
+ * entity placement -- the W11b tilesetPixels transient rule); this function
+ * only zeroes the blank char (unreferenced by the rect, order-independent).
+ *
+ * Outputs for qa_p6_scroll.py: *out_pndhash = djb2-xor over the 16,384 map
+ * bytes READ BACK from VDP2 VRAM (big-endian byte stream, proves the bytes
+ * survived in VRAM); *out_nblank = count of non-empty layout words in the
+ * visible scroll window (320x224 = the CORE_DEFS SCREEN_XMAX/SCREEN_YSIZE).
+ * ========================================================================== */
+extern void SaturnLayout_Bind(int slot, int layer);
+extern unsigned short SaturnLayout_GetTile(int slot, int tx, int ty);
+
+void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
+                                const unsigned short *pal565,
+                                unsigned int *out_pndhash, int *out_nblank)
+{
+    volatile Uint16 *cel  = (volatile Uint16 *)P6_VDP2_CEL;
+    volatile Uint16 *map  = (volatile Uint16 *)P6_VDP2_MAP;
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    static unsigned char used[1024]; /* file-static would collide with the
+                                      * Title present's local; own copy */
+    int t, c, x, y;
+
+    SaturnLayout_Bind(0, layer); /* slot 0 = the W16 walk window */
+
+    /* 1) Blank char = smallest tile index the 64x64 rect never references
+     *    (same rule + same rect as the gate's offline model). */
+    for (t = 0; t < 1024; ++t) used[t] = 0;
+    for (y = 0; y < 64; ++y)
+        for (x = 0; x < 64; ++x) {
+            unsigned short e = SaturnLayout_GetTile(0, x, y);
+            if (e != 0xFFFF)
+                used[e & 0x3FF] = 1;
+        }
+    {
+        int blank = 0;
+        while (blank < 1024 && used[blank]) ++blank;
+        volatile Uint16 *dst = cel + blank * 128;
+        for (c = 0; c < 128; ++c) dst[c] = 0;
+
+        /* 2) Map: identity 64x64 rect of 2-word PNDs (p6_vdp2.c:105-119
+         *    formula -- fy bit11->31, fx bit10->30, charno = tile*8). */
+        for (y = 0; y < 64; ++y) {
+            for (x = 0; x < 64; ++x) {
+                unsigned short e = SaturnLayout_GetTile(0, x, y);
+                unsigned long pnd;
+                if (e == 0xFFFF)
+                    pnd = (unsigned long)blank * 8u;
+                else
+                    pnd = ((unsigned long)(e & 0x800) << 20)
+                        | ((unsigned long)(e & 0x400) << 20)
+                        | ((unsigned long)(e & 0x3FF) * 8u);
+                int page = ((y >> 5) << 1) + (x >> 5);
+                volatile Uint16 *p = map + page * 2048 + (((y & 31) << 5) + (x & 31)) * 2;
+                p[0] = (Uint16)(pnd >> 16);
+                p[1] = (Uint16)(pnd & 0xFFFF);
+            }
+        }
+    }
+
+    /* 3) CRAM bank 0 from the GHZ active palette (post-LoadSceneAssets
+     *    fullPalette[0]; engine RGB565 -> Saturn BGR555, MSB set). */
+    for (c = 0; c < 256; ++c) {
+        unsigned short v = pal565[c];
+        unsigned short r5 = (v >> 11) & 0x1F;
+        unsigned short g5 = ((v >> 5) & 0x3F) >> 1;
+        unsigned short b5 = v & 0x1F;
+        cram[c] = (Uint16)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
+    }
+
+    /* 4) Witness data: read-back hash over the map (the gate's S3 model is
+     *    the same big-endian byte stream) + visible-window non-empty count
+     *    (S4; window = scroll + 320x224, the CORE_DEFS screen). */
+    {
+        unsigned int h = 5381u;
+        for (t = 0; t < 4096 * 2; ++t) { /* 8,192 words = 16,384 B */
+            Uint16 w = map[t];
+            h = ((h << 5) + h) ^ (unsigned int)(w >> 8);
+            h = ((h << 5) + h) ^ (unsigned int)(w & 0xFF);
+        }
+        *out_pndhash = h;
+
+        int n = 0;
+        int tx0 = scroll_x >> 4, tx1 = (scroll_x + 320 - 1) >> 4;
+        int ty0 = scroll_y >> 4, ty1 = (scroll_y + 224 - 1) >> 4;
+        for (y = ty0; y <= ty1; ++y)
+            for (x = tx0; x <= tx1; ++x)
+                if (SaturnLayout_GetTile(0, x, y) != 0xFFFF)
+                    ++n;
+        *out_nblank = n;
+    }
+
+    /* 5) NBG1 config + camera-anchored scroll + display (same SGL sequence
+     *    as the proven Title present part 4). */
+    slCharNbg1(COL_TYPE_256, CHAR_SIZE_2x2);
+    slPageNbg1((void *)P6_VDP2_CEL, 0, PNB_2WORD);
+    slPlaneNbg1(PL_SIZE_2x2);
+    slMapNbg1((void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP,
+              (void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP);
+    slScrPosNbg1(toFIXED(scroll_x), toFIXED(scroll_y));
+    slPriorityNbg1(7);
+    slBack1ColSet((void *)P6_VDP2_BAK, 0x8000);
+    slScrAutoDisp(NBG1ON | SPRON);
+}

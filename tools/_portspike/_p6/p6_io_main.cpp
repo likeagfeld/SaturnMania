@@ -418,6 +418,11 @@ __attribute__((used)) int32 p6_w_vdp2_done  = 0; // 1 == engine layer presented 
 void p6_vdp2_upload_cells(const unsigned char *tilesetPx);
 void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
                             const unsigned short *pal565);
+// P6.7 W16 (Task #228): GHZ FG Low -> NBG1 via the W11a sliding-window
+// accessor, scroll registers anchored to screens[0].position.
+void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
+                                const unsigned short *pal565,
+                                unsigned int *out_pndhash, int *out_nblank);
 // P6.5b2 (Task #208, qa_p6_sprite.py): engine sprite-animation witnesses.
 __attribute__((used)) int32 p6_w_spr_id        = -1; // LoadSpriteAnimation slot
 __attribute__((used)) int32 p6_w_spr_animcount = 0;  // expect 5 (Ring.bin)
@@ -1005,6 +1010,12 @@ __attribute__((used)) int32 p6_w_lay_bytes    = -1;  // GFS bytes of cd/GHZ1LAYT
 __attribute__((used)) int32 p6_w_lay_hash     = 0;   // djb2 over the loaded band store
 __attribute__((used)) int32 p6_w_lay_probes   = -1;  // windowed-accessor probes matched
 __attribute__((used)) int32 p6_w_lay_firstbad = -1;  // first mismatching probe index
+// P6.7 W16 (Task #228, qa_p6_scroll.py): GHZ FG Low on NBG1, camera-anchored.
+__attribute__((used)) int32 p6_w_scr2_x       = ~0;  // scroll written (== screens[0].position.x)
+__attribute__((used)) int32 p6_w_scr2_y       = ~0;  // scroll written (== screens[0].position.y)
+__attribute__((used)) int32 p6_w_scr2_pndhash = 0;   // djb2 over the 16,384 B NBG1 map READ BACK from VDP2 VRAM
+__attribute__((used)) int32 p6_w_scr2_nblank  = -1;  // non-empty FG tiles in the visible 320x224 window
+__attribute__((used)) int32 p6_w_scr2_done    = 0;   // 1 == GHZ FG present ran (gates the Title NBG1 present off)
 }
 
 // The api block + the registration thunk the entry calls back through (the
@@ -1709,6 +1720,16 @@ extern "C" void p6_scene_run(void)
         }
         if (p6_w_ghz_stage == 1) {
             LoadSceneFolder();
+            // P6.7 W16 (Task #228): stage the GHZ tile CELLS to NBG1's cell
+            // VRAM NOW -- tilesetPixels is the W11b LOAD-PHASE TRANSIENT
+            // aliasing the entityList window (see its definition above):
+            // LoadSceneFolder's LoadStageGIF just decoded the GHZ
+            // 16x16Tiles.gif into it, and LoadSceneAssets' whole-list memset
+            // (Scene.cpp:293) + 1,041 entity placements reclaim the window
+            // next. Mirrors the Title pass's upload split (the 4-moved
+            // block); byte-identical transform (p6_vdp2.c, ST-058 contracts).
+            // The camera-anchored PND/scroll half runs AFTER the 60 ticks.
+            p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
             LoadSceneAssets();
 
             // Census of REGISTERED-class scene entities (the only nonzero
@@ -1839,6 +1860,33 @@ extern "C" void p6_scene_run(void)
                 if (p6_w_plr_sheetid_t >= 0 && p6_w_plr_sheetid_t < SURFACE_COUNT)
                     p6_w_plr_handle = p6_vdp1HandleBySurface[p6_w_plr_sheetid_t];
             }
+
+            // P6.7 W16 (Task #228, qa_p6_scroll.py): the GHZ1 FOREGROUND
+            // becomes VISIBLE on NBG1, anchored to the LIVE camera. The 60
+            // ticks left screens[0].position bounds-clamped at (0,780)
+            // (Camera_SetCameraBounds, Camera.c:105-107; witnessed in
+            // p6_w_scr_x/y above). Cells went to VDP2 A0/A1 during the load
+            // phase (the upload between LoadSceneFolder/LoadSceneAssets);
+            // this builds the camera-local 64x64 PND page from the W11a
+            // sliding-window accessor over FG Low (band-store layer 3 --
+            // p6_layout_model.json), writes CRAM bank 0 from the GHZ active
+            // palette, and arms SCXIN1/SCYIN1 via slScrPosNbg1 (ST-058-R2
+            // 0x180080/0x180084). The handful of extra window refills stays
+            // far inside qa_p6_layout L4's 4096 bound.
+            {
+                unsigned int ph = 0;
+                int nb = 0;
+                p6_vdp2_present_ghz_camera(3 /* FG Low */,
+                                           screens[0].position.x,
+                                           screens[0].position.y,
+                                           (const unsigned short *)fullPalette[0],
+                                           &ph, &nb);
+                p6_w_scr2_x       = screens[0].position.x;
+                p6_w_scr2_y       = screens[0].position.y;
+                p6_w_scr2_pndhash = (int32)ph;
+                p6_w_scr2_nblank  = nb;
+                p6_w_scr2_done    = 1;
+            }
         }
     }
 
@@ -1888,7 +1936,17 @@ extern "C" void p6_scene_run(void)
         p6_w_gif_b0     = (int32)px[0];
         p6_w_gif_loaded = 1;
     }
-    p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+    // P6.7 W16 (Task #228): the Title island present is DISPLACED when the
+    // GHZ FG present ran -- NBG1 has a single 256 KB cell budget (A0+A1;
+    // both tilesets are 1024 x 256 B) and a single 16 KB PND map, so the
+    // two presents are mutually exclusive by VRAM arithmetic. The W16
+    // deliverable is the GHZ FG in the final frame; re-uploading the Title
+    // cells here would clobber the GHZ cells staged during the GHZ load
+    // phase. MEASURED CONFLICT, reported: qa_p6_vdp2.py (P6.5b1 Title
+    // island gate, NOT in the W16 regression sweep) goes RED-by-design on
+    // this build; the GIF witness hash above (qa_p6_gif) still runs.
+    if (!p6_w_scr2_done)
+        p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
 
     //     Harness Ring append -- the EXACT engine stage-class append shape
     //     (Scene.cpp:199-205 + the static-vars classID/active lines
@@ -1994,10 +2052,15 @@ extern "C" void p6_scene_run(void)
     //    pick + PND map + NBG1 display from the engine's own layout (cells
     //    + CRAM already in VDP2 VRAM from 5a). main.c then parks the diag
     //    build on jo_core_run so the layer stays on screen for the capture.
-    p6_vdp2_present_layout((const unsigned short *)tileLayers[3].layout,
-                           tileLayers[3].widthShift,
-                           (const unsigned short *)fullPalette[0]);
-    p6_w_vdp2_done = 1;
+    // W16: skipped when the GHZ FG present owns NBG1 (see the displacement
+    // note at the cells-upload guard above). p6_w_vdp2_done stays 0 on the
+    // W16 build -- honest signal that the Title island was NOT presented.
+    if (!p6_w_scr2_done) {
+        p6_vdp2_present_layout((const unsigned short *)tileLayers[3].layout,
+                               tileLayers[3].widthShift,
+                               (const unsigned short *)fullPalette[0]);
+        p6_w_vdp2_done = 1;
+    }
 
     // 6) P6.5b2: ENGINE OBJECT SPRITES -- the engine loads the REAL
     //    Global/Ring.bin animation set from the pack (LoadSpriteAnimation ->
