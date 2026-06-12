@@ -72,6 +72,25 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
         uint32 frameCount = ReadInt32(&info, false);
         AllocateStorage((void **)&spr->frames, frameCount * sizeof(SpriteFrame), DATASET_STG, false);
         P6_ANIM_STAMP(3);
+#if RETRO_PLATFORM == RETRO_SATURN
+        // Task #227 RUNAWAY-READ guard (same class as the LoadSpriteSheet
+        // alloc-fail fix below at !RETRO_USE_ORIGINAL_CODE): on a FULL
+        // DATASET_STG pool the frames/animations pointers stay NULL; the
+        // parse then writes anim headers through NULL (ignored, ROM region)
+        // and reads frameCount BACK from ROM as garbage -- MEASURED
+        // (p6_c7.mcs): the frame loop ran 206 window refills to pack sector
+        // 61210, 238 sectors PAST Sonic.bin's extent, and never returned.
+        // Refuse-and-witness instead: the entry is released and the caller
+        // gets -1 (the missing-file result), keeping the gap visible.
+        if (!spr->frames) {
+            extern int32 p6_saturn_anim_allocfail;
+            ++p6_saturn_anim_allocfail;
+            spr->scope = SCOPE_NONE;
+            memset(spr->hash, 0, 4 * sizeof(uint32));
+            CloseFile(&info);
+            return -1;
+        }
+#endif
 
         uint8 sheetCount = ReadInt8(&info);
         for (int32 s = 0; s < sheetCount; ++s) {
@@ -88,6 +107,18 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
         spr->animCount = ReadInt16(&info);
         AllocateStorage((void **)&spr->animations, spr->animCount * sizeof(SpriteAnimationEntry), DATASET_STG, false);
         P6_ANIM_STAMP(5);
+#if RETRO_PLATFORM == RETRO_SATURN
+        // (rationale at the frames guard above -- a NULL animations array
+        // is THE measured runaway: animation->frameCount reads back ROM)
+        if (!spr->animations) {
+            extern int32 p6_saturn_anim_allocfail;
+            ++p6_saturn_anim_allocfail;
+            spr->scope = SCOPE_NONE;
+            memset(spr->hash, 0, 4 * sizeof(uint32));
+            CloseFile(&info);
+            return -1;
+        }
+#endif
 
         int32 frameID = 0;
         for (int32 a = 0; a < spr->animCount; ++a) {

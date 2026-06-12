@@ -553,6 +553,7 @@ __attribute__((used)) int32 p6_saturn_layer_binds    = 0; // SaturnLayout_Bind c
 // under GCC 8.2 -- the p6_saturn_sfx_skips precedent above).
 __attribute__((used)) int32 p6_w_initobj_step = 0; // 0x1...=StageLoad 0x2...=Create 0x7FFFFFFF=done
 __attribute__((used)) int32 p6_w_anim_step    = 0; // LoadSpriteAnimation phase stamp (Animation.cpp P6_ANIM_STAMP)
+__attribute__((used)) int32 p6_saturn_anim_allocfail = 0; // STG-full refusals in LoadSpriteAnimation (runaway-read guard)
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------

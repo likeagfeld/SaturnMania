@@ -281,6 +281,15 @@ int Saturn_fClose(Saturn_FileIO *file)
 // containing sector (GFS_Seek unit = sector, ST-136-R2 sec 2.3) and read up to
 // P6_GFS_WIN_SECTS sectors. GFS_TMODE_CPU busy-polls to completion, so the
 // refill is synchronous and needs no interrupt plumbing.
+// Task #227 wedge witnesses: the LAST refill's request + return values.
+// After a wedge the savestate peek shows whether GFS_Seek failed, what
+// sector was asked for, and whether GFS_Fread ever returned (lastfread
+// stays the 0x7FFFFFFF sentinel while the wedge is INSIDE GFS_Fread).
+int p6_w_gfs_fills    = 0;
+int p6_w_gfs_lastsect = -1;
+int p6_w_gfs_lastseek = -2;
+int p6_w_gfs_lastfread = -2;
+
 static int p6_window_fill(Saturn_FileIO *file, int offset)
 {
     Sint32 sector      = offset / P6_GFS_SECTOR;
@@ -291,9 +300,15 @@ static int p6_window_fill(Saturn_FileIO *file, int offset)
     if (nsct > P6_GFS_WIN_SECTS)
         nsct = P6_GFS_WIN_SECTS;
 
-    if (GFS_Seek(file->gfs, sector, GFS_SEEK_SET) < 0)
+    ++p6_w_gfs_fills;
+    p6_w_gfs_lastsect = (int)sector;
+    p6_w_gfs_lastseek = 0x7FFFFFFF;
+    p6_w_gfs_lastfread = 0x7FFFFFFF;
+    p6_w_gfs_lastseek = (int)GFS_Seek(file->gfs, sector, GFS_SEEK_SET);
+    if (p6_w_gfs_lastseek < 0)
         return 0;
-    if (GFS_Fread(file->gfs, nsct, file->win, nsct * P6_GFS_SECTOR) <= 0)
+    p6_w_gfs_lastfread = (int)GFS_Fread(file->gfs, nsct, file->win, nsct * P6_GFS_SECTOR);
+    if (p6_w_gfs_lastfread <= 0)
         return 0;
 
     file->win_off = sector * P6_GFS_SECTOR;
