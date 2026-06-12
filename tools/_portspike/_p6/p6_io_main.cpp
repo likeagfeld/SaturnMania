@@ -500,6 +500,18 @@ __attribute__((used)) int32 p6_w_plr_y          = 0;
 __attribute__((used)) int32 p6_w_plr_entclass   = -1; // entity->classID at that slot
 __attribute__((used)) int32 p6_w_plr_staticsize = 0;  // sizeof(ObjectPlayer) on SH-2 (pack contract)
 __attribute__((used)) int32 p6_w_plr_sonicframes = -1; // Player->sonicFrames after StageLoad (0xFFFF = anim refused)
+// W14: first engine gameplay ticks at GHZ (filled around the 2-tick block
+// + by the game-side p6_player_witness_tick)
+__attribute__((used)) int32 p6_w_plr_ticks      = 0;  // engine tick pairs run at GHZ
+__attribute__((used)) int32 p6_w_plr_slotdelta  = -1; // NEW VDP1 slot-cache rects during the ticks
+__attribute__((used)) int32 p6_w_plr_tick_x     = 0;  // SLOT_PLAYER1 position after the ticks
+__attribute__((used)) int32 p6_w_plr_tick_y     = 0;
+__attribute__((used)) int32 p6_w_plr_state      = 0;  // state fn ptr (nonzero == state machine live)
+__attribute__((used)) int32 p6_w_plr_onground   = -1;
+__attribute__((used)) int32 p6_w_plr_animframes = 0;  // animator.frames (expect inside P6_HW_ANIMPAK)
+__attribute__((used)) int32 p6_w_plr_animid     = -1; // animator.animationID
+__attribute__((used)) int32 p6_w_plr_drawdelta  = -1; // DrawSprite calls during the ticks
+__attribute__((used)) int32 p6_w_plr_drawflags  = -1; // (drawGroup<<16)|(visible<<8)|onScreen after the ticks
 // P6.7 W12 (Task #227, qa_p6_sheet.py): probe-replay witnesses (staged/
 // fetches counters live in SaturnSheet.cpp).
 __attribute__((used)) int32 p6_w_sht_probes   = -1; // byte-exact rects (model 15)
@@ -897,6 +909,8 @@ extern "C" void p6_wave1_link(void *functionTable, void *gameInfo,
 extern "C" void p6_wave1_witness(void);
 extern "C" void p6_player_witness_pre(int32 startSlot, int32 sceneCount);
 extern "C" void p6_player_witness_post(void);
+extern "C" void p6_player_witness_tick(void);
+extern "C" int p6_w_vdp1_slots; // p6_vdp1.c slot-cache population counter
 
 // src/rsdk/storage.c (hand-port TU, linked in this image): generic GFS
 // load-to-address -- the overlay loader. Name is historical; any address.
@@ -1583,6 +1597,62 @@ extern "C" void p6_scene_run(void)
             p6_player_witness_pre(RESERVE_ENTITY_COUNT, SCENEENTITY_COUNT);
             InitObjects();
             p6_player_witness_post();
+
+            // W14 (Task #227): FIRST ENGINE GAMEPLAY TICKS at GHZ scale --
+            // the exact ENGINESTATE_REGULAR pair (RetroEngine.cpp:365-368,
+            // per-tick proven at Title scale since P6.7a): ProcessObjects
+            // runs every inRange entity's Update (the verbatim Player state
+            // machine included) and ProcessObjectDrawLists dispatches the
+            // draw-group walk into the REAL DrawSprite backend
+            // (Player_Draw -> ANIMPAK frames -> banded Sonic sheet ->
+            // VDP1 slot cache). Two ticks; SLOT_PLAYER1 snapshotted after.
+            {
+                // Draw environment BEFORE the ticks (the step-8 Ring env
+                // arrives too late for these): a live screen so
+                // CheckOnScreen passes, and every draw group visible so
+                // ProcessObjectDrawLists dispatches Player_Draw
+                // (Object.cpp:736-752 reads both).
+                videoSettings.screenCount = 1;
+                screens[0].size.x         = SCREEN_XMAX;
+                screens[0].size.y         = SCREEN_YSIZE;
+                currentScreen             = &screens[0];
+                sceneInfo.entity          = RSDK_ENTITY_AT(0);
+                for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
+                    engine.drawGroupVisible[g] = true;
+
+                // VDP1 bind table for EVERY live GHZ surface (the step-8
+                // Ring env binds only its own sheet, and only later):
+                // resident surfaces bind their pixels; banded ones bind
+                // their SaturnSheet slot (the W12b fetch path). DrawSprite
+                // (this TU) routes blits via p6_vdp1HandleBySurface.
+                if (!p6_vdp1HandlesInit) {
+                    for (int32 i = 0; i < SURFACE_COUNT; ++i)
+                        p6_vdp1HandleBySurface[i] = -1;
+                    p6_vdp1HandlesInit = true;
+                }
+                for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+                    GFXSurface *sf = &gfxSurface[i];
+                    if (sf->scope == SCOPE_NONE || p6_vdp1HandleBySurface[i] >= 0)
+                        continue;
+                    if (sf->pixels)
+                        p6_vdp1HandleBySurface[i] = (int8)p6_vdp1_sheet_bind(
+                            sf->pixels, sf->width, (const unsigned short *)fullPalette[0]);
+                    else if (sf->saturnSheetSlot >= 0)
+                        p6_vdp1HandleBySurface[i] = (int8)p6_vdp1_sheet_bind_banded(
+                            sf->saturnSheetSlot, sf->width, (const unsigned short *)fullPalette[0]);
+                }
+
+                int32 slots0 = p6_w_vdp1_slots;
+                int32 draws0 = p6_w_draw_calls;
+                for (int32 t = 0; t < 2; ++t) {
+                    ProcessObjects();
+                    ProcessObjectDrawLists();
+                }
+                p6_w_plr_ticks     = 2;
+                p6_w_plr_slotdelta = p6_w_vdp1_slots - slots0;
+                p6_w_plr_drawdelta = p6_w_draw_calls - draws0;
+                p6_player_witness_tick();
+            }
         }
     }
 
@@ -1812,12 +1882,19 @@ extern "C" void p6_scene_run(void)
                         p6_vdp1HandleBySurface[i] = -1;
                     p6_vdp1HandlesInit = true;
                 }
-                // banded sheets keep handle -1: the DrawSprite slot cache
-                // serves their rects through the W12b fetch seam instead.
+                // W14 fix: the banded arm BINDS too -- the prior "keep
+                // handle -1" comment was the silent Ring-invisible
+                // regression (DrawSprite call counters stayed GREEN while
+                // p6_vdp1_blit dropped every handle -1 blit; MEASURED
+                // p6_f4: p6_w_vdp1_slots == 0 post-boot).
                 if (sheet->pixels)
                     p6_vdp1HandleBySurface[f0->sheetID] =
                         (int8)p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
                                                  (const unsigned short *)fullPalette[0]);
+                else if (sheet->saturnSheetSlot >= 0)
+                    p6_vdp1HandleBySurface[f0->sheetID] =
+                        (int8)p6_vdp1_sheet_bind_banded(sheet->saturnSheetSlot, sheet->width,
+                                                        (const unsigned short *)fullPalette[0]);
             }
         }
     }

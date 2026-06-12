@@ -80,6 +80,13 @@ extern int32 p6_w_plr_y;
 extern int32 p6_w_plr_entclass;
 extern int32 p6_w_plr_staticsize;
 extern int32 p6_w_plr_sonicframes;
+extern int32 p6_w_plr_tick_x;
+extern int32 p6_w_plr_tick_y;
+extern int32 p6_w_plr_state;
+extern int32 p6_w_plr_onground;
+extern int32 p6_w_plr_animframes;
+extern int32 p6_w_plr_animid;
+extern int32 p6_w_plr_drawflags;
 
 // =============================================================================
 // p6_wave1_link -- the LinkGameLogicDLL role (Game.c:111-136 pre-Plus shape,
@@ -207,4 +214,25 @@ void p6_player_witness_post(void)
     // P7 (STG sizing): LoadSpriteAnimation("Players/Sonic.bin") result --
     // 0xFFFF == the alloc-fail refusal (Player.c:795 assigns the uint16 -1).
     p6_w_plr_sonicframes = (int32)Player->sonicFrames;
+}
+
+// =============================================================================
+// p6_player_witness_tick -- W14: SLOT_PLAYER1 snapshot after the first two
+// engine gameplay ticks at GHZ (qa_p6_player P8). The state fn pointer
+// proves the verbatim Player state machine dispatched; animator.frames in
+// the ANIMPAK window proves the W13 pack feeds ProcessAnimation.
+// =============================================================================
+void p6_player_witness_tick(void)
+{
+    if (!Player)
+        return;
+    EntityPlayer *p1 = RSDK_GET_ENTITY(SLOT_PLAYER1, Player);
+    p6_w_plr_tick_x     = p1->position.x;
+    p6_w_plr_tick_y     = p1->position.y;
+    p6_w_plr_state      = (int32)(size_t)p1->state;
+    p6_w_plr_onground   = (int32)p1->onGround;
+    p6_w_plr_animframes = (int32)(size_t)p1->animator.frames;
+    p6_w_plr_animid     = (int32)p1->animator.animationID;
+    p6_w_plr_drawflags  = ((int32)p1->drawGroup << 16) | ((int32)p1->visible << 8)
+                          | (int32)p1->onScreen;
 }

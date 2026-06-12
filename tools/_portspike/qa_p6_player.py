@@ -55,7 +55,10 @@ GHZ_SCENE = os.path.join(ROOT, "extracted", "Data", "Stages", "GHZ", "Scene1.bin
 SYMS = ["_p6_w_plr_classid", "_p6_w_plr_stageload", "_p6_w_plr_slot",
         "_p6_w_plr_x", "_p6_w_plr_y", "_p6_w_plr_entclass",
         "_p6_w_plr_staticsize", "_p6_w_plr_sonicframes",
-        "RSDK::p6_saturn_anim_allocfail", "RSDK::p6_saturn_hitbox_clamps"]
+        "RSDK::p6_saturn_anim_allocfail", "RSDK::p6_saturn_hitbox_clamps",
+        "_p6_w_plr_ticks", "_p6_w_plr_slotdelta", "_p6_w_plr_tick_x",
+        "_p6_w_plr_tick_y", "_p6_w_plr_state", "_p6_w_plr_onground",
+        "_p6_w_plr_animframes", "_p6_w_plr_animid"]
 
 
 def player_model():
@@ -140,6 +143,22 @@ def main(argv):
          "allocfail=%d clamps=%d sonicFrames=%s"
          % (v["RSDK::p6_saturn_anim_allocfail"], v["RSDK::p6_saturn_hitbox_clamps"],
             _scene._hx(v["_p6_w_plr_sonicframes"]))),
+        # P8 (W14): the first ENGINE GAMEPLAY TICKS at GHZ -- ProcessObjects
+        # ran the verbatim Player state machine (state fn ptr live), the
+        # animator feeds from the W13 ANIMPAK window, physics stayed sane
+        # (no flyaway from the byte-exact spawn), and the draw-group walk
+        # cached at least one NEW rect in the VDP1 slot cache.
+        ("P8 engine ticks: state live, ANIMPAK animator, sane physics, VDP1 rects",
+         v["_p6_w_plr_ticks"] == 2
+         and v["_p6_w_plr_state"] != 0
+         and 0x060AE000 <= (v["_p6_w_plr_animframes"] & 0xFFFFFFFF) < 0x060C0000
+         and abs(v["_p6_w_plr_tick_y"] - my) <= (64 << 16)
+         and v["_p6_w_plr_slotdelta"] >= 1,
+         "ticks=%d state=%s animframes=%s dy=%d slotdelta=%d animid=%d onground=%d"
+         % (v["_p6_w_plr_ticks"], _scene._hx(v["_p6_w_plr_state"]),
+            _scene._hx(v["_p6_w_plr_animframes"]),
+            (v["_p6_w_plr_tick_y"] - my) >> 16, v["_p6_w_plr_slotdelta"],
+            v["_p6_w_plr_animid"], v["_p6_w_plr_onground"])),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:
