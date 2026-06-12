@@ -72,6 +72,13 @@ void GlobalVariables_InitCB(GlobalVariables *globals)
 
 // ---- Witnesses (DEFINED in p6_io_main.cpp, the main image) ------------------
 extern int32 p6_w_w1_locale;
+extern int32 p6_w_plr_classid;
+extern int32 p6_w_plr_stageload;
+extern int32 p6_w_plr_slot;
+extern int32 p6_w_plr_x;
+extern int32 p6_w_plr_y;
+extern int32 p6_w_plr_entclass;
+extern int32 p6_w_plr_staticsize;
 
 // =============================================================================
 // p6_wave1_link -- the LinkGameLogicDLL role (Game.c:111-136 pre-Plus shape,
@@ -152,4 +159,48 @@ void p6_wave1_witness(void)
                          | (int32)Localization->language;
     else
         p6_w_w1_locale = 0xFFFF;
+}
+
+// =============================================================================
+// p6_player_witness_pre -- called by the GHZ pass (p6_io_main.cpp) AFTER
+// LoadSceneAssets and BEFORE InitObjects: Player_StageLoad's
+// Player_LoadSprites (Player.c:714 -> :781-815) CopyEntity's the scene
+// Player into SLOT_PLAYER1 and memsets the scene slot, so the scene-slot
+// evidence (qa_p6_player P4/P5 vs the offline Scene1.bin parse) must be
+// captured first. startSlot/sceneCount arrive from the engine TU
+// (RESERVE_ENTITY_COUNT / SCENEENTITY_COUNT, Object.hpp Saturn arm) -- this
+// TU's Game.h carries the PC entity counts and must not bake them.
+// Player->classID is the STAGE classID (Scene.cpp:237 domain); the entity
+// walk rides RSDK.GetEntity through the engine's RSDK_ENTITY_AT seam.
+// =============================================================================
+void p6_player_witness_pre(int32 startSlot, int32 sceneCount)
+{
+    p6_w_plr_staticsize = (int32)sizeof(ObjectPlayer);
+    if (!Player || !Player->classID)
+        return;
+    p6_w_plr_classid = (int32)Player->classID;
+    for (int32 s = 0; s < sceneCount; ++s) {
+        Entity *e = RSDK.GetEntity((uint16)(startSlot + s));
+        if (e && e->classID == Player->classID) {
+            p6_w_plr_slot     = s; // raw scene index (the gate model domain)
+            p6_w_plr_x        = e->position.x;
+            p6_w_plr_y        = e->position.y;
+            p6_w_plr_entclass = (int32)e->classID;
+            break;
+        }
+    }
+}
+
+// =============================================================================
+// p6_player_witness_post -- called immediately after InitObjects:
+// Player_StageLoad sets Player->active = ACTIVE_ALWAYS (Player.c:708) and
+// playerCount = GetEntityCount(Player->classID, false) (Player.c:726,
+// pre-Plus arm) -- nonzero because Player_LoadSprites just created
+// SLOT_PLAYER1. Both together witness "StageLoad ran against real GHZ data".
+// =============================================================================
+void p6_player_witness_post(void)
+{
+    if (!Player)
+        return;
+    p6_w_plr_stageload = (Player->active == ACTIVE_ALWAYS && Player->playerCount > 0) ? 1 : 0;
 }

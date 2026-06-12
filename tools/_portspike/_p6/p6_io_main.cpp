@@ -486,6 +486,19 @@ __attribute__((used)) int32 p6_w_ghz_binds    = -1;  // SaturnLayout binds durin
 __attribute__((used)) int32 p6_w_ghz_clamps   = -1;  // sum of every W11b scale-safety counter (expect 0)
 __attribute__((used)) int32 p6_w_ghz_probes[16 * 3] = { 0 }; // {slot, pos.x, pos.y} x 16
 __attribute__((used)) int32 p6_w_ghz_tiles[8]       = { 0 }; // GetTile through the engine seam
+// P6.7 Player wave (Task #227, qa_p6_player P2-P6): filled by the GAME-side
+// p6_player_witness_pre/_post (p6_wave1_reg.c -- the only TU that sees
+// Game.h's ObjectPlayer). pre = after LoadSceneAssets, BEFORE InitObjects
+// (Player_LoadSprites CopyEntity's the scene Player into SLOT_PLAYER1 and
+// memsets the scene slot, Player.c:781-815 -- the scene-slot evidence must
+// be captured first); post = after InitObjects (StageLoad ran).
+__attribute__((used)) int32 p6_w_plr_classid    = -1; // Player stage classID (Scene.cpp:237 domain)
+__attribute__((used)) int32 p6_w_plr_stageload  = -1; // Player->active==ACTIVE_ALWAYS && playerCount>0 (Player.c:708,:726)
+__attribute__((used)) int32 p6_w_plr_slot       = -1; // first scene Player slot (raw scene index, model domain)
+__attribute__((used)) int32 p6_w_plr_x          = 0;  // spawn position from the scene slot (fixed-point)
+__attribute__((used)) int32 p6_w_plr_y          = 0;
+__attribute__((used)) int32 p6_w_plr_entclass   = -1; // entity->classID at that slot
+__attribute__((used)) int32 p6_w_plr_staticsize = 0;  // sizeof(ObjectPlayer) on SH-2 (pack contract)
 // P6.7 W12 (Task #227, qa_p6_sheet.py): probe-replay witnesses (staged/
 // fetches counters live in SaturnSheet.cpp).
 __attribute__((used)) int32 p6_w_sht_probes   = -1; // byte-exact rects (model 15)
@@ -535,6 +548,10 @@ __attribute__((used)) int32 p6_saturn_group_skips    = 0; // dropped type/draw g
 __attribute__((used)) int32 p6_saturn_layer_unbound  = 0; // GetTile on a windowless non-resident layer (Scene.hpp seam)
 __attribute__((used)) int32 p6_saturn_settile_drops  = 0; // SetTile on a non-resident layer (declared band write-through gap)
 __attribute__((used)) int32 p6_saturn_layer_binds    = 0; // SaturnLayout_Bind calls from the Scene.cpp load arm
+// Task #227 hang bisect: InitObjects breadcrumb (Object.cpp P6_SCENE_TEST
+// arm; block-scope extern inside RSDK::InitObjects binds to namespace RSDK
+// under GCC 8.2 -- the p6_saturn_sfx_skips precedent above).
+__attribute__((used)) int32 p6_w_initobj_step = 0; // 0x1...=StageLoad 0x2...=Create 0x7FFFFFFF=done
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -868,6 +885,8 @@ extern "C" void p6_wave1_link(void *functionTable, void *gameInfo,
                               void *touchInfo, void *screenInfo,
                               void *unknownInfo);
 extern "C" void p6_wave1_witness(void);
+extern "C" void p6_player_witness_pre(int32 startSlot, int32 sceneCount);
+extern "C" void p6_player_witness_post(void);
 
 // src/rsdk/storage.c (hand-port TU, linked in this image): generic GFS
 // load-to-address -- the overlay loader. Name is historical; any address.
@@ -1477,6 +1496,21 @@ extern "C" void p6_scene_run(void)
             p6_w_ghz_binds  = p6_saturn_layer_binds;
             p6_w_ghz_clamps = p6_saturn_tempentity_skips + p6_saturn_group_skips
                             + p6_saturn_layer_unbound + p6_saturn_settile_drops;
+
+            // P6.7 Player wave (Task #227): InitObjects AT GHZ SCALE -- the
+            // ENGINESTATE_LOAD chain's third call (RetroEngine.cpp:359-361),
+            // previously Title-only. StageLoad dispatches for all 26
+            // registered classes (Player_StageLoad runs Player_LoadSprites,
+            // Player.c:714 -- CopyEntity scene Player -> SLOT_PLAYER1, then
+            // destroys the scene slot), then Create for every nonzero-class
+            // entity (446 Ring_Create via the overlay fns, 2 Player_Create
+            // at the reserve slots, ...). Music is CD-safe here: play fires
+            // only from Music_State_PlayOnLoad, an Update state the diag
+            // never ticks for GHZ. Scene-slot evidence is captured by the
+            // game-side pre witness BEFORE the call (Player.c:781-815).
+            p6_player_witness_pre(RESERVE_ENTITY_COUNT, SCENEENTITY_COUNT);
+            InitObjects();
+            p6_player_witness_post();
         }
     }
 

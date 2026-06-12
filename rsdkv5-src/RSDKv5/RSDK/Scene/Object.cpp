@@ -341,6 +341,15 @@ void RSDK::InitObjects()
         currentObjectID = o;
 #endif
 
+#if defined(P6_SCENE_TEST)
+        // Task #227 hang bisect: breadcrumb BEFORE each dispatch -- after a
+        // wedge, the savestate peek names the exact class. Top bit set =
+        // StageLoad phase; low halves = (stage index << 16) | class id.
+        {
+            extern int32 p6_w_initobj_step;
+            p6_w_initobj_step = (int32)(0x10000000u | ((uint32)o << 16) | stageObjectIDs[o]);
+        }
+#endif
         if (objectClassList[stageObjectIDs[o]].stageLoad)
             objectClassList[stageObjectIDs[o]].stageLoad();
     }
@@ -355,11 +364,23 @@ void RSDK::InitObjects()
 
         if (sceneInfo.entity->classID) {
             if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].create) {
+#if defined(P6_SCENE_TEST)
+                {
+                    extern int32 p6_w_initobj_step;
+                    p6_w_initobj_step = (int32)(0x20000000u | ((uint32)sceneInfo.entity->classID << 16) | (uint32)e);
+                }
+#endif
                 sceneInfo.entity->interaction = true;
                 objectClassList[stageObjectIDs[sceneInfo.entity->classID]].create(NULL);
             }
         }
     }
+#if defined(P6_SCENE_TEST)
+    {
+        extern int32 p6_w_initobj_step;
+        p6_w_initobj_step = 0x7FFFFFFF; // InitObjects completed
+    }
+#endif
 
     sceneInfo.state = ENGINESTATE_REGULAR;
 

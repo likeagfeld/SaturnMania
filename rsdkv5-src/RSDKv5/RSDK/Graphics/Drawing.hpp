@@ -101,6 +101,7 @@ struct GFXSurface {
 // sheets bind an offline band store (platform/Saturn/SaturnSheet.cpp).
 #define P68_SHEET_RESIDENT_MAX (0x10000)
 extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash);
+extern "C" void SaturnSheet_Dims(int32 slot, int32 *w, int32 *h);
 extern "C" int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
                                        int32 w, int32 h, uint8 *dst);
 #endif

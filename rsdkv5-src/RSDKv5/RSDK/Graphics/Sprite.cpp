@@ -931,6 +931,46 @@ uint16 RSDK::LoadSpriteSheet(const char *filename, uint8 scope)
 
 
     GFXSurface *surface = &gfxSurface[id];
+
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P6.7 W12b (Task #227): banded sheets resolve by path hash BEFORE any
+    // file open. The original placement ran image.Load() first "for the
+    // header" -- but that opens a SECOND pack FileInfo while the CALLER's
+    // .bin FileInfo is still open (LoadSpriteAnimation -> LoadSpriteSheet,
+    // Animation.cpp:62), violating the single-GFS-handle rule (P6.5b2) and
+    // wedging the CD block (MEASURED: Player_StageLoad hang, breadcrumb
+    // 0x10080013, main thread frozen on one CDC poll instruction across 90
+    // frames). Dims come from the staged 'SHB1' header (SaturnSheet_Dims),
+    // so the banded path now does ZERO file I/O. Unmatched sheets fall
+    // through to the stock decode (and its alloc-fail handling) so the gap
+    // is visible, not silent.
+    surface->saturnSheetSlot = -1;
+    {
+        int32 shtSlot = SaturnSheet_FindSlot((const uint32 *)hash);
+        if (shtSlot >= 0) {
+            int32 sw = 0, sh = 0;
+            SaturnSheet_Dims(shtSlot, &sw, &sh);
+            surface->scope    = scope;
+            surface->width    = sw;
+            surface->height   = sh;
+            surface->lineSize = 0;
+            memcpy(surface->hash, hash, 4 * sizeof(int32));
+            int32 w0 = surface->width;
+            if (w0 > 1) {
+                int32 ls = 0;
+                do {
+                    w0 >>= 1;
+                    ++ls;
+                } while (w0 > 1);
+                surface->lineSize = ls;
+            }
+            surface->saturnSheetSlot = (int8)shtSlot;
+            surface->pixels          = NULL;
+            return id;
+        }
+    }
+#endif
+
     ImageGIF image;
 
     if (image.Load(fullFilePath, true)) {
@@ -949,28 +989,6 @@ uint16 RSDK::LoadSpriteSheet(const char *filename, uint8 scope)
             } while (w > 1);
             surface->lineSize = ls;
         }
-
-#if RETRO_PLATFORM == RETRO_SATURN
-        // P6.7 W12b (Task #227): sheets above the residency threshold keep
-        // NO resident pixel backing (the W12 wall: the Player set is
-        // 786,432 B decoded vs the 64 KB STG pool). If an offline band
-        // store was staged for this path hash (SaturnSheet.cpp, VDP2
-        // VRAM), bind it and SKIP the decode entirely -- the VDP1
-        // slot-cache miss path serves frame rects via
-        // SaturnSheet_FetchRect. Unmatched large sheets fall through to
-        // the stock decode (and its alloc-fail handling) so the gap is
-        // visible, not silent.
-        surface->saturnSheetSlot = -1;
-        if (surface->width * surface->height > P68_SHEET_RESIDENT_MAX) {
-            int32 shtSlot = SaturnSheet_FindSlot((const uint32 *)hash);
-            if (shtSlot >= 0) {
-                surface->saturnSheetSlot = (int8)shtSlot;
-                surface->pixels          = NULL;
-                image.Close();
-                return id;
-            }
-        }
-#endif
 
         surface->pixels = NULL;
         AllocateStorage((void **)&surface->pixels, surface->width * surface->height, DATASET_STG, false);
