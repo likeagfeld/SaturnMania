@@ -87,10 +87,12 @@ def main():
     # the Object.cpp Saturn entity-stride guard until that wall closes --
     # keep this list in lockstep with qa_p6_stagecfg.REGISTERED).
     REGISTERED_GAME = ["Ring", "BoundsMarker", "Camera", "DebugMode",
-                       "DrawHelpers", "Dust", "ERZStart", "HUD", "Ice",
+                       "DrawHelpers", "Dust", "ERZStart", "GameOver", "HUD",
+                       "Ice", "ImageTrail",
                        "Localization", "LogHelpers", "MathHelpers", "Music",
-                       "Options", "PauseMenu", "SaveGame", "ScoreBonus",
-                       "Shield", "SizeLaser", "Soundboard", "Zone"]
+                       "Options", "PauseMenu", "Player", "SaveGame",
+                       "ScoreBonus", "Shield", "SizeLaser", "Soundboard",
+                       "Zone"]
     reg_hashes = {pte.rsdk_hash(n) for n in REGISTERED_GAME}
     registered_census = sum(len(o["entities"]) for o in objects
                             if o["hash"] in reg_hashes)

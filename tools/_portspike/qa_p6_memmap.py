@@ -130,7 +130,11 @@ def main():
 
     ghz = count_ghz_entities()
     entity_count = c["P68_RESERVE_ENTITIES"] + c["P68_SCENE_ENTITIES"] + c["P68_TEMP_ENTITIES"]
-    entitylist = entity_count * ENTITYBASE_SIZE
+    # Step B dual-stride pool (Task #227): wide reserve+temp, narrow scene
+    # (Object.hpp ENTITYLIST_SIZE_BYTES mirror).
+    wide = c.get("P68_ENTITY_WIDE_BYTES", ENTITYBASE_SIZE)
+    entitylist = ((c["P68_RESERVE_ENTITIES"] + c["P68_TEMP_ENTITIES"]) * wide
+                  + c["P68_SCENE_ENTITIES"] * ENTITYBASE_SIZE)
     typegroups = c["P68_TYPEGROUP_COUNT"] * (2 * c["P68_TYPEGROUP_ENTRY_CAP"] + 4)
     drawgroups = c["P68_DRAWGROUP_COUNT"] * (2 * c["P68_DRAWGROUP_ENTRY_CAP"] + 40)
     classlist  = c["P68_OBJECT_COUNT"] * OBJECTCLASS_SIZE

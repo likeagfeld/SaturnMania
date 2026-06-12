@@ -86,16 +86,16 @@ def main(argv):
     print("  peeked: " + "  ".join("%s=%s" % (s[9:], _scene._hx(v[s])) for s in SYMS))
 
     t      = v["_p6_w_obj_timer"] or 0
-    # P6.7 wave-1: Ring's STAGE classID is 4 -- Title's StageConfig stage
-    # list names Options + Localization (MEASURED 11-entry list), which now
-    # hash-match ahead of the witnessed harness append (cc0 2 -> 4; was 2
-    # at P6.7c before the wave TUs registered).
-    alive  = v["_p6_w_obj_classid"] == 4
+    # Ring's STAGE classID == sceneInfo.classCount at the harness append
+    # (Scene.cpp:199-205 mirror) -- it shifts with every registration wave
+    # (wave-1: 4, Player wave: 6+). Nonzero == the proof Ring is alive; the
+    # exact stage-index equality is qa_p6_stagecfg C4's job (self-derived).
+    alive  = (v["_p6_w_obj_classid"] or 0) > 0
     ticks  = v["_p6_w_spr_ticks"] or 0
 
     checks = [
-        ("O1 engine registration: classCount == 23 (DefaultObject + DevOutput + overlay Ring + the Player-wave game link; Player/GameOver/ImageTrail refused by the Saturn entity-stride guard until that wall closes, Task #227)",
-         v["_p6_w_obj_classcount"] == 23, "got %s" % v["_p6_w_obj_classcount"]),
+        ("O1 engine registration: classCount == 26 (DefaultObject + DevOutput + overlay Ring + the full Player-wave game link; the step-B dual-stride pool admits Player/GameOver/ImageTrail, Task #227)",
+         v["_p6_w_obj_classcount"] == 26, "got %s" % v["_p6_w_obj_classcount"]),
         ("O2 engine respawn cycle ran (spawns >= 1, draws > 0)",
          (v["_p6_w_obj_spawns"] or 0) >= 1 and (v["_p6_w_obj_draws"] or 0) > 0,
          "spawns=%s draws=%s" % (v["_p6_w_obj_spawns"], v["_p6_w_obj_draws"])),

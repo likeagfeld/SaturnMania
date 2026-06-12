@@ -411,7 +411,7 @@ inline Entity *GetDrawListRef(uint8 drawGroup, uint16 listPos)
 {
     DrawList *listPtr = &drawGroups[drawGroup];
     if (drawGroup < DRAWGROUP_COUNT && listPos < listPtr->entityCount)
-        return &objectEntityList[listPtr->entries[listPos]];
+        return RSDK_ENTITY_AT(listPtr->entries[listPos]);
 
     return NULL;
 }

@@ -339,10 +339,26 @@ extern "C" void p6_io_proof(void)
 // (138,700 B under the floor) at the full shipping pool. spriteAnimationList
 // moves WRAM-H -> WRAM-L window. Heap shrinks to the C5 pools-exact
 // contract. GROUPB absolutes (palettes etc.) keep their v5 addresses.
+// Map v8 (P6.7 Player wave step B, Task #227): the DUAL-STRIDE entity pool
+// (Object.hpp: 64 wide(556) reserve + 1088 narrow(344) scene + 64 wide temp
+// = 0x6CC00) needs +0x1400 over the uniform v7.1 window. LAYOUTBANDS trims
+// its window 0xD400 -> 0xC800 (GHZ1LAYT.BIN = 51,094 B, 106 B slack).
+// Map v8.1 (step B sweep ROOT CAUSE, 2026-06-12): v8 ALSO trimmed HEAP by
+// 0x800 ("measured use 0x41800") -- that measurement was WRONG. miniz's
+// mz_inflateInit allocates inflate_state = ~43,712 B (tinfl_decompressor
+// ~10,920 + the 32,768 B LZ dict = the documented ~44 KB transient); after
+// the 0x380F8 pools the v8 window left 42,760 B, so the FIRST mz_uncompress
+// malloc hit the _sbrk ceiling (MEASURED on p6_b1.mcs: p6_brk frozen at
+// 0x2380F8, nano free-list sane, lay refills=0, sht fetches=0, K3/K4
+// packed garbage from the failed ReadCompressed, H5 tiles 0x0000 from the
+// never-filled window pool). HEAP_END restored to the PROVEN v7.1 0x43000;
+// the +0x800 is funded by shifting LAYOUTBANDS..LAYSCRATCH up 0x800 into
+// the 0x800 free margin at 0x2FA400..0x2FAC00 -- exact fit, GROUPB and
+// everything above byte-identical.
 #define P6_LW_HEAP_BASE    0x00200000u
-#define P6_LW_HEAP_END     0x00243000u // C5: pools 224 KB + miniz ~44 KB transient + slack
-#define P6_LW_ENTITYLIST   0x00243000u // 0x500 * 344       = 0x6B800 -> 0x2AE800
-#define P6_LW_COLLMASKS    0x002AE800u // DEAD sink (raw masks unwritten on
+#define P6_LW_HEAP_END     0x00243000u // v8.1: pools 0x380F8 + miniz inflate_state ~0xAAC0 + ~1 KB slack (PROVEN v7.1 size)
+#define P6_LW_ENTITYLIST   0x00243000u // dual-stride pool 0x6CC00 (ENTITYLIST_SIZE_BYTES) -> 0x2AFC00
+#define P6_LW_COLLMASKS    0x002AFC00u // DEAD sink (raw masks unwritten on
                                        // Saturn since the packed arm); the
                                        // extern pointer needs an address.
                                        // W11a: the SAME window carries the
@@ -350,20 +366,20 @@ extern "C" void p6_io_proof(void)
                                        // because ZERO Saturn code paths
                                        // access collisionMasks (measured;
                                        // macro seam + P6_CM arm)
-#define P6_LW_LAYOUTBANDS  0x002AE800u // cd/GHZ1LAYT.BIN, 51,094 B <= 0xD200 (window 0xD400) -> 0x2BBC00
-#define P6_LW_DATASTORAGE  0x002BBC00u // C1: 5 * 32 + backings = 24,736 <= 0x6100 -> 0x2C1D00
-#define P6_LW_DATAFILELIST 0x002C1D00u // C3: 0x6A0 * 24    = 0x9F00  (window 0xA000) -> 0x2CBD00
-#define P6_LW_TILELAYERS   0x002CBD00u // 8 * sizeof(TileLayer) <= 0x1A300 -> 0x2E6000
-#define P6_LW_TILEINFO     0x002E6000u // 2 * 0x400 * 5     = 0x2800  -> 0x2E8800 (LIVE: LoadTileConfig)
-#define P6_LW_MODELLIST    0x002E8800u // 0x100 * 44        = 0x2C00  -> 0x2EB400 (Clear3DScenes MEM_ZERO target)
-#define P6_LW_SPRANIM      0x002EB400u // SPRFILE_COUNT * sizeof(SpriteAnimation) = 0x7000 -> 0x2F2400
+#define P6_LW_LAYOUTBANDS  0x002AFC00u // cd/GHZ1LAYT.BIN, 51,094 B <= 0xC796 (window 0xC800) -> 0x2BC400
+#define P6_LW_DATASTORAGE  0x002BC400u // C1: 5 * 32 + backings = 24,736 <= 0x6100 -> 0x2C2500
+#define P6_LW_DATAFILELIST 0x002C2500u // C3: 0x6A0 * 24    = 0x9F00  (window 0xA000) -> 0x2CC500
+#define P6_LW_TILELAYERS   0x002CC500u // 8 * sizeof(TileLayer) <= 0x1A300 -> 0x2E6800
+#define P6_LW_TILEINFO     0x002E6800u // 2 * 0x400 * 5     = 0x2800  -> 0x2E9000 (LIVE: LoadTileConfig)
+#define P6_LW_MODELLIST    0x002E9000u // 0x100 * 44        = 0x2C00  -> 0x2EBC00 (Clear3DScenes MEM_ZERO target)
+#define P6_LW_SPRANIM      0x002EBC00u // SPRFILE_COUNT * sizeof(SpriteAnimation) = 0x7000 -> 0x2F2C00
 // W11b v7.1: the PERSISTENT band-inflate scratch is a FIXED window, NOT a
 // DATASET_TMP tenant -- MEASURED stall (scene step=2): scratch 32K + GIF
 // decoder 24,892 + tempEntityList 22K + editableVarList in TMP overcommits
 // the 80K pool (the C2 enumerate-every-tenant lesson, third occurrence).
 // Funded by the band-window trim 0xE000 -> 0xD400 (GHZ actual 51,094).
-#define P6_LW_LAYSCRATCH   0x002F2400u // 0x8000 (largest raw band 32,768) -> 0x2FA400
-                                       // free 0x2FA400..0x2FAC00 = 0x800 margin
+#define P6_LW_LAYSCRATCH   0x002F2C00u // 0x8000 (largest raw band 32,768) -> 0x2FAC00 == GROUPB_BASE
+                                       // (v8.1: the old 0x800 margin funds the HEAP restore)
 #define P6_LW_GROUPB_BASE  0x002FAC00u // absolute arrays below (UNCHANGED)
 #define P6_LW_GROUPB_END   0x002FFEC0u
 #define P6_LW_DEAD         0x002FFF00u // shared dummy for measured-DEAD pointers (256 B tail)
@@ -936,7 +952,7 @@ void DrawAchievements() {}
 // W11 closer C3: 24 B packed records x DATAFILE_COUNT 0x6A0 = 40,704
 // <= the 0xA000 window. W11b map v7: moved with its region (the old
 // 0x283700 now falls inside P6_LW_TILELAYERS).
-P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x002C1D00"); // RSDKFileInfo[0x6A0] = 40,704 <= 0xA000 (== P6_LW_DATAFILELIST, map v7.1)
+P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x002C2500"); // RSDKFileInfo[0x6A0] = 40,704 <= 0xA000 (== P6_LW_DATAFILELIST, map v8.1)
 P6_GROUPB_ABS("__ZN4RSDK11fullPaletteE",     "0x002FAC00"); // uint16[8][256] = 0x1000
 P6_GROUPB_ABS("__ZN4RSDK13globalPaletteE",   "0x002FBC00"); // uint16[8][256] = 0x1000
 P6_GROUPB_ABS("__ZN4RSDK12stagePaletteE",    "0x002FCC00"); // uint16[8][256] = 0x1000
@@ -1050,9 +1066,9 @@ static void p6_obj_spawn_ring(void)
 {
     ResetEntitySlot(P6_OBJ_RING_SLOT, (uint16)s_ring_stage_classid, NULL);
     if (s_ovl.arm_fn)  // overlay vtable (P6.7d.3) -- same verbatim arm body
-        s_ovl.arm_fn(&objectEntityList[P6_OBJ_RING_SLOT], (void *)p6_objRingFrames);
-    objectEntityList[P6_OBJ_RING_SLOT].position.x = 260 << 16;
-    objectEntityList[P6_OBJ_RING_SLOT].position.y = 60 << 16;
+        s_ovl.arm_fn(RSDK_ENTITY_AT(P6_OBJ_RING_SLOT), (void *)p6_objRingFrames);
+    RSDK_ENTITY_AT(P6_OBJ_RING_SLOT)->position.x = 260 << 16;
+    RSDK_ENTITY_AT(P6_OBJ_RING_SLOT)->position.y = 60 << 16;
     ++p6_w_obj_spawns;
 }
 
@@ -1123,7 +1139,7 @@ extern "C" void p6_scene_run(void)
     //      P6_CM arm cover every site, measured).
     {
         int n = rsdk_storage_load_to_lwram("GHZ1LAYT.BIN",
-                                           (void *)P6_LW_LAYOUTBANDS, 0xD200);
+                                           (void *)P6_LW_LAYOUTBANDS, 0xC800);
         p6_w_lay_bytes = n;
         if (n > 0) {
             const unsigned char *w = (const unsigned char *)P6_LW_LAYOUTBANDS;
@@ -1444,12 +1460,12 @@ extern "C" void p6_scene_run(void)
             // Scene.cpp writes position for every slot, classID 0 or not).
             int32 n = 0;
             for (int32 s = 0; s < SCENEENTITY_COUNT; ++s)
-                if (objectEntityList[RESERVE_ENTITY_COUNT + s].classID)
+                if (RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + s)->classID)
                     ++n;
             p6_w_ghz_entcount = n;
 
             for (int32 i = 0; i < P6_GHZLIVE_PROBE_COUNT; ++i) {
-                EntityBase *e = &objectEntityList[RESERVE_ENTITY_COUNT + p6_ghzlive_probe_slots[i]];
+                EntityBase *e = RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + p6_ghzlive_probe_slots[i]);
                 p6_w_ghz_probes[i * 3 + 0] = p6_ghzlive_probe_slots[i];
                 p6_w_ghz_probes[i * 3 + 1] = e->position.x;
                 p6_w_ghz_probes[i * 3 + 2] = e->position.y;
@@ -1668,7 +1684,7 @@ extern "C" void p6_scene_run(void)
                 currentScreen      = &screens[0];
                 screens[0].size.x  = SCREEN_XMAX;
                 screens[0].size.y  = SCREEN_YSIZE;
-                sceneInfo.entity   = &objectEntityList[0];
+                sceneInfo.entity   = RSDK_ENTITY_AT(0);
 
                 // W12b: capture the bind HANDLE into the surfaceID map the
                 // DrawSprite backend consults per frame (multi-sheet cache).
@@ -1818,13 +1834,13 @@ extern "C" void p6_scene_run(void)
     // 4) Witness copy (WRAM-H .bss survives the later title boot's WRAM-L use).
     {
         EntityBase *e;
-        e = &objectEntityList[5 + RESERVE_ENTITY_COUNT];
+        e = RSDK_ENTITY_AT(5 + RESERVE_ENTITY_COUNT);
         p6_w_scene_emblem_x = e->position.x;
         p6_w_scene_emblem_y = e->position.y;
-        e = &objectEntityList[8 + RESERVE_ENTITY_COUNT];
+        e = RSDK_ENTITY_AT(8 + RESERVE_ENTITY_COUNT);
         p6_w_scene_sonic_x = e->position.x;
         p6_w_scene_sonic_y = e->position.y;
-        e = &objectEntityList[16 + RESERVE_ENTITY_COUNT];
+        e = RSDK_ENTITY_AT(16 + RESERVE_ENTITY_COUNT);
         p6_w_scene_t3d_x = e->position.x;
         p6_w_scene_t3d_y = e->position.y;
     }
@@ -1877,12 +1893,12 @@ extern "C" void p6_scene_tick(void)
     // DrawSprite backend. The LostFX ring destroys itself after 64 updates
     // (verbatim ++timer > 64); the engine respawn keeps the cycle running.
     if (p6_objRingFrames) {
-        if (objectEntityList[P6_OBJ_RING_SLOT].classID == 0)
+        if (RSDK_ENTITY_AT(P6_OBJ_RING_SLOT)->classID == 0)
             p6_obj_spawn_ring();
         ProcessObjects();
         ProcessObjectDrawLists();
         if (s_ovl.witness_fn)
-            s_ovl.witness_fn(&objectEntityList[P6_OBJ_RING_SLOT]);
+            s_ovl.witness_fn(RSDK_ENTITY_AT(P6_OBJ_RING_SLOT));
     }
 }
 #endif // P6_SCENE_TEST

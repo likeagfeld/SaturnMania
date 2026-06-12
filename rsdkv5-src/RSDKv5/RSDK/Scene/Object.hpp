@@ -36,10 +36,35 @@ namespace RSDK
 // map v7 (p6_io_main.cpp). The group lists do NOT scale with this: their
 // entries are capped per-list below (the engine only writes inRange
 // entities into them, Object.cpp:462-493; camera-local peak << caps).
-#define TEMPENTITY_COUNT     (0x80)
+// P6.7 Player wave step B (Task #227): TEMP halves 0x80 -> 0x40 to fund the
+// DUAL-STRIDE pool below (TEMPENTITY_START stays 0x480; CreateEntity reuses
+// temp slots circularly, and the GHZ runtime peak -- ring scatter ~32 +
+// dust/trails -- fits 64 with headroom).
+#define TEMPENTITY_COUNT     (0x40)
 #define SCENEENTITY_COUNT    (0x440)
 #define ENTITY_COUNT         (RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT + TEMPENTITY_COUNT)
 #define TEMPENTITY_START     (ENTITY_COUNT - TEMPENTITY_COUNT)
+
+// P6.7 Player wave step B (Task #227): DUAL-STRIDE entity pool. The 344 B
+// uniform slot refused EntityPlayer (556) / GameOver (452) / ImageTrail
+// (440), and a uniform 556 stride costs +276 KB -- unfundable in WRAM-L.
+// MEASURED decomp truth that makes a split pool sound: oversize entities
+// only ever LIVE in reserve or temp slots -- the scene Player entity is a
+// spawn MARKER that Player_LoadSprites CopyEntity's into SLOT_PLAYER1 and
+// destroys before any Create touches its scene slot (Player.c:781-815), and
+// CreateEntity allocates from the temp region. So:
+//   slots [0, RESERVE)            WIDE   (ENTITY_WIDE_SIZE = 556 >= Player)
+//   slots [RESERVE, TEMP_START)   NARROW (sizeof(EntityBase) = 344)
+//   slots [TEMP_START, COUNT)     WIDE
+// Pool bytes: 64*556 + 1088*344 + 64*556 = 445,440 (0x6CC00) at
+// P6_LW_ENTITYLIST (map v8, p6_io_main.cpp). Slot indexing goes through
+// RSDK_ENTITY_AT / RSDK_ENTITY_SLOT below; RegisterObject's refusal
+// threshold moves to ENTITY_WIDE_SIZE, and ResetEntitySlot refuses an
+// oversize class aimed at a narrow slot (witnessed).
+#define ENTITY_WIDE_SIZE (556)
+#define ENTITYLIST_SIZE_BYTES                                                                                                                        \
+    ((uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase)                                                \
+     + (uint32)TEMPENTITY_COUNT * ENTITY_WIDE_SIZE)
 
 // P6.7 W11b group-list entry caps (P68_TYPEGROUP/DRAWGROUP_ENTRY_CAP):
 // stock TypeGroupList/DrawList embed entries[ENTITY_COUNT] -- at 0x500
@@ -107,6 +132,9 @@ namespace RSDK
 #define TYPEGROUP_COUNT   (0x104)
 
 #define OBJECT_DATA_COUNT (0x100)
+
+// PC arm of the Saturn dual-stride pool (uniform slots; byte-identical).
+#define ENTITYLIST_SIZE_BYTES ((uint32)ENTITY_COUNT * sizeof(EntityBase))
 #endif
 
 #define FOREACH_STACK_COUNT (0x400)
@@ -394,8 +422,47 @@ void ProcessObjectDrawLists();
 
 uint16 FindObject(const char *name);
 
-inline Entity *GetEntity(uint16 slot) { return &objectEntityList[slot < ENTITY_COUNT ? slot : (ENTITY_COUNT - 1)]; }
-inline int32 GetEntitySlot(EntityBase *entity) { return (int32)((uint32)(entity - objectEntityList) < ENTITY_COUNT ? entity - objectEntityList : 0); }
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.7 Player wave step B: dual-stride slot <-> pointer mapping (regions per
+// the pool comment at ENTITY_WIDE_SIZE above). Every objectEntityList[slot]
+// site routes through these.
+inline EntityBase *SaturnEntityAt(int32 slot)
+{
+    uint8 *base = (uint8 *)objectEntityList;
+    if (slot < RESERVE_ENTITY_COUNT)
+        return (EntityBase *)(base + (uint32)slot * ENTITY_WIDE_SIZE);
+    if (slot < TEMPENTITY_START)
+        return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE
+                              + (uint32)(slot - RESERVE_ENTITY_COUNT) * sizeof(EntityBase));
+    return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase)
+                          + (uint32)(slot - TEMPENTITY_START) * ENTITY_WIDE_SIZE);
+}
+inline int32 SaturnEntitySlot(EntityBase *entity)
+{
+    uint32 off       = (uint32)((uint8 *)entity - (uint8 *)objectEntityList);
+    uint32 narrowOff = (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE;
+    uint32 tempOff   = narrowOff + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase);
+    if (off >= ENTITYLIST_SIZE_BYTES)
+        return 0;
+    if (off < narrowOff)
+        return (int32)(off / ENTITY_WIDE_SIZE);
+    if (off < tempOff)
+        return RESERVE_ENTITY_COUNT + (int32)((off - narrowOff) / sizeof(EntityBase));
+    return TEMPENTITY_START + (int32)((off - tempOff) / ENTITY_WIDE_SIZE);
+}
+#define RSDK_ENTITY_AT(slot) (RSDK::SaturnEntityAt((int32)(slot)))
+#define RSDK_ENTITY_SLOT(e)  (RSDK::SaturnEntitySlot((RSDK::EntityBase *)(e)))
+#else
+#define RSDK_ENTITY_AT(slot) (&objectEntityList[(slot)])
+#define RSDK_ENTITY_SLOT(e)  ((int32)((EntityBase *)(e) - objectEntityList))
+#endif
+
+inline Entity *GetEntity(uint16 slot) { return (Entity *)RSDK_ENTITY_AT(slot < ENTITY_COUNT ? slot : (ENTITY_COUNT - 1)); }
+inline int32 GetEntitySlot(EntityBase *entity)
+{
+    int32 slot = RSDK_ENTITY_SLOT(entity);
+    return (uint32)slot < ENTITY_COUNT ? slot : 0;
+}
 int32 GetEntityCount(uint16 classID, bool32 isActive);
 
 void ResetEntity(Entity *entity, uint16 classID, void *data);
@@ -406,6 +473,19 @@ inline void CopyEntity(void *destEntity, void *srcEntity, bool32 clearSrcEntity)
 {
     if (destEntity && srcEntity) {
         memcpy(destEntity, srcEntity, sizeof(EntityBase));
+
+#if RETRO_PLATFORM == RETRO_SATURN
+        // Step B (Task #227): a WIDE destination slot (reserve/temp) keeps
+        // ENTITY_WIDE_SIZE - 344 bytes beyond the copied EntityBase; PC
+        // copies the source's zeros there (uniform 1112 B slots), so zero
+        // the tail for exact parity (e.g. Player_LoadSprites' CopyEntity of
+        // the narrow scene spawn marker into wide SLOT_PLAYER1).
+        {
+            int32 dslot = RSDK_ENTITY_SLOT(destEntity);
+            if (dslot < RESERVE_ENTITY_COUNT || dslot >= TEMPENTITY_START)
+                memset((uint8 *)destEntity + sizeof(EntityBase), 0, ENTITY_WIDE_SIZE - sizeof(EntityBase));
+        }
+#endif
 
         if (clearSrcEntity)
             memset(srcEntity, 0, sizeof(EntityBase));

@@ -46,7 +46,12 @@
 // ---- Entity population (Object.hpp consumers at P6.8) -----------------------
 #define P68_RESERVE_ENTITIES    (0x40)  // engine-reserved slots (Player etc.)
 #define P68_SCENE_ENTITIES      (0x440) // 1088 >= 1041 measured + 47 headroom
-#define P68_TEMP_ENTITIES       (0x80)
+// P6.7 Player wave step B (Task #227): TEMP halves to fund the DUAL-STRIDE
+// pool -- reserve+temp slots are WIDE (556 B >= EntityPlayer; oversize
+// entities are reserve/temp-resident by decomp construction), scene slots
+// stay 344. Mirrors Object.hpp ENTITY_WIDE_SIZE / TEMPENTITY_COUNT.
+#define P68_TEMP_ENTITIES       (0x40)
+#define P68_ENTITY_WIDE_BYTES   (556)
 // ENTITY_COUNT = 0x500 (1280) -> objectEntityList = 1280 * 344 = 440,320 B
 // NOTE (P6.7c verification): LoadSceneAssets' REV02 branch routes raw scene
 // slotIDs >= SCENEENTITY_COUNT into the throwaway tempEntityList with NO

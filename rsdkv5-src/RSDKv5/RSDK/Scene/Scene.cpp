@@ -290,7 +290,7 @@ void RSDK::LoadSceneAssets()
     ShowLoadingIcon();
 #endif
 
-    memset(objectEntityList, 0, ENTITY_COUNT * sizeof(EntityBase));
+    memset(objectEntityList, 0, ENTITYLIST_SIZE_BYTES); // Saturn: dual-stride pool total (PC: identical product)
 
     SceneListEntry *sceneEntry = &sceneInfo.listData[sceneInfo.listPos];
     char fullFilePath[0x40];
@@ -613,7 +613,7 @@ void RSDK::LoadSceneAssets()
 
 #if RETRO_REV02
                 if (slotID < SCENEENTITY_COUNT)
-                    entity = &objectEntityList[slotID + RESERVE_ENTITY_COUNT];
+                    entity = RSDK_ENTITY_AT(slotID + RESERVE_ENTITY_COUNT);
 #if RETRO_PLATFORM == RETRO_SATURN
                 // P6.7 W11 clamp: indices past the capped Saturn temp list
                 // sink into its last slot (overwritten per overflow --
@@ -630,7 +630,7 @@ void RSDK::LoadSceneAssets()
                 else
                     entity = &tempEntityList[slotID - SCENEENTITY_COUNT];
 #else
-                entity = &objectEntityList[slotID + RESERVE_ENTITY_COUNT];
+                entity = RSDK_ENTITY_AT(slotID + RESERVE_ENTITY_COUNT);
 #endif
 
                 entity->classID = classID;
@@ -770,12 +770,12 @@ void RSDK::LoadSceneAssets()
 
 #if RETRO_REV02
         // handle filter and stuff
-        EntityBase *entity = &objectEntityList[RESERVE_ENTITY_COUNT];
+        EntityBase *entity = RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT); // narrow-region base; entity++ below stays in-region
         int32 activeSlot   = RESERVE_ENTITY_COUNT;
         for (int32 i = RESERVE_ENTITY_COUNT; i < SCENEENTITY_COUNT + RESERVE_ENTITY_COUNT; ++i) {
             if (sceneInfo.filter & entity->filter) {
                 if (i != activeSlot) {
-                    memcpy(&objectEntityList[activeSlot], entity, sizeof(EntityBase));
+                    memcpy(RSDK_ENTITY_AT(activeSlot), entity, sizeof(EntityBase));
                     memset(entity, 0, sizeof(EntityBase));
                 }
 
@@ -795,7 +795,7 @@ void RSDK::LoadSceneAssets()
         for (int32 i = 0; i < SCENEENTITY_COUNT; ++i) {
 #endif
             if (sceneInfo.filter & tempEntityList[i].filter)
-                memcpy(&objectEntityList[activeSlot++], &tempEntityList[i], sizeof(EntityBase));
+                memcpy(RSDK_ENTITY_AT(activeSlot++), &tempEntityList[i], sizeof(EntityBase));
 
             if (activeSlot >= SCENEENTITY_COUNT + RESERVE_ENTITY_COUNT)
                 break;

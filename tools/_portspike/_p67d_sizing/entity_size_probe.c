@@ -557,3 +557,4 @@ char p67dsz_Woodrow[sizeof(EntityWoodrow)];
 char p67dsz_YoyoPulley[sizeof(EntityYoyoPulley)];
 char p67dsz_ZipLine[sizeof(EntityZipLine)];
 char p67dsz_Zone[sizeof(EntityZone)];
+char p67dsz_GLOBALVARS[sizeof(GlobalVariables)];

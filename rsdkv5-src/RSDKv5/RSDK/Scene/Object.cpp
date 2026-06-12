@@ -75,15 +75,15 @@ void RSDK::RegisterObject(Object **staticVars, const char *name, uint32 entityCl
         if (entityClassSize > sizeof(EntityBase))
             PrintLog(PRINT_NORMAL, "Class exceeds max entity memory: %s", name);
 #if RETRO_PLATFORM == RETRO_SATURN
-        // P4 Task #203: the Saturn EntityBase slot is shrunk to data[0x40] (344 B).
-        // The stock code only WARNS on overflow, but on Saturn registering an oversize
-        // EntityXxx would let its Create/Update write past the slot into the adjacent
-        // objectEntityList entry -- the fatal Phase 1.4-1.15 .bss-corruption class.
-        // Refuse the registration so the object is cleanly absent (a visible failure)
-        // rather than silently corrupting memory. Compile-time static_asserts in the
-        // engine object TUs make this unreachable for the linked core set; this is the
-        // generic guard for game objects (e.g. the P5 Ring). P6 RESTORATION: remove.
-        if (entityClassSize > sizeof(EntityBase))
+        // P4 Task #203 / P6.7 step B (Task #227): the refusal threshold is
+        // now the WIDE slot (556 B -- reserve/temp regions of the dual-stride
+        // pool, Object.hpp). Classes in (344, 556] register normally; their
+        // entities are reserve/temp-resident by decomp construction and
+        // ResetEntitySlot refuses narrow-slot placement (witnessed). Classes
+        // beyond 556 (Platform 724, TitleCard 864 -- future waves) still
+        // refuse here: cleanly absent beats silent slot corruption (the
+        // Phase 1.4-1.15 class).
+        if (entityClassSize > ENTITY_WIDE_SIZE)
             return;
 #endif
 
@@ -351,7 +351,7 @@ void RSDK::InitObjects()
 
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
         sceneInfo.entitySlot = e;
-        sceneInfo.entity     = &objectEntityList[e];
+        sceneInfo.entity     = RSDK_ENTITY_AT(e);
 
         if (sceneInfo.entity->classID) {
             if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].create) {
@@ -403,7 +403,7 @@ void RSDK::ProcessObjects()
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
-        sceneInfo.entity = &objectEntityList[e];
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
         if (sceneInfo.entity->classID) {
             switch (sceneInfo.entity->active) {
                 default:
@@ -505,7 +505,7 @@ void RSDK::ProcessObjects()
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
-        sceneInfo.entity = &objectEntityList[e];
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
 
         if (sceneInfo.entity->inRange && sceneInfo.entity->interaction) {
 #if RETRO_PLATFORM == RETRO_SATURN
@@ -536,7 +536,7 @@ void RSDK::ProcessObjects()
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
-        sceneInfo.entity = &objectEntityList[e];
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
 
         if (sceneInfo.entity->inRange) {
             if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].lateUpdate)
@@ -573,7 +573,7 @@ void RSDK::ProcessPausedObjects()
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
-        sceneInfo.entity = &objectEntityList[e];
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
 
         if (sceneInfo.entity->classID) {
             if (sceneInfo.entity->active == ACTIVE_ALWAYS || sceneInfo.entity->active == ACTIVE_PAUSED) {
@@ -597,7 +597,7 @@ void RSDK::ProcessPausedObjects()
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
-        sceneInfo.entity = &objectEntityList[e];
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
 
         if (sceneInfo.entity->active == ACTIVE_ALWAYS || sceneInfo.entity->active == ACTIVE_PAUSED) {
             if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].lateUpdate)
@@ -649,7 +649,7 @@ void RSDK::ProcessFrozenObjects()
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
-        sceneInfo.entity = &objectEntityList[e];
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
 
         if (sceneInfo.entity->classID) {
             switch (sceneInfo.entity->active) {
@@ -743,7 +743,7 @@ void RSDK::ProcessFrozenObjects()
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
-        sceneInfo.entity = &objectEntityList[e];
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
 
         if (sceneInfo.entity->inRange) {
             if (sceneInfo.entity->active == ACTIVE_ALWAYS || sceneInfo.entity->active == ACTIVE_PAUSED) {
@@ -798,7 +798,7 @@ void RSDK::ProcessObjectDrawLists()
                             for (int32 i = list->entityCount - 1; i > e; --i) {
                                 int32 slot1 = list->entries[i - 1];
                                 int32 slot2 = list->entries[i];
-                                if (objectEntityList[slot2].zdepth > objectEntityList[slot1].zdepth) {
+                                if (RSDK_ENTITY_AT(slot2)->zdepth > RSDK_ENTITY_AT(slot1)->zdepth) {
                                     list->entries[i - 1] = slot2;
                                     list->entries[i]     = slot1;
                                 }
@@ -809,7 +809,7 @@ void RSDK::ProcessObjectDrawLists()
                     for (int32 i = 0; i < list->entityCount; ++i) {
                         sceneInfo.entitySlot = list->entries[i];
                         validDraw            = false;
-                        sceneInfo.entity     = &objectEntityList[list->entries[i]];
+                        sceneInfo.entity     = RSDK_ENTITY_AT(list->entries[i]);
                         if (sceneInfo.entity->visible) {
                             if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].draw)
                                 objectClassList[stageObjectIDs[sceneInfo.entity->classID]].draw();
@@ -888,7 +888,7 @@ void RSDK::ProcessObjectDrawLists()
                     if (engine.drawGroupVisible[l]) {
                         DrawList *list = &drawGroups[l];
                         for (int32 i = 0; i < list->entityCount; ++i) {
-                            Entity *entity     = &objectEntityList[list->entries[i]];
+                            Entity *entity     = RSDK_ENTITY_AT(list->entries[i]);
 
                             if (entity->visible || (engine.showUpdateRanges & 2)) {
                                 switch (entity->active) {
@@ -957,7 +957,7 @@ void RSDK::ProcessObjectDrawLists()
                     if (engine.drawGroupVisible[l]) {
                         DrawList *list = &drawGroups[l];
                         for (int32 i = 0; i < list->entityCount; ++i) {
-                            Entity *entity = &objectEntityList[list->entries[i]];
+                            Entity *entity = RSDK_ENTITY_AT(list->entries[i]);
 
                             if (entity->visible || (engine.showEntityInfo & 2)) {
                                 char buffer[0x100];
@@ -1084,7 +1084,7 @@ int32 RSDK::GetEntityCount(uint16 classID, bool32 isActive)
 
     int32 entityCount = 0;
     for (int32 i = 0; i < ENTITY_COUNT; ++i) {
-        if (objectEntityList[i].classID == classID)
+        if (RSDK_ENTITY_AT(i)->classID == classID)
             entityCount++;
     }
 
@@ -1119,13 +1119,28 @@ void RSDK::ResetEntity(Entity *entity, uint16 classID, void *data)
     }
 }
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.7 Player wave step B: oversize-class-at-narrow-slot refusals (would
+// overrun into the adjacent scene slot -- the Phase 1.4-1.15 class). The
+// decomp never does this (oversize entities live in reserve/temp by
+// construction, see Object.hpp pool comment); nonzero = a wave violated it.
+int32 p6_saturn_entity_slot_refusals = 0;
+#endif
+
 void RSDK::ResetEntitySlot(uint16 slot, uint16 classID, void *data)
 {
     ObjectClass *object = &objectClassList[stageObjectIDs[classID]];
     slot                = slot < ENTITY_COUNT ? slot : (ENTITY_COUNT - 1);
 
-    Entity *entity = &objectEntityList[slot];
-    memset(&objectEntityList[slot], 0, object->entityClassSize);
+#if RETRO_PLATFORM == RETRO_SATURN
+    if (object->entityClassSize > sizeof(EntityBase) && slot >= RESERVE_ENTITY_COUNT && slot < TEMPENTITY_START) {
+        ++p6_saturn_entity_slot_refusals;
+        return;
+    }
+#endif
+
+    Entity *entity = RSDK_ENTITY_AT(slot);
+    memset(RSDK_ENTITY_AT(slot), 0, object->entityClassSize);
 
     if (object->create) {
         Entity *curEnt = sceneInfo.entity;
@@ -1152,7 +1167,7 @@ void RSDK::ResetEntitySlot(uint16 slot, uint16 classID, void *data)
 Entity *RSDK::CreateEntity(uint16 classID, void *data, int32 x, int32 y)
 {
     ObjectClass *object = &objectClassList[stageObjectIDs[classID]];
-    Entity *entity      = &objectEntityList[sceneInfo.createSlot];
+    Entity *entity      = RSDK_ENTITY_AT(sceneInfo.createSlot);
 
     int32 permCnt = 0, loopCnt = 0;
     while (entity->classID) {
@@ -1166,10 +1181,10 @@ Entity *RSDK::CreateEntity(uint16 classID, void *data, int32 x, int32 y)
         sceneInfo.createSlot++;
         if (sceneInfo.createSlot == ENTITY_COUNT) {
             sceneInfo.createSlot = TEMPENTITY_START;
-            entity               = &objectEntityList[sceneInfo.createSlot];
+            entity               = RSDK_ENTITY_AT(sceneInfo.createSlot);
         }
         else {
-            entity = &objectEntityList[sceneInfo.createSlot];
+            entity = RSDK_ENTITY_AT(sceneInfo.createSlot);
         }
 
         if (permCnt >= TEMPENTITY_COUNT)
@@ -1224,8 +1239,8 @@ bool32 RSDK::GetActiveEntities(uint16 group, Entity **entity)
         foreachStackPtr->id = 0;
     }
 
-    for (Entity *nextEntity = &objectEntityList[typeGroups[group].entries[foreachStackPtr->id]]; foreachStackPtr->id < typeGroups[group].entryCount;
-         ++foreachStackPtr->id, nextEntity = &objectEntityList[typeGroups[group].entries[foreachStackPtr->id]]) {
+    for (Entity *nextEntity = RSDK_ENTITY_AT(typeGroups[group].entries[foreachStackPtr->id]); foreachStackPtr->id < typeGroups[group].entryCount;
+         ++foreachStackPtr->id, nextEntity = RSDK_ENTITY_AT(typeGroups[group].entries[foreachStackPtr->id])) {
         if (nextEntity->classID == group) {
             *entity = nextEntity;
             return true;
@@ -1253,7 +1268,7 @@ bool32 RSDK::GetAllEntities(uint16 classID, Entity **entity)
     }
 
     for (; foreachStackPtr->id < ENTITY_COUNT; ++foreachStackPtr->id) {
-        Entity *nextEntity = &objectEntityList[foreachStackPtr->id];
+        Entity *nextEntity = RSDK_ENTITY_AT(foreachStackPtr->id);
         if (nextEntity->classID == classID) {
             *entity = nextEntity;
             return true;
