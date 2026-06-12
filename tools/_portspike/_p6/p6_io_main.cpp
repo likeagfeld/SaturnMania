@@ -470,6 +470,10 @@ __attribute__((used)) int32 p6_w_ghz_binds    = -1;  // SaturnLayout binds durin
 __attribute__((used)) int32 p6_w_ghz_clamps   = -1;  // sum of every W11b scale-safety counter (expect 0)
 __attribute__((used)) int32 p6_w_ghz_probes[16 * 3] = { 0 }; // {slot, pos.x, pos.y} x 16
 __attribute__((used)) int32 p6_w_ghz_tiles[8]       = { 0 }; // GetTile through the engine seam
+// P6.7 W12 (Task #227, qa_p6_sheet.py): probe-replay witnesses (staged/
+// fetches counters live in SaturnSheet.cpp).
+__attribute__((used)) int32 p6_w_sht_probes   = -1; // byte-exact rects (model 15)
+__attribute__((used)) int32 p6_w_sht_firstbad = -1;
 // p6_snd.c: CD-DA start through the proven jo_audio_play_cd_track path.
 void p6_cdda_play(int track, int loop);
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
@@ -1110,6 +1114,53 @@ extern "C" void p6_scene_run(void)
             SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS);
             SaturnLayout_SetScratch(&p6_layScratch, 0x8000);
         }
+    }
+
+    // 1.7) P6.7 W12 (Task #227, qa_p6_sheet.py): stage the Player sheet
+    //      band stores into VDP2 VRAM B0-tail/B1 (placement rationale in
+    //      SaturnSheet.cpp -- the 155,339 B fit NEITHER work-RAM bank next
+    //      to the closure code). GFS loads ride the SAME pre-pack-mount
+    //      slot as the overlay/band loads (the P6.5b2 single-handle rule);
+    //      staging buffer = the entityList window, free until the GHZ pass
+    //      (the W11b transient-alias precedent). Probe rects replay through
+    //      the REAL SaturnSheet_FetchRect immediately -- byte-exact vs the
+    //      offline model or the gate names the first bad rect.
+    {
+        extern int32 SaturnSheet_Stage(const void *blob, uint32 bytes);
+        extern void SaturnSheet_SetScratch(void **bufp, uint32 cap);
+        extern int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
+                                           int32 w, int32 h, uint8 *dst);
+        static void *p6_shtScratch = (void *)P6_LW_LAYSCRATCH; // shared, synchronous
+        SaturnSheet_SetScratch(&p6_shtScratch, 0x8000);
+
+        static const char *shtFiles[3] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT" };
+        for (int32 i = 0; i < 3; ++i) {
+            int sn = rsdk_storage_load_to_lwram(shtFiles[i],
+                                                (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0)
+                SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+        }
+
+#include "p6_sheet_probes.inc"
+        static uint8 p6_shtRect[0x1000]; // largest probe rect 64x64
+        int32 good = 0;
+        for (int32 i = 0; i < P6_SHEET_PROBE_COUNT; ++i) {
+            uint32 hh = 5381u;
+            if (SaturnSheet_FetchRect(p6SheetProbes[i].slot, p6SheetProbes[i].sx,
+                                      p6SheetProbes[i].sy, p6SheetProbes[i].w,
+                                      p6SheetProbes[i].h, p6_shtRect)) {
+                uint32 nb = (uint32)(p6SheetProbes[i].w * p6SheetProbes[i].h);
+                for (uint32 k = 0; k < nb; ++k)
+                    hh = ((hh << 5) + hh) ^ (uint32)p6_shtRect[k];
+                if (hh == p6SheetProbes[i].expect) {
+                    ++good;
+                    continue;
+                }
+            }
+            if (p6_w_sht_firstbad < 0)
+                p6_w_sht_firstbad = i;
+        }
+        p6_w_sht_probes = good;
     }
 
 
