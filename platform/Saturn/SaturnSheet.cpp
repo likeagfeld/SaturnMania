@@ -43,7 +43,10 @@ typedef signed int int32;
 
 struct SaturnSheetSlot {
     uint16 width, height, bandRows, bandCount;
-    uint32 vbase; // VDP2 address of this sheet's blob ('SHB1' header)
+    uint32 vbase;   // VDP2 address of this sheet's blob ('SHB1' header)
+    uint32 hash[4]; // engine path MD5 (GEN_HASH_MD5 of e.g. "Players/Sonic1.gif")
+                    // -- set by the harness after staging; LoadSpriteSheet's
+                    // Saturn arm resolves its banded slot through this.
 };
 
 static SaturnSheetSlot s_sheets[SATURNSHEET_SLOTS];
@@ -95,6 +98,25 @@ extern "C" int32 SaturnSheet_Stage(const void *blob, uint32 bytes)
     s_cursor    = vbase + bytes;
     ++p6_w_sht_staged;
     return s_count++;
+}
+
+extern "C" void SaturnSheet_SetHash(int32 slot, const uint32 *hash)
+{
+    if (slot < 0 || slot >= s_count)
+        return;
+    for (int32 i = 0; i < 4; ++i)
+        s_sheets[slot].hash[i] = hash[i];
+}
+
+extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash)
+{
+    for (int32 s = 0; s < s_count; ++s) {
+        SaturnSheetSlot *S = &s_sheets[s];
+        if (S->hash[0] == hash[0] && S->hash[1] == hash[1]
+            && S->hash[2] == hash[2] && S->hash[3] == hash[3])
+            return s;
+    }
+    return -1;
 }
 
 extern "C" void SaturnSheet_Dims(int32 slot, int32 *w, int32 *h)

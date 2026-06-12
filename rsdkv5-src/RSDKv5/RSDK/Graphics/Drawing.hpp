@@ -84,7 +84,26 @@ struct GFXSurface {
     int32 width;
     int32 lineSize;
     uint8 scope;
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P6.7 W12b (Task #227): banded-sheet binding. Sheets above
+    // P68_SHEET_RESIDENT_MAX keep NO resident pixels (pixels == NULL);
+    // reads go through SaturnSheet_FetchRect on this slot (the VDP1
+    // slot-cache miss path). -1 = resident sheet, stock behavior.
+    // Appended LAST so every prior field offset is unchanged.
+    int8 saturnSheetSlot;
+#endif
 };
+
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.7 W12 residency threshold (mirrors the SaturnMemoryMap.h contract --
+// engine TUs do not include the map header): sheets <= 64 KB decoded stay
+// DATASET_STG-resident (Items.gif class, the P6.5b2-proven path); larger
+// sheets bind an offline band store (platform/Saturn/SaturnSheet.cpp).
+#define P68_SHEET_RESIDENT_MAX (0x10000)
+extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash);
+extern "C" int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
+                                       int32 w, int32 h, uint8 *dst);
+#endif
 
 struct ScreenInfo {
 #if RETRO_PLATFORM == RETRO_SATURN

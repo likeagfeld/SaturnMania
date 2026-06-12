@@ -1129,6 +1129,324 @@ if ($v24j2Rc -ne 0) {
 }
 W "  OK (asset names <=12; loader base <=8; all TITLCARD.SP2 frame widths mult-of-8 -- no slDispSprite shear)" Green
 
+# Gate V-FR1: player animation-system PARITY gate (FR-1, 2026-06-01).
+#
+# Positioned BEFORE Gate V1 (V1 hard-exits RED). The 2.5.1-2.5.4 increments
+# ported the Roll/Crouch/Spindash/LookUp/DropDash STATE machines but the
+# rendered frame never changed -- mania_ghz_draw_sonic selected idle-vs-walk
+# only by onGround && |gsp| and ignored animationID, and only Idle+Walk of
+# Sonic's 53 anims were ever shipped to the disc. The user reported "crouch
+# doesn't work, spindash doesn't work, he doesn't turn into a ball when
+# jumping -- it's all still the same".
+#
+# This is the STATIC half of the PARITY gate (S1-S4): cd/SONIC.MET ships >= 15
+# kept anims whose frame/speed/loop/duration tables match decomp Sonic.bin,
+# cd/SONIC.SP2 ships the full 149-frame keep set, the ported handler assigns
+# >= 10 distinct ANI_*, and the diag mirror symbols are present in game.map.
+#
+# The RUNTIME half (R1: capture 5 scripted-input savestates, assert the
+# rendered anim AND sprite id each take >= 3 distinct values in gameplay) is
+# build-specific -- the diag symbol addresses in game.map shift every build,
+# so the fixtures under tools/_fr1_states/ must be re-captured before
+# `python tools/qa_fr1_parity_gate.py --runtime` is meaningful. R1 is a manual
+# post-build check (it needs Mednafen F5 on an interactive desktop); its last
+# GREEN verdict is recorded in docs/decomp_port_status.md Player row.
+W ""
+W "Gate V-FR1: player animation-system parity (static S1-S4)..." Yellow
+$fr1Out = python (Join-Path $PSScriptRoot "qa_fr1_parity_gate.py") 2>&1
+$fr1Rc = $LASTEXITCODE
+$fr1Out -split "`n" | ForEach-Object {
+    if ($_ -match "^\s*FAIL|^RED") { W "  $_" Red }
+    elseif ($_ -match "^\s*PASS|^GREEN") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($fr1Rc -ne 0) {
+    W "FAIL: Gate V-FR1 -- player animation system not ported / draw ignores state" Red
+    W "      Run: python tools/qa_fr1_parity_gate.py" Red
+    exit 1
+}
+W "  OK (animation system ships full keep set + diag mirrors)" Green
+
+# Gate V-HUD: HUD-present regression gate (#186, 2026-06-01).
+#
+# Positioned BEFORE Gate V1 (V1 hard-exits RED). The user reported the in-game
+# Score/Time/Rings/Life HUD "completely disappeared ... broken over several of
+# the last iterations". MEASURED root cause: the jo malloc pool is exhausted at
+# GHZ gameplay (TITLE.DAT 114688 stays resident and is never freed -> ~8.9 KB
+# free, HUD.SP2 needs 27536), so the pool-path entity_atlas_load NULLed out
+# (loadfail=1, ready=0). FIX: route HUD.SP2/.MET through LWRAM scene file-scratch
+# (entity_atlas_load_ex, 0x00278000) so the load bypasses the pool entirely.
+#
+# This is the STATIC half (H1+H2): cd/HUD.SP2 (SPR2) + cd/HUD.MET (MET1) present
+# and the g_hud_diag_* mirror symbols are in game.map. The RUNTIME half (R1: peek
+# ready/sid0/base/blits from a gameplay savestate; verified RED->GREEN this build,
+# ready=1 sid0=56 base=216 blits=18 even with poolok=0) needs Mednafen F5 on an
+# interactive desktop, so it is a manual post-build check like Gate V-FR1's R1.
+W ""
+W "Gate V-HUD: HUD-present regression (static H1-H2)..." Yellow
+$hudOut = python (Join-Path $PSScriptRoot "qa_hud_present_gate.py") 2>&1
+$hudRc = $LASTEXITCODE
+$hudOut -split "`n" | ForEach-Object {
+    if ($_ -match "^\s*FAIL|^RED") { W "  $_" Red }
+    elseif ($_ -match "^\s*PASS|^GREEN") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($hudRc -ne 0) {
+    W "FAIL: Gate V-HUD -- HUD assets absent or diag mirrors missing" Red
+    W "      Run: python tools/qa_hud_present_gate.py --runtime" Red
+    exit 1
+}
+W "  OK (HUD.SP2 + HUD.MET present; diag mirrors in game.map)" Green
+
+# Gate V-180: Sonic falls through the ground (#180) -- decomp-faithful tile
+# 6-sensor collision. FOUR sub-gates form the RED->GREEN evidence chain:
+#   P-model   qa_ghz_6sensor_gate.py        -- the tile-sensor MODEL is valid
+#             on real shipped GHZ data (every real-floor column grounded; the
+#             self-test has teeth). Also reports the OLD heightmap's phantom-
+#             column count (the original fall-through root cause).
+#   P-cparity qa_ghz_collision_cparity_gate.py -- the Saturn flip-transform-
+#             at-lookup (collision.c m_*/a_*) is byte-identical to the decomp's
+#             pre-baked 4 variants (Scene.cpp:869-949) across every shipped
+#             tile. NOTE: no host C compiler exists here (only the SH-2 cross-
+#             compiler + Python), so this proves the transform MATH via an
+#             executable Python mirror + a structural pass that ties the mirror
+#             to collision.c's real source. Fatal on RED.
+#   P-window  qa_ghz_colwindow_gate.py      -- the step-3d toroidal-slide
+#             column-window streamer (the LWRAM-budget fix: only a 48-col,
+#             full-height window resident instead of the 512 KB layout) returns
+#             the SAME entry as a full-grid lookup over a swept camera path on
+#             the real COLUMN-MAJOR cd/GHZ1COL.BIN. Off-by-one teeth proven.
+#             This is the executable reference the C streamer mirrors.
+#   P-cwparity qa_ghz_colwindow_cparity_gate.py -- the C streamer
+#             src/rsdk/colwindow.c + the collision window-fetch site
+#             collision.c s_layer_tile mirror the host ColWindow reference
+#             above LINE-FOR-LINE (slot=col%48, band guard -> 0xFFFF,
+#             ensure_band streams only newly-entered cols, all 8 sites routed
+#             through one helper). Structural source parse (no C compiler).
+#   P-sim     qa_ghz_fall_through_gate.py    -- per-column head-to-head: for
+#             every column with a real solid floor (tile oracle over
+#             GHZ1COL+GHZ1MASK), the tile model rests Sonic ON it (0 fall-
+#             through) while the shipped GHZ1SURF heightmap drops him through
+#             2384 of them. GREEN = tile==0 AND heightmap>0 (teeth). (End-to-
+#             end RUNTIME proof arrives after step-4 Player.c wiring + a
+#             savestate gate.)
+#   P-layout  qa_ghz_lwram_layout_gate.py    -- the GHZ collision LWRAM carve
+#             (mask + window + decode + resident GCO3) fits without
+#             overlapping FG.TMP / FR-2 pool / arena / player pool, AND the
+#             mask define matches the real asset size. Catches the #180 step-4c
+#             mask growth (33452->39644 B, both layers) overflowing its carve.
+# All six are static/sim (no savestate needed) and fatal on RED.
+W ""
+W "Gate V-180: GHZ tile 6-sensor collision (#180 Sonic-falls-through)..." Yellow
+$g180fail = 0
+$s6Out = python (Join-Path $PSScriptRoot "qa_ghz_6sensor_gate.py") 2>&1
+if ($LASTEXITCODE -ne 0) { $g180fail = 1 }
+$s6Out -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|PASS") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+$cpOut = python (Join-Path $PSScriptRoot "qa_ghz_collision_cparity_gate.py") 2>&1
+if ($LASTEXITCODE -ne 0) { $g180fail = 1 }
+$cpOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|PASS") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+$cwOut = python (Join-Path $PSScriptRoot "qa_ghz_colwindow_gate.py") 2>&1
+if ($LASTEXITCODE -ne 0) { $g180fail = 1 }
+$cwOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|PASS") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+$cwcOut = python (Join-Path $PSScriptRoot "qa_ghz_colwindow_cparity_gate.py") 2>&1
+if ($LASTEXITCODE -ne 0) { $g180fail = 1 }
+$cwcOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|PASS") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+$ftOut = python (Join-Path $PSScriptRoot "qa_ghz_fall_through_gate.py") 2>&1
+if ($LASTEXITCODE -ne 0) { $g180fail = 1 }
+$ftOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|PASS") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+$llOut = python (Join-Path $PSScriptRoot "qa_ghz_lwram_layout_gate.py") 2>&1
+if ($LASTEXITCODE -ne 0) { $g180fail = 1 }
+$llOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|PASS") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($g180fail -eq 1) {
+    W "FAIL: Gate V-180 -- tile 6-sensor collision parity/model/window/sim RED" Red
+    exit 1
+}
+W "  OK (model valid + C transform parity + toroidal window == full grid + no simulated fall-through)" Green
+
+# Gate V-188: GHZ FG.CEL pool-exhaustion regression (#188).
+#
+# FG.CEL (88 KB) must NOT be loaded through the jo pool during the GHZ
+# transition -- the pool is already saturated by FG.TMP residue + entity
+# SPRs, so a pooled FG.CEL load NULLed out and hung the title->GHZ
+# transition before gameplay. FIX (Phase #188): route FG.CEL via the
+# LWRAM bypass (rsdk_storage_load_to_lwram), same class as SKY.DAT/FG.TMP.
+# This static gate asserts FG.CEL stays off the pool path. Fatal on RED.
+W ""
+W "Gate V-188: GHZ FG.CEL pool-exhaustion regression (static)..." Yellow
+$fgcelOut = python (Join-Path $PSScriptRoot "qa_ghz_fgcel_lwram_gate.py") 2>&1
+$fgcelRc = $LASTEXITCODE
+$fgcelOut -split "`n" | ForEach-Object {
+    if ($_ -match "^\s*FAIL|^RED") { W "  $_" Red }
+    elseif ($_ -match "^\s*PASS|^GREEN") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($fgcelRc -eq 1) {
+    W "FAIL: Gate V-188 -- FG.CEL back on the jo pool (transition will hang)" Red
+    exit 1
+}
+W "  OK (FG.CEL off the jo pool via LWRAM bypass)" Green
+
+# Gate V-192: player resident pack vs live FG.CEL LWRAM collision (#192).
+#
+# MEASURED root cause of "everything crashes visually after the title card":
+# the #192 SPC packs were placed at LWRAM 0x2D0000, byte-for-byte the LIVE
+# #188 FG.CEL region (jo retains internal NBG1 pointers into FG.CEL; over-
+# writing it corrupts the foreground after the GHZ title card). FIX (user
+# decision 2026-06-02, player-only resident): SONIC.SPC + its decode buffer
+# move to the free LWRAM tail ABOVE FG.CEL (0x2E8000); entities revert to
+# CD streaming. This static gate asserts the player pack + decode buffer do
+# NOT overlap FG.CEL, stay in-bounds [0x200000,0x300000), and that the
+# retired entity pack is gone. Fatal on RED.
+W ""
+W "Gate V-192: player pack vs live FG.CEL LWRAM (static)..." Yellow
+$ppOut = python (Join-Path $PSScriptRoot "qa_player_pack_fgcel_gate.py") 2>&1
+$ppRc = $LASTEXITCODE
+$ppOut -split "`n" | ForEach-Object {
+    if ($_ -match "^\s*FAIL|^RED") { W "  $_" Red }
+    elseif ($_ -match "^\s*OK|^GREEN") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($ppRc -ne 0) {
+    W "FAIL: Gate V-192 -- player pack overlaps live FG.CEL (foreground corrupts after title card)" Red
+    exit 1
+}
+W "  OK (player pack + decode above FG.CEL, non-overlapping; entities CD-stream)" Green
+
+# Gate V-180-CD: GHZ gameplay-time CD-silence (Task #180 step 5 / #192).
+#
+# MEASURED root cause of "no music / no SFX / super-slow gameplay" in GHZ:
+# the Saturn has a SINGLE CD head. GHZ music is CD-DA track 2. The
+# player_atlas per-anim slice loader previously read SP2 pixels from the
+# data track on EVERY Sonic animation change DURING gameplay, yanking the
+# head off the CD-DA track -> audio starves and the read stalls the frame.
+# FIX (#192, player-only resident): ship the PLAYER SP2 pixels as a resident
+# raw-DEFLATE 'SPC1' pack (cd/SONIC.SPC), loaded ONCE into the free LWRAM
+# tail at GHZ scene start and puff-inflated per-frame RAM->RAM during play.
+# The frequent per-anim player reads are gone. Entities REVERT to occasional
+# CD streaming on purpose (the resident entity pack byte-collided with the
+# live FG.CEL region -- see Gate V-192); entity reads are rare (first display
+# / MRU evict) and far less frequent than the player's per-anim reads.
+#
+# This is a SOURCE-STATIC gate: it scans player_atlas.c and asserts no
+# CD-read token (jo_fs_read_file*, GFS_*, slCdRead) appears outside the
+# allowed scene-load function player_atlas_load(). RED if a gameplay-time
+# player CD reader regresses back in. (entity_atlas.c is intentionally NOT
+# policed -- streaming is by design.)
+W ""
+W "Gate V-180-CD: GHZ gameplay CD-silence (resident SPC packs)..." Yellow
+$cdsOut = python (Join-Path $PSScriptRoot "qa_ghz_gameplay_cd_silence_gate.py") 2>&1
+$cdsRc = $LASTEXITCODE
+$cdsOut -split "`n" | ForEach-Object {
+    if ($_ -match "FAIL|^RED|GATE RED") { W "  $_" Red }
+    elseif ($_ -match "^\s*OK|GREEN|GATE GREEN") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($cdsRc -ne 0) {
+    W "FAIL: Gate V-180-CD -- a gameplay-time CD reader regressed back into an atlas TU (CD-DA music will starve)" Red
+    exit 1
+}
+W "  OK (player sprite pixels RAM-resident; per-anim player reads gone; CD-DA music/SFX uninterrupted)" Green
+
+# Gate V-189: jo VDP1 sprite-table overflow regression (FR-2 lazy residency).
+#
+# MEASURED root cause: with every entity atlas eager-resident, __jo_sprite_id
+# reached 407 at GHZ gameplay vs JO_MAX_SPRITE=255. The release "Too many
+# sprites" guard (sprites.c:189) is #ifdef JO_DEBUG only, so jo wrote
+# __jo_sprite_def[255..407] / __jo_sprite_pic[255..407] PAST their [255]
+# arrays -> def[] overflow clobbered g_titlecard (garbage zone text) and
+# pic[] overflow clobbered earlier def[] VRAM addresses (HUD/glyph garbage).
+# FIX (FR-2): lazy entity residency -- only on-screen frames + HUD + player
+# resident per tick via a 192 KB LWRAM MRU pool, rebuilt above the player
+# block each draw (entity_residency_begin_frame). RED capture: 407. GREEN
+# target: __jo_sprite_id <= 254.
+#
+# RUNTIME gate: needs the gameplay savestate (tools/_hud_states/gameplay.mcs).
+# exit 1 = overflow (FATAL); exit 2 = state not captured (manual SKIP, like
+# Gate V-HUD's runtime half -- needs Mednafen F5 on an interactive desktop).
+W ""
+W "Gate V-189: jo VDP1 sprite-table overflow (FR-2 lazy residency)..." Yellow
+$budOut = python (Join-Path $PSScriptRoot "qa_jo_sprite_budget_gate.py") 2>&1
+$budRc = $LASTEXITCODE
+$budOut -split "`n" | ForEach-Object {
+    if ($_ -match "^\s*FAIL|^RED") { W "  $_" Red }
+    elseif ($_ -match "^\s*PASS|^GREEN") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($budRc -eq 1) {
+    W "FAIL: Gate V-189 -- __jo_sprite_id overflowed JO_MAX_SPRITE (HUD+titlecard clobber)" Red
+    exit 1
+}
+if ($budRc -eq 2) {
+    W "  SKIP (gameplay savestate not captured; capture via" Yellow
+    W "        pwsh tools/qa_savestate.ps1 -Cue game.cue -SaveFrame 44 -Out tools/_hud_states/gameplay.mcs)" Yellow
+} else {
+    W "  OK (jo sprite table in bounds; no HUD/titlecard clobber)" Green
+}
+
+# Gate V-CRASH (#192): GHZ gameplay WRAM-H hard-crash / stomp detector.
+#
+# WHY: task #192's user-reported GHZ-gameplay HARD CRASH stomped WorkRAM-H to
+# a uniform halfword fill (MEASURED 0x03EF over ~100%, only 4 distinct bytes),
+# derailed the master SH-2 (PC outside .text [0x06000000,0x06100000)) and
+# destroyed the jo sprite table + both SH-2 stacks. Because WRAM-H was itself
+# the casualty, the post-mortem capture could NOT name the proximate writer.
+# This gate therefore does NOT diagnose the writer -- it ENCODES THE CRASH
+# CLASS so any future build that reproduces the stomp is caught automatically
+# (RED), per the project's RED-gate-before-fix rule. A healthy in-gameplay
+# capture passes (GREEN). Predicate (qa_ghz_crash_gate.py): RED when WRAM-H
+# distinct bytes < 32, OR one non-zero halfword fills >= 50%, OR master PC is
+# outside .text.
+#
+# Input = the SAME deep gameplay savestate as Gate V-189
+# (tools/_hud_states/gameplay.mcs). To exercise the reported 45-60s failure
+# window the capture MUST be taken PAST that point (F5 right at the crash).
+# exit 1 = stomp/hard-crash signature present (FATAL); exit 2 = state not
+# captured (manual SKIP, like V-189's runtime half -- needs Mednafen F5).
+W ""
+W "Gate V-CRASH (#192): GHZ WRAM-H hard-crash / stomp detector..." Yellow
+$crashState = Join-Path $PSScriptRoot "_hud_states\gameplay.mcs"
+$crashOut = python (Join-Path $PSScriptRoot "qa_ghz_crash_gate.py") $crashState 2>&1
+$crashRc = $LASTEXITCODE
+$crashOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|^\s*OK") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($crashRc -eq 1) {
+    W "FAIL: Gate V-CRASH -- WRAM-H stomp / hard-crash signature present" Red
+    exit 1
+}
+if ($crashRc -eq 2) {
+    W "  SKIP (gameplay savestate not captured; capture a DEEP state PAST 45-60s via" Yellow
+    W "        pwsh tools/qa_savestate.ps1 -Cue game.cue -SaveFrame 44 -Out tools/_hud_states/gameplay.mcs)" Yellow
+} else {
+    W "  OK (WRAM-H intact, master PC in .text; no hard-crash signature)" Green
+}
+
 # Gate V1: visual-fidelity SSIM vs PC Steam Mania title reference.
 #
 # ============================ KNOWN-OPEN (Phase Z) =========================
@@ -1158,6 +1476,32 @@ W "  OK (asset names <=12; loader base <=8; all TITLCARD.SP2 frame widths mult-o
 # Capture source: qa_gate.png, synthesised by Gate 3.5's content-aware
 # picker (frame with the most saturated-red SONIC-banner px = settled title).
 W ""
+# ---------------------------------------------------------------------------
+# Gate V-MAPOVERLAP: no overlapping allocated output sections (P6.7 W12b,
+# Task #227, 2026-06-12). The pack's orphan .bss.*/.data.* sections were
+# placed OVERLAPPING the main .bss by the COFF-SH final link (179 pairs);
+# typeGroups[126].entryCount=0 zeroed the GfsMng GFCF_Seek pointer ->
+# GFS_Seek jumped through NULL (the whole "layout-sensitive crash" class,
+# including the falsified 8K-pool-fatal and fn-pointer-still-RED bisect
+# conclusions). Permanent fix = the p6_pack_merge.ld second `ld -r` pass;
+# this gate fires RED if ANY build re-introduces overlapped sections.
+# MUST run BEFORE Gate V1: the accepted-RED Phase-Z V1 block below is the
+# pipeline's terminal exit, so anything after it never executes.
+# ---------------------------------------------------------------------------
+W ""
+W "Gate V-MAPOVERLAP: allocated output sections must be disjoint..." Yellow
+$vmoOut = & python (Join-Path $PSScriptRoot "_portspike\qa_p6_mapoverlap.py") (Join-Path $root "game.map") 2>&1
+$vmoRc = $LASTEXITCODE
+$vmoOut -split "`n" | Select-Object -Last 3 | ForEach-Object { W "  $_" DarkGray }
+if ($vmoRc -ne 0) {
+    W "FAIL: Gate V-MAPOVERLAP -- overlapping output sections in game.map" Red
+    W "      (see qa_p6_mapoverlap.py output above; the W12b GFS-clobber" Red
+    W "      class. Check the p6_pack_merge.ld pass + section naming.)" Red
+    exit 1
+}
+W "  OK (all allocated output sections disjoint)" Green
+W ""
+
 W "Gate V1 (KNOWN-OPEN, Phase Z): visual fidelity vs PC Mania reference (SSIM >= 0.45)..." Yellow
 $ref = Join-Path $root "tools/refs/mania_pc/title_full_archiveorg.jpg"
 $shot = Join-Path $root "qa_gate.png"

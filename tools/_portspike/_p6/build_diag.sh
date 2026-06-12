@@ -36,7 +36,12 @@ cd /work
 # 256 KB; Makefile) and is a static array in jo_engine/core.c -- rm the
 # object so a flavor switch can never reuse the wrong pool size (the
 # jo-pool-stale-core-o-gotcha memory rule).
-rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map
+# W12b post-mortem (Task #227, 2026-06-11): the jo-side P6 TUs compile
+# under make with NO dependency on CCFLAGS -- a define/flag change (the
+# P6BISECT cycle) reused a stale p6_vdp1.o and produced HYBRID images
+# that falsified the whole bisect chain. rm them unconditionally.
+rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
+      tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
 make P6SCENE=1 SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."

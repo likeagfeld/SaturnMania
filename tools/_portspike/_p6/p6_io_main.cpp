@@ -474,6 +474,11 @@ __attribute__((used)) int32 p6_w_ghz_tiles[8]       = { 0 }; // GetTile through 
 // fetches counters live in SaturnSheet.cpp).
 __attribute__((used)) int32 p6_w_sht_probes   = -1; // byte-exact rects (model 15)
 __attribute__((used)) int32 p6_w_sht_firstbad = -1;
+// W12b GFS-table tracer RETIRED (Task #227, 2026-06-12): the corruption was
+// the pack's orphan .bss.* output sections overlapping the main .bss (179
+// pairs) -- typeGroups[126].entryCount=0 landed on the GfsMng GFCF_Seek
+// pointer. Permanent guards: the p6_pack_merge.ld second ld -r pass
+// (build_p6scene_objs.sh [8/8]) + qa_p6_mapoverlap.py.
 // p6_snd.c: CD-DA start through the proven jo_audio_play_cd_track path.
 void p6_cdda_play(int track, int loop);
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
@@ -481,10 +486,17 @@ void p6_cdda_play(int track, int loop);
 // to CRAM bank 1 once; blit() draws a sheet rect at an engine TOP-LEFT,
 // uploading each DISTINCT rect to VDP1 exactly once (cache keyed on
 // (sx,sy,w,h) -- a per-tick jo_sprite_add would be the #189 overflow class).
+// W12b: binds return a SHEET HANDLE (multi-sheet cache; banded sheets bind
+// their SaturnSheet store slot instead of resident pixels) and blit takes it.
 int  p6_vdp1_sheet_bind(const unsigned char *sheetPixels, int sheetWidth,
                         const unsigned short *pal565);
-void p6_vdp1_blit(int x, int y, int w, int h, int sx, int sy);
+int  p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
+                               const unsigned short *pal565);
+void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy);
 }
+// W12b: surfaceID -> vdp1 sheet handle (filled at bind time; -1 = unbound).
+static int8 p6_vdp1HandleBySurface[SURFACE_COUNT];
+static bool p6_vdp1HandlesInit = false;
 
 // P6.6c: Audio.cpp's file-scope stream state lives at GLOBAL scope (NOT in
 // namespace RSDK -- Audio.cpp:20,24): PlayStream sprintf-s the request path
@@ -532,12 +544,25 @@ DataStorage *dataStorage     = (DataStorage *)P6_LW_DATASTORAGE;
 // branch: ENTITY_COUNT 0xC0): classes 0x100*~68B = 17.4 KB, typeGroups
 // 0x84*(0xC0*2+4) = 32 KB, drawGroups 16*~420B = 6.6 KB -- measured against
 // the 171 KB diag-image margin (GHZ-scale memory map = P6.7b deliverable).
-static ObjectClass   p6_objClassBacking[OBJECT_COUNT];
+// W12b honest-accounting move (Task #227, 2026-06-12): with the orphan-
+// section merge (p6_pack_merge.ld) the map finally charges these backings
+// against the 0x060C0000 floor for real. objectClassList + drawGroups (and
+// p6_shtRect below) move to the FIXED WRAM-H window 0x060D6000..0x060E0000
+// (free gap between the wave-1 globals window end 0x060D5B74 and the W2
+// packed-collision window 0x060E0000). NOT .bss -- p6_scene_run memsets the
+// window before registration (the engine assumes zeroed class/draw lists).
+// typeGroups (68,112 B) stays .bss: it exceeds every free fixed gap.
+#define P6_HW_GROUPWIN 0x060D6000u
+#define P6_HW_GROUPWIN_OBJCLASS (P6_HW_GROUPWIN)
+#define P6_HW_GROUPWIN_DRAWGRP (P6_HW_GROUPWIN_OBJCLASS + sizeof(ObjectClass) * OBJECT_COUNT)
+#define P6_HW_GROUPWIN_SHTRECT (P6_HW_GROUPWIN_DRAWGRP + sizeof(DrawList) * DRAWGROUP_COUNT)
+#define P6_HW_GROUPWIN_END (P6_HW_GROUPWIN_SHTRECT + 0x1000)
 static TypeGroupList p6_typeGroupsBacking[TYPEGROUP_COUNT];
-static DrawList      p6_drawGroupsBacking[DRAWGROUP_COUNT];
-ObjectClass *objectClassList = p6_objClassBacking;
+ObjectClass *objectClassList = (ObjectClass *)P6_HW_GROUPWIN_OBJCLASS;
 TypeGroupList *typeGroups    = p6_typeGroupsBacking;
-DrawList *drawGroups         = p6_drawGroupsBacking;
+DrawList *drawGroups         = (DrawList *)P6_HW_GROUPWIN_DRAWGRP;
+static_assert(P6_HW_GROUPWIN_END <= 0x060E0000u,
+              "group window overruns the W2 packed-collision window");
 // cameras/cameraCount normally live in Drawing.cpp (not a pack TU);
 // ProcessObjects reads both (Object.cpp:377-390, 409-458). Zero cameras =
 // every ACTIVE_BOUNDS entity stays out of range; the proof entity runs
@@ -648,7 +673,8 @@ void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
                 // Drawing.cpp:2785. inkEffect/alpha: the proof entity is
                 // zeroed (INK_NONE -> opaque), matching VDP1 CLUT-mode draw.
                 // FIXME Phase Z: INK_ALPHA/ADD/SUB via VDP1 color calculation.
-                p6_vdp1_blit(pos.x + frame->pivotX, pos.y + frame->pivotY,
+                p6_vdp1_blit(p6_vdp1HandlesInit ? p6_vdp1HandleBySurface[frame->sheetID] : -1,
+                             pos.x + frame->pivotX, pos.y + frame->pivotY,
                              frame->width, frame->height, frame->sprX, frame->sprY);
                 p6_w_draw_xy = (((pos.x + frame->pivotX) & 0xFFFF) << 16)
                              | ((pos.y + frame->pivotY) & 0xFFFF);
@@ -1042,6 +1068,10 @@ extern "C" void p6_scene_run(void)
     // the 3d TileConfig witness hashes it (zero model at Title; step 9's
     // GHZ load fills it afterwards).
     memset((void *)P6_HW_PACKEDCOL, 0, 0x10000);
+    // W12b: zero the relocated objectClassList/drawGroups/shtRect window --
+    // it is NOT .bss (SLSTART zeroes only __bstart..__bend) and the engine
+    // assumes zeroed class + draw lists before RegisterObject at 2b.
+    memset((void *)P6_HW_GROUPWIN, 0, P6_HW_GROUPWIN_END - P6_HW_GROUPWIN);
 
     // 1) Engine storage pools (5 mallocs through OUR _sbrk -> WRAM-L heap).
     p6_w_scene_initstorage = (int32)InitStorage();
@@ -1133,16 +1163,36 @@ extern "C" void p6_scene_run(void)
         static void *p6_shtScratch = (void *)P6_LW_LAYSCRATCH; // shared, synchronous
         SaturnSheet_SetScratch(&p6_shtScratch, 0x8000);
 
+        extern void SaturnSheet_SetHash(int32 slot, const uint32 *hash);
+        // W12b root-cause fix: hand the PACK-side FetchRect to the jo-side
+        // VDP1 cache as a runtime pointer -- a static jo->pack reference
+        // re-shapes the mixed LTO/non-LTO link and crashes the GFS pack
+        // open (bisect A/A1/A2, task #227).
+        extern void p6_vdp1_set_fetch(int32 (*fn)(int32, int32, int32, int32,
+                                                  int32, uint8 *));
+        p6_vdp1_set_fetch(SaturnSheet_FetchRect);
         static const char *shtFiles[3] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT" };
+        // Engine PATH hashes (W12b): LoadSpriteSheet hashes the .bin-relative
+        // sprite path -- these are what Player_StageLoad will resolve.
+        static const char *shtPaths[3] = { "Players/Sonic1.gif",
+                                           "Players/Sonic2.gif",
+                                           "Players/Sonic3.gif" };
         for (int32 i = 0; i < 3; ++i) {
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
                                                 (void *)P6_LW_ENTITYLIST, 0x10000);
-            if (sn > 0)
-                SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5(shtPaths[i], ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                }
+            }
         }
 
 #include "p6_sheet_probes.inc"
-        static uint8 p6_shtRect[0x1000]; // largest probe rect 64x64
+        // W12b: fixed-window scratch (P6_HW_GROUPWIN tail), was 4 KB .bss
+        uint8 *p6_shtRect = (uint8 *)P6_HW_GROUPWIN_SHTRECT; // largest probe rect 64x64
         int32 good = 0;
         for (int32 i = 0; i < P6_SHEET_PROBE_COUNT; ++i) {
             uint32 hh = 5381u;
@@ -1615,8 +1665,16 @@ extern "C" void p6_scene_run(void)
                 screens[0].size.y  = SCREEN_YSIZE;
                 sceneInfo.entity   = &objectEntityList[0];
 
-                p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
-                                   (const unsigned short *)fullPalette[0]);
+                // W12b: capture the bind HANDLE into the surfaceID map the
+                // DrawSprite backend consults per frame (multi-sheet cache).
+                if (!p6_vdp1HandlesInit) {
+                    for (int32 i = 0; i < SURFACE_COUNT; ++i)
+                        p6_vdp1HandleBySurface[i] = -1;
+                    p6_vdp1HandlesInit = true;
+                }
+                p6_vdp1HandleBySurface[f0->sheetID] =
+                    (int8)p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
+                                             (const unsigned short *)fullPalette[0]);
             }
         }
     }

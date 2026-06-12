@@ -243,7 +243,20 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
     "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" \
-    -o "$P6/p6_scene_pack.o"
+    -o "$P6/p6_scene_gc.o"
+
+# W12b ROOT-CAUSE FIX (Task #227, 2026-06-12): second `ld -r` pass merging
+# every -fdata/-ffunction-sections named section into the four standard
+# sections (p6_pack_merge.ld). WITHOUT this, the final jo link (COFF-SH
+# output via the do-not-modify COMMON sgl.linker) emits the pack's
+# .bss.*/.data.* inputs as ORPHAN OUTPUT SECTIONS whose addresses OVERLAP
+# the main .bss/.data spans -- MEASURED 179 overlapping pairs
+# (qa_p6_mapoverlap.py); p6_typeGroupsBacking overlapped jo's __jo_fs_work
+# and LoadSceneFolder's typeGroups[126].entryCount=0 store zeroed the GfsMng
+# GFCF_Seek access pointer (gfs_mng+12) -> GFS_Seek jumped through NULL (the
+# entire 'W12b layout-sensitive crash' class). gc already ran above, so the
+# merge loses nothing.
+"$LD" -r -T "$P6/p6_pack_merge.ld" "$P6/p6_scene_gc.o" -o "$P6/p6_scene_pack.o"
 # P6.7d.3: p6_ring2.o is NOT a pack member -- it links into the fixed-base
 # OVERLAY (build_diag.sh stage [3b]) against the finished game.elf. The
 # bridge/witness -u roots above keep the overlay's -R import surface alive

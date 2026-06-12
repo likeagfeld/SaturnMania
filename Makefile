@@ -81,15 +81,20 @@ JO_COMPILE_WITH_PRINTF_MODULE       = 0   # off: frees VDP2 bank B1 for the NBG2
 # __bend < 0x060C0000 before claim-done. New hard gate in verify_done.ps1
 # (V-BSS) lands alongside the value flip.
 JO_GLOBAL_MEMORY_SIZE_FOR_MALLOC = 262144
-# P6.7 W11b (Task #226): an 8 KB P6SCENE pool trim was tried to fund the
-# engine tilesetPixels WRAM-H move and MEASURED FATAL -- the boot jo_mallocs
-# more than 8 KB before the pack mount (crash to 0x06000956 with PR inside
-# gfs_mngSetErrCode; bisect 2026-06-11). The trim turned out unnecessary:
-# tilesetPixels became a LOAD-PHASE TRANSIENT aliasing the WRAM-L entityList
-# window instead (p6_io_main map v7.1), which alone keeps the diag's linked
-# tail at 0x0609E234 -- 138,700 B under the 0x060C0000 overlay floor -- at
-# the full shipping pool size. The builders still rm jo core.o defensively
-# (jo-pool-stale-core-o-gotcha).
+# P6.7 W12b root-cause REVISION (Task #227, 2026-06-12): the W11b "8 KB
+# P6SCENE pool trim = MEASURED FATAL" conclusion is FALSIFIED. That crash
+# (PC 0x06000956, PR in gfs_mngSetErrCode) was the pack-orphan-.bss-overlap
+# class (qa_p6_mapoverlap.py; fixed by the p6_pack_merge.ld pass in
+# build_p6scene_objs.sh) -- the trim merely re-rolled the overlap layout.
+# With the overlap fixed, the merged map accounts the TRUE diag .bss and
+# overshoots the 0x060C0000 overlay floor by ~255 KB, most of it this pool.
+# The diag flavor therefore trims the pool to 32 KB (P6 loads run through
+# GFS windows/LWRAM/fixed windows, not jo_malloc); the SHIPPING hand-port
+# build keeps the full 256 KB. Builders rm jo core.o + p6_vdp1.o/p6_snd.o
+# per build (stale-object rules).
+ifeq ($(P6SCENE),1)
+JO_GLOBAL_MEMORY_SIZE_FOR_MALLOC = 32768
+endif
 
 # --- QA build flag ---
 # `make QA_MODE=1` compiles main.c with -DQA_MODE so the title screen holds

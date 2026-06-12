@@ -90,7 +90,24 @@ param(
                                   # launch, to drive title -> GHZ -> card
                                   # before the F5 save. Mirrors qa_boot.ps1.
     [int]$PressCount    = 8,      # number of Enter taps in the burst.
-    [double]$PressEvery = 1.0     # seconds between burst taps.
+    [double]$PressEvery = 1.0,    # seconds between burst taps.
+    # FR-1 (Task #178) held-input capture. After the title->GHZ Enter burst
+    # and foreground confirmation, hold these PS/2 set-1 scancodes through the
+    # F5 save so the player reaches a movement/action state, then release.
+    #   walk     = HoldScans 0x4D (Right, extended)
+    #   crouch   = HoldScans 0x50 (Down, extended)
+    #   spindash = HoldScans 0x50 (Down) + TapScans 0x1E (A) tapped while held
+    #   jump     = TapScans 0x1E (A) tapped once, short SettleMs (capture airborne)
+    # Mednafen ss.input.port1.gamepad keymap (verified in .mednafen/mednafen.cfg):
+    #   Right=SDL79 Left=SDL80 Down=SDL81 Up=SDL82 A=SDL4 -> Win set-1
+    #   Right=0x4D(ext) Left=0x4B(ext) Down=0x50(ext) Up=0x48(ext) A=0x1E.
+    [string]$HoldScans  = "",     # comma list of hex set-1 scancodes to hold.
+    [string]$HoldExt    = "",     # comma list 0/1, extended-key flag per hold.
+    [string]$TapScans   = "",     # comma list of hex scancodes tapped while held.
+    [string]$TapExt     = "",     # comma list 0/1, extended-key flag per tap.
+    [int]$TapCount      = 3,      # taps per TapScans entry before F5.
+    [int]$SettleMs      = 700     # ms to let the game process held input
+                                  # before F5 (short for jump's airborne window).
 )
 
 $ErrorActionPreference = "Stop"
@@ -247,6 +264,82 @@ try {
                "F5 would be delivered to the wrong window; aborting.")
     }
 
+    # FR-1 (Task #178): held-input injection. Mednafen now owns the
+    # foreground (focus loop above confirmed). Hold the directional
+    # scancodes, optionally tap action scancodes while held, settle, then
+    # fall into the F5 stroke -- the savestate captures the held state.
+    # $heldList records what we pressed-down so the finally block releases
+    # them even if F5 throws.
+    $script:heldList = @()
+    if ($HoldScans -or $TapScans) {
+        $holdArr = @(); $holdExtArr = @()
+        if ($HoldScans) {
+            $holdArr = $HoldScans.Split(",") | ForEach-Object { [int]($_.Trim()) }
+            if ($HoldExt) {
+                $holdExtArr = $HoldExt.Split(",") | ForEach-Object { [int]($_.Trim()) }
+            }
+        }
+        for ($hi = 0; $hi -lt $holdArr.Count; $hi++) {
+            $ext = if ($hi -lt $holdExtArr.Count -and $holdExtArr[$hi] -eq 1) { 0x0001 } else { 0 }
+            [QaSaveState]::keybd_event(0, [byte]$holdArr[$hi], (0x0008 -bor $ext), [UIntPtr]::Zero)
+            $script:heldList += ,@($holdArr[$hi], $ext)
+            Write-Output ("QA hold-down scancode 0x{0:X2} (ext={1})" -f $holdArr[$hi], $ext)
+            Start-Sleep -Milliseconds 40
+        }
+        if ($TapScans) {
+            $tapArr = $TapScans.Split(",") | ForEach-Object { [int]($_.Trim()) }
+            $tapExtArr = @()
+            if ($TapExt) {
+                $tapExtArr = $TapExt.Split(",") | ForEach-Object { [int]($_.Trim()) }
+            }
+            for ($tc = 0; $tc -lt $TapCount; $tc++) {
+                for ($ti = 0; $ti -lt $tapArr.Count; $ti++) {
+                    $te = if ($ti -lt $tapExtArr.Count -and $tapExtArr[$ti] -eq 1) { 0x0001 } else { 0 }
+                    [QaSaveState]::keybd_event(0, [byte]$tapArr[$ti], (0x0008 -bor $te), [UIntPtr]::Zero)
+                    Start-Sleep -Milliseconds 50
+                    [QaSaveState]::keybd_event(0, [byte]$tapArr[$ti], (0x000A -bor $te), [UIntPtr]::Zero)
+                }
+                Start-Sleep -Milliseconds 120
+            }
+            Write-Output ("QA tapped {0} action scancode(s) x{1}" -f $tapArr.Count, $TapCount)
+        }
+        Start-Sleep -Milliseconds $SettleMs
+    }
+
+    # FR-2 #192 (deep held-input captures): a long SettleMs hold can let the
+    # foreground drift away from Mednafen (focus steal / toast), so the F5
+    # below would be delivered to the wrong window and never write a .mc0
+    # (observed on a 60s held-Right GHZ capture: 3 F5 strokes, 0 files). The
+    # pre-hold confirm loop above guarantees focus to DELIVER the held keys,
+    # but not focus at F5 time AFTER the settle. Re-acquire focus here,
+    # best-effort (the F5 retry loop still reports the hard error if it
+    # truly cannot save), gated on a hold/tap having occurred so the
+    # no-input capture path stays byte-identical (title-scene gate timing;
+    # see the fps.scale note above). The held scancodes remain depressed
+    # across this re-acquire (keydown was sent once; keyup is in finally).
+    if ($HoldScans -or $TapScans) {
+        $myTidR = [QaSaveState]::GetCurrentThreadId()
+        [uint32]$fgPidR = 0
+        $fgHwndR = [QaSaveState]::GetForegroundWindow()
+        if ($fgHwndR -ne [IntPtr]::Zero) {
+            $fgTidR = [QaSaveState]::GetWindowThreadProcessId($fgHwndR, [ref]$fgPidR)
+            if ($fgTidR -ne 0 -and $fgTidR -ne $myTidR) {
+                [QaSaveState]::AttachThreadInput($myTidR, $fgTidR, $true) | Out-Null
+            }
+        } else { $fgTidR = 0 }
+        for ($ri = 0; $ri -lt 25; $ri++) {
+            [QaSaveState]::ShowWindow($h, 9) | Out-Null
+            [QaSaveState]::BringWindowToTop($h) | Out-Null
+            [QaSaveState]::SetForegroundWindow($h) | Out-Null
+            Start-Sleep -Milliseconds 200
+            if ([QaSaveState]::GetForegroundWindow() -eq $h -and
+                [QaSaveState]::IsWindowVisible($h)) { break }
+        }
+        if ($fgTidR -ne 0 -and $fgTidR -ne $myTidR) {
+            [QaSaveState]::AttachThreadInput($myTidR, $fgTidR, $false) | Out-Null
+        }
+    }
+
     # Phase 2.3i: F5 retry with mtime verification. After each F5 stroke
     # we wait up to 3s for a .mc0 in mcs/ whose LastWriteTimeUtc is >=
     # the pre-stroke timestamp. If we observe one, success. Otherwise
@@ -308,6 +401,13 @@ try {
         $statePath = $absOut
     }
 } finally {
+    # FR-1 (Task #178): release any held scancodes so they don't leak into
+    # the desktop after Mednafen exits.
+    if ($script:heldList) {
+        foreach ($h in $script:heldList) {
+            [QaSaveState]::keybd_event(0, [byte]$h[0], (0x000A -bor $h[1]), [UIntPtr]::Zero)
+        }
+    }
     # Phase 2.3i: PID-tracked shutdown. ONLY stop our launched process.
     # Never enumerate or kill other mednafen.exe (Codex may run its own).
     if (-not $KeepRunning) {
