@@ -129,6 +129,23 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     ControllerInfo   = (RSDKControllerState *)controllerInfo; // Game.c:130
     AnalogStickInfoL = (RSDKAnalogState *)stickInfoL;    // Game.c:131
     TouchInfo        = (RSDKTouchInfo *)touchInfo;       // Game.c:132
+    // W15 (P9): the pack has no input backend yet (W7) and passes NULL for
+    // controller/stick/touch -- but the Player's 60-tick run reads
+    // ControllerInfo[controllerID] every tick (Player_ProcessP1Input), and
+    // &NULL[1] on SH-2 reads BIOS bytes as button state. Until W7 lands,
+    // park the game pointers on zeroed statics == "controller present, no
+    // buttons held" (the engine's own zero-init shape).
+    {
+        static RSDKControllerState p6_zeroPads[5];
+        static RSDKAnalogState p6_zeroSticks[5];
+        static RSDKTouchInfo p6_zeroTouch;
+        if (!ControllerInfo)
+            ControllerInfo = p6_zeroPads;
+        if (!AnalogStickInfoL)
+            AnalogStickInfoL = p6_zeroSticks;
+        if (!TouchInfo)
+            TouchInfo = &p6_zeroTouch;
+    }
     ScreenInfo       = (RSDKScreenInfo *)screenInfo;     // Game.c:133
     UnknownInfo      = (RSDKUnknownInfo *)unknownInfo;   // Game.c:105 (REV02)
 

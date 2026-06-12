@@ -95,21 +95,24 @@ def main(argv):
         print("   p6_pack_merge.ld second `ld -r` pass in build_p6scene_objs.sh.)")
         return 1
     # Task #227 STG sizing: the fixed WRAM-H ANIMPAK window (P6_HW_ANIMPAK,
-    # Animation.hpp) lives at 0x060AE000..0x060C0000 -- the linked image
-    # must end BELOW it or inflates corrupt the image tail silently. DIAG
-    # FLAVOR ONLY: the shipping build carries neither the window nor the
-    # bound (discriminated by the p6_scene_run symbol).
+    # Animation.hpp; W15 base 0x060AF000) lives below the 0x060C0000 overlay
+    # -- the linked image must end BELOW the window floor or the ANIMPAK
+    # boot load clobbers live .bss (MEASURED p6_g2: scene_step froze at 1).
+    # DIAG FLAVOR ONLY: the shipping build carries neither the window nor
+    # the bound (discriminated by the p6_scene_run symbol).
+    ANIMPAK_FLOOR = 0x060AF000
     with open(mp, errors="ignore") as f:
         text = f.read()
     if "p6_scene_run" in text:
         m = re.search(r"0x[0]*([0-9a-fA-F]+)\s+_end = \.", text)
         if m:
             end = int(m.group(1), 16)
-            if end > 0x060AE000:
-                print("RESULT: RED -- _end 0x%08X over the ANIMPAK window floor 0x060AE000" % end)
+            if end > ANIMPAK_FLOOR:
+                print("RESULT: RED -- _end 0x%08X over the ANIMPAK window floor 0x%08X"
+                      % (end, ANIMPAK_FLOOR))
                 return 1
-            print("  _end 0x%08X <= ANIMPAK window floor 0x060AE000 (margin %d B)"
-                  % (end, 0x060AE000 - end))
+            print("  _end 0x%08X <= ANIMPAK window floor 0x%08X (margin %d B)"
+                  % (end, ANIMPAK_FLOOR, ANIMPAK_FLOOR - end))
     print("RESULT: GREEN -- all allocated output sections disjoint")
     return 0
 

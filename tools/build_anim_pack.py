@@ -188,8 +188,8 @@ def main():
         blob += adata + fdata + ords
         blob += b"\0" * ((-len(blob)) % 4)
 
-    # S3: window budget (P6_HW_ANIMPAK cap, p6_io_main.cpp)
-    CAP = 0x12000
+    # S3: window budget (P6_HW_ANIMPAK cap, Animation.hpp)
+    CAP = 0x11000  # W15: window base raised to 0x060AF000 (Animation.hpp)
     assert len(blob) <= CAP, "GHZANIM.PAK %d B exceeds the 0x%X window" % (len(blob), CAP)
     with open(OUT, "wb") as f:
         f.write(blob)

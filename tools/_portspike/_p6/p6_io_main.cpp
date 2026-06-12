@@ -1824,11 +1824,14 @@ extern "C" void p6_scene_run(void)
 
                 int32 slots0 = p6_w_vdp1_slots;
                 int32 draws0 = p6_w_draw_calls;
-                for (int32 t = 0; t < 2; ++t) {
+                // W15 (P9): 60 ticks -- enough for Player_State_Air gravity
+                // (0x3800/tick) to drop the spawn onto the GHZ1 start ground
+                // through the verbatim collision chain and settle onGround.
+                for (int32 t = 0; t < 60; ++t) {
                     ProcessObjects();
                     ProcessObjectDrawLists();
                 }
-                p6_w_plr_ticks     = 2;
+                p6_w_plr_ticks     = 60;
                 p6_w_plr_slotdelta = p6_w_vdp1_slots - slots0;
                 p6_w_plr_drawdelta = p6_w_draw_calls - draws0;
                 p6_player_witness_tick();
