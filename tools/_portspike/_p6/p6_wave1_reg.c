@@ -87,6 +87,7 @@ extern int32 p6_w_plr_onground;
 extern int32 p6_w_plr_animframes;
 extern int32 p6_w_plr_animid;
 extern int32 p6_w_plr_drawflags;
+extern int32 p6_w_plr_sheetid_t;
 
 // =============================================================================
 // p6_wave1_link -- the LinkGameLogicDLL role (Game.c:111-136 pre-Plus shape,
@@ -235,4 +236,13 @@ void p6_player_witness_tick(void)
     p6_w_plr_animid     = (int32)p1->animator.animationID;
     p6_w_plr_drawflags  = ((int32)p1->drawGroup << 16) | ((int32)p1->visible << 8)
                           | (int32)p1->onScreen;
+    // The frame the Player's draw would blit: GetFrame strides the ENGINE
+    // SpriteFrame correctly (the game-side prefix struct must NOT index
+    // engine frame arrays directly).
+    {
+        SpriteFrame *fr = RSDK.GetFrame(Player->sonicFrames,
+                                        p1->animator.animationID,
+                                        p1->animator.frameID);
+        p6_w_plr_sheetid_t = fr ? (int32)fr->sheetID : -1;
+    }
 }

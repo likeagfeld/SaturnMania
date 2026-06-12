@@ -49,6 +49,8 @@ __attribute__((used)) int p6_w_vdp1_slots = 0;
 __attribute__((used)) int p6_w_vdp1_lastkey = 0;
 /* W12b scale-safety: rect-cache exhaustion / oversize-frame drops. */
 __attribute__((used)) int p6_w_vdp1_drops = 0;
+/* W14: jo_sprite_add_8bits_image failures (the silent no-drop exit). */
+__attribute__((used)) int p6_w_vdp1_joaddfail = 0;
 
 /* W12b: MULTI-SHEET bind table. A handle indexes this table; resident
  * sheets carry their engine surface pixels, banded sheets carry the
@@ -188,8 +190,10 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
         img.height = h;
         img.data   = s_stage;
         id = jo_sprite_add_8bits_image(&img);
-        if (id < 0)
+        if (id < 0) {
+            ++p6_w_vdp1_joaddfail; /* W14: the silent no-drop exit */
             return -1;
+        }
         i                = p6_w_vdp1_slots++;
         s_slots[i].sheet = sheet;
         s_slots[i].sx    = sx;

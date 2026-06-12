@@ -512,6 +512,11 @@ __attribute__((used)) int32 p6_w_plr_animframes = 0;  // animator.frames (expect
 __attribute__((used)) int32 p6_w_plr_animid     = -1; // animator.animationID
 __attribute__((used)) int32 p6_w_plr_drawdelta  = -1; // DrawSprite calls during the ticks
 __attribute__((used)) int32 p6_w_plr_drawflags  = -1; // (drawGroup<<16)|(visible<<8)|onScreen after the ticks
+__attribute__((used)) int32 p6_w_bind_count     = 0;  // successful VDP1 binds in the GHZ pre-tick loop
+__attribute__((used)) int32 p6_w_bind_log[8]    = { 0 }; // (surfaceId<<8)|(handle&0xFF) per bind attempt
+__attribute__((used)) int32 p6_w_bind_logn      = 0;
+__attribute__((used)) int32 p6_w_plr_sheetid_t  = -1; // Player frame's sheetID after the ticks (GetFrame, stride-safe)
+__attribute__((used)) int32 p6_w_plr_handle     = -2; // p6_vdp1HandleBySurface[that sheetID]
 // P6.7 W12 (Task #227, qa_p6_sheet.py): probe-replay witnesses (staged/
 // fetches counters live in SaturnSheet.cpp).
 __attribute__((used)) int32 p6_w_sht_probes   = -1; // byte-exact rects (model 15)
@@ -1634,12 +1639,20 @@ extern "C" void p6_scene_run(void)
                     GFXSurface *sf = &gfxSurface[i];
                     if (sf->scope == SCOPE_NONE || p6_vdp1HandleBySurface[i] >= 0)
                         continue;
+                    int32 h = -1;
                     if (sf->pixels)
-                        p6_vdp1HandleBySurface[i] = (int8)p6_vdp1_sheet_bind(
-                            sf->pixels, sf->width, (const unsigned short *)fullPalette[0]);
+                        h = p6_vdp1_sheet_bind(sf->pixels, sf->width,
+                                               (const unsigned short *)fullPalette[0]);
                     else if (sf->saturnSheetSlot >= 0)
-                        p6_vdp1HandleBySurface[i] = (int8)p6_vdp1_sheet_bind_banded(
-                            sf->saturnSheetSlot, sf->width, (const unsigned short *)fullPalette[0]);
+                        h = p6_vdp1_sheet_bind_banded(sf->saturnSheetSlot, sf->width,
+                                                      (const unsigned short *)fullPalette[0]);
+                    else
+                        continue;
+                    p6_vdp1HandleBySurface[i] = (int8)h;
+                    if (h >= 0)
+                        ++p6_w_bind_count;
+                    if (p6_w_bind_logn < 8)
+                        p6_w_bind_log[p6_w_bind_logn++] = (i << 8) | (h & 0xFF);
                 }
 
                 int32 slots0 = p6_w_vdp1_slots;
@@ -1652,6 +1665,8 @@ extern "C" void p6_scene_run(void)
                 p6_w_plr_slotdelta = p6_w_vdp1_slots - slots0;
                 p6_w_plr_drawdelta = p6_w_draw_calls - draws0;
                 p6_player_witness_tick();
+                if (p6_w_plr_sheetid_t >= 0 && p6_w_plr_sheetid_t < SURFACE_COUNT)
+                    p6_w_plr_handle = p6_vdp1HandleBySurface[p6_w_plr_sheetid_t];
             }
         }
     }
