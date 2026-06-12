@@ -246,4 +246,34 @@
 // (+32 KB), further cold-Global demotion into overlays. The formal
 // re-contract of P68_HWRAM_CODE_BYTES lands WITH the P6.7d overlay design.
 
+// ---- P6.7 W12 (Task #227, 2026-06-11): SPRITE-SHEET RESIDENCY -- DECLARED
+// OPEN GAP (the W2/W11 pattern: measured, declared, gated; design of record
+// below; implementation = its own gated iteration, PREREQUISITE of the
+// Player wave -- Player_StageLoad cannot run without it).
+// MEASURED (PIL over extracted/Data/Sprites, decoded 8bpp bytes):
+//   Players/Sonic1+2+3.gif   3 x 512x512 = 786,432 B  (Player_StageLoad set)
+//   Global/ShieldS|s.gif     512x512     = 262,144 B each
+//   GHZ/Objects.gif          512x256     = 131,072 B
+//   Global/Items.gif         256x128     =  32,768 B (the P6.5b2 proof fit)
+// LoadSpriteSheet decodes whole sheets into DATASET_STG (64 KB pool) --
+// residency IMPOSSIBLE at gameplay scale; the FR-1/FR-2 hand-port lessons
+// (lazy VDP1 residency + CD-streamed frame packs) recur in the engine port.
+// DESIGN OF RECORD: the WORKING SET already lives in VDP1 VRAM via the
+// P6.5b3 rect-keyed DrawSprite slot cache (each DISTINCT frame rect
+// uploaded exactly once). The seam is the slot-cache MISS path: gfxSurface
+// keeps its header (size/lineSize/hash) but large sheets keep NO resident
+// pixel backing -- a miss fetches the frame's rows from an offline
+// row-band store (cd/<SHEET>SHT.BIN, the W11 band codec + builder pattern)
+// through a bounded scratch window, then uploads to VDP1 as today. Small
+// sheets (<= a residency threshold, e.g. Items.gif) stay resident verbatim.
+#define P68_SHEET_RESIDENT_MAX  (0x10000) // sheets <= 64 KB decoded stay
+                                          // DATASET_STG-resident (Items.gif
+                                          // class); larger = banded
+#define P68_SHEET_SCRATCH_BYTES (0x4000)  // miss-path band scratch (largest
+                                          // gameplay frame rect rows; exact
+                                          // bound measured at the W12
+                                          // builder, contract ceiling here)
+#define P68_W12_SHEETS_OPEN     (1)       // flips to 0 when the seam lands
+                                          // with its byte-exact gate
+
 #endif // SATURN_MEMORY_MAP_H
