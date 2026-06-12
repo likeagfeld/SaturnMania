@@ -39,9 +39,25 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
     uint8 sheetIDs[0x18];
     sheetIDs[0] = 0;
 
+#if defined(P6_SCENE_TEST)
+    // Task #227 wedge bisect: phase stamp = (sprfile id << 8) | phase.
+    // Phases: 1 pre-open, 2 opened, 3 frames-alloc'd, 4 sheets resolved,
+    // 5 anims alloc'd, 6 parse done, 7 closed. After a wedge the savestate
+    // peek names the exact file + step.
+#define P6_ANIM_STAMP(ph)                                                                                                                            \
+    do {                                                                                                                                             \
+        extern int32 p6_w_anim_step;                                                                                                                 \
+        p6_w_anim_step = ((int32)id << 8) | (ph);                                                                                                    \
+    } while (0)
+#else
+#define P6_ANIM_STAMP(ph)
+#endif
+
     FileInfo info;
     InitFileInfo(&info);
+    P6_ANIM_STAMP(1);
     if (LoadFile(&info, fullFilePath, FMODE_RB)) {
+        P6_ANIM_STAMP(2);
         uint32 sig = ReadInt32(&info, false);
 
         if (sig != RSDK_SIGNATURE_SPR) {
@@ -55,12 +71,14 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
 
         uint32 frameCount = ReadInt32(&info, false);
         AllocateStorage((void **)&spr->frames, frameCount * sizeof(SpriteFrame), DATASET_STG, false);
+        P6_ANIM_STAMP(3);
 
         uint8 sheetCount = ReadInt8(&info);
         for (int32 s = 0; s < sheetCount; ++s) {
             ReadString(&info, fullFilePath);
             sheetIDs[s] = LoadSpriteSheet(fullFilePath, scope);
         }
+        P6_ANIM_STAMP(4);
 
         uint8 hitboxCount = ReadInt8(&info);
         for (int32 h = 0; h < hitboxCount; ++h) {
@@ -69,6 +87,7 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
 
         spr->animCount = ReadInt16(&info);
         AllocateStorage((void **)&spr->animations, spr->animCount * sizeof(SpriteAnimationEntry), DATASET_STG, false);
+        P6_ANIM_STAMP(5);
 
         int32 frameID = 0;
         for (int32 a = 0; a < spr->animCount; ++a) {
@@ -105,7 +124,9 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
             }
         }
 
+        P6_ANIM_STAMP(6);
         CloseFile(&info);
+        P6_ANIM_STAMP(7);
 
         return id;
     }
