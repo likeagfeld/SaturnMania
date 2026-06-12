@@ -487,7 +487,7 @@ void RSDK::ProcessObjects()
 #else
                 if (sceneInfo.entity->drawGroup < DRAWGROUP_COUNT)
 #endif
-                    drawGroups[sceneInfo.entity->drawGroup].entries[drawGroups[sceneInfo.entity->drawGroup].entityCount++] = sceneInfo.entitySlot;
+                    RSDK_DRAWGROUP_APPEND(drawGroups[sceneInfo.entity->drawGroup], sceneInfo.entitySlot);
             }
         }
         else {
@@ -513,21 +513,21 @@ void RSDK::ProcessObjects()
             // (typeGroups carry only inRange entities; cap per
             // SaturnMemoryMap.h at the P6.8 flip).
             if (typeGroups[GROUP_ALL].entryCount < ENTITY_COUNT)
-                typeGroups[GROUP_ALL].entries[typeGroups[GROUP_ALL].entryCount++] = e;
+                RSDK_TYPEGROUP_APPEND(typeGroups[GROUP_ALL], e);
 
             if (typeGroups[sceneInfo.entity->classID].entryCount < ENTITY_COUNT)
-                typeGroups[sceneInfo.entity->classID].entries[typeGroups[sceneInfo.entity->classID].entryCount++] = e;
+                RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->classID], e);
 
             if (sceneInfo.entity->group >= TYPE_COUNT
                 && typeGroups[sceneInfo.entity->group].entryCount < ENTITY_COUNT)
-                typeGroups[sceneInfo.entity->group].entries[typeGroups[sceneInfo.entity->group].entryCount++] = e;
+                RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->group], e);
 #else
-            typeGroups[GROUP_ALL].entries[typeGroups[GROUP_ALL].entryCount++] = e; // All active objects
+            RSDK_TYPEGROUP_APPEND(typeGroups[GROUP_ALL], e); // All active objects
 
-            typeGroups[sceneInfo.entity->classID].entries[typeGroups[sceneInfo.entity->classID].entryCount++] = e; // class-based groups
+            RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->classID], e); // class-based groups
 
             if (sceneInfo.entity->group >= TYPE_COUNT)
-                typeGroups[sceneInfo.entity->group].entries[typeGroups[sceneInfo.entity->group].entryCount++] = e; // extra groups
+                RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->group], e); // extra groups
 #endif
         }
 
@@ -581,7 +581,7 @@ void RSDK::ProcessPausedObjects()
                     objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update();
 
                 if (sceneInfo.entity->drawGroup < DRAWGROUP_COUNT)
-                    drawGroups[sceneInfo.entity->drawGroup].entries[drawGroups[sceneInfo.entity->drawGroup].entityCount++] = sceneInfo.entitySlot;
+                    RSDK_DRAWGROUP_APPEND(drawGroups[sceneInfo.entity->drawGroup], sceneInfo.entitySlot);
             }
         }
         else {
@@ -725,7 +725,7 @@ void RSDK::ProcessFrozenObjects()
                 }
 
                 if (sceneInfo.entity->drawGroup < DRAWGROUP_COUNT)
-                    drawGroups[sceneInfo.entity->drawGroup].entries[drawGroups[sceneInfo.entity->drawGroup].entityCount++] = sceneInfo.entitySlot;
+                    RSDK_DRAWGROUP_APPEND(drawGroups[sceneInfo.entity->drawGroup], sceneInfo.entitySlot);
             }
         }
         else {
@@ -752,12 +752,12 @@ void RSDK::ProcessFrozenObjects()
             }
 
             if (sceneInfo.entity->interaction) {
-                typeGroups[GROUP_ALL].entries[typeGroups[GROUP_ALL].entryCount++] = e; // All active entities
+                RSDK_TYPEGROUP_APPEND(typeGroups[GROUP_ALL], e); // All active entities
 
-                typeGroups[sceneInfo.entity->classID].entries[typeGroups[sceneInfo.entity->classID].entryCount++] = e; // type-based groups
+                RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->classID], e); // type-based groups
 
                 if (sceneInfo.entity->group >= TYPE_COUNT)
-                    typeGroups[sceneInfo.entity->group].entries[typeGroups[sceneInfo.entity->group].entryCount++] = e; // extra groups
+                    RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->group], e); // extra groups
             }
         }
 

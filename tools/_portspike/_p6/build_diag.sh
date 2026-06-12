@@ -32,7 +32,11 @@ $CC -x c -std=gnu99 -m2 -O2 -fno-builtin \
 
 echo "[3/5] jo image (P6SCENE flavor, flavor-switch rm, SYSOBJS override) ..."
 cd /work
-rm -f src/main.o game.elf game.map
+# W11b: jo's malloc pool is flavor-dependent (P6SCENE = 8 KB, shipping =
+# 256 KB; Makefile) and is a static array in jo_engine/core.c -- rm the
+# object so a flavor switch can never reuse the wrong pool size (the
+# jo-pool-stale-core-o-gotcha memory rule).
+rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map
 make P6SCENE=1 SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."

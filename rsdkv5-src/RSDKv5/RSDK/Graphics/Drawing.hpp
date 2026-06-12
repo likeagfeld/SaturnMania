@@ -119,7 +119,13 @@ struct CameraInfo {
 };
 
 struct DrawList {
+#if RETRO_PLATFORM == RETRO_SATURN
+    // W11b (Task #226): capped entries (DRAWGROUP_ENTRY_CAP, Object.hpp) --
+    // appends go through RSDK_DRAWGROUP_APPEND; reads bounded by entityCount.
+    uint16 entries[DRAWGROUP_ENTRY_CAP];
+#else
     uint16 entries[ENTITY_COUNT];
+#endif
     uint16 layerDrawList[LAYER_COUNT];
     void (*hookCB)();
     bool32 sorted;
@@ -370,7 +376,7 @@ void SetVideoSetting(int32 id, int32 value);
 inline void AddDrawListRef(uint8 drawGroup, uint16 entityID)
 {
     if (drawGroup < DRAWGROUP_COUNT)
-        drawGroups[drawGroup].entries[drawGroups[drawGroup].entityCount++] = entityID;
+        RSDK_DRAWGROUP_APPEND(drawGroups[drawGroup], entityID);
 }
 
 inline uint16 GetDrawListRefSlot(uint8 drawGroup, uint16 listPos)

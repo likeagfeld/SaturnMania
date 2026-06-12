@@ -417,10 +417,42 @@ void RSDK::LoadSceneAssets()
             layer->scrollPos      = 0;
 
             layer->layout = NULL;
+#if RETRO_PLATFORM == RETRO_SATURN
+            // P6.7 W11b (Task #226): layouts above the residency threshold
+            // are NOT allocated -- reads go through the SaturnLayout sliding
+            // windows over the offline band store (cd/<TAG>LAYT.BIN, same
+            // Scene.bin bytes, W11a gate L2 byte-exact). The two COLLIDABLE
+            // layers bind the two window slots by their canonical Mania
+            // names (textBuffer still holds the layer name from the parse
+            // above); render-only big layers (e.g. GHZ "BG Outside") stay
+            // windowless -- any read is witness-counted via the seam.
+            layer->saturnSlot = -1;
+            if (layer->xsize || layer->ysize) {
+                uint32 layoutBytes = sizeof(uint16) * (1UL << layer->widthShift) * (1UL << layer->heightShift);
+                if (layoutBytes <= P6_RESIDENT_LAYER_MAX_BYTES) {
+                    AllocateStorage((void **)&layer->layout, layoutBytes, DATASET_STG, true);
+                    if (layer->layout)
+                        memset(layer->layout, 0xFF, layoutBytes);
+                }
+                else {
+                    if (!strcmp(textBuffer, "FG Low")) {
+                        SaturnLayout_Bind(0, l);
+                        layer->saturnSlot = 0;
+                        ++p6_saturn_layer_binds;
+                    }
+                    else if (!strcmp(textBuffer, "FG High")) {
+                        SaturnLayout_Bind(1, l);
+                        layer->saturnSlot = 1;
+                        ++p6_saturn_layer_binds;
+                    }
+                }
+            }
+#else
             if (layer->xsize || layer->ysize) {
                 AllocateStorage((void **)&layer->layout, sizeof(uint16) * (1UL << layer->widthShift) * (1UL << layer->heightShift), DATASET_STG, true);
                 memset(layer->layout, 0xFF, sizeof(uint16) * (1UL << layer->widthShift) * (1UL << layer->heightShift));
             }
+#endif
 
             int32 size = layer->xsize;
             if (size <= layer->ysize)
@@ -447,6 +479,27 @@ void RSDK::LoadSceneAssets()
 #endif
             scrollIndexes = NULL;
 
+#if RETRO_PLATFORM == RETRO_SATURN
+            if (!layer->layout) {
+                // W11b: non-resident layer -- the layout content already
+                // lives in the offline band store; CONSUME the compressed
+                // blob without inflating (FG Low decompresses to 262,144 B,
+                // far over the 80 KB TMP pool). The chunked ReadBytes sink
+                // keeps the stream position AND any pack decryption state
+                // exactly as the stock inflate would (ReadCompressed wire
+                // format: u32 totalSize, u32 BE rawSize, totalSize-4 zlib
+                // bytes -- Reader.hpp:496-515).
+                uint32 cSize = (uint32)ReadInt32(&info, false) - 4;
+                ReadInt32(&info, false); // BE raw size (unused on this path)
+                uint8 sink[64];
+                while (cSize) {
+                    int32 n = cSize > sizeof(sink) ? (int32)sizeof(sink) : (int32)cSize;
+                    ReadBytes(&info, sink, n);
+                    cSize -= n;
+                }
+            }
+            else {
+#endif
             uint8 *tileLayout = NULL;
             ReadCompressed(&info, (uint8 **)&tileLayout);
 
@@ -462,6 +515,9 @@ void RSDK::LoadSceneAssets()
             RemoveStorageEntry((void **)&tileLayout);
 #endif
             tileLayout = NULL;
+#if RETRO_PLATFORM == RETRO_SATURN
+            }
+#endif
         }
 
         // Objects
@@ -1120,7 +1176,14 @@ void RSDK::ProcessParallaxAutoScroll()
     for (int32 l = 0; l < LAYER_COUNT; ++l) {
         TileLayer *layer = &tileLayers[l];
 
+#if RETRO_PLATFORM == RETRO_SATURN
+        // W11b: `layout != NULL` is the stock proxy for "layer loaded";
+        // non-resident (windowed) layers have NULL layout but must still
+        // accumulate scroll. Loaded == has dimensions.
+        if (layer->xsize || layer->ysize) {
+#else
         if (layer->layout) {
+#endif
             layer->scrollPos += layer->scrollSpeed;
 
             for (int32 s = 0; s < layer->scrollInfoCount; ++s) layer->scrollInfo[s].scrollPos += layer->scrollInfo[s].scrollSpeed;
@@ -1378,8 +1441,8 @@ void RSDK::CopyTileLayer(uint16 dstLayerID, int32 dstStartX, int32 dstStartY, ui
 
                 for (int32 y = 0; y < countY; ++y) {
                     for (int32 x = 0; x < countX; ++x) {
-                        uint16 tile = srcLayer->layout[(x + srcStartX) + ((y + srcStartY) << srcLayer->widthShift)];
-                        dstLayer->layout[(x + dstStartX) + ((y + dstStartY) << dstLayer->widthShift)] = tile;
+                        uint16 tile = RSDK_LAYER_TILE(srcLayer, x + srcStartX, y + srcStartY);
+                        RSDK_LAYER_TILE_SET(dstLayer, x + dstStartX, y + dstStartY, tile);
                     }
                 }
             }
@@ -1391,6 +1454,13 @@ void RSDK::DrawLayerHScroll(TileLayer *layer)
 {
     if (!layer->xsize || !layer->ysize)
         return;
+#if RETRO_PLATFORM == RETRO_SATURN
+    // W11b: non-resident layouts (NULL) -- the software scanline walker does
+    // raw pointer math over `layout` and cannot window; Saturn pixels come
+    // from the VDP2 present path (P6.5b1), so the software blit is skipped.
+    if (!layer->layout)
+        return;
+#endif
 
     int32 lineTileCount    = (currentScreen->pitch >> 4) - 1;
     uint8 *lineBuffer      = &gfxLineBuffer[currentScreen->clipBound_Y1];
@@ -1543,6 +1613,10 @@ void RSDK::DrawLayerVScroll(TileLayer *layer)
 {
     if (!layer->xsize || !layer->ysize)
         return;
+#if RETRO_PLATFORM == RETRO_SATURN
+    if (!layer->layout) // W11b: see DrawLayerHScroll
+        return;
+#endif
 
     int32 lineTileCount    = (currentScreen->size.y >> 4) - 1;
     uint16 *frameBuffer    = &currentScreen->frameBuffer[currentScreen->clipBound_X1];
@@ -1685,6 +1759,10 @@ void RSDK::DrawLayerRotozoom(TileLayer *layer)
 {
     if (!layer->xsize || !layer->ysize)
         return;
+#if RETRO_PLATFORM == RETRO_SATURN
+    if (!layer->layout) // W11b: see DrawLayerHScroll
+        return;
+#endif
 
     uint16 *layout         = layer->layout;
     uint8 *lineBuffer      = &gfxLineBuffer[currentScreen->clipBound_Y1];
@@ -1728,6 +1806,10 @@ void RSDK::DrawLayerBasic(TileLayer *layer)
 {
     if (!layer->xsize || !layer->ysize)
         return;
+#if RETRO_PLATFORM == RETRO_SATURN
+    if (!layer->layout) // W11b: see DrawLayerHScroll
+        return;
+#endif
 
     if (currentScreen->clipBound_X1 >= currentScreen->clipBound_X2 || currentScreen->clipBound_Y1 >= currentScreen->clipBound_Y2)
         return;

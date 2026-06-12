@@ -38,35 +38,25 @@
 #define P6_SCROLL_X  320         /* densest 20x14 window of the Island layer  */
 #define P6_SCROLL_Y  384         /*   (224/280 tiles non-empty, measured)     */
 
-void p6_vdp2_present(const unsigned char *tilesetPx, const unsigned short *layout,
-                     int wshift, const unsigned short *pal565)
+/* P6.7 W11b SPLIT (Task #226): tilesetPixels is now a LOAD-PHASE TRANSIENT
+ * aliasing the WRAM-L entityList window (neither bank can hold a resident
+ * 256 KB tileset at the GHZ entity scale -- measured, map v7 notes). The
+ * cell+CRAM upload therefore runs BETWEEN LoadSceneFolder (GIF decode) and
+ * LoadSceneAssets (entity placement clobbers the window); the layout-driven
+ * half (blank-char pick + PND map + display) runs after LoadSceneAssets.
+ * VDP2 VRAM bytes are IDENTICAL to the old single-shot present: the blank
+ * char's cells are zeroed at present time (that tile is unreferenced by the
+ * layout, so zeroing it after the verbatim upload is order-independent). */
+void p6_vdp2_upload_cells(const unsigned char *tilesetPx)
 {
-    volatile Uint16 *cel  = (volatile Uint16 *)P6_VDP2_CEL;
-    volatile Uint16 *map  = (volatile Uint16 *)P6_VDP2_MAP;
-    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
-    int t, c, r, x, y;
-
-    /* Blank char = smallest tile index the layer never references (same rule
-     * as the gate's offline model, so both sides pick the SAME slot). */
-    static unsigned char used[1024];
-    for (t = 0; t < 1024; ++t) used[t] = 0;
-    for (t = 0; t < (1 << wshift) * 64; ++t) {
-        unsigned short e = layout[t];
-        if (e != 0xFFFF)
-            used[e & 0x3FF] = 1;
-    }
-    int blank = 0;
-    while (blank < 1024 && used[blank]) ++blank;
+    volatile Uint16 *cel = (volatile Uint16 *)P6_VDP2_CEL;
+    int t, c, r;
 
     /* 1) Cells: RSDK 16x16 linear tiles -> 2x2-cell chars (TL,TR,BL,BR),
      *    16-bit stores, two pixels per word (high byte = left pixel). */
     for (t = 0; t < 1024; ++t) {
         const unsigned char *src = tilesetPx + t * 256;
         volatile Uint16 *dst     = cel + t * 128; /* 256 B = 128 words */
-        if (t == blank) {
-            for (c = 0; c < 128; ++c) dst[c] = 0;
-            continue;
-        }
         for (c = 0; c < 4; ++c) {
             int cy0 = (c >> 1) * 8, cx0 = (c & 1) * 8;
             for (r = 0; r < 8; ++r) {
@@ -77,6 +67,37 @@ void p6_vdp2_present(const unsigned char *tilesetPx, const unsigned short *layou
                 *dst++ = (Uint16)((row[6] << 8) | row[7]);
             }
         }
+    }
+
+    /* (3: CRAM moved into present_layout -- it depends only on fullPalette,
+     * whose ACTIVE rows finalize in LoadSceneAssets:308-319, AFTER this
+     * upload runs. MEASURED: uploading here grabbed the pre-merge palette
+     * -- CRAM witnesses 0x8202/0x8390 vs the canonical 0xFA46/0xF3B4.) */
+}
+
+void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
+                            const unsigned short *pal565)
+{
+    volatile Uint16 *cel  = (volatile Uint16 *)P6_VDP2_CEL;
+    volatile Uint16 *map  = (volatile Uint16 *)P6_VDP2_MAP;
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    int t, c, x, y;
+
+    /* Blank char = smallest tile index the layer never references (same rule
+     * as the gate's offline model, so both sides pick the SAME slot). Its
+     * cells are zeroed IN VDP2 VRAM -- safe post-upload, see split note. */
+    static unsigned char used[1024];
+    for (t = 0; t < 1024; ++t) used[t] = 0;
+    for (t = 0; t < (1 << wshift) * 64; ++t) {
+        unsigned short e = layout[t];
+        if (e != 0xFFFF)
+            used[e & 0x3FF] = 1;
+    }
+    int blank = 0;
+    while (blank < 1024 && used[blank]) ++blank;
+    {
+        volatile Uint16 *dst = cel + blank * 128;
+        for (c = 0; c < 128; ++c) dst[c] = 0;
     }
 
     /* 2) Map: 2-word PNDs. Big-endian bus: high word (flips) at the lower
@@ -98,7 +119,8 @@ void p6_vdp2_present(const unsigned char *tilesetPx, const unsigned short *layou
         }
     }
 
-    /* 3) CRAM bank 0: engine RGB565 -> Saturn BGR555 (MSB set, jo-consistent). */
+    /* 3) CRAM bank 0: engine RGB565 -> Saturn BGR555 (MSB set, jo-consistent).
+     *    Runs post-LoadSceneAssets so the active palette rows are final. */
     for (c = 0; c < 256; ++c) {
         unsigned short v = pal565[c];
         unsigned short r5 = (v >> 11) & 0x1F;

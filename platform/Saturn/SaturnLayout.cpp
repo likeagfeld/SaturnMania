@@ -59,13 +59,17 @@ extern "C" {
 __attribute__((used)) int32 p6_w_lay_refills = 0;
 }
 
-// band-inflate scratch: caller-provided (DATASET_TMP from the harness; the
-// zone's largest raw band -- GHZ 32,768 B)
-static uint8 *s_scratch = 0;
+// band-inflate scratch: caller-provided (DATASET_TMP; the zone's largest raw
+// band -- GHZ 32,768 B). W11b: POINTER-INDIRECT -- the engine's storage GC
+// (DefragmentAndGarbageCollectStorage) MOVES tracked allocations and updates
+// the registered uint32** location, so the refill must re-read the caller's
+// pointer variable every time instead of caching the raw address (a cached
+// pointer goes stale on the first defrag -- the jo-pool-stale class).
+static uint8 **s_scratchPtr = 0;
 static uint32 s_scratchCap = 0;
-extern "C" void SaturnLayout_SetScratch(void *buf, uint32 cap)
+extern "C" void SaturnLayout_SetScratch(void **bufp, uint32 cap)
 {
-    s_scratch = (uint8 *)buf;
+    s_scratchPtr = (uint8 **)bufp;
     s_scratchCap = cap;
 }
 
@@ -142,11 +146,13 @@ static void SaturnLayout_Refill(SaturnLayoutSlot *slot, int32 wx, int32 wy)
         // band raw image goes to the caller-provided scratch (DATASET_TMP,
         // injected via SaturnLayout_SetScratch -- a heap malloc here MEASURED
         // NULL: the pack heap slack is ~19 KB after pools and miniz's own
-        // ~44 KB inflate transient, qa_p6_layout first-RED 2026-06-11)
-        if (!s_scratch || rsz > s_scratchCap)
+        // ~44 KB inflate transient, qa_p6_layout first-RED 2026-06-11).
+        // W11b: deref the caller's variable per refill (GC-safe, see above).
+        uint8 *scratch = s_scratchPtr ? *s_scratchPtr : 0;
+        if (!scratch || rsz > s_scratchCap)
             return;
         mz_ulong dlen = rsz;
-        if (mz_uncompress(s_scratch, &dlen, s_blob + off, zsz) != MZ_OK)
+        if (mz_uncompress(scratch, &dlen, s_blob + off, zsz) != MZ_OK)
             return;
         // copy the window's column slice of every window row in this band
         int32 bandTop = b * SATURNLAYOUT_BANDROWS;
@@ -154,7 +160,7 @@ static void SaturnLayout_Refill(SaturnLayoutSlot *slot, int32 wx, int32 wy)
         int32 r1 = bandTop + SATURNLAYOUT_BANDROWS - 1;
         if (r1 > lastRow) r1 = lastRow;
         for (int32 r = r0; r <= r1; ++r) {
-            const uint8 *src = s_scratch + ((uint32)(r - bandTop) * L->xsize + wx) * 2;
+            const uint8 *src = scratch + ((uint32)(r - bandTop) * L->xsize + wx) * 2;
             uint8 *dst = (uint8 *)(slot->win + (uint32)(r - wy) * SATURNLAYOUT_WIN_COLS);
             memcpy(dst, src, (uint32)cols * 2);
         }

@@ -55,6 +55,22 @@ REM the runtime parser sees the exact decomp asset.
 copy /Y "%ROOT%\extracted\Data\Stages\GHZ\Scene1.bin" "%ROOT%\cd\GHZSCN1.BIN" >nul
 if errorlevel 1 ( exit /b %ERRORLEVEL% )
 
+REM Task #180 (Sonic-falls-through fix) -- decomp-faithful tile 6-sensor
+REM collision assets. Two steps, ORDER-DEPENDENT:
+REM   1. build_collayout.py: Scene1.bin FG Low/High collision layers ->
+REM      cd/GHZ1COL.BIN (GCO2, COLUMN-MAJOR so the runtime toroidal-slide
+REM      window streams one world column as a single contiguous LWRAM copy).
+REM   2. build_tilemasks.py: TileConfig.bin + the GHZ1COL referenced-tile
+REM      union -> cd/GHZ1MASK.BIN (GMS2 compacted slot table, 33 KB). MUST
+REM      run AFTER build_collayout (it reads GHZ1COL.BIN to pick the union).
+REM Host parity proven by tools/qa_ghz_6sensor_gate.py +
+REM qa_ghz_collision_cparity_gate.py + qa_ghz_colwindow_gate.py (verify_done
+REM Gate V-180); see src/rsdk/collision.h header for the Saturn deviation.
+python "%ROOT%\tools\build_collayout.py"
+if errorlevel 1 ( exit /b %ERRORLEVEL% )
+python "%ROOT%\tools\build_tilemasks.py"
+if errorlevel 1 ( exit /b %ERRORLEVEL% )
+
 REM Phase 2.4i (Task #154) -- regenerate AUTHENTIC HUD + SFX assets from
 REM extracted/Data so no fabricated asset can drift back in. Per
 REM memory/decomp-assets-only-no-synthesis.md every shipped pixel/sample
@@ -82,6 +98,29 @@ REM extracted/Data/Sprites/Global/TitleCard.bin. 8.3-compliant base
 REM "TITLCARD" (8 chars -> 12-char filename) per GFS_FNAME_LEN=12
 REM (SEGA_GFS.H:37); "TITLECARD.SP2" (13) would fail GFS_NameToId. (2.4j.2)
 python "%ROOT%\tools\build_entity_atlas.py" --bin "%ROOT%\extracted\Data\Sprites\Global\TitleCard.bin" --spr "%ROOT%\cd\TITLCARD.SP2" --met "%ROOT%\cd\TITLCARD.MET"
+if errorlevel 1 ( exit /b %ERRORLEVEL% )
+
+REM FR-1 (Task #173/#177) -- Sonic player animation atlas. The MANIFEST
+REM "Sonic" entry ships the 15 gameplay-reachable anims (149 frames) as the
+REM combined cd/SONIC.SP2 + cd/SONIC.MET AND emits per-anim CD slices
+REM cd/SONIC00.SP2..SONIC14.SP2 (slice_base="SONIC") for the player_atlas
+REM MRU residency pool (single-anim VDP1 residency + 192 KB LWRAM cache).
+REM Drop list (38 unreachable anims) cited in build_entity_atlas.py:
+REM Bored2/Balance/cutscene/mechanic/Hurt/Die/Drown -- each re-added with
+REM its state or mechanic in a later FR increment.
+python "%ROOT%\tools\build_entity_atlas.py" --only Sonic
+if errorlevel 1 ( exit /b %ERRORLEVEL% )
+
+REM Task #180 step 5 -- resident compressed sprite packs. MUST run AFTER all
+REM the *.SP2 atlas builds above (so the packs reflect the freshly-built
+REM frames) and BEFORE the docker make / mkisofs below (so cd/SONIC.SPC +
+REM cd/GHZENT.SPC ship on the data track). The engine loads each pack ONCE
+REM into resident LWRAM at GHZ scene start and puff-inflates per-frame
+REM RAM->RAM during play, so the single CD head never leaves the GHZ CD-DA
+REM music track (zero gameplay-time CD reads -- the user-reported "no music /
+REM no SFX / super-slow gameplay" root cause). qa_ghz_gameplay_cd_silence_
+REM gate.py enforces this.
+python "%ROOT%\tools\build_sprite_packs.py"
 if errorlevel 1 ( exit /b %ERRORLEVEL% )
 
 REM   - cd/*SFX.PCM  <- extracted/Data/SoundFX/Global/*.wav @ 22050 Hz s8 mono.
@@ -120,6 +159,10 @@ REM 1. Build the QA binary first (title held for deterministic capture) and
 REM    run the reference-diff gate against it.
 if not "%SKIP_QA%"=="1" (
   del /q /s "%ROOT%\src\*.o" >nul 2>&1
+  REM W11b: jo pool size is flavor-dependent (P6SCENE diag = 8 KB, Makefile);
+  REM core.c's static pool array must recompile at the SHIPPING 256 KB here
+  REM (the jo-pool-stale-core-o-gotcha memory rule).
+  del /q "%ROOT%\jo-engine\jo_engine\core.o" >nul 2>&1
   docker run --rm -v "%ROOT%":/work -w /work joengine-saturn:latest make QA_MODE=1%EXTRA_ARGS%
   if errorlevel 1 ( exit /b %ERRORLEVEL% )
   pwsh -NoProfile -File "%ROOT%\tools\qa_gate.ps1"
@@ -130,6 +173,8 @@ REM 2. Build the RELEASE binary (no QA_MODE: title auto-advances to the demo,
 REM    Sonic auto-runs, FG cell-scrolls, sky parallaxes). This is the game.iso
 REM    you're left with after build.bat. Force full src/ recompile (see above).
 del /q /s "%ROOT%\src\*.o" >nul 2>&1
+REM W11b: see the core.o note above -- the shipping pool size must recompile.
+del /q "%ROOT%\jo-engine\jo_engine\core.o" >nul 2>&1
 docker run --rm -v "%ROOT%":/work -w /work joengine-saturn:latest make%EXTRA_ARGS%
 if errorlevel 1 ( exit /b %ERRORLEVEL% )
 

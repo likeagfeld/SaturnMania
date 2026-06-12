@@ -172,7 +172,63 @@ struct TileLayer {
     RETRO_HASH_MD5(name);
     uint16 *layout;
     uint8 *lineScroll;
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P6.7 W11b (Task #226): sliding-window binding for layouts too large to
+    // be RAM-resident (FG Low/High 262,144 B each at GHZ; FBZ2 totals 3 MB).
+    // -1 = no window (layer is either RAM-resident via `layout` -- padded
+    // alloc <= P6_RESIDENT_LAYER_MAX_BYTES, e.g. every Title layer -- or a
+    // windowed-unbound render-only layer whose reads are witness-counted).
+    // Appended LAST so every prior field offset is unchanged.
+    int8 saturnSlot;
+#endif
 };
+
+#if RETRO_PLATFORM == RETRO_SATURN
+// =============================================================================
+// P6.7 W11b LAYER-TILE SEAM (Task #226): every layout read/write in the
+// engine goes through these two macros (16 Collision.cpp sensor fetches,
+// GetTile/SetTile, CopyTileLayer). On PC they expand to the EXACT original
+// indexing expression (byte-identical). On Saturn:
+//   resident layer  (layout != NULL)        -> direct indexing, stock math
+//   windowed layer  (saturnSlot >= 0)       -> SaturnLayout sliding window
+//                                              (platform/Saturn/SaturnLayout.cpp,
+//                                              W11a, byte-exact L2/L3 gates)
+//   windowed-unbound (render-only BG layer) -> empty tile + witness count
+// Writes to non-resident layers are the DECLARED W11b gap (band-store
+// write-through; BreakableWall-class objects land with the object waves) --
+// dropped + witnessed, gate expectation today is zero.
+// =============================================================================
+#define P6_RESIDENT_LAYER_MAX_BYTES (0x2000) // Title max = Island 8,192 B;
+                                             // GHZ BG Outside (32,768) and
+                                             // both FGs (262,144) exceed it
+extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty);
+extern "C" void SaturnLayout_Bind(int32 slot, int32 layerIdx);
+extern int32 p6_saturn_layer_unbound; // defined in p6_io_main.cpp (diag)
+extern int32 p6_saturn_settile_drops;
+extern int32 p6_saturn_layer_binds;
+inline uint16 SaturnLayerGetTile(TileLayer *layer, int32 tileX, int32 tileY)
+{
+    if (layer->layout)
+        return layer->layout[tileX + (tileY << layer->widthShift)];
+    if (layer->saturnSlot >= 0)
+        return SaturnLayout_GetTile(layer->saturnSlot, tileX, tileY);
+    ++p6_saturn_layer_unbound;
+    return (uint16)-1;
+}
+inline void SaturnLayerSetTile(TileLayer *layer, int32 tileX, int32 tileY, uint16 tile)
+{
+    if (layer->layout) {
+        layer->layout[tileX + (tileY << layer->widthShift)] = tile;
+        return;
+    }
+    ++p6_saturn_settile_drops;
+}
+#define RSDK_LAYER_TILE(layerPtr, tx, ty)           SaturnLayerGetTile((layerPtr), (tx), (ty))
+#define RSDK_LAYER_TILE_SET(layerPtr, tx, ty, tile) SaturnLayerSetTile((layerPtr), (tx), (ty), (tile))
+#else
+#define RSDK_LAYER_TILE(layerPtr, tx, ty)           ((layerPtr)->layout[(tx) + ((ty) << (layerPtr)->widthShift)])
+#define RSDK_LAYER_TILE_SET(layerPtr, tx, ty, tile) ((layerPtr)->layout[(tx) + ((ty) << (layerPtr)->widthShift)] = (tile))
+#endif
 
 struct CollisionMask {
     uint8 floorMasks[TILE_SIZE];
@@ -408,7 +464,7 @@ inline uint16 GetTile(uint16 layerID, int32 tileX, int32 tileY)
     if (layerID < LAYER_COUNT) {
         TileLayer *layer = &tileLayers[layerID];
         if (tileX >= 0 && tileX < layer->xsize && tileY >= 0 && tileY < layer->ysize)
-            return layer->layout[tileX + (tileY << layer->widthShift)];
+            return RSDK_LAYER_TILE(layer, tileX, tileY);
     }
 
     return (uint16)-1;
@@ -419,7 +475,7 @@ inline void SetTile(uint16 layerID, int32 tileX, int32 tileY, uint16 tile)
     if (layerID < LAYER_COUNT) {
         TileLayer *layer = &tileLayers[layerID];
         if (tileX >= 0 && tileX < layer->xsize && tileY >= 0 && tileY < layer->ysize)
-            layer->layout[tileX + (tileY << layer->widthShift)] = tile;
+            RSDK_LAYER_TILE_SET(layer, tileX, tileY, tile);
     }
 }
 

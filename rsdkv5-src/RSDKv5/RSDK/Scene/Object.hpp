@@ -27,18 +27,48 @@ namespace RSDK
 #define OBJECT_COUNT (0x100)
 
 #define RESERVE_ENTITY_COUNT (0x40)
-// P6.7a (Task #210) Title-scale retarget: ProcessObjects needs LIVE
-// typeGroups/drawGroups backings (TYPEGROUP_COUNT * (2*ENTITY_COUNT + 4)
-// bytes); at SCENEENTITY 0x100 that is 119 KB against the diag image's
-// 171 KB WRAM-H margin -- measured too close to the 0x060C0000 SGL floor.
-// 0x40+0x40 covers every Title slot (highest witnessed scene slot 0x50)
-// at 32 KB. The GHZ-scale entity/group memory map is the P6.7b
-// deliverable (see the MEASURED CAVEAT above -- it is a placement
-// decision, not a #define).
-#define TEMPENTITY_COUNT     (0x40)
-#define SCENEENTITY_COUNT    (0x40)
+// P6.7 W11b (Task #226) GHZ-SCALE entity flip, per the P6.7b contract
+// (SaturnMemoryMap.h P68_RESERVE/SCENE/TEMP_ENTITIES): GHZ1 places 1,041
+// scene entities (max raw slot 1,040, live-parsed -- qa_p6_memmap M2), so
+// SCENEENTITY covers 1,041 + headroom at 0x440 (1088) and TEMP doubles to
+// 0x80 for runtime spawns (ring scatter etc.). ENTITY_COUNT = 0x500 (1280)
+// x 344 B EntityBase = 440,320 B -- the objectEntityList window in WRAM-L
+// map v7 (p6_io_main.cpp). The group lists do NOT scale with this: their
+// entries are capped per-list below (the engine only writes inRange
+// entities into them, Object.cpp:462-493; camera-local peak << caps).
+#define TEMPENTITY_COUNT     (0x80)
+#define SCENEENTITY_COUNT    (0x440)
 #define ENTITY_COUNT         (RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT + TEMPENTITY_COUNT)
 #define TEMPENTITY_START     (ENTITY_COUNT - TEMPENTITY_COUNT)
+
+// P6.7 W11b group-list entry caps (P68_TYPEGROUP/DRAWGROUP_ENTRY_CAP):
+// stock TypeGroupList/DrawList embed entries[ENTITY_COUNT] -- at 0x500
+// that is 0x84 x 2,564 = 338,448 B of typeGroups alone. Group lists are
+// rebuilt EVERY frame from inRange entities only, so the live population
+// is camera-local (measured Title peak < 0x40; GHZ inRange peak bounded
+// by what fits a 426x240 maxView). Caps below + the witnessed append
+// clamp keep overflow SAFE (drop + count) instead of the .bss-corruption
+// class. PC arms of the append macros expand to the original expression.
+#define TYPEGROUP_ENTRY_CAP (0x100)
+#define DRAWGROUP_ENTRY_CAP (0x100)
+// defined in p6_io_main.cpp (diag) -- the p6_saturn_tempentity_skips
+// block-scope-extern pattern; counts EVERY dropped group append.
+#define RSDK_TYPEGROUP_APPEND(list, value)                                                                                                           \
+    do {                                                                                                                                             \
+        extern int32 p6_saturn_group_skips;                                                                                                          \
+        if ((list).entryCount < TYPEGROUP_ENTRY_CAP)                                                                                                 \
+            (list).entries[(list).entryCount++] = (value);                                                                                           \
+        else                                                                                                                                         \
+            ++p6_saturn_group_skips;                                                                                                                 \
+    } while (0)
+#define RSDK_DRAWGROUP_APPEND(list, value)                                                                                                           \
+    do {                                                                                                                                             \
+        extern int32 p6_saturn_group_skips;                                                                                                          \
+        if ((list).entityCount < DRAWGROUP_ENTRY_CAP)                                                                                                \
+            (list).entries[(list).entityCount++] = (value);                                                                                          \
+        else                                                                                                                                         \
+            ++p6_saturn_group_skips;                                                                                                                 \
+    } while (0)
 
 #define TYPE_COUNT        (0x80)
 #define EDITABLEVAR_COUNT (0x100)
@@ -64,6 +94,13 @@ namespace RSDK
 #define SCENEENTITY_COUNT    (0x800)
 #define ENTITY_COUNT         (RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT + TEMPENTITY_COUNT)
 #define TEMPENTITY_START     (ENTITY_COUNT - TEMPENTITY_COUNT)
+
+// PC arms of the W11b group-append seam: the exact original expressions
+// (byte-identical upstream behavior); caps = the full entry arrays.
+#define TYPEGROUP_ENTRY_CAP (ENTITY_COUNT)
+#define DRAWGROUP_ENTRY_CAP (ENTITY_COUNT)
+#define RSDK_TYPEGROUP_APPEND(list, value) ((list).entries[(list).entryCount++] = (value))
+#define RSDK_DRAWGROUP_APPEND(list, value) ((list).entries[(list).entityCount++] = (value))
 
 #define TYPE_COUNT        (0x100)
 #define EDITABLEVAR_COUNT (0x100)
@@ -246,7 +283,13 @@ struct ForeachStackInfo {
 };
 
 struct TypeGroupList {
+#if RETRO_PLATFORM == RETRO_SATURN
+    // W11b: capped entries (see TYPEGROUP_ENTRY_CAP above) -- every append
+    // goes through RSDK_TYPEGROUP_APPEND; reads are bounded by entryCount.
+    uint16 entries[TYPEGROUP_ENTRY_CAP];
+#else
     uint16 entries[ENTITY_COUNT];
+#endif
     int32 entryCount;
 };
 

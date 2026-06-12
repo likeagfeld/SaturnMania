@@ -79,8 +79,9 @@ SYMS = ["_p6_w_cfg_titlehash", "_p6_w_cfg_globalcount", "_p6_w_cfg_ringgid",
 # index 25 -- LoadSfx does not dedupe; pool ends 25,748 B) and 51 skip.
 EXP_SFX_SKIPS = 51
 # InitObjects (Object.cpp:330, TEMPENTITY_START substitution): RESERVE 0x40 +
-# SCENE 0x40 at the Title-scale retarget.
-EXP_CREATESLOT = 0x80
+# SCENE 0x440 at the W11b GHZ-scale entity flip (Object.hpp Saturn counts;
+# TEMPENTITY_START = ENTITY_COUNT 0x500 - TEMP 0x80).
+EXP_CREATESLOT = 0x480
 
 # The classes the pack registers BEFORE LoadGameConfig, in objectClassList
 # order: the InitGameLink mirror (DefaultObject/DevOutput), the overlay Ring,
@@ -238,11 +239,15 @@ def model_tileconfig(pack):
     if blob is None:
         # MEASURED (2026-06-10): the 1.03 pack has NO Title TileConfig.bin
         # (GHZ's exists, 2,620 B). LoadTileConfig's LoadFile fails ->
-        # returns at Scene.cpp:738 -> the windows stay ZERO. P6.7 W11: the
-        # mask witness now hashes the PACKED window (0x10000 B; the raw x1
-        # window is dead since the packed-collision arm); the GHZ-data
-        # byte-exact proof lives in qa_p6_collision K3-K5.
-        return djb2(bytes(2 * 0x400 * 32)), djb2(bytes(2 * 0x400 * 5))
+        # returns at Scene.cpp:738 and never CLEARS the windows. P6.7 W11b:
+        # the GHZ pass (p6_io_main step 3a-ghz) runs BEFORE the Title pass
+        # and its LoadSceneFolder fills the packed window + tileInfo with
+        # the GHZ TileConfig, so the 3d witnesses expect the GHZ-FILLED
+        # hashes -- exactly the qa_p6_collision K3/K4 byte-exact contract
+        # values (gen_collision_model.py).
+        import json as _json
+        cmod = _json.load(open(os.path.join(HERE, "_p6", "p6_collision_model.json")))
+        return int(cmod["packed_hash"], 16), int(cmod["info_hash"], 16)
     if blob[:4] != b"TIL\x00":
         raise ValueError("TileConfig signature")
     raw, _ = read_compressed(blob, 4)

@@ -1,0 +1,176 @@
+{
+  "scene": "Stages/GHZ/Scene1.bin",
+  "entity_count": 1041,
+  "ring_count": 446,
+  "max_slot": 1040,
+  "probes": [
+    {
+      "slot": 0,
+      "x": -1572864,
+      "y": 61865984,
+      "object": "<unknown d2d84c1fc4f2d5d5f1c43bdb29dc236f>"
+    },
+    {
+      "slot": 69,
+      "x": 53739520,
+      "y": 36438016,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 138,
+      "x": 423886848,
+      "y": 2621440,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 208,
+      "x": 596901888,
+      "y": 73924608,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 277,
+      "x": 862715904,
+      "y": 76808192,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 346,
+      "x": 552599552,
+      "y": 57671680,
+      "object": "<unknown 419f3742e6de8e0ec4b22cce005e7630>"
+    },
+    {
+      "slot": 416,
+      "x": 650117120,
+      "y": 86507520,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 485,
+      "x": 626524160,
+      "y": 90701824,
+      "object": "<unknown 419f3742e6de8e0ec4b22cce005e7630>"
+    },
+    {
+      "slot": 554,
+      "x": 564396032,
+      "y": 95682560,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 624,
+      "x": 432013312,
+      "y": 100925440,
+      "object": "<unknown 419f3742e6de8e0ec4b22cce005e7630>"
+    },
+    {
+      "slot": 693,
+      "x": 181927936,
+      "y": 99090432,
+      "object": "<unknown f2261f53c287f3c2f2805ee1df2f1019>"
+    },
+    {
+      "slot": 762,
+      "x": 337117184,
+      "y": 93061120,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 832,
+      "x": 556007424,
+      "y": 6553600,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 901,
+      "x": 992477184,
+      "y": 35127296,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 970,
+      "x": 250937344,
+      "y": 33751040,
+      "object": "<unknown d4db177c94738b72bf9ce61e988ab1f1>"
+    },
+    {
+      "slot": 1040,
+      "x": 599785472,
+      "y": 118358016,
+      "object": "<unknown 8b5fad2ef3ab80024394193506407a27>"
+    }
+  ],
+  "fg_layers": [
+    {
+      "index": 3,
+      "name": "FG Low",
+      "xs": 1024,
+      "ys": 128
+    },
+    {
+      "index": 4,
+      "name": "FG High",
+      "xs": 1024,
+      "ys": 128
+    }
+  ],
+  "tile_probes": [
+    {
+      "layer": 3,
+      "name": "FG Low",
+      "tx": 1,
+      "ty": 1,
+      "word": 65535
+    },
+    {
+      "layer": 3,
+      "name": "FG Low",
+      "tx": 256,
+      "ty": 64,
+      "word": 13313
+    },
+    {
+      "layer": 3,
+      "name": "FG Low",
+      "tx": 512,
+      "ty": 1,
+      "word": 65535
+    },
+    {
+      "layer": 3,
+      "name": "FG Low",
+      "tx": 768,
+      "ty": 126,
+      "word": 12289
+    },
+    {
+      "layer": 4,
+      "name": "FG High",
+      "tx": 1,
+      "ty": 1,
+      "word": 65535
+    },
+    {
+      "layer": 4,
+      "name": "FG High",
+      "tx": 256,
+      "ty": 64,
+      "word": 65535
+    },
+    {
+      "layer": 4,
+      "name": "FG High",
+      "tx": 512,
+      "ty": 1,
+      "word": 65535
+    },
+    {
+      "layer": 4,
+      "name": "FG High",
+      "tx": 768,
+      "ty": 126,
+      "word": 65535
+    }
+  ]
+}

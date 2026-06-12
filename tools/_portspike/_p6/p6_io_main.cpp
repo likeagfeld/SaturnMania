@@ -326,17 +326,23 @@ extern "C" void p6_io_proof(void)
 // (b) the STORAGE_ENTRY_COUNT 0x1000->0x800 Saturn retarget (Storage.hpp,
 // 32,788 -> 16,404 B per dataset). GROUPB + DEAD addresses are UNCHANGED so
 // the .equ absolutes below and every consumer survive verbatim.
+// P6.7 W11b map v7.1 (Task #226): the GHZ-SCALE flip. objectEntityList grows
+// to the P6.7b contract (ENTITY_COUNT 0x500 x 344 B = 0x6B800 -- GHZ1 places
+// 1,041 scene entities), which EVICTS tilesetPixels from WRAM-L (the bank
+// cannot hold both: 0x6B800 + 0x40000 + the rest exceeds 1 MB by ~190 KB).
+// tilesetPixels becomes a LOAD-PHASE TRANSIENT aliasing the entityList
+// window (see its definition below) -- WRAM-H could not host it either
+// (a resident 256 KB .bss backing pushed the pack tail to 0x060DE244, over
+// the 0x060C0000 overlay floor; an 8 KB jo-pool trim to fund it MEASURED
+// FATAL: the boot jo_mallocs >8 KB before the pack mount, bisect
+// 2026-06-11). With the transient alias the linked tail sits at 0x0609E234
+// (138,700 B under the floor) at the full shipping pool. spriteAnimationList
+// moves WRAM-H -> WRAM-L window. Heap shrinks to the C5 pools-exact
+// contract. GROUPB absolutes (palettes etc.) keep their v5 addresses.
 #define P6_LW_HEAP_BASE    0x00200000u
-#define P6_LW_HEAP_END     0x00252000u // pools 272 KB + inflate ~44 KB transient + slack
-#define P6_LW_ENTITYLIST   0x00252000u // 192 * 344         = 0x10200 -> 0x262200 (pad to 0x262400)
-// P6.7 W11 map v6: LAYER_COUNT restored to the stock 8 (whole-game census:
-// GHZ1 uses 5 layers, FBZ/TMZ1 use 8 -- the P4 "<=4" assumption is
-// falsified), so tileLayers grows 0xD120 -> 0x1A240 and moves into the
-// raw-collision window that the P6.7 packed-collision arm left DEAD
-// (LoadTileConfig now packs to P6_HW_PACKEDCOL; nothing writes the raw
-// window). The old tileLayers slot becomes the documented dead sink the
-// collisionMasks pointer needs as an address.
-#define P6_LW_COLLMASKS    0x00262400u // DEAD sink (raw masks unwritten on
+#define P6_LW_HEAP_END     0x00243000u // C5: pools 224 KB + miniz ~44 KB transient + slack
+#define P6_LW_ENTITYLIST   0x00243000u // 0x500 * 344       = 0x6B800 -> 0x2AE800
+#define P6_LW_COLLMASKS    0x002AE800u // DEAD sink (raw masks unwritten on
                                        // Saturn since the packed arm); the
                                        // extern pointer needs an address.
                                        // W11a: the SAME window carries the
@@ -344,14 +350,20 @@ extern "C" void p6_io_proof(void)
                                        // because ZERO Saturn code paths
                                        // access collisionMasks (measured;
                                        // macro seam + P6_CM arm)
-#define P6_LW_LAYOUTBANDS  0x00262400u // cd/GHZ1LAYT.BIN, 51,094 B <= 0xD200
-#define P6_LW_DATASTORAGE  0x0026F600u // 5 * 16404         = 0x14064 -> 0x283664 (pad to 0x283700)
-#define P6_LW_DATAFILELIST 0x00283700u // C3: 0x6A0 * 24    = 0x9F00  -> 0x28D600 (window 0xA000; next region keeps its v5 base = slack)
-#define P6_LW_TILESETPX    0x00291700u // TILESET_SIZE      = 0x40000 -> 0x2D1700 (LIVE since P6.5a)
-#define P6_LW_TILELAYERS   0x002D1700u // 8 * 13384         = 0x1A240 -> 0x2EB940 (in the dead raw-mask window)
-#define P6_LW_TILEINFO     0x002F1700u // 2 * 0x400 * 5     = 0x2800  -> 0x2F3F00 (LIVE: LoadTileConfig)
-#define P6_LW_MODELLIST    0x002F3F00u // 0x100 * 44        = 0x2C00  -> 0x2F6B00 (Clear3DScenes MEM_ZERO target)
-                                       // free 0x2F6B00..0x2FAC00 = 0x4100 margin
+#define P6_LW_LAYOUTBANDS  0x002AE800u // cd/GHZ1LAYT.BIN, 51,094 B <= 0xD200 (window 0xD400) -> 0x2BBC00
+#define P6_LW_DATASTORAGE  0x002BBC00u // C1: 5 * 32 + backings = 24,736 <= 0x6100 -> 0x2C1D00
+#define P6_LW_DATAFILELIST 0x002C1D00u // C3: 0x6A0 * 24    = 0x9F00  (window 0xA000) -> 0x2CBD00
+#define P6_LW_TILELAYERS   0x002CBD00u // 8 * sizeof(TileLayer) <= 0x1A300 -> 0x2E6000
+#define P6_LW_TILEINFO     0x002E6000u // 2 * 0x400 * 5     = 0x2800  -> 0x2E8800 (LIVE: LoadTileConfig)
+#define P6_LW_MODELLIST    0x002E8800u // 0x100 * 44        = 0x2C00  -> 0x2EB400 (Clear3DScenes MEM_ZERO target)
+#define P6_LW_SPRANIM      0x002EB400u // SPRFILE_COUNT * sizeof(SpriteAnimation) = 0x7000 -> 0x2F2400
+// W11b v7.1: the PERSISTENT band-inflate scratch is a FIXED window, NOT a
+// DATASET_TMP tenant -- MEASURED stall (scene step=2): scratch 32K + GIF
+// decoder 24,892 + tempEntityList 22K + editableVarList in TMP overcommits
+// the 80K pool (the C2 enumerate-every-tenant lesson, third occurrence).
+// Funded by the band-window trim 0xE000 -> 0xD400 (GHZ actual 51,094).
+#define P6_LW_LAYSCRATCH   0x002F2400u // 0x8000 (largest raw band 32,768) -> 0x2FA400
+                                       // free 0x2FA400..0x2FAC00 = 0x800 margin
 #define P6_LW_GROUPB_BASE  0x002FAC00u // absolute arrays below (UNCHANGED)
 #define P6_LW_GROUPB_END   0x002FFEC0u
 #define P6_LW_DEAD         0x002FFF00u // shared dummy for measured-DEAD pointers (256 B tail)
@@ -385,8 +397,11 @@ __attribute__((used)) int32 p6_w_gif_b0     = 0; // tilesetPixels[0] (offline mo
 // P6.5b1 (Task #208, qa_p6_vdp2.py): VDP2 present witness.
 __attribute__((used)) int32 p6_w_vdp2_done  = 0; // 1 == engine layer presented on NBG1
 // p6_vdp2.c (C TU): presents the engine-decoded Island layer through NBG1.
-void p6_vdp2_present(const unsigned char *tilesetPx, const unsigned short *layout,
-                     int wshift, const unsigned short *pal565);
+// W11b SPLIT: cells+CRAM upload runs while the transient tilesetPixels is
+// alive (post-LoadSceneFolder); the layout half runs post-LoadSceneAssets.
+void p6_vdp2_upload_cells(const unsigned char *tilesetPx);
+void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
+                            const unsigned short *pal565);
 // P6.5b2 (Task #208, qa_p6_sprite.py): engine sprite-animation witnesses.
 __attribute__((used)) int32 p6_w_spr_id        = -1; // LoadSpriteAnimation slot
 __attribute__((used)) int32 p6_w_spr_animcount = 0;  // expect 5 (Ring.bin)
@@ -447,6 +462,14 @@ __attribute__((used)) int32 p6_w_til_cmhash      = 0;  // djb2 over collisionMas
 __attribute__((used)) int32 p6_w_til_tihash      = 0;  // djb2 over tileInfo window (0x2800 B)
 __attribute__((used)) int32 p6_w_pal_hash        = 0;  // djb2 over fullPalette[0] (512 B BE image)
 __attribute__((used)) int32 p6_w_createslot      = -1; // sceneInfo.createSlot after InitObjects (TEMPENTITY_START)
+// P6.7 W11b (Task #226, qa_p6_ghzlive.py): GHZ1-at-scale witnesses, filled
+// by the GHZ pass (step 3a-ghz) BEFORE the Title pass overwrites the lists.
+__attribute__((used)) int32 p6_w_ghz_stage    = 0;   // 1 == GHZ1 found + selected in the engine scene list
+__attribute__((used)) int32 p6_w_ghz_entcount = -1;  // scene slots with classID != 0 (== Ring census, see gate)
+__attribute__((used)) int32 p6_w_ghz_binds    = -1;  // SaturnLayout binds during the GHZ load (expect 2)
+__attribute__((used)) int32 p6_w_ghz_clamps   = -1;  // sum of every W11b scale-safety counter (expect 0)
+__attribute__((used)) int32 p6_w_ghz_probes[16 * 3] = { 0 }; // {slot, pos.x, pos.y} x 16
+__attribute__((used)) int32 p6_w_ghz_tiles[8]       = { 0 }; // GetTile through the engine seam
 // p6_snd.c: CD-DA start through the proven jo_audio_play_cd_track path.
 void p6_cdda_play(int track, int loop);
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
@@ -475,6 +498,11 @@ __attribute__((used)) int32 p6_saturn_sfx_skips = 0;
 // P6.7 W11: tempEntityList overflow witness (Scene.cpp clamp; expectation
 // zero at every measured 1.03 scene under the GHZ-scale retarget).
 __attribute__((used)) int32 p6_saturn_tempentity_skips = 0;
+// P6.7 W11b (Task #226): scale-safety counters, all gate-expected ZERO.
+__attribute__((used)) int32 p6_saturn_group_skips    = 0; // dropped type/draw group appends (Object.hpp macros)
+__attribute__((used)) int32 p6_saturn_layer_unbound  = 0; // GetTile on a windowless non-resident layer (Scene.hpp seam)
+__attribute__((used)) int32 p6_saturn_settile_drops  = 0; // SetTile on a non-resident layer (declared band write-through gap)
+__attribute__((used)) int32 p6_saturn_layer_binds    = 0; // SaturnLayout_Bind calls from the Scene.cpp load arm
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -517,8 +545,9 @@ int32 cameraCount = 0;
 // since the P6SCENE park let LTO sweep the unreachable hand-port (the old
 // 41,936 B pack ceiling is obsolete for this build; binding budget = diag
 // _end vs the 0x060C0000 floor, asserted from game.map after every build).
-static SpriteAnimation p6_sprAnimBacking[SPRFILE_COUNT];
-SpriteAnimation *spriteAnimationList = p6_sprAnimBacking;
+// W11b map v7: moved to a WRAM-L window (was WRAM-H .bss) to keep _end
+// under the 0x060C0000 overlay floor after the tilesetPixels move.
+SpriteAnimation *spriteAnimationList = (SpriteAnimation *)P6_LW_SPRANIM;
 // LIVE since P6.7c: LoadSceneFolder's inline Clear3DScenes (Scene3D.hpp:225)
 // MEM_ZEROs all MODEL_COUNT (0x100) Model entries = 11,264 B -- through the
 // old 256 B DEAD dummy it would have zeroed past the END of WRAM-L. Real
@@ -526,7 +555,18 @@ SpriteAnimation *spriteAnimationList = p6_sprAnimBacking;
 Model *modelList             = (Model *)P6_LW_MODELLIST;
 // LIVE since P6.5a: LoadStageGIF points the decoder at this backing and the
 // engine's ReadGifPictureData writes all 262,144 indexed pixels into it.
-uint8 *tilesetPixels         = (uint8 *)P6_LW_TILESETPX;
+// W11b map v7: LOAD-PHASE TRANSIENT aliasing the entityList window. MEASURED
+// (2026-06-11): NEITHER bank can hold a resident 256 KB tileset at the GHZ
+// entity scale (WRAM-L over by ~190 KB with the 0x6B800 entityList; WRAM-H
+// over by ~81 KB even after the jo-pool trim -- linked .bss tail reached
+// 0x060DE244 vs the 0x060C0000 overlay floor). The ONLY runtime consumer on
+// Saturn is the one-shot VDP2 cell upload (software DrawLayer is skipped;
+// the split p6_vdp2_upload_cells runs BETWEEN LoadSceneFolder's GIF decode
+// and LoadSceneAssets' entity placement, which then legally clobbers the
+// window). DECLARED GAP: DrawTile-class object draws (BreakableWall debris)
+// read tilesetPixels at runtime -- they get a witnessed seam with the FX
+// wave (W5); no current diag path calls them.
+uint8 *tilesetPixels         = (uint8 *)P6_LW_ENTITYLIST;
 // LIVE since P6.7c: LoadSceneFolder calls LoadTileConfig (Scene.cpp:163-164,
 // :733-880) which writes both arrays. Title has NO TileConfig.bin in the 1.03
 // pack (MEASURED: hash absent; GHZ's is 2,620 B) so at Title the LoadFile
@@ -863,8 +903,9 @@ void DrawAchievements() {}
 // P6.4: dataFileList -- the Data.rsdk registry LoadDataPack fills
 // (Reader.cpp:140-154) and OpenDataFile hash-scans (Reader.cpp:192-196).
 // W11 closer C3: 24 B packed records x DATAFILE_COUNT 0x6A0 = 40,704
-// <= the 0xA000 window (was 0x700 x 32 = 0xE000); address unchanged.
-P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x00283700"); // RSDKFileInfo[0x6A0] = 40,704 <= 0xA000 (map v5: follows P6_LW_DATAFILELIST)
+// <= the 0xA000 window. W11b map v7: moved with its region (the old
+// 0x283700 now falls inside P6_LW_TILELAYERS).
+P6_GROUPB_ABS("__ZN4RSDK12dataFileListE",    "0x002C1D00"); // RSDKFileInfo[0x6A0] = 40,704 <= 0xA000 (== P6_LW_DATAFILELIST, map v7.1)
 P6_GROUPB_ABS("__ZN4RSDK11fullPaletteE",     "0x002FAC00"); // uint16[8][256] = 0x1000
 P6_GROUPB_ABS("__ZN4RSDK13globalPaletteE",   "0x002FBC00"); // uint16[8][256] = 0x1000
 P6_GROUPB_ABS("__ZN4RSDK12stagePaletteE",    "0x002FCC00"); // uint16[8][256] = 0x1000
@@ -1056,6 +1097,19 @@ extern "C" void p6_scene_run(void)
                 h = ((h << 5) + h) ^ (uint32)w[i];
             p6_w_lay_hash = (int32)h;
         }
+        // W11b: mount NOW (the GHZ pass at 3a-ghz needs bound windows long
+        // before step 10's probe replay) and arm the PERSISTENT inflate
+        // scratch at its FIXED window (map v7.1 above -- NOT a TMP tenant;
+        // the W11a stack local died after the probes, and a TMP allocation
+        // MEASURED an 80K-pool overcommit against the GIF decoder +
+        // tempEntityList load-phase peaks).
+        if (n > 0) {
+            extern int32 SaturnLayout_Mount(const void *blob);
+            extern void SaturnLayout_SetScratch(void **bufp, uint32 cap);
+            static void *p6_layScratch = (void *)P6_LW_LAYSCRATCH;
+            SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS);
+            SaturnLayout_SetScratch(&p6_layScratch, 0x8000);
+        }
     }
 
 
@@ -1245,12 +1299,72 @@ extern "C" void p6_scene_run(void)
         p6_w_sfx_skips       = p6_saturn_sfx_skips;
     }
 
+    // 3a-ghz) P6.7 W11b (Task #226, qa_p6_ghzlive.py): GHZ1 AT SCALE through
+    //     the engine's OWN chain, FIRST -- the Title pass below then ALSO
+    //     exercises the engine's real scene-CHANGE path (different folder ->
+    //     full reload + STG GC, Scene.cpp:139). The band store was mounted
+    //     right after its GFS load (step 1.6) and the persistent inflate
+    //     scratch armed after InitStorage, so LoadSceneAssets' Saturn layout
+    //     arm can bind + refill the FG windows during this pass.
+    //     InitObjects is NOT run here: object Create at GHZ scale is the
+    //     Player-wave deliverable; this pass proves stage select + entity
+    //     PLACEMENT (1,041 slots) + the windowed layout read seam.
+    //     Witnesses are copied immediately -- the Title pass overwrites
+    //     objectEntityList/tileLayers right after.
+    {
+#include "p6_ghzlive_probes.inc"
+        // GHZ lives in the "Mania Mode" category, NOT category 0 (MEASURED:
+        // the cat0-only first cut left the stage witness 0) -- scan every
+        // category range the engine built, mirroring the dev menu.
+        for (int32 c = 0; c < sceneInfo.categoryCount && p6_w_ghz_stage == 0; ++c) {
+            SceneListInfo *cat = &sceneInfo.listCategory[c];
+            for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+                if (!strcmp(sceneInfo.listData[i].folder, "GHZ")
+                    && sceneInfo.listData[i].id[0] == '1') {
+                    sceneInfo.activeCategory = c;
+                    sceneInfo.listPos        = i;
+                    p6_w_ghz_stage           = 1;
+                    break;
+                }
+            }
+        }
+        if (p6_w_ghz_stage == 1) {
+            LoadSceneFolder();
+            LoadSceneAssets();
+
+            // Census of REGISTERED-class scene entities (the only nonzero
+            // classIDs at the current 6-class set = GHZ's 446 rings; the
+            // 16 position probes below span ALL 1,041 slots regardless --
+            // Scene.cpp writes position for every slot, classID 0 or not).
+            int32 n = 0;
+            for (int32 s = 0; s < SCENEENTITY_COUNT; ++s)
+                if (objectEntityList[RESERVE_ENTITY_COUNT + s].classID)
+                    ++n;
+            p6_w_ghz_entcount = n;
+
+            for (int32 i = 0; i < P6_GHZLIVE_PROBE_COUNT; ++i) {
+                EntityBase *e = &objectEntityList[RESERVE_ENTITY_COUNT + p6_ghzlive_probe_slots[i]];
+                p6_w_ghz_probes[i * 3 + 0] = p6_ghzlive_probe_slots[i];
+                p6_w_ghz_probes[i * 3 + 1] = e->position.x;
+                p6_w_ghz_probes[i * 3 + 2] = e->position.y;
+            }
+            for (int32 i = 0; i < P6_GHZLIVE_TILEPROBE_COUNT; ++i)
+                p6_w_ghz_tiles[i] = (int32)(uint16)GetTile((uint16)p6_ghzlive_tile_probes[i][0],
+                                                           p6_ghzlive_tile_probes[i][1],
+                                                           p6_ghzlive_tile_probes[i][2]);
+            p6_w_ghz_binds  = p6_saturn_layer_binds;
+            p6_w_ghz_clamps = p6_saturn_tempentity_skips + p6_saturn_group_skips
+                            + p6_saturn_layer_unbound + p6_saturn_settile_drops;
+        }
+    }
+
     // 3b) Harness stage-select (the dev-menu equivalent): find the Title
     //     entry in the ENGINE-built list by folder name and park listPos on
     //     it. The discovery is witnessed; the gate asserts it equals the
     //     offline parse (listPos 1, category 0).
     {
         SceneListInfo *cat0 = &sceneInfo.listCategory[0];
+        sceneInfo.activeCategory = 0; // W11b: the GHZ pass parked on Mania Mode
         for (int32 i = cat0->sceneOffsetStart; i <= cat0->sceneOffsetEnd; ++i) {
             if (!strcmp(sceneInfo.listData[i].folder, "Title")) {
                 sceneInfo.listPos = i;
@@ -1273,6 +1387,24 @@ extern "C" void p6_scene_run(void)
     //     Scene.cpp:988-998).
     LoadSceneFolder();
     p6_w_cfg_classcount0 = sceneInfo.classCount;
+
+    // 4-moved + 5a) P6.7 W11b: tilesetPixels is a LOAD-PHASE TRANSIENT in
+    //     the entityList window (see the alias note at its definition), so
+    //     BOTH the GIF witness hash AND the VDP2 cell+CRAM upload must run
+    //     HERE -- after LoadSceneFolder's LoadStageGIF decode, before
+    //     LoadSceneAssets' whole-list memset (Scene.cpp:293) reclaims the
+    //     window. Pixel bytes are unchanged: qa_p6_gif's Pillow model and
+    //     qa_p6_vdp2's VRAM byte-checks hold verbatim.
+    {
+        const uint8 *px = (const uint8 *)tilesetPixels;
+        uint32 h        = 5381u;
+        for (uint32 i = 0; i < 0x40000u; ++i)
+            h = ((h << 5) + h) ^ (uint32)px[i];
+        p6_w_gif_hash   = (int32)h;
+        p6_w_gif_b0     = (int32)px[0];
+        p6_w_gif_loaded = 1;
+    }
+    p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
 
     //     Harness Ring append -- the EXACT engine stage-class append shape
     //     (Scene.cpp:199-205 + the static-vars classID/active lines
@@ -1370,24 +1502,17 @@ extern "C" void p6_scene_run(void)
     //    to step 2 (LoadGameConfig's global-palette read needs it). The pixel
     //    bytes are merge-independent, so qa_p6_gif.py's Pillow model holds
     //    unchanged.
-    {
-        const uint8 *px = (const uint8 *)P6_LW_TILESETPX;
-        uint32 h        = 5381u;
-        for (uint32 i = 0; i < 0x40000u; ++i)
-            h = ((h << 5) + h) ^ (uint32)px[i];
-        p6_w_gif_hash   = (int32)h;
-        p6_w_gif_b0     = (int32)px[0];
-        p6_w_gif_loaded = 1;
-    }
+    // (4: the GIF witness hash + 5a: the VDP2 cell/CRAM upload MOVED to the
+    //  Title-pass LoadSceneFolder->LoadSceneAssets gap -- W11b transient
+    //  tilesetPixels; see the 4-moved block above.)
 
-    // 5) P6.5b1: FIRST ENGINE-RENDERED PIXELS -- present the engine-decoded
-    //    Island layer (tileLayers[3]) through VDP2 NBG1 from the engine's own
-    //    tilesetPixels + layout + fullPalette[0]. main.c then parks the diag
+    // 5b) P6.5b1: FIRST ENGINE-RENDERED PIXELS, layout half -- blank-char
+    //    pick + PND map + NBG1 display from the engine's own layout (cells
+    //    + CRAM already in VDP2 VRAM from 5a). main.c then parks the diag
     //    build on jo_core_run so the layer stays on screen for the capture.
-    p6_vdp2_present((const unsigned char *)P6_LW_TILESETPX,
-                    (const unsigned short *)tileLayers[3].layout,
-                    tileLayers[3].widthShift,
-                    (const unsigned short *)fullPalette[0]);
+    p6_vdp2_present_layout((const unsigned short *)tileLayers[3].layout,
+                           tileLayers[3].widthShift,
+                           (const unsigned short *)fullPalette[0]);
     p6_w_vdp2_done = 1;
 
     // 6) P6.5b2: ENGINE OBJECT SPRITES -- the engine loads the REAL
@@ -1513,15 +1638,11 @@ extern "C" void p6_scene_run(void)
         extern int32 SaturnLayout_Mount(const void *blob);
         extern void SaturnLayout_Bind(int32 slot, int32 layer);
         extern uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty);
-        extern void SaturnLayout_SetScratch(void *buf, uint32 cap);
 
-        // band-inflate scratch from DATASET_TMP (a heap malloc inside
-        // SaturnLayout MEASURED NULL -- the pack heap slack is ~19 KB after
-        // pools + miniz's ~44 KB inflate transient)
-        void *layScratch = NULL;
-        AllocateStorage(&layScratch, 0x8000, DATASET_TMP, false);
-        SaturnLayout_SetScratch(layScratch, layScratch ? 0x8000 : 0);
-
+        // W11b: the PERSISTENT scratch + mount armed at step 1.6 serve this
+        // replay too (the W11a per-step stack local is retired -- the
+        // documented dies-after-probes trap). Re-mount only resets the slot
+        // windows, which the probe loop rebinds anyway.
         if (p6_w_lay_bytes > 0 && SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS) > 0) {
 #include "p6_layout_probes.inc"
             int32 bound0 = -1;
