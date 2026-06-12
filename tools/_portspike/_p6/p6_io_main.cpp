@@ -1102,10 +1102,11 @@ float fmaxf(float a, float b) { return a > b ? a : b; }
 
 namespace RSDK {
 // P6.7a link closure backings/stubs (measured undefined list, build iter 3):
-// videoSettings + showHitboxes are read by ProcessObjectDrawLists/LoadImage;
-// the rest are dev/SKU surfaces the function table or REV02 paths reference.
+// videoSettings is read by ProcessObjectDrawLists/LoadImage; the rest are
+// dev/SKU surfaces the function table or REV02 paths reference.
+// P6.7 W15b: showHitboxes backing RETIRED -- the real Scene/Collision.cpp
+// pack TU defines it (Collision.cpp:61).
 VideoSettings videoSettings;
-bool32 showHitboxes = false;
 void RenderDeviceBase::SetupImageTexture(int32 width, int32 height, uint8 *imagePixels)
 {
     (void)width; (void)height; (void)imagePixels; // FIXME P6.8: Cinepak/image path

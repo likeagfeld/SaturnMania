@@ -26,12 +26,14 @@ namespace RSDK
 // path hash with ZERO DATASET_STG cost (the GHZ Player set is ~63 KB of
 // frames that cannot fit the WRAM-L pools). The diag chain-loads the blob
 // here at boot (p6_io_main step 1.6b); p6_w_apk_bytes > 0 == mounted.
-// W15 (Task #227, 2026-06-12): base raised 0x060AE000 -> 0x060AF000 -- the
-// W14 camera-chain code (+P9 input statics) pushed _end to 0x060AE56C, past
-// the old floor (MEASURED p6_g2 wedge: the ANIMPAK boot load clobbered live
-// .bss; p6_w_scene_step froze at 1). GHZANIM.PAK = 68,800 B fits the smaller
-// window (headroom 832 B); .bss gains 4,096 B of floor.
-#define P6_HW_ANIMPAK     0x060AF000u
+// W15 (Task #227, 2026-06-12): base raised 0x060AE000 -> 0x060AF000 (W14
+// growth pushed _end to 0x060AE56C; the overrun presented as a BOOT WEDGE --
+// the pak CD load clobbered live .bss, p6_w_scene_step froze at 1).
+// W15b: raised again 0x060AF000 -> 0x060B3000 -- verbatim Collision.cpp
+// (+12.8 KB) pushed _end to 0x060B174C. Funded by sliding the zone-overlay
+// base to 0x060C4000 (p6_ovl_api.h; Ring overlay uses 508 B of it). Window
+// ends EXACTLY at the new overlay base; floor margin 6,324 B.
+#define P6_HW_ANIMPAK     0x060B3000u
 #define P6_HW_ANIMPAK_CAP 0x00011000u // 69,632 B (build_anim_pack.py asserts)
 #else
 #define FRAMEHITBOX_COUNT (0x8)

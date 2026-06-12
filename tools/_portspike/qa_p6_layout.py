@@ -99,8 +99,12 @@ def main(argv):
          v["_p6_w_lay_probes"] == exp_probes,
          "matched=%d firstbad=%d" % (v["_p6_w_lay_probes"],
                                      v["_p6_w_lay_firstbad"])),
-        ("L4 refills sane (0 < refills <= probes)",
-         0 < v["_p6_w_lay_refills"] <= exp_probes,
+        # W15b: the 60-tick Player run with LIVE Collision.cpp adds sensor
+        # window reads beyond the probe replay (MEASURED 315 refills vs the
+        # old probes-only 110 bound). Invariants kept: zero = the window
+        # machinery never filled; > 4096 = runaway thrash.
+        ("L4 refills sane (0 < refills <= 4096)",
+         0 < v["_p6_w_lay_refills"] <= 4096,
          "refills=%d" % v["_p6_w_lay_refills"]),
     ]
     ok = all(c for _, c, _ in checks)

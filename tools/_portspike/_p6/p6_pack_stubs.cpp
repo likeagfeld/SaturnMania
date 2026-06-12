@@ -19,12 +19,14 @@
 namespace RSDK {
 
 // ---- Collision (Scene/Collision.cpp) ----------------------------------------
-bool32 CheckObjectCollisionTouch(Entity *thisEntity, Hitbox *thisHitbox, Entity *otherEntity, Hitbox *otherHitbox) { return false; }
-uint8 CheckObjectCollisionBox(Entity *thisEntity, Hitbox *thisHitbox, Entity *otherEntity, Hitbox *otherHitbox, bool32 setPos) { return 0; }
-bool32 CheckObjectCollisionPlatform(Entity *thisEntity, Hitbox *thisHitbox, Entity *otherEntity, Hitbox *otherHitbox, bool32 setPos) { return false; }
-bool32 ObjectTileCollision(Entity *entity, uint16 collisionLayers, uint8 collisionMode, uint8 collisionPlane, int32 xOffset, int32 yOffset, bool32 setPos) { return false; }
-bool32 ObjectTileGrip(Entity *entity, uint16 collisionLayers, uint8 collisionMode, uint8 collisionPlane, int32 xOffset, int32 yOffset, int32 tolerance) { return false; }
-void ProcessObjectMovement(Entity *entity, Hitbox *outerBox, Hitbox *innerBox) {}
+// P6.7 W15b (Task #227): the six collision stubs are RETIRED -- the real
+// engine Scene/Collision.cpp is a pack TU now (build_p6scene_objs.sh [7q]).
+// Every tile read in it routes through the RSDK_*_MASK / RSDK_*_ANGLE seam
+// (Scene.hpp:360-378 -> PackedCollisionMask/PackedTileAngle on Saturn); the
+// only raw collisionMasks/tileInfo mutation site, CopyCollisionMask
+// (Collision.cpp:110-206), is preprocessed out at RETRO_REVISION=2 +
+// RETRO_USE_MOD_LOADER=0 (its #if guard), so the read-only packed store is
+// never written.
 
 // ---- Scene3D / Model (Graphics/Scene3D.cpp) ----------------------------------
 uint16 LoadMesh(const char *filename, uint8 scope) { return (uint16)-1; }
@@ -77,9 +79,10 @@ TriggerState triggerR[PLAYER_COUNT + 1];
 TouchInfo touchInfo;
 
 // ---- Dev / misc ---------------------------------------------------------------
-int32 debugHitboxCount = 0;
-DebugHitboxInfo debugHitboxList[DEBUG_HITBOX_COUNT];
-int32 AddDebugHitbox(uint8 type, uint8 dir, Entity *entity, Hitbox *hitbox) { return -1; } // Collision.hpp:46
+// P6.7 W15b: debugHitboxCount/debugHitboxList/AddDebugHitbox stubs RETIRED --
+// the real Collision.cpp:61-106 defines them (DEBUG_HITBOX_COUNT=8 Saturn
+// bound per Collision.hpp W13 comment; AddDebugHitbox's `i < DEBUG_HITBOX_-
+// COUNT` append check bounds it -- verified, unchanged).
 void AddViewableVariable(const char *name, void *value, int32 type, int32 min, int32 max) {}
 void UpdateGameWindow() {}
 bool32 useEndLine = true;

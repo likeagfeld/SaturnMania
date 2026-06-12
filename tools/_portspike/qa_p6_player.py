@@ -151,7 +151,7 @@ def main(argv):
         ("P8 engine ticks: state live, ANIMPAK animator, sane physics, VDP1 rects",
          v["_p6_w_plr_ticks"] >= 2
          and v["_p6_w_plr_state"] != 0
-         and 0x060AE000 <= (v["_p6_w_plr_animframes"] & 0xFFFFFFFF) < 0x060C0000
+         and 0x060B3000 <= (v["_p6_w_plr_animframes"] & 0xFFFFFFFF) < 0x060C4000
          and abs(v["_p6_w_plr_tick_y"] - my) <= (160 << 16)
          and v["_p6_w_plr_slotdelta"] >= 1,
          "ticks=%d state=%s animframes=%s dy=%d slotdelta=%d animid=%d onground=%d"
@@ -163,13 +163,14 @@ def main(argv):
         # the byte-exact spawn: Player_State_Air gravity pulls until the
         # verbatim collision chain (ProcessObjectMovement -> packed W2
         # TileConfig geometry) sets onGround (Player.c ground transition).
-        # The settle Y must stay within 160 px BELOW the spawn (the spawn
-        # stands on/above GHZ1 start ground; a fall-through reads hundreds
-        # of px or the death boundary).
+        # Settle window: up to 16 px ABOVE spawn (ObjectTileGrip snap pulls
+        # the hitbox up onto the surface when the spawn origin sits inside
+        # the floor -- MEASURED -5 px at GHZ1) and 160 px below (a
+        # fall-through reads hundreds of px or the death boundary).
         ("P9 landing: 60 ticks, onGround via packed collision, sane settle Y",
          v["_p6_w_plr_ticks"] >= 60
          and v["_p6_w_plr_onground"] == 1
-         and 0 <= (v["_p6_w_plr_tick_y"] - my) <= (160 << 16),
+         and (-16 << 16) <= (v["_p6_w_plr_tick_y"] - my) <= (160 << 16),
          "ticks=%d onground=%d settle_dy=%dpx"
          % (v["_p6_w_plr_ticks"], v["_p6_w_plr_onground"],
             (v["_p6_w_plr_tick_y"] - my) >> 16)),

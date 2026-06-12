@@ -7,7 +7,8 @@
  * .text+.data; the loader zeroes the window tail (.bss). */
 OUTPUT_ARCH(sh)
 SECTIONS {
-    . = 0x060C0000;
+    . = 0x060C4000; /* W15b: P6_OVL_BASE slid +16K to fund the ANIMPAK window
+                      * (p6_ovl_api.h / Animation.hpp 0x060B3000..0x060C4000) */
     .text : {
         p6_ovl_ring.o(.text*)
         *(.text*)

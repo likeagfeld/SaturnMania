@@ -125,6 +125,10 @@ echo "[7f] Scene_Object.o (UNMODIFIED engine Object.cpp -- RegisterObject + Rese
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Scene_Object.o" "$SRC/RSDK/Scene/Object.cpp"
 
+echo "[7q] Scene_Collision.o (VERBATIM engine Collision.cpp -- P6.7 W15b Task #227: ProcessObjectMovement/ProcessPathGrip/ProcessAirCollision_Down + the Find*/[ LR]Wall/Floor/Roof sensor walkers + CheckObjectCollision*; every tile read goes through the RSDK_*_MASK/_ANGLE seam -> PackedCollisionMask/PackedTileAngle (Scene.hpp:289-378, gate qa_p6_collision K1-K5); CopyCollisionMask + Legacy + ProcessAirCollision_Up preprocess out at REV02/MOD_LOADER=0; -Os NOT -O2: lone-TU census 2026-06-12 measured 18,696 B alloc at -O2 vs 13,016 B at -Os against a 2,708 B pre-land _end margin) ..."
+$CC ${CXXFLAGS/-O2/-Os} $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Scene_Collision.o" "$SRC/RSDK/Scene/Collision.cpp"
+
 echo "[7g] Core_Link.o (UNMODIFIED engine Link.cpp -- SetupFunctionTables + RSDKFunctionTable[], the P6.1-proven dispatch; recipe from link_p6.sh:316-318) ..."
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Core_Link.o" "$SRC/RSDK/Core/Link.cpp"
@@ -273,7 +277,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Scene_Scene.o" "$P6/Storage_Storage.o" "$P6/miniz.o" \
     "$P6/Storage_Text.o" "$P6/Graphics_Sprite.o" "$P6/p6_vdp2.o" \
     "$P6/Graphics_Animation.o" "$P6/Audio_Audio.o" \
-    "$P6/Scene_Object.o" "$P6/Core_Link.o" "$P6/Core_Math.o" \
+    "$P6/Scene_Object.o" "$P6/Scene_Collision.o" "$P6/Core_Link.o" "$P6/Core_Math.o" \
     "$P6/Core_RetroEngine.o" \
     "$P6/Scene_Objects_DefaultObject.o" "$P6/Scene_Objects_DevOutput.o" \
     "$P6/Game_Localization.o" "$P6/Game_LogHelpers.o" "$P6/Game_Options.o" \

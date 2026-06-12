@@ -100,7 +100,7 @@ def main(argv):
     # boot load clobbers live .bss (MEASURED p6_g2: scene_step froze at 1).
     # DIAG FLAVOR ONLY: the shipping build carries neither the window nor
     # the bound (discriminated by the p6_scene_run symbol).
-    ANIMPAK_FLOOR = 0x060AF000
+    ANIMPAK_FLOOR = 0x060B3000  # W15b: pak relocated above Collision.cpp growth
     with open(mp, errors="ignore") as f:
         text = f.read()
     if "p6_scene_run" in text:
