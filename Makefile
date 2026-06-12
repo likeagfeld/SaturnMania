@@ -229,6 +229,22 @@ SRCS = src/main.c \
        src/mania/Objects/Menu/UIButtonPrompt.c \
        src/mania/Objects/Menu/UISubHeading.c
 
+# P6.7 Player wave (Task #227, 2026-06-12): the DIAG flavor drops the parked
+# hand-port game sources entirely. The P6SCENE jo_main parks at p6_scene_run +
+# jo_core_run BEFORE any hand-port call (src/main.c:1227-1241), LTO was
+# already sweeping their unreachable .text, but their __attribute__((used))
+# atlas globals + statics survived in the ltrans .bss and the W12b honest
+# accounting (post-overlap-fix) left only 4,284 B under the 0x060C0000 floor
+# -- nowhere near the ~102 KB Player closure. The pack's jo-side import
+# surface is EXACTLY ONE src/ symbol (rsdk_storage_load_to_lwram, measured
+# from p6_scene_pack.o's ELF symtab, 52 undefineds total) -- so the diag
+# needs only main.c + storage.c here. The SHIPPING `make` keeps the full
+# hand-port list above.
+ifeq ($(P6SCENE),1)
+SRCS = src/main.c src/rsdk/storage.c \
+       tools/_portspike/_p6/p6_handport_stubs.c
+endif
+
 # P6.5b2 (Task #208): the VDP1 sprite half of the engine proof compiles
 # INSIDE this make (appended AFTER the SRCS = assignment above -- an earlier
 # `SRCS +=` would be wiped) so it sees the project's exact jo configuration
