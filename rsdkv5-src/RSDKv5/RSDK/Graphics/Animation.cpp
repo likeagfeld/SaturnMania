@@ -84,7 +84,11 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
         // gets -1 (the missing-file result), keeping the gap visible.
         if (!spr->frames) {
             extern int32 p6_saturn_anim_allocfail;
+            extern int32 p6_w_anim_lastfail;
+            extern int32 p6_w_stg_at_fail;
             ++p6_saturn_anim_allocfail;
+            p6_w_anim_lastfail = ((int32)id << 16) | (int32)frameCount;
+            p6_w_stg_at_fail   = (int32)dataStorage[DATASET_STG].usedStorage * 4;
             spr->scope = SCOPE_NONE;
             memset(spr->hash, 0, 4 * sizeof(uint32));
             CloseFile(&info);
@@ -112,7 +116,11 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
         // is THE measured runaway: animation->frameCount reads back ROM)
         if (!spr->animations) {
             extern int32 p6_saturn_anim_allocfail;
+            extern int32 p6_w_anim_lastfail;
+            extern int32 p6_w_stg_at_fail;
             ++p6_saturn_anim_allocfail;
+            p6_w_anim_lastfail = ((int32)id << 16) | 0x8000 | (int32)spr->animCount;
+            p6_w_stg_at_fail   = (int32)dataStorage[DATASET_STG].usedStorage * 4;
             spr->scope = SCOPE_NONE;
             memset(spr->hash, 0, 4 * sizeof(uint32));
             CloseFile(&info);
@@ -145,6 +153,28 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
                 frame->pivotX      = ReadInt16(&info);
                 frame->pivotY      = ReadInt16(&info);
 
+#if RETRO_PLATFORM == RETRO_SATURN
+                // FRAMEHITBOX_COUNT Saturn retarget (Animation.hpp): clamp +
+                // witness a file exceeding it -- extra hitboxes are read (the
+                // stream must stay in sync) and dropped.
+                frame->hitboxCount = hitboxCount > FRAMEHITBOX_COUNT ? FRAMEHITBOX_COUNT : hitboxCount;
+                for (int32 h = 0; h < hitboxCount; ++h) {
+                    int16 l = ReadInt16(&info);
+                    int16 t = ReadInt16(&info);
+                    int16 r = ReadInt16(&info);
+                    int16 b = ReadInt16(&info);
+                    if (h < FRAMEHITBOX_COUNT) {
+                        frame->hitboxes[h].left   = l;
+                        frame->hitboxes[h].top    = t;
+                        frame->hitboxes[h].right  = r;
+                        frame->hitboxes[h].bottom = b;
+                    }
+                    else {
+                        extern int32 p6_saturn_hitbox_clamps;
+                        ++p6_saturn_hitbox_clamps;
+                    }
+                }
+#else
                 frame->hitboxCount = hitboxCount;
                 for (int32 h = 0; h < hitboxCount; ++h) {
                     frame->hitboxes[h].left   = ReadInt16(&info);
@@ -152,6 +182,7 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
                     frame->hitboxes[h].right  = ReadInt16(&info);
                     frame->hitboxes[h].bottom = ReadInt16(&info);
                 }
+#endif
             }
         }
 

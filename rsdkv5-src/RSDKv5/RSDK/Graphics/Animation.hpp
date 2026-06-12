@@ -8,7 +8,20 @@ namespace RSDK
 #define SPRITEFRAME_COUNT (0x400)
 #define SPRITEANIM_COUNT  (0x40)
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// Task #227 STG sizing: MEASURED over every 1.03 .bin in the GHZ stage
+// set (Sonic/SuperSonic = 2 hitboxes "outerBox/innerBox"; all others 0;
+// no Mania .bin exceeds 2) -- the stock 8 wastes 48 B/frame, and the GHZ
+// anim working set is 1,624 frames (133 KB at 8 vs 55 KB at 2). The
+// game-side SpriteFrame (GameLink.h:489-499) carries NO hitbox array
+// (prefix struct; `*dst = *src` copies base fields only, Player.c:569),
+// so the retarget is ABI-safe for game TUs. The LoadSpriteAnimation
+// Saturn arm clamps + witnesses any file exceeding this
+// (p6_saturn_hitbox_clamps).
+#define FRAMEHITBOX_COUNT (0x2)
+#else
 #define FRAMEHITBOX_COUNT (0x8)
+#endif
 
 #define RSDK_SIGNATURE_SPR (0x525053) // "SPR"
 

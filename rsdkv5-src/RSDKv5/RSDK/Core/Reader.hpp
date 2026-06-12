@@ -478,6 +478,11 @@ inline void ReadString(FileInfo *info, char *buffer)
     buffer[size] = 0;
 }
 
+#if RETRO_PLATFORM == RETRO_SATURN
+extern "C" int p6_mz_uncompress(unsigned char *, unsigned long *,
+                                const unsigned char *, unsigned long);
+#endif
+
 inline int32 Uncompress(uint8 **cBuffer, int32 cSize, uint8 **buffer, int32 size)
 {
     if (!buffer || !cBuffer)
@@ -486,7 +491,15 @@ inline int32 Uncompress(uint8 **cBuffer, int32 cSize, uint8 **buffer, int32 size
     uLongf cLen    = cSize;
     uLongf destLen = size;
 
+#if RETRO_PLATFORM == RETRO_SATURN
+    // Task #227 STG sizing: inflate_state from the fixed WRAM-H window
+    // (p6_mz_uncompress, SaturnLayout.cpp; declared above Uncompress)
+    // instead of the WRAM-L heap -- frees the ~44 KB heap transient that
+    // funds the 112 KB DATASET_STG.
+    int32 result = p6_mz_uncompress(*buffer, &destLen, *cBuffer, cLen);
+#else
     int32 result = uncompress(*buffer, &destLen, *cBuffer, cLen);
+#endif
     (void)result;
 
     return (int32)destLen;

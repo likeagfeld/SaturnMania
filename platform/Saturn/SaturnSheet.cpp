@@ -68,6 +68,10 @@ __attribute__((used)) int32 p6_w_sht_staged  = 0; // sheets staged into VDP2
 __attribute__((used)) int32 p6_w_sht_fetches = 0; // FetchRect band inflates
 }
 
+// fixed-window inflate (SaturnLayout.cpp, Task #227 STG sizing)
+extern "C" int p6_mz_uncompress(unsigned char *, unsigned long *,
+                                const unsigned char *, unsigned long);
+
 static uint16 v16(uint32 addr) { return *(volatile uint16 *)addr; }
 static uint32 v32be(uint32 addr) { return ((uint32)v16(addr) << 16) | v16(addr + 2); }
 
@@ -169,7 +173,7 @@ extern "C" int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
             zdst[i] = vsrc[i];
 
         mz_ulong dlen = rsz;
-        if (mz_uncompress(raw, &dlen, zbuf + lead, zsz) != MZ_OK)
+        if (p6_mz_uncompress(raw, &dlen, zbuf + lead, zsz) != MZ_OK)
             return 0;
         ++p6_w_sht_fetches;
 

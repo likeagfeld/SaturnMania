@@ -141,6 +141,53 @@
           "hash": "0xA7A1C80D"
         }
       ]
+    },
+    {
+      "sheet": "Global/Items.gif",
+      "file": "ITEMS.SHT",
+      "width": 256,
+      "height": 128,
+      "band_rows": 16,
+      "bands": 8,
+      "bytes": 7252,
+      "file_hash": "0x799DDE2E",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x21E79322"
+        },
+        {
+          "sx": 128,
+          "sy": 8,
+          "w": 64,
+          "h": 48,
+          "hash": "0xE9086324"
+        },
+        {
+          "sx": 192,
+          "sy": 56,
+          "w": 64,
+          "h": 64,
+          "hash": "0x70033D88"
+        },
+        {
+          "sx": 16,
+          "sy": 88,
+          "w": 48,
+          "h": 40,
+          "hash": "0x3445BDC2"
+        },
+        {
+          "sx": 64,
+          "sy": 32,
+          "w": 32,
+          "h": 56,
+          "hash": "0xFB4F0968"
+        }
+      ]
     }
   ]
 }

@@ -499,6 +499,7 @@ __attribute__((used)) int32 p6_w_plr_x          = 0;  // spawn position from the
 __attribute__((used)) int32 p6_w_plr_y          = 0;
 __attribute__((used)) int32 p6_w_plr_entclass   = -1; // entity->classID at that slot
 __attribute__((used)) int32 p6_w_plr_staticsize = 0;  // sizeof(ObjectPlayer) on SH-2 (pack contract)
+__attribute__((used)) int32 p6_w_plr_sonicframes = -1; // Player->sonicFrames after StageLoad (0xFFFF = anim refused)
 // P6.7 W12 (Task #227, qa_p6_sheet.py): probe-replay witnesses (staged/
 // fetches counters live in SaturnSheet.cpp).
 __attribute__((used)) int32 p6_w_sht_probes   = -1; // byte-exact rects (model 15)
@@ -554,6 +555,9 @@ __attribute__((used)) int32 p6_saturn_layer_binds    = 0; // SaturnLayout_Bind c
 __attribute__((used)) int32 p6_w_initobj_step = 0; // 0x1...=StageLoad 0x2...=Create 0x7FFFFFFF=done
 __attribute__((used)) int32 p6_w_anim_step    = 0; // LoadSpriteAnimation phase stamp (Animation.cpp P6_ANIM_STAMP)
 __attribute__((used)) int32 p6_saturn_anim_allocfail = 0; // STG-full refusals in LoadSpriteAnimation (runaway-read guard)
+__attribute__((used)) int32 p6_saturn_hitbox_clamps  = 0; // hitboxes dropped by the FRAMEHITBOX_COUNT(2) retarget (expect 0)
+__attribute__((used)) int32 p6_w_anim_lastfail = 0; // (sprfile id << 16) | frameCount (bit15: animCount fail)
+__attribute__((used)) int32 p6_w_stg_at_fail   = 0; // dataStorage[STG].usedStorage in BYTES at the last refusal
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -1244,13 +1248,18 @@ extern "C" void p6_scene_run(void)
         extern void p6_vdp1_set_fetch(int32 (*fn)(int32, int32, int32, int32,
                                                   int32, uint8 *));
         p6_vdp1_set_fetch(SaturnSheet_FetchRect);
-        static const char *shtFiles[3] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT" };
+        // Task #227 STG sizing: ITEMS.SHT joins the staged set -- banding
+        // Items.gif drops its 32,768 B resident decode from DATASET_STG so
+        // the GHZ anim working set fits the 80 KB pool (Storage.cpp).
+        static const char *shtFiles[4] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
+                                           "ITEMS.SHT" };
         // Engine PATH hashes (W12b): LoadSpriteSheet hashes the .bin-relative
         // sprite path -- these are what Player_StageLoad will resolve.
-        static const char *shtPaths[3] = { "Players/Sonic1.gif",
+        static const char *shtPaths[4] = { "Players/Sonic1.gif",
                                            "Players/Sonic2.gif",
-                                           "Players/Sonic3.gif" };
-        for (int32 i = 0; i < 3; ++i) {
+                                           "Players/Sonic3.gif",
+                                           "Global/Items.gif" };
+        for (int32 i = 0; i < 4; ++i) {
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
                                                 (void *)P6_LW_ENTITYLIST, 0x10000);
             if (sn > 0) {
@@ -1738,12 +1747,25 @@ extern "C" void p6_scene_run(void)
             // only touch gfxSurface when it is a real, populated slot.
             p6_w_spr_sheetid = (int32)f0->sheetID;
             GFXSurface *sheet = &gfxSurface[f0->sheetID];
-            if (f0->sheetID < SURFACE_COUNT && sheet->scope != SCOPE_NONE && sheet->pixels) {
-                uint32 sh     = 5381u;
-                uint32 nbytes = (uint32)sheet->width * (uint32)sheet->height;
-                for (uint32 i = 0; i < nbytes; ++i)
-                    sh = ((sh << 5) + sh) ^ (uint32)sheet->pixels[i];
-                p6_w_spr_sheethash = (int32)sh;
+            // Task #227 ITEMS.SHT: Items.gif is BANDED now (saturnSheetSlot
+            // >= 0, pixels == NULL) -- the resident-pixel hash and the
+            // legacy whole-sheet VDP1 bind below only run for RESIDENT
+            // sheets; the banded case still arms the Ring proof (the
+            // DrawSprite slot cache serves rects via SaturnSheet_FetchRect,
+            // the W12b fetch seam). sheethash = -2 marks the banded arm for
+            // the gate model.
+            if (f0->sheetID < SURFACE_COUNT && sheet->scope != SCOPE_NONE
+                && (sheet->pixels || sheet->saturnSheetSlot >= 0)) {
+                if (sheet->pixels) {
+                    uint32 sh     = 5381u;
+                    uint32 nbytes = (uint32)sheet->width * (uint32)sheet->height;
+                    for (uint32 i = 0; i < nbytes; ++i)
+                        sh = ((sh << 5) + sh) ^ (uint32)sheet->pixels[i];
+                    p6_w_spr_sheethash = (int32)sh;
+                }
+                else {
+                    p6_w_spr_sheethash = -2;
+                }
 
                 SetSpriteAnimation(sprID, 0, &p6_ringAnimator, true, 0);
                 p6_objRingFrames = &spr->frames[spr->animations[0].frameListOffset]; // P6.7a
@@ -1766,9 +1788,12 @@ extern "C" void p6_scene_run(void)
                         p6_vdp1HandleBySurface[i] = -1;
                     p6_vdp1HandlesInit = true;
                 }
-                p6_vdp1HandleBySurface[f0->sheetID] =
-                    (int8)p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
-                                             (const unsigned short *)fullPalette[0]);
+                // banded sheets keep handle -1: the DrawSprite slot cache
+                // serves their rects through the W12b fetch seam instead.
+                if (sheet->pixels)
+                    p6_vdp1HandleBySurface[f0->sheetID] =
+                        (int8)p6_vdp1_sheet_bind(sheet->pixels, sheet->width,
+                                                 (const unsigned short *)fullPalette[0]);
             }
         }
     }

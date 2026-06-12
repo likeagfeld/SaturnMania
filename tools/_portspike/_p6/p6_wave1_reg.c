@@ -79,6 +79,7 @@ extern int32 p6_w_plr_x;
 extern int32 p6_w_plr_y;
 extern int32 p6_w_plr_entclass;
 extern int32 p6_w_plr_staticsize;
+extern int32 p6_w_plr_sonicframes;
 
 // =============================================================================
 // p6_wave1_link -- the LinkGameLogicDLL role (Game.c:111-136 pre-Plus shape,
@@ -203,4 +204,7 @@ void p6_player_witness_post(void)
     if (!Player)
         return;
     p6_w_plr_stageload = (Player->active == ACTIVE_ALWAYS && Player->playerCount > 0) ? 1 : 0;
+    // P7 (STG sizing): LoadSpriteAnimation("Players/Sonic.bin") result --
+    // 0xFFFF == the alloc-fail refusal (Player.c:795 assigns the uint16 -1).
+    p6_w_plr_sonicframes = (int32)Player->sonicFrames;
 }

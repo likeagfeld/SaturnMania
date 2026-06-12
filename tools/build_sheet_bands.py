@@ -38,10 +38,14 @@ ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 BAND_ROWS = 16
 
 # The W12 Player-wave set. 8.3 names (SGL GFS_FNAME_LEN = 12 rule).
+# Items.gif joined for the STG-sizing iteration (Task #227): banding it
+# drops the 32,768 B resident decode from DATASET_STG so the GHZ anim
+# working set (1,624 frames at FRAMEHITBOX_COUNT 2) fits the 80 KB pool.
 SHEETS = [
     ("Players/Sonic1.gif", "SONIC1.SHT"),
     ("Players/Sonic2.gif", "SONIC2.SHT"),
     ("Players/Sonic3.gif", "SONIC3.SHT"),
+    ("Global/Items.gif", "ITEMS.SHT"),
 ]
 
 

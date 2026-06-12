@@ -54,7 +54,8 @@ GHZ_SCENE = os.path.join(ROOT, "extracted", "Data", "Stages", "GHZ", "Scene1.bin
 
 SYMS = ["_p6_w_plr_classid", "_p6_w_plr_stageload", "_p6_w_plr_slot",
         "_p6_w_plr_x", "_p6_w_plr_y", "_p6_w_plr_entclass",
-        "_p6_w_plr_staticsize"]
+        "_p6_w_plr_staticsize", "_p6_w_plr_sonicframes",
+        "RSDK::p6_saturn_anim_allocfail", "RSDK::p6_saturn_hitbox_clamps"]
 
 
 def player_model():
@@ -128,6 +129,17 @@ def main(argv):
          "got (%d, %d)" % (v["_p6_w_plr_x"], v["_p6_w_plr_y"])),
         ("P6 ObjectPlayer static size witness (pack == sizing-tree contract)",
          v["_p6_w_plr_staticsize"] > 0, "sizeof=%d" % v["_p6_w_plr_staticsize"]),
+        # P7 (Task #227 STG sizing): EVERY sprite animation the GHZ StageLoads
+        # request must be RESIDENT -- zero LoadSpriteAnimation alloc-fail
+        # refusals, zero FRAMEHITBOX clamps, and Player->sonicFrames is a
+        # real sprfile id (0xFFFF == the refusal result, Player.c:795).
+        ("P7 anim working set resident (allocfail==0, clamps==0, sonicFrames valid)",
+         v["RSDK::p6_saturn_anim_allocfail"] == 0
+         and v["RSDK::p6_saturn_hitbox_clamps"] == 0
+         and v["_p6_w_plr_sonicframes"] not in (0xFFFF, -1),
+         "allocfail=%d clamps=%d sonicFrames=%s"
+         % (v["RSDK::p6_saturn_anim_allocfail"], v["RSDK::p6_saturn_hitbox_clamps"],
+            _scene._hx(v["_p6_w_plr_sonicframes"]))),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:

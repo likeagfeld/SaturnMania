@@ -53,10 +53,45 @@ bool32 RSDK::InitStorage()
     // touched only by Audio StageLoad paths, which never run with
     // classCount == 0. Stock Saturn literals (the #else) stay the P6.5b+
     // basis and get re-measured when real stages load through the engine.
-    dataStorage[DATASET_STG].storageLimit = 64 * 1024;  //  64 KB (proof-trim)
-    dataStorage[DATASET_MUS].storageLimit = 16 * 1024;  //  16 KB (proof-trim)
+    // Task #227 STG sizing (2026-06-12): the GHZ Player-wave anim working
+    // set is 1,624 frames + 149 anim entries across 10 .bins = 59,388 B at
+    // the Saturn FRAMEHITBOX_COUNT(2) SpriteFrame (34 B), + scene lists
+    // 13,184 B + misc ~2 KB = ~75 KB. Items.gif (32,768 B decoded) moved
+    // OUT of STG to the banded path (cd/ITEMS.SHT, SaturnSheet slot 3), so
+    // 80 KB carries the set with ~7 KB headroom. The measured RED this
+    // sizes away: p6_saturn_anim_allocfail = 9 at STG 64 KB (the
+    // NULL-animations runaway-read class, commit 55c0e8f).
+    // v2 (MEASURED on p6_d2.mcs): 80 KB still refused Sonic.bin -- the GHZ
+    // PERSISTENT tenants (26 class statics + per-layer arrays) are ~45 KB,
+    // not the Title-measured 13 KB (p6_w_stg_at_fail = 64,024 B with the
+    // 547-frame request outstanding). 112 KB = ~64 KB persistent +
+    // Sonic 18.6 KB + SuperSonic 19.1 KB + ~10 KB headroom. Funded by
+    // moving the miniz inflate_state out of the heap (p6_mz_uncompress,
+    // fixed WRAM-H window) + the MUS trim below.
+    // v3 (MEASURED on p6_d5.mcs): 112 KB peaked at 114,552 B with Dust
+    // (1.5 KB), SuperSonic (19.4 KB) + one more still refused -- GHZ true
+    // peak ~137.5 KB (persistent statics + resident small BG layouts +
+    // lineScroll + 10 anim .bins). 138 KB carries it; the at-fail
+    // witnesses (p6_w_stg_at_fail / p6_w_anim_lastfail) re-measure every
+    // build. WRAM-L is EXHAUSTED past this -- the next growth must be the
+    // W13 design (offline-packed read-only anim stores, the W11/W12
+    // pattern applied to SpriteFrame arrays).
+    // GHZ true peak is ~137.5 KB (measured via p6_w_stg_at_fail across
+    // p6_d2/d5/d6) but the WRAM-L heap window cannot host it: pools above
+    // ~252 KB leave no slack (the 78 KB TMP trim attempt ALSO fired -- see
+    // the TMP note). 112 KB = the proven config (p6_d5: Sonic.bin RESIDENT,
+    // qa_p6_player P2-P6 GREEN, 3 anim refusals witnessed). The remaining
+    // ~25 KB deficit (SuperSonic + Dust + 1) closes with W13: offline-packed
+    // read-only SpriteFrame stores in a fixed window (the W11/W12 pattern).
+    dataStorage[DATASET_STG].storageLimit = 112 * 1024; // 112 KB (W13 closes the rest)
+    // MUS MEASURED: 8,208 B used (the F32 mix buffer; music streams ride
+    // CD-DA, never MUS).
+    dataStorage[DATASET_MUS].storageLimit = 12 * 1024;  //  12 KB (mix buffer measured)
     dataStorage[DATASET_SFX].storageLimit = 32 * 1024;  //  32 KB (proof-trim)
-    dataStorage[DATASET_STR].storageLimit = 32 * 1024;  //  32 KB
+    // STR MEASURED: 10,700 B used (StringsEN 4,906 B as uint16 + working
+    // strings). The Credits scene (Credits.txt -> ~29 KB) re-windows at
+    // its own wave.
+    dataStorage[DATASET_STR].storageLimit = 16 * 1024;  //  16 KB (measured + headroom)
     // P6.7 W11 closer C2: 128K -> 80K. The W11 band store removes the big
     // LAYOUT inflates from TMP (Saturn layouts never route through
     // ReadCompressed at the W11b wiring), but TileConfig's verbatim
@@ -65,6 +100,9 @@ bool32 RSDK::InitStorage()
     // packed window stayed zero) and bounds the pool. Other tenants
     // (capped tempEntityList 22,016 + GIF decoder 24,892 + the 32,768 B
     // band scratch) are non-concurrent peaks below it.
+    // C2 bound: TileConfig's ReadCompressed holds the COMPRESSED buffer
+    // (~2.6 KB) and the 77,824 B decompressed buffer CONCURRENTLY -- a
+    // 78 KB trim (2026-06-12) fired allocfail=4: 80 KB is the floor.
     dataStorage[DATASET_TMP].storageLimit = 80 * 1024;  //  80 KB (C2)
 #else
     dataStorage[DATASET_STG].storageLimit = 256 * 1024; // 256 KB
