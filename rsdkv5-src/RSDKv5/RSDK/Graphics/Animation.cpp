@@ -40,7 +40,7 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
     sheetIDs[0] = 0;
 
 #if defined(P6_SCENE_TEST)
-    // Task #227 wedge bisect: phase stamp = (sprfile id << 8) | phase.
+    // Task #227 hang bisect: phase stamp = (sprfile id << 8) | phase.
     // Phases: 1 pre-open, 2 opened, 3 frames-alloc'd, 4 sheets resolved,
     // 5 anims alloc'd, 6 parse done, 7 closed. After a wedge the savestate
     // peek names the exact file + step.
@@ -49,8 +49,71 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
         extern int32 p6_w_anim_step;                                                                                                                 \
         p6_w_anim_step = ((int32)id << 8) | (ph);                                                                                                    \
     } while (0)
+    // Task #227 W13: per-load log ring -- {hash[0], (result << 16) | frameCount}
+    // for every NEW .bin resolution, GHZ pass included (the post-Title capture
+    // loses the GHZ slots to ClearSpriteAnimations; this ring survives).
+#define P6_ANIM_LOG(res, fc)                                                                                                                         \
+    do {                                                                                                                                             \
+        extern int32 p6_w_anim_log[48];                                                                                                              \
+        extern int32 p6_w_anim_logn;                                                                                                                 \
+        if (p6_w_anim_logn < 24) {                                                                                                                   \
+            p6_w_anim_log[p6_w_anim_logn * 2 + 0] = (int32)hash[0];                                                                                  \
+            p6_w_anim_log[p6_w_anim_logn * 2 + 1] = ((int32)(res) << 16) | (int32)(fc);                                                              \
+            ++p6_w_anim_logn;                                                                                                                        \
+        }                                                                                                                                            \
+    } while (0)
 #else
 #define P6_ANIM_STAMP(ph)
+#define P6_ANIM_LOG(res, fc)
+#endif
+
+#if RETRO_PLATFORM == RETRO_SATURN
+    // Task #227 W13: resolve from the offline anim pack FIRST (hash-first,
+    // zero file I/O, zero DATASET_STG -- the LoadSpriteSheet banded-arm
+    // pattern). Frames/animations point INTO the fixed window; sheetIDs are
+    // re-patched from the stored ordinals on EVERY resolve (scene reloads
+    // re-issue surface ids). Format: build_anim_pack.py header.
+    {
+        extern int32 p6_w_apk_bytes;
+        if (p6_w_apk_bytes > 0) {
+            const uint8 *pak = (const uint8 *)P6_HW_ANIMPAK;
+            int32 binCount   = ((int32)pak[4] << 8) | pak[5];
+            const uint8 *e   = pak + 8;
+            for (int32 b = 0; b < binCount; ++b) {
+                uint32 framesOff = ((uint32)e[16] << 24) | ((uint32)e[17] << 16) | ((uint32)e[18] << 8) | e[19];
+                uint32 frameCnt  = ((uint32)e[20] << 24) | ((uint32)e[21] << 16) | ((uint32)e[22] << 8) | e[23];
+                uint32 animsOff  = ((uint32)e[24] << 24) | ((uint32)e[25] << 16) | ((uint32)e[26] << 8) | e[27];
+                uint32 animCnt   = ((uint32)e[28] << 24) | ((uint32)e[29] << 16) | ((uint32)e[30] << 8) | e[31];
+                uint32 ordsOff   = ((uint32)e[32] << 24) | ((uint32)e[33] << 16) | ((uint32)e[34] << 8) | e[35];
+                uint8 sheetCnt   = e[36];
+                uint16 nameBytes = ((uint16)e[38] << 8) | e[39];
+                if (!memcmp(e, hash, 4 * sizeof(uint32))) {
+                    SpriteAnimation *spr = &spriteAnimationList[id];
+                    spr->scope           = scope;
+                    memcpy(spr->hash, hash, 4 * sizeof(uint32));
+                    spr->frames     = (SpriteFrame *)(pak + framesOff);
+                    spr->animations = (SpriteAnimationEntry *)(pak + animsOff);
+                    spr->animCount  = (uint16)animCnt;
+                    const uint8 *np = e + 40;
+                    for (int32 s = 0; s < sheetCnt; ++s) {
+                        uint8 ln = *np++;
+                        sheetIDs[s] = LoadSpriteSheet((const char *)np, scope);
+                        np += ln;
+                    }
+                    const uint8 *ords = pak + ordsOff;
+                    SpriteFrame *fr   = spr->frames;
+                    for (uint32 f = 0; f < frameCnt; ++f)
+                        fr[f].sheetID = sheetIDs[ords[f]];
+                    P6_ANIM_LOG(id, frameCnt);
+                    return id;
+                }
+                e += 40 + nameBytes;
+            }
+        }
+    }
+    // compile-time contract with build_anim_pack.py's emitted layout
+    static_assert(sizeof(SpriteFrame) == 36, "W13 pack layout: SpriteFrame must be 36 B (FRAMEHITBOX 2; base pads to 18, hitboxes at 20)");
+    static_assert(sizeof(SpriteAnimationEntry) == 28, "W13 pack layout: SpriteAnimationEntry must be 28 B");
 #endif
 
     FileInfo info;
@@ -89,6 +152,7 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
             ++p6_saturn_anim_allocfail;
             p6_w_anim_lastfail = ((int32)id << 16) | (int32)frameCount;
             p6_w_stg_at_fail   = (int32)dataStorage[DATASET_STG].usedStorage * 4;
+            P6_ANIM_LOG(-1, frameCount);
             spr->scope = SCOPE_NONE;
             memset(spr->hash, 0, 4 * sizeof(uint32));
             CloseFile(&info);
@@ -121,6 +185,7 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
             ++p6_saturn_anim_allocfail;
             p6_w_anim_lastfail = ((int32)id << 16) | 0x8000 | (int32)spr->animCount;
             p6_w_stg_at_fail   = (int32)dataStorage[DATASET_STG].usedStorage * 4;
+            P6_ANIM_LOG(-1, frameCount);
             spr->scope = SCOPE_NONE;
             memset(spr->hash, 0, 4 * sizeof(uint32));
             CloseFile(&info);
@@ -189,6 +254,7 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
         P6_ANIM_STAMP(6);
         CloseFile(&info);
         P6_ANIM_STAMP(7);
+        P6_ANIM_LOG(id, frameCount);
 
         return id;
     }

@@ -94,8 +94,8 @@ def main(argv):
         print("   .bss/.data -- the W12b GFS-table-clobber class. Fix = the")
         print("   p6_pack_merge.ld second `ld -r` pass in build_p6scene_objs.sh.)")
         return 1
-    # Task #227 STG sizing: the fixed WRAM-H miniz window (p6_mz_uncompress,
-    # SaturnLayout.cpp) lives at 0x060B4000..0x060BF000 -- the linked image
+    # Task #227 STG sizing: the fixed WRAM-H ANIMPAK window (P6_HW_ANIMPAK,
+    # Animation.hpp) lives at 0x060AE000..0x060C0000 -- the linked image
     # must end BELOW it or inflates corrupt the image tail silently. DIAG
     # FLAVOR ONLY: the shipping build carries neither the window nor the
     # bound (discriminated by the p6_scene_run symbol).
@@ -105,11 +105,11 @@ def main(argv):
         m = re.search(r"0x[0]*([0-9a-fA-F]+)\s+_end = \.", text)
         if m:
             end = int(m.group(1), 16)
-            if end > 0x060B4000:
-                print("RESULT: RED -- _end 0x%08X over the p6_mz window floor 0x060B4000" % end)
+            if end > 0x060AE000:
+                print("RESULT: RED -- _end 0x%08X over the ANIMPAK window floor 0x060AE000" % end)
                 return 1
-            print("  _end 0x%08X <= p6_mz window floor 0x060B4000 (margin %d B)"
-                  % (end, 0x060B4000 - end))
+            print("  _end 0x%08X <= ANIMPAK window floor 0x060AE000 (margin %d B)"
+                  % (end, 0x060AE000 - end))
     print("RESULT: GREEN -- all allocated output sections disjoint")
     return 0
 

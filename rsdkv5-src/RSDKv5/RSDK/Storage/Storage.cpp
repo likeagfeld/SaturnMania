@@ -76,22 +76,38 @@ bool32 RSDK::InitStorage()
     // build. WRAM-L is EXHAUSTED past this -- the next growth must be the
     // W13 design (offline-packed read-only anim stores, the W11/W12
     // pattern applied to SpriteFrame arrays).
-    // GHZ true peak is ~137.5 KB (measured via p6_w_stg_at_fail across
-    // p6_d2/d5/d6) but the WRAM-L heap window cannot host it: pools above
-    // ~252 KB leave no slack (the 78 KB TMP trim attempt ALSO fired -- see
-    // the TMP note). 112 KB = the proven config (p6_d5: Sonic.bin RESIDENT,
-    // qa_p6_player P2-P6 GREEN, 3 anim refusals witnessed). The remaining
-    // ~25 KB deficit (SuperSonic + Dust + 1) closes with W13: offline-packed
-    // read-only SpriteFrame stores in a fixed window (the W11/W12 pattern).
-    dataStorage[DATASET_STG].storageLimit = 112 * 1024; // 112 KB (W13 closes the rest)
+    // W13 (cd/GHZANIM.PAK): the five Player-wave .bins (Sonic, SuperSonic,
+    // Tails, TailSprite, Dust = ~67 KB of frames) resolve from the fixed
+    // WRAM-H ANIMPAK window with ZERO STG cost (Animation.cpp hash-first
+    // arm; MEASURED p6_e3: allocfail=0). Remaining STG tenants: persistent
+    // statics/lineScroll/resident-BG-layouts ~45 KB + HUD/Buttons/Shields/
+    // ScoreBonus anims ~28 KB = ~73 KB -> 80 KB. The 112 KB experiment plus
+    // the heap-resident miniz inflate_state (~44 KB) OVERFLOWS the 0x43000
+    // heap window (MEASURED p6_e3 pre-trim: the whole inflate gate cluster
+    // fired RED) -- 80 KB restores the proven ledger: pools 220 KB +
+    // inflate 44 KB + slack inside 274,432 B.
+    // (84 KB: the 80 KB first cut left ONE refusal -- the 530-frame
+    // UI Buttons bin pushes the resident set to ~77 KB + entry headers.
+    // 84 + 12 + 32 + 16 + 80 = 224 KB = the long-proven pool total.)
+    // v3 FINAL (MEASURED p6_e5: Shields.bin REFUSED at stg_at_fail=83,500
+    // of 86,016 -- GHZ STG peak = 90.8 KB with the W13 pack live). 92 KB
+    // carries it; funded by the measured MUS/STR trims below. Pools
+    // 92+10+32+12+80 = 226 KB + the ~44 KB heap inflate_state = 270 KB
+    // inside the 274,432 B heap window (4.4 KB slack).
+    dataStorage[DATASET_STG].storageLimit = 92 * 1024;  //  92 KB (W13 ledger v3)
     // MUS MEASURED: 8,208 B used (the F32 mix buffer; music streams ride
     // CD-DA, never MUS).
-    dataStorage[DATASET_MUS].storageLimit = 12 * 1024;  //  12 KB (mix buffer measured)
-    dataStorage[DATASET_SFX].storageLimit = 32 * 1024;  //  32 KB (proof-trim)
+    dataStorage[DATASET_MUS].storageLimit = 10 * 1024;  //  10 KB (measured 8,208 B used)
+    // SFX MEASURED: 25,748 B used at the full GHZ stage list (skips
+    // witnessed) -- 30 KB keeps 4.2 KB headroom. The -2 KB funds the heap
+    // inflate slack: p6_brk with 226 KB pools measured 231,672 B leaving
+    // 42,760 B < the 43,712 B inflate_state (the v8 bug arithmetic, off
+    // by the C1 entry backings the ledger missed).
+    dataStorage[DATASET_SFX].storageLimit = 30 * 1024;  //  30 KB (measured)
     // STR MEASURED: 10,700 B used (StringsEN 4,906 B as uint16 + working
     // strings). The Credits scene (Credits.txt -> ~29 KB) re-windows at
     // its own wave.
-    dataStorage[DATASET_STR].storageLimit = 16 * 1024;  //  16 KB (measured + headroom)
+    dataStorage[DATASET_STR].storageLimit = 12 * 1024;  //  12 KB (measured 10,700 B used)
     // P6.7 W11 closer C2: 128K -> 80K. The W11 band store removes the big
     // LAYOUT inflates from TMP (Saturn layouts never route through
     // ReadCompressed at the W11b wiring), but TileConfig's verbatim

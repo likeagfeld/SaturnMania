@@ -19,6 +19,15 @@ namespace RSDK
 // Saturn arm clamps + witnesses any file exceeding this
 // (p6_saturn_hitbox_clamps).
 #define FRAMEHITBOX_COUNT (0x2)
+// Task #227 W13: the offline-packed READ-ONLY anim store (cd/GHZANIM.PAK,
+// tools/build_anim_pack.py) at a fixed WRAM-H window -- the gap freed by
+// the DEBUG_HITBOX_COUNT retarget (Collision.hpp) between _end and the
+// 0x060C0000 overlay floor. LoadSpriteAnimation resolves pack members by
+// path hash with ZERO DATASET_STG cost (the GHZ Player set is ~63 KB of
+// frames that cannot fit the WRAM-L pools). The diag chain-loads the blob
+// here at boot (p6_io_main step 1.6b); p6_w_apk_bytes > 0 == mounted.
+#define P6_HW_ANIMPAK     0x060AE000u
+#define P6_HW_ANIMPAK_CAP 0x00012000u // 73,728 B (build_anim_pack.py asserts)
 #else
 #define FRAMEHITBOX_COUNT (0x8)
 #endif

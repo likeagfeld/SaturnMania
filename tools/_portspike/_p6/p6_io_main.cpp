@@ -558,6 +558,10 @@ __attribute__((used)) int32 p6_saturn_anim_allocfail = 0; // STG-full refusals i
 __attribute__((used)) int32 p6_saturn_hitbox_clamps  = 0; // hitboxes dropped by the FRAMEHITBOX_COUNT(2) retarget (expect 0)
 __attribute__((used)) int32 p6_w_anim_lastfail = 0; // (sprfile id << 16) | frameCount (bit15: animCount fail)
 __attribute__((used)) int32 p6_w_stg_at_fail   = 0; // dataStorage[STG].usedStorage in BYTES at the last refusal
+__attribute__((used)) int32 p6_w_anim_log[48]  = { 0 }; // W13: {hash[0], (result<<16)|frameCount} x 24 loads
+__attribute__((used)) int32 p6_w_anim_logn     = 0;
+__attribute__((used)) int32 p6_w_apk_bytes     = 0; // W13: GHZANIM.PAK GFS load size (>0 == mounted)
+__attribute__((used)) int32 p6_w_apk_hash      = 0; // djb2 over the loaded blob (gate vs cd file)
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -1220,6 +1224,26 @@ extern "C" void p6_scene_run(void)
             static void *p6_layScratch = (void *)P6_LW_LAYSCRATCH;
             SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS);
             SaturnLayout_SetScratch(&p6_layScratch, 0x8000);
+        }
+    }
+
+    // 1.6b) P6.7 W13 (Task #227): chain-load the offline ANIM PACK
+    //      (cd/GHZANIM.PAK, build_anim_pack.py -- pre-parsed SH-2-layout
+    //      SpriteFrame/SpriteAnimationEntry arrays for the GHZ Player set)
+    //      into the fixed WRAM-H window the DEBUG_HITBOX_COUNT retarget
+    //      freed. Same pre-pack-mount GFS slot rule as the band store.
+    //      LoadSpriteAnimation's Saturn arm resolves pack members by path
+    //      hash with zero DATASET_STG cost (Animation.cpp).
+    {
+        int n = rsdk_storage_load_to_lwram("GHZANIM.PAK",
+                                           (void *)P6_HW_ANIMPAK, P6_HW_ANIMPAK_CAP);
+        p6_w_apk_bytes = n;
+        if (n > 0) {
+            const unsigned char *w = (const unsigned char *)P6_HW_ANIMPAK;
+            uint32 h = 5381u;
+            for (int32 i = 0; i < n; ++i)
+                h = ((h << 5) + h) ^ (uint32)w[i];
+            p6_w_apk_hash = (int32)h;
         }
     }
 

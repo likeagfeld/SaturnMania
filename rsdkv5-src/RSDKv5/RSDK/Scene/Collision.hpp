@@ -27,7 +27,16 @@ struct CollisionSensor {
 };
 
 #if !RETRO_USE_ORIGINAL_CODE
+#if RETRO_PLATFORM == RETRO_SATURN
+// Task #227 W13: debugHitboxList is the dev showHitboxes overlay ONLY
+// (AddDebugHitbox appends nothing unless showHitboxes is on). The stock
+// 0x400 x 24 B = 24,576 B of WRAM-H .bss (measured #2 pack-.bss consumer)
+// funds the GHZANIM.PAK fixed window instead. AddDebugHitbox's existing
+// `debugHitboxCount < DEBUG_HITBOX_COUNT` append check bounds it.
+#define DEBUG_HITBOX_COUNT (0x8)
+#else
 #define DEBUG_HITBOX_COUNT (0x400)
+#endif
 
 struct DebugHitboxInfo {
     uint8 type;

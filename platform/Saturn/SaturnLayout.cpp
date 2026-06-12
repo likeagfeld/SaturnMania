@@ -76,58 +76,15 @@ extern "C" void SaturnLayout_SetScratch(void **bufp, uint32 cap)
 static uint32 be32(const uint8 *p) { return ((uint32)p[0] << 24) | ((uint32)p[1] << 16) | ((uint32)p[2] << 8) | p[3]; }
 static uint32 be16(const uint8 *p) { return ((uint32)p[0] << 8) | p[1]; }
 
-// =============================================================================
-// p6_mz_uncompress -- mz_uncompress with the inflate_state served from a
-// FIXED WRAM-H window instead of the WRAM-L _sbrk heap (Task #227 STG
-// sizing). miniz's inflate_state is ~43,712 B (tinfl_decompressor ~10,920 +
-// the 32,768 B LZ dict); keeping that transient out of the heap funds the
-// DATASET_STG growth to 112 KB (Storage.cpp) inside the unchanged 0x43000
-// heap window. The window sits in the measured free WRAM-H gap between
-// _end and the 0x060C0000 overlay floor (qa_p6_mapoverlap asserts
-// _end <= 0x060B4000). All inflate consumers are SYNCHRONOUS and
-// single-threaded (SaturnLayout/SaturnSheet refills + the engine
-// ReadCompressed seam) so one bump window, reset per call, is sound.
-// =============================================================================
-#define P6_MZ_WIN_BASE 0x060B4000u
-#define P6_MZ_WIN_CAP  0x0000B000u // 45,056 B >= inflate_state ~43,712 B
-static uint32 p6_mz_used = 0;
-static void *p6_mz_alloc(void *opaque, size_t items, size_t size)
-{
-    (void)opaque;
-    uint32 need = (uint32)(items * size + 7u) & ~7u;
-    if (p6_mz_used + need > P6_MZ_WIN_CAP)
-        return 0;
-    void *p = (void *)(P6_MZ_WIN_BASE + p6_mz_used);
-    p6_mz_used += need;
-    return p;
-}
-static void p6_mz_free(void *opaque, void *address)
-{
-    (void)opaque;
-    (void)address; // bump window: freed wholesale by the per-call reset
-}
+// W13 note (Task #227): the brief "fixed WRAM-H inflate window" experiment
+// (commit d040d6b) is REVERTED -- with the anim working set moved to
+// cd/GHZANIM.PAK the pools shrink to 220 KB and the ~44 KB inflate_state
+// fits the WRAM-L heap again (the original proven path); the freed WRAM-H
+// gap hosts the ANIMPAK fixed window instead (p6_io_main.cpp).
 extern "C" int p6_mz_uncompress(unsigned char *dest, unsigned long *destLen,
                                 const unsigned char *source, unsigned long sourceLen)
 {
-    mz_stream stream;
-    memset(&stream, 0, sizeof(stream));
-    p6_mz_used     = 0; // reset the bump window (synchronous consumers only)
-    stream.zalloc  = p6_mz_alloc;
-    stream.zfree   = p6_mz_free;
-    stream.next_in  = source;
-    stream.avail_in = (unsigned int)sourceLen;
-    stream.next_out  = dest;
-    stream.avail_out = (unsigned int)*destLen;
-    int status = mz_inflateInit(&stream);
-    if (status != MZ_OK)
-        return status;
-    status = mz_inflate(&stream, MZ_FINISH);
-    if (status != MZ_STREAM_END) {
-        mz_inflateEnd(&stream);
-        return status == MZ_BUF_ERROR ? MZ_DATA_ERROR : status;
-    }
-    *destLen = stream.total_out;
-    return mz_inflateEnd(&stream);
+    return mz_uncompress(dest, (mz_ulong *)destLen, source, (mz_ulong)sourceLen);
 }
 
 extern "C" int32 SaturnLayout_Mount(const void *blob)
