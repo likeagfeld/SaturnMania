@@ -191,6 +191,43 @@ done
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
     $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
     -c -o "$P6/p6_wave1_reg.o" "$P6/p6_wave1_reg.c"
+# Player-wave closure boundary (NULL class ptrs + witnessed inert stubs +
+# sprintf-over-vsprintf; rationale in-file).
+"$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+    $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
+    -c -o "$P6/p6_closure_edge.o" "$P6/p6_closure_edge.c"
+
+echo "[7p] P6.7 Player wave GAME TUs (VERBATIM 17-TU closure, -Os census knob) ..."
+# The Player depth-2 closure (Task #227): 13 live Global classes + the inert
+# Ice/SizeLaser/ERZStart refs + DebugMode (referenced by Player + HUD).
+# -Os MATCHES THE CENSUS NUMBERS (102,904 B alloc sections, P6.7d.1 obj_os):
+# the -O2 wave-1 knob would inflate the set against the 142,108 B post-
+# hand-port-drop margin. Same GAME_DEFS as [7m] (REV02 ABI is binding).
+for w2 in Helpers_DrawHelpers:Game_DrawHelpers \
+          Helpers_MathHelpers:Game_MathHelpers \
+          Global_Soundboard:Game_Soundboard \
+          Global_BoundsMarker:Game_BoundsMarker \
+          Global_Camera:Game_Camera \
+          Global_DebugMode:Game_DebugMode \
+          Global_Dust:Game_Dust \
+          ERZ_ERZStart:Game_ERZStart \
+          Global_GameOver:Game_GameOver \
+          Global_HUD:Game_HUD \
+          PGZ_Ice:Game_Ice \
+          Global_ImageTrail:Game_ImageTrail \
+          Global_Music:Game_Music \
+          Global_PauseMenu:Game_PauseMenu \
+          Global_Player:Game_Player \
+          Global_SaveGame:Game_SaveGame \
+          Global_ScoreBonus:Game_ScoreBonus \
+          Global_Shield:Game_Shield \
+          MMZ_SizeLaser:Game_SizeLaser \
+          Global_Zone:Game_Zone; do
+    src_tu="${w2%%:*}"; out_tu="${w2##*:}"
+    "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+        $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
+        -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
+done
 # Integer-only vsprintf shim (rationale in-file: newlib's float closure is
 # 10.2 KB and breached the 0x060C0000 floor by 2,856 B -- MEASURED).
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
@@ -240,6 +277,15 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Core_RetroEngine.o" \
     "$P6/Scene_Objects_DefaultObject.o" "$P6/Scene_Objects_DevOutput.o" \
     "$P6/Game_Localization.o" "$P6/Game_LogHelpers.o" "$P6/Game_Options.o" \
+    "$P6/Game_DrawHelpers.o" \
+    "$P6/Game_MathHelpers.o" "$P6/Game_Soundboard.o" \
+    "$P6/p6_closure_edge.o" \
+    "$P6/Game_BoundsMarker.o" "$P6/Game_Camera.o" "$P6/Game_DebugMode.o" \
+    "$P6/Game_Dust.o" "$P6/Game_ERZStart.o" "$P6/Game_GameOver.o" \
+    "$P6/Game_HUD.o" "$P6/Game_Ice.o" "$P6/Game_ImageTrail.o" \
+    "$P6/Game_Music.o" "$P6/Game_PauseMenu.o" "$P6/Game_Player.o" \
+    "$P6/Game_SaveGame.o" "$P6/Game_ScoreBonus.o" "$P6/Game_Shield.o" \
+    "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
     "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" \

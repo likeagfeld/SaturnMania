@@ -29,6 +29,8 @@ RSDKControllerState *ControllerInfo = NULL;   // Game.c:28
 RSDKAnalogState *AnalogStickInfoL = NULL;     // Game.c:29
 RSDKTouchInfo *TouchInfo = NULL;              // Game.c:35
 RSDKScreenInfo *ScreenInfo = NULL;            // Game.c:41
+RSDKUnknownInfo *UnknownInfo = NULL;          // Game.c:38 (REV02; PauseMenu's
+                                              // Unknown_pausePress macro)
 
 // SATURN 1.03-on-v5U compat (see SonicMania_Objects_Global_APICallback.h
 // sku_* arm): pre-Plus code reaches platform/language/region through SKU,
@@ -82,7 +84,7 @@ extern int32 p6_w_w1_locale;
 // =============================================================================
 void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
                    void *sceneInfo, void *controllerInfo, void *stickInfoL,
-                   void *touchInfo, void *screenInfo)
+                   void *touchInfo, void *screenInfo, void *unknownInfo)
 {
     memset(&RSDK, 0, sizeof(RSDKFunctionTable));   // Game.c:118
 
@@ -96,6 +98,7 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     AnalogStickInfoL = (RSDKAnalogState *)stickInfoL;    // Game.c:131
     TouchInfo        = (RSDKTouchInfo *)touchInfo;       // Game.c:132
     ScreenInfo       = (RSDKScreenInfo *)screenInfo;     // Game.c:133
+    UnknownInfo      = (RSDKUnknownInfo *)unknownInfo;   // Game.c:105 (REV02)
 
     // InitGameLogic wave-1 subset (Game.c:140-147):
 #if RETRO_REV0U
@@ -105,9 +108,35 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     RSDK.RegisterGlobalVariables((void **)&globals, sizeof(GlobalVariables)); // Game.c:145
 #endif
 
+    // P6.7 Player wave (Task #227): the 17-TU depth-2 closure joins the
+    // wave-1 trio. ONE list in STRICT Game.c line order (relative order is
+    // the decomp's registration contract; classIDs follow objectClassCount).
+    // APICallback (Game.c:166) NOT registered: the verbatim TU needs
+    // pre-REV02 RSDK.GetAPIFunction; its referenced entry points stub at
+    // the closure edge until the SaveGame/UserStorage wave (p6_closure_edge.c).
+    RSDK_REGISTER_OBJECT(BoundsMarker); // Game.c:188
+    RSDK_REGISTER_OBJECT(Camera);       // Game.c:212
+    RSDK_REGISTER_OBJECT(DebugMode);    // Game.c:265
+    RSDK_REGISTER_OBJECT(DrawHelpers);  // Game.c:277
+    RSDK_REGISTER_OBJECT(Dust);         // Game.c:280
+    RSDK_REGISTER_OBJECT(ERZStart);     // Game.c:305
+    RSDK_REGISTER_OBJECT(GameOver);     // Game.c:352
+    RSDK_REGISTER_OBJECT(HUD);          // Game.c:395
+    RSDK_REGISTER_OBJECT(Ice);          // Game.c:396
+    RSDK_REGISTER_OBJECT(ImageTrail);   // Game.c:399
     RSDK_REGISTER_OBJECT(Localization); // Game.c:427
     RSDK_REGISTER_OBJECT(LogHelpers);   // Game.c:429
+    RSDK_REGISTER_OBJECT(MathHelpers);  // Game.c:462
+    RSDK_REGISTER_OBJECT(Music);        // Game.c:499
     RSDK_REGISTER_OBJECT(Options);      // Game.c:517
+    RSDK_REGISTER_OBJECT(PauseMenu);    // Game.c:529
+    RSDK_REGISTER_OBJECT(Player);       // Game.c:563
+    RSDK_REGISTER_OBJECT(SaveGame);     // Game.c:623
+    RSDK_REGISTER_OBJECT(ScoreBonus);   // Game.c:629
+    RSDK_REGISTER_OBJECT(Shield);       // Game.c:636
+    RSDK_REGISTER_OBJECT(SizeLaser);    // Game.c:644
+    RSDK_REGISTER_OBJECT(Soundboard);   // Game.c:649
+    RSDK_REGISTER_OBJECT(Zone);         // Game.c:854
 }
 
 // =============================================================================

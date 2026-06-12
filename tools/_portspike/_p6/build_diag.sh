@@ -56,9 +56,17 @@ cd "$P6"   # ovl_ring.ld names input objects by basename
 # pattern only FILTERS when it matches a command-line input by the same
 # spelling; with absolute paths it becomes an extra INPUT statement and the
 # object loads twice (multiple definition of p6_overlay_entry).
-$LD -b coff-sh -R /work/game.elf -b elf32-sh \
-    -T ovl_ring.ld -Map ovl_ring.map \
-    p6_ovl_ring.o p6_ring2.o -o ovl_ring.elf
+# Player-wave fix (Task #227, 2026-06-12): the overlay objects MUST precede
+# the -R import. game.elf now EXPORTS Ring_* (p6_closure_edge.c stubs for the
+# pack-side Player references); with -R first, the overlay's own
+# Ring_Draw_Normal/State fns bound to the PACK STUB addresses (MEASURED:
+# ovl_ring.map Ring_Draw_Normal=0x060192fc = stub; p6_w_edge_calls=3,448,
+# edge_last=28 -> Ring draws became stub calls, qa_p6_obj O2 draws=0).
+# Objects-first makes local definitions win; -R then fills only what is
+# still undefined (the intended import direction).
+$LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
+    p6_ovl_ring.o p6_ring2.o \
+    -b coff-sh -R /work/game.elf -o ovl_ring.elf
 $OBJCOPY -O binary "$P6/ovl_ring.elf" /work/cd/OVLRING.BIN
 ls -l /work/cd/OVLRING.BIN
 cd /work

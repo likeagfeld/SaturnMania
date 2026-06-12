@@ -79,11 +79,21 @@ def main():
     # byte-exact against this). The diag reads these THROUGH the engine's
     # RSDK_LAYER_TILE seam (windowed SaturnLayout path), proving the
     # Scene.cpp Saturn arm + bind + accessor chain end-to-end.
-    # Registered-class census: at the diag's current 6-class set the only
-    # GHZ scene object with a registered class is Ring -- Scene.cpp leaves
-    # classID 0 for unmatched objects but STILL writes every position (the
-    # probes above prove that for all 1,041 slots). The live witness counts
-    # classID != 0, so its expectation is the Ring entity count.
+    # Registered-class census: Scene.cpp leaves classID 0 for unmatched
+    # objects but STILL writes every position (the probes prove that for all
+    # 1,041 slots). The live witness counts classID != 0, so its expectation
+    # is the entity count over the ACTUALLY-REGISTERED class set (Player
+    # wave, Task #227: 23 classes; Player/GameOver/ImageTrail are refused by
+    # the Object.cpp Saturn entity-stride guard until that wall closes --
+    # keep this list in lockstep with qa_p6_stagecfg.REGISTERED).
+    REGISTERED_GAME = ["Ring", "BoundsMarker", "Camera", "DebugMode",
+                       "DrawHelpers", "Dust", "ERZStart", "HUD", "Ice",
+                       "Localization", "LogHelpers", "MathHelpers", "Music",
+                       "Options", "PauseMenu", "SaveGame", "ScoreBonus",
+                       "Shield", "SizeLaser", "Soundboard", "Zone"]
+    reg_hashes = {pte.rsdk_hash(n) for n in REGISTERED_GAME}
+    registered_census = sum(len(o["entities"]) for o in objects
+                            if o["hash"] in reg_hashes)
     ring_hash = pte.rsdk_hash("Ring")
     ring_count = sum(len(o["entities"]) for o in objects if o["hash"] == ring_hash)
     # S6: the known measured census (P6.7b: largest class = 446 rings)
@@ -110,6 +120,7 @@ def main():
         "scene": "Stages/GHZ/Scene1.bin",
         "entity_count": len(ents),
         "ring_count": ring_count,
+        "registered_census": registered_census,
         "max_slot": ents[-1]["slot"],
         "probes": [{"slot": p["slot"], "x": p["x"], "y": p["y"],
                     "object": p["object"]} for p in picks],

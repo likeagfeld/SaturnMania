@@ -130,9 +130,11 @@ def main(argv):
     checks = [
         ("H2 GHZ1 selected from the scene list", stage == 1,
          "stage witness=%d" % stage),
-        ("H3 registered-class census == %d (Ring; unmatched classes keep "
-         "classID 0 but their positions are proven by H4)" % model["ring_count"],
-         entcount == model["ring_count"], "entcount=%d" % entcount),
+        ("H3 registered-class census == %d (entities of the 23 registered "
+         "classes; unmatched classes keep classID 0 but their positions are "
+         "proven by H4)" % model.get("registered_census", model["ring_count"]),
+         entcount == model.get("registered_census", model["ring_count"]),
+         "entcount=%d" % entcount),
         ("H4 entity probes %d/%d byte-exact" % (len(probes), len(probes)),
          ent_ok == len(probes),
          "matched=%d firstbad=%d" % (ent_ok, first_ent_bad)),

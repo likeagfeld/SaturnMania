@@ -80,8 +80,11 @@ LINKCPP = os.path.join(ROOT, "rsdkv5-src", "RSDKv5", "RSDK", "Core",
 
 P6_GLOBALS_WINDOW = 0x060C8000
 SAT_SIZEOF_EXPECT = 56180
-EXP_CLASSCOUNT = 6  # DefaultObject, DevOutput, Ring, Localization,
-#                     LogHelpers, Options (Game.c order :427/:429/:517)
+EXP_CLASSCOUNT = 23  # DefaultObject, DevOutput, overlay Ring + the 20
+#                      Player-wave registrations (p6_wave1_reg.c, Game.c line
+#                      order); Player/GameOver/ImageTrail are refused by the
+#                      Object.cpp Saturn entity-stride guard (556/452/440 >
+#                      344) until that wall closes (Task #227).
 EXP_LOCALE = 0x0100  # loaded=1, language=LANGUAGE_EN(0)
 
 SYMS = ["_p6_w_glb_size", "_p6_w_glb_ptr", "_p6_w_w1_locale",

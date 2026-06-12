@@ -85,10 +85,17 @@ EXP_CREATESLOT = 0x480
 
 # The classes the pack registers BEFORE LoadGameConfig, in objectClassList
 # order: the InitGameLink mirror (DefaultObject/DevOutput), the overlay Ring,
-# then the P6.7 wave-1 game link (p6_wave1_reg.c, SonicMania_Game.c order
-# :427/:429/:517 -> Localization=3, LogHelpers=4, Options=5).
+# then the Player-wave game link (p6_wave1_reg.c, SonicMania_Game.c line
+# order). Player/GameOver/ImageTrail are IN the reg list but REFUSED by
+# RegisterObject (entityClassSize 556/452/440 > Saturn sizeof(EntityBase)
+# 344, Object.cpp Saturn guard -- the measured entity-stride wall, Task
+# #227) and occupy NO classID slot; they join when the wall closes.
 REGISTERED = [":DefaultObject:", ":DevOutput:", "Ring",
-              "Localization", "LogHelpers", "Options"]
+              "BoundsMarker", "Camera", "DebugMode", "DrawHelpers", "Dust",
+              "ERZStart", "HUD", "Ice",
+              "Localization", "LogHelpers", "MathHelpers", "Music",
+              "Options", "PauseMenu", "SaveGame", "ScoreBonus",
+              "Shield", "SizeLaser", "Soundboard", "Zone"]
 TYPE_DEFAULT_COUNT = 2  # Object.hpp:135-137 (DEFAULTOBJECT=0, DEVOUTPUT)
 
 

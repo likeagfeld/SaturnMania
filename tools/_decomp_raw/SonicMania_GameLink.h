@@ -1985,7 +1985,12 @@ extern RSDKTriggerState *TriggerInfoL;
 extern RSDKTriggerState *TriggerInfoR;
 #endif
 extern RSDKTouchInfo *TouchInfo;
-#if MANIA_USE_PLUS
+// SATURN 1.03-on-v5U compat (Task #227): the Unknown_pausePress /
+// Unknown_anyKeyPress macros above are RETRO_REV02-guarded but this extern
+// was MANIA_USE_PLUS-guarded -- a pre-Plus game on the REV02 engine gets
+// the macros with no declaration. Defined in p6_wave1_reg.c (Game.c:38
+// role) and linked from the engine's SKU::unknownInfo (Link.cpp:12).
+#if MANIA_USE_PLUS || RETRO_REV02
 extern RSDKUnknownInfo *UnknownInfo;
 #endif
 extern RSDKScreenInfo *ScreenInfo;

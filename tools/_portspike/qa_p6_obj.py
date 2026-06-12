@@ -94,8 +94,8 @@ def main(argv):
     ticks  = v["_p6_w_spr_ticks"] or 0
 
     checks = [
-        ("O1 engine registration: classCount == 6 (DefaultObject + DevOutput + overlay Ring + wave-1 Localization/LogHelpers/Options)",
-         v["_p6_w_obj_classcount"] == 6, "got %s" % v["_p6_w_obj_classcount"]),
+        ("O1 engine registration: classCount == 23 (DefaultObject + DevOutput + overlay Ring + the Player-wave game link; Player/GameOver/ImageTrail refused by the Saturn entity-stride guard until that wall closes, Task #227)",
+         v["_p6_w_obj_classcount"] == 23, "got %s" % v["_p6_w_obj_classcount"]),
         ("O2 engine respawn cycle ran (spawns >= 1, draws > 0)",
          (v["_p6_w_obj_spawns"] or 0) >= 1 and (v["_p6_w_obj_draws"] or 0) > 0,
          "spawns=%s draws=%s" % (v["_p6_w_obj_spawns"], v["_p6_w_obj_draws"])),

@@ -849,7 +849,8 @@ extern "C" void p6_register_global_variables_saturn(void **globals, int32 size)
 extern "C" void p6_wave1_link(void *functionTable, void *gameInfo,
                               void *currentSKU, void *sceneInfo,
                               void *controllerInfo, void *stickInfoL,
-                              void *touchInfo, void *screenInfo);
+                              void *touchInfo, void *screenInfo,
+                              void *unknownInfo);
 extern "C" void p6_wave1_witness(void);
 
 // src/rsdk/storage.c (hand-port TU, linked in this image): generic GFS
@@ -1274,11 +1275,15 @@ extern "C" void p6_scene_run(void)
     SKU::curSKU.platform = PLATFORM_SWITCH;
     SKU::curSKU.language = LANGUAGE_EN;
     SKU::curSKU.region   = 0;
+    // Player wave: UnknownInfo joins the link (Game.c:105 REV02 shape --
+    // PauseMenu's Unknown_pausePress macro reads it; the engine's own
+    // instance is SKU::unknownInfo, Link.cpp:12).
     p6_wave1_link((void *)RSDKFunctionTable, (void *)&gameVerInfo,
                   (void *)&SKU::curSKU, (void *)&sceneInfo,
-                  NULL, NULL, NULL, (void *)screens);
+                  NULL, NULL, NULL, (void *)screens,
+                  (void *)&SKU::unknownInfo);
 
-    p6_w_obj_classcount = objectClassCount;  // qa_p6_obj O1 / globals G9: 6
+    p6_w_obj_classcount = objectClassCount;  // qa_p6_obj O1 / globals G9 (Player wave: 23)
     p6_w_scene_step = 2;
 
     // 2.5) P6.4 (Task #225): mount the ORIGINAL Data.rsdk pack (cd/DATA.RSDK,

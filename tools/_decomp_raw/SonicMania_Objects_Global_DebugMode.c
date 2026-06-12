@@ -20,7 +20,12 @@ void DebugMode_Update(void)
 
     bool32 moved = false;
 
-#if MANIA_USE_PLUS
+// SATURN 1.03-on-v5U compat (Task #227, same class as the APICallback.h
+// sku_* arm): upstream guards this stick-read on MANIA_USE_PLUS, but
+// GameLink.h shapes RSDKAnalogState by RETRO_REV02 -- a pre-Plus game on a
+// REV02 engine has vDelta/hDelta (no *L fields). Take the vDelta branch
+// whenever the REV02 struct is in effect; the input semantics are identical.
+#if MANIA_USE_PLUS || RETRO_REV02
     if (ControllerInfo[CONT_P1].keyUp.down || (AnalogStickInfoL[CONT_P1].vDelta > 0.3)) {
         self->position.y -= self->velocity.y;
         moved = true;

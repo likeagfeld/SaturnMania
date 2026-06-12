@@ -211,6 +211,17 @@ void PauseMenu_SetupTintTable(void)
 
         PauseMenu->tintLookupTable[i] = ColorHelpers_PackRGB(brightness, brightness, brightness);
     }
+#elif RETRO_REV02
+    // SATURN 1.03-on-v5U compat (Task #227): REV02 removed GetTintLookupTable
+    // (the engine no longer owns the table; Plus PauseMenu carries its own
+    // 128 KB tintLookupTable and hands it over via SetTintLookupTable -- both
+    // sites above are MANIA_USE_PLUS-guarded). A pre-Plus game on the REV02
+    // engine has NEITHER the API nor the field, and a 128 KB static class
+    // cannot fit the Saturn STG pool regardless. The pause tint is palette-FX
+    // class work = the standing Phase-Z deliverable
+    // (memory/saturn-native-rewrites-final-phase); until then the INK_TINT
+    // DrawRect runs against the engine's default (zeroed) tint table.
+    ;
 #else
     uint16 *tintLookupTable = RSDK.GetTintLookupTable();
     for (int32 i = 0; i < 0x10000; ++i) {
