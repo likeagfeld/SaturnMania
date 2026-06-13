@@ -277,6 +277,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_scene_tick \
     -u _p6_engine_boot_and_run \
     -u _p6_lean_boot \
+    -u _p6_w_perf_vblanks -u _p6_w_perf_frames -u _p6_w_perf_vbl_max \
+    -u _p6_w_perf_cyc_input -u _p6_w_perf_cyc_obj -u _p6_w_perf_cyc_draw \
+    -u _p6_w_perf_cyc_present -u _p6_w_perf_cyc_total -u _p6_w_perf_cks \
     -u _p6_w_magic \
     -u _p6_bridge_proc_anim -u _p6_bridge_draw_sprite -u _p6_scene_entity \
     -u _p6_w_obj_classid -u _p6_w_obj_timer -u _p6_w_obj_vely \

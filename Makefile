@@ -288,6 +288,9 @@ SRCS += tools/_portspike/_p6/p6_vdp1.c
 # P6.6b (Task #209): the SCSP playback half -- routes the engine-converted
 # S16 buffer through jo_audio_play_sound (jo.h-dependent, same rule as above).
 SRCS += tools/_portspike/_p6/p6_snd.c
+# Perf Phase 1 (Task #211): jo-side FRT read + true-60Hz vblank counter (uses
+# SGL SEGA_TIM.H + jo_core_add_vblank_callback -- jo-config-dependent, same rule).
+SRCS += tools/_portspike/_p6/p6_perf.c
 endif
 
 # P6.8 Step B (Task #211): the lean SHIPPING flavor compiles the SAME jo-config-
@@ -296,6 +299,8 @@ endif
 ifeq ($(P6_ENGINE_SHIPPING),1)
 SRCS += tools/_portspike/_p6/p6_vdp1.c
 SRCS += tools/_portspike/_p6/p6_snd.c
+# Perf Phase 1 (Task #211): jo-side FRT read + true-60Hz vblank counter.
+SRCS += tools/_portspike/_p6/p6_perf.c
 endif
 
 # --- Cinepak Video (auto-linked when JO_COMPILE_WITH_VIDEO_MODULE=1) ---

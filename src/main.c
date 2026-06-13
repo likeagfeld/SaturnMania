@@ -1213,6 +1213,7 @@ extern void p6_io_run(void);
  * Gate: tools/_portspike/qa_p6_scene.py. */
 extern void p6_scene_run(void);
 extern void p6_scene_tick(void); /* P6.5b2: ProcessAnimation + VDP1 ring re-draw */
+extern void p6_perf_vblank(void); /* Perf Phase 1: true-60Hz vblank tally (p6_perf.c) */
 #endif
 
 #ifdef P6_ENGINE_SHIPPING
@@ -1225,6 +1226,7 @@ extern void p6_scene_tick(void); /* P6.5b2: ProcessAnimation + VDP1 ring re-draw
  * identical. Gate: tools/_portspike/qa_p6_shipping.py. */
 extern void p6_engine_boot_and_run(void);
 extern void p6_scene_tick(void);
+extern void p6_perf_vblank(void); /* Perf Phase 1: true-60Hz vblank tally (p6_perf.c) */
 #endif
 
 void jo_main(void)
@@ -1248,6 +1250,7 @@ void jo_main(void)
      * shipping `make` (P6SCENE unset) compiles none of this.
      * P6.5b2: one callback ticks the engine's Ring animator + re-emits the
      * VDP1 sprite each frame (SGL command lists are per-frame). */
+    jo_core_add_vblank_callback(p6_perf_vblank); /* Perf Phase 1: true-60Hz tally */
     jo_core_add_callback(p6_scene_tick);
     jo_core_run();
     return;
@@ -1261,6 +1264,7 @@ void jo_main(void)
      * below is compiled but never reached. Unset P6_ENGINE_SHIPPING to revert.
      * Gate: tools/_portspike/qa_p6_shipping.py. */
     p6_engine_boot_and_run();
+    jo_core_add_vblank_callback(p6_perf_vblank); /* Perf Phase 1: true-60Hz tally */
     jo_core_add_callback(p6_scene_tick);
     jo_core_run();
     return;

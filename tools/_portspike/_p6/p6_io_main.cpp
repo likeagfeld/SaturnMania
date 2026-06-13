@@ -591,6 +591,20 @@ __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.a
 // p6_engine_boot_and_run; the DIAG p6_scene_run/p6_scene_tick lean guards are
 // no-ops while it is 0, so the diag flavor is unchanged.
 __attribute__((used)) int32 p6_lean_boot        = 0;  // 1 == lean engine shipping boot
+// Perf Phase 1 (Task #211): frame-time BASELINE witnesses. Accumulated in
+// p6_ghz_frame (the FRT is on-chip + NOT serialized into the savestate -- the
+// gate reads these WRAM-H ints post-hoc). vblanks/frames -> true fps; the four
+// per-section FRC-tick deltas (wrap-handled, divider in _cks) -> us attribution.
+__attribute__((used)) int32 p6_w_perf_vblanks     = 0;  // p6_perf_vbl_count at capture
+__attribute__((used)) int32 p6_w_perf_frames      = 0;  // continuous frames measured
+__attribute__((used)) int32 p6_w_perf_vbl_max     = 0;  // worst single-frame vblank slip
+__attribute__((used)) int32 p6_w_perf_cyc_input   = 0;  // last-frame ProcessInput FRC ticks
+__attribute__((used)) int32 p6_w_perf_cyc_obj     = 0;  // last-frame ProcessObjects FRC ticks
+__attribute__((used)) int32 p6_w_perf_cyc_draw    = 0;  // last-frame ProcessObjectDrawLists FRC ticks
+__attribute__((used)) int32 p6_w_perf_cyc_present = 0;  // last-frame present FRC ticks
+__attribute__((used)) int32 p6_w_perf_cyc_total   = 0;  // sum of the four sections
+__attribute__((used)) int32 p6_w_perf_cks         = -1; // FRT divider select (0=/8,1=/32,2=/128)
+static unsigned int p6_perf_vbl_prev = 0;               // vblank tally at the previous frame
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
 // post-hoc capture lands after the later Title pass, whose STG dataset clear
 // NULLs every tracked staticVars pointer (MEASURED p6_f8: Player/Zone/Camera
@@ -1165,6 +1179,12 @@ extern "C" void p6_player_witness_pre(int32 startSlot, int32 sceneCount);
 extern "C" void p6_player_witness_post(void);
 extern "C" void p6_player_witness_tick(void);
 extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
+// Perf Phase 1 (Task #211): jo-side timing primitives (p6_perf.c). The true-60Hz
+// vblank tally (registered via jo_core_add_vblank_callback in main.c) + the
+// interrupt-safe SH-2 FRT read for per-section cost attribution.
+extern "C" unsigned short p6_perf_frt_get(void);  // coherent 16-bit FRC read
+extern "C" int            p6_perf_frt_cks(void);  // FRT divider (TCR CKS bits)
+extern volatile unsigned int p6_perf_vbl_count;   // ++ at hardware 60 Hz
 // P6.7 W7: game-side input-pointer witness (p6_wave1_reg.c) + the Saturn
 // SMPC device backend (platform/Saturn/InputDevice_Saturn.cpp). The settle
 // busy-wait MUST run before p6_load_phase_enter (it waits on SGL's
@@ -1493,17 +1513,31 @@ static void p6_ghz_arm_env(void)
 // p6_scene_tick() when p6_ghz_continuous_armed. p6_w_cont_frames bumps here
 // only -- a one-shot burst can never increment it (the burst-vs-cont gate).
 // =============================================================================
+// Perf Phase 1 (Task #211): wrap-handled FRC tick delta. The FRC is 16-bit free-
+// running; a single section delta is recovered across at most one 16-bit wrap
+// (end < start => the counter rolled over once). The interrupt-masked
+// p6_perf_frt_get() guarantees each endpoint read is itself coherent.
+#define P6_FRT_DELTA(a, b) ((int32)(uint16)((unsigned)(b) - (unsigned)(a)))
+
 static void p6_ghz_frame(void)
 {
+    unsigned short t0, t1;
     currentScreen = &screens[0];
     for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
         engine.drawGroupVisible[g] = true;
-    ProcessInput();
-    ProcessObjects();
-    ProcessObjectDrawLists();
+
+    // Per-section FRC-tick attribution (read-only FRT; us conversion at the gate
+    // using p6_w_perf_cks). Each section bracketed independently.
+    t0 = p6_perf_frt_get(); ProcessInput();            t1 = p6_perf_frt_get();
+    p6_w_perf_cyc_input   = P6_FRT_DELTA(t0, t1);
+    t0 = p6_perf_frt_get(); ProcessObjects();          t1 = p6_perf_frt_get();
+    p6_w_perf_cyc_obj     = P6_FRT_DELTA(t0, t1);
+    t0 = p6_perf_frt_get(); ProcessObjectDrawLists();  t1 = p6_perf_frt_get();
+    p6_w_perf_cyc_draw    = P6_FRT_DELTA(t0, t1);
 
     // W16 camera-anchored FG present (FG Low, layer 3), tracking the live
     // camera-driven screens[0].position.
+    t0 = p6_perf_frt_get();
     {
         unsigned int ph = 0;
         int nb = 0;
@@ -1513,8 +1547,27 @@ static void p6_ghz_frame(void)
                                    (const unsigned short *)fullPalette[0],
                                    &ph, &nb);
     }
+    t1 = p6_perf_frt_get();
+    p6_w_perf_cyc_present = P6_FRT_DELTA(t0, t1);
+    p6_w_perf_cyc_total   = p6_w_perf_cyc_input + p6_w_perf_cyc_obj
+                          + p6_w_perf_cyc_draw + p6_w_perf_cyc_present;
 
     ++p6_w_cont_frames;
+
+    // True-fps tally: snapshot the hardware-60Hz vblank counter + the per-frame
+    // slip (vblanks elapsed since the previous rendered frame; 1 == locked 60).
+    {
+        unsigned int vnow = p6_perf_vbl_count;
+        int32 slip = (int32)(vnow - p6_perf_vbl_prev);
+        p6_perf_vbl_prev = vnow;
+        p6_w_perf_vblanks = (int32)vnow;
+        p6_w_perf_frames  = p6_w_cont_frames;
+        if (slip > p6_w_perf_vbl_max)
+            p6_w_perf_vbl_max = slip;
+        if (p6_w_perf_cks < 0)
+            p6_w_perf_cks = p6_perf_frt_cks();
+    }
+
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
 }
 

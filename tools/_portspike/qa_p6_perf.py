@@ -1,0 +1,196 @@
+#!/usr/bin/env python3
+# =============================================================================
+# qa_p6_perf.py -- Perf Phase 1 gate: TRUE frame-time BASELINE + per-section
+# cost attribution for the continuous engine GHZ loop (p6_ghz_frame).
+#
+# This is a MEASUREMENT gate, NOT a pass/fail-on-fps gate. We EXPECT sub-60 fps
+# (the user flagged "painfully slow") -- the deliverable is the NUMBER: the real
+# target fps + which loop section dominates, so Phase 2 can pick the right
+# optimization. GREEN means "the instrumentation is live and measuring sanely";
+# the printed baseline is what matters. A later phase adds the don't-regress
+# threshold once an optimization lands.
+#
+# MECHANISM (measured, doc-cited):
+#  * TRUE fps (overflow-immune): a vblank counter (p6_perf_vbl_count) ++'d by a
+#    jo_core_add_vblank_callback -> SGL slIntFunction VBLANK-IN interrupt (true
+#    60 Hz, NOT frame-locked). p6_ghz_frame snapshots vblanks-per-rendered-frame.
+#    fps = 60 * frames / vblanks. Emulated faithfully (SH-2 clock vs 60 Hz vblank)
+#    so it is the REAL-HARDWARE fps and is FpsScale-invariant.
+#  * Per-section us (attribution): SBL TIM_FRT_GET_16 read READ-ONLY around each
+#    of the 4 sections (ProcessInput / ProcessObjects / ProcessObjectDrawLists /
+#    p6_vdp2_present_ghz_camera); wrap-handled FRC tick deltas accumulated into
+#    WRAM-H witnesses. The FRT is on-chip + NOT serialized into the savestate, so
+#    accumulation is mandatory. Python converts ticks->us using the recorded
+#    divider (CKS): us = ticks * (8 << (2*cks)) / clock_MHz.
+#
+# CHECKS
+#   M1 perf witness symbols present in game.map (RED while uninstrumented).
+#   M2 measuring: p6_w_perf_frames > 0 AND p6_w_perf_vblanks > 0 AND
+#      p6_w_perf_cyc_total > 0 (the loop ran + the FRT + vblank counters moved).
+#   M3 sane: vblanks >= frames (cannot render more frames than vblanks) AND
+#      every per-section cyc >= 0 AND cks in 0..3.
+#
+# Usage: python tools/_portspike/qa_p6_perf.py [savestate.mcs] [map]
+# =============================================================================
+import importlib.util
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
+_spec = importlib.util.spec_from_file_location(
+    "qa_p6_scene", os.path.join(HERE, "qa_p6_scene.py"))
+_scene = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_scene)
+
+MCS_DEFAULT = os.path.join(HERE, "p6_s0.mcs")
+
+# NTSC 320-mode SH-2 system clock (MHz). The FRT counts at sysclk / divider;
+# the divider = (8 << (2*CKS)) cycles per FRC tick (TCR CKS bits, SEGA_TIM.H).
+CLOCK_MHZ = 26.8742
+
+SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
+        "_p6_w_perf_cyc_input", "_p6_w_perf_cyc_obj", "_p6_w_perf_cyc_draw",
+        "_p6_w_perf_cyc_present", "_p6_w_perf_cyc_total", "_p6_w_perf_cks"]
+
+
+def main(argv):
+    mcs = _scene._as_path(argv[1]) if len(argv) > 1 else MCS_DEFAULT
+    mp = _scene._as_path(argv[2]) if len(argv) > 2 else _scene.MAP_DEFAULT
+
+    print("=" * 72)
+    print("PERF PHASE 1 BASELINE: true fps + per-section cost attribution")
+    print("=" * 72)
+
+    if not os.path.isfile(mp):
+        print("RESULT: RED -- link map missing (%s)" % mp)
+        return 1
+    map_text = _scene.read_text(mp)
+    syms = {}
+    missing = []
+    for s in [_scene.SYM_MAGIC] + SYMS:
+        syms[s] = _scene.map_symbol(map_text, s)
+        if syms[s] is None:
+            missing.append(s)
+    if missing:
+        print("  [ RED ] M1 perf-witness symbols present in the link map")
+        for s in missing:
+            print("          MISSING %s" % s)
+        print("          (Expected while Perf Phase 1 is uninstrumented.)")
+        print("-" * 72)
+        print("RESULT: RED -- perf instrumentation not present (M1).")
+        return 1
+    print("  [GREEN] M1 perf-witness symbols present in the link map")
+
+    if not os.path.isfile(mcs):
+        print("RESULT: RED -- savestate missing (%s)" % mcs)
+        return 1
+
+    import pathlib
+    mod = _scene.load_harness()
+    sections = mod.parse_savestate(pathlib.Path(mcs))
+    raw_magic = mod._peek_bytes(sections, syms[_scene.SYM_MAGIC], 4)
+    label, perm = _scene.calibrate(raw_magic)
+    if perm is None:
+        print("RESULT: RED -- magic mis-decode")
+        return 1
+    v = {s: _scene.peek_u32(mod, sections, syms[s], perm, signed=True)
+         for s in SYMS}
+
+    vbl = v["_p6_w_perf_vblanks"]
+    frames = v["_p6_w_perf_frames"]
+    vbl_max = v["_p6_w_perf_vbl_max"]
+    ci = v["_p6_w_perf_cyc_input"]
+    co = v["_p6_w_perf_cyc_obj"]
+    cd = v["_p6_w_perf_cyc_draw"]
+    cp = v["_p6_w_perf_cyc_present"]
+    ct = v["_p6_w_perf_cyc_total"]
+    cks = v["_p6_w_perf_cks"]
+
+    m2 = (frames is not None and frames > 0 and vbl is not None and vbl > 0
+          and ct is not None and ct > 0)
+    m3 = (vbl is not None and frames is not None and vbl >= frames
+          and all(x is not None and x >= 0 for x in (ci, co, cd, cp, ct))
+          and cks is not None and 0 <= cks <= 3)
+
+    checks = [
+        ("M2 instrumentation measuring (frames>0, vblanks>0, cyc_total>0)", m2,
+         "frames=%s vblanks=%s cyc_total=%s" % (frames, vbl, ct)),
+        ("M3 measurement sane (vblanks>=frames, cyc>=0, cks 0..3)", m3,
+         "vbl_max=%s cks=%s" % (vbl_max, cks)),
+    ]
+    ok = all(c for _, c, _ in checks)
+    for title, passed, detail in checks:
+        print("  [%s] %s" % ("GREEN" if passed else " RED ", title))
+        print("          %s" % detail)
+
+    # ---- THE BASELINE (the deliverable) ----------------------------------
+    print("-" * 72)
+    print("BASELINE (the Phase-1 deliverable):")
+    if m2:
+        c = cks if (cks is not None and 0 <= cks <= 3) else 0
+        tick_us = (8 << (2 * c)) / CLOCK_MHZ
+        def us(t):
+            return (t * (8 << (2 * c))) / CLOCK_MHZ
+        VBL_MS = 1000.0 / 60.0   # one true vblank period (NTSC) in ms
+
+        # RAW average over the whole capture (polluted by the one-time GHZ load
+        # on the first lean tick -- that frame's slip is vbl_max).
+        fps_raw = 60.0 * frames / vbl
+        # STEADY-STATE: drop the single worst frame (the boot/scene-load spike)
+        # so the number reflects the running loop, not the one-time load.
+        steady_vbl = vbl - (vbl_max if vbl_max and vbl_max > 0 else 0)
+        steady_frames = frames - 1
+        fps_steady = (60.0 * steady_frames / steady_vbl) if steady_vbl > 0 and steady_frames > 0 else fps_raw
+        vpf_steady = (float(steady_vbl) / steady_frames) if steady_frames > 0 else 0.0
+        frame_ms_steady = vpf_steady * VBL_MS
+
+        print("  TRUE fps (steady)  : %.2f   (~%.0f ms/frame; %d vbl/frame)"
+              % (fps_steady, frame_ms_steady, round(vpf_steady)))
+        print("  TRUE fps (raw avg) : %.2f   (incl. one-time scene-load frame, "
+              "slip=%s vbl)" % (fps_raw, vbl_max))
+        print("    [%d frames over %d true 60Hz vblanks; FRT /%d -> %.4f us/tick]"
+              % (frames, vbl, (8 << (2 * c)), tick_us))
+        print("  --- CPU sub-section cost (last frame; FRC ticks -> us) -------")
+        sect = [("ProcessInput", ci), ("ProcessObjects", co),
+                ("ProcessObjectDrawLists", cd),
+                ("p6_vdp2_present_ghz_camera", cp)]
+        dom = max(sect, key=lambda kv: (kv[1] if kv[1] is not None else -1))
+        for name, t in sect:
+            mark = "  <== heaviest CPU section" if name == dom[0] else ""
+            print("    %-28s %7s ticks  %8.2f ms%s" % (name, t, us(t) / 1000.0, mark))
+        print("    %-28s %7s ticks  %8.2f ms" % ("CPU sections SUM", ct, us(ct) / 1000.0))
+        # RECONCILIATION: the FRT (16-bit, /%d wraps at ~%dms) measures only the
+        # sub-sections; the FULL frame time comes from the vblank counter. The
+        # remainder is jo/SGL frame finalization + slSynch/VDP wait (NOT CPU
+        # sections) -- the true dominant cost and the Phase-2 target.
+        frt_range_ms = (65536 * (8 << (2 * c))) / CLOCK_MHZ / 1000.0
+        cpu_ms = us(ct) / 1000.0
+        remainder_ms = frame_ms_steady - cpu_ms
+        print("  --- RECONCILIATION (where the frame time actually goes) ------")
+        print("    measured CPU sections     : %8.2f ms/frame (%.0f%% of frame)"
+              % (cpu_ms, 100.0 * cpu_ms / frame_ms_steady if frame_ms_steady > 0 else 0))
+        print("    full frame (vblank-timed) : %8.2f ms/frame" % frame_ms_steady)
+        print("    UNATTRIBUTED remainder    : %8.2f ms/frame (%.0f%% -- jo/SGL"
+              " finalization + slSynch/VDP wait)"
+              % (remainder_ms, 100.0 * remainder_ms / frame_ms_steady if frame_ms_steady > 0 else 0))
+        print("    [FRT /%d range = %.0f ms, so it CANNOT time the full frame --"
+              " the remainder is vblank-only]" % ((8 << (2 * c)), frt_range_ms))
+        print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
+              % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
+    else:
+        print("  (not measuring -- see M2)")
+    print("-" * 72)
+    if ok:
+        print("RESULT: GREEN -- frame-time instrumentation live; baseline above.")
+        print("        (Measurement gate: sub-60 is EXPECTED + documented, not a")
+        print("         failure. Phase 2 targets the DOMINANT cost from the")
+        print("         reconciliation -- which may be the unattributed jo/SGL")
+        print("         remainder, NOT necessarily a CPU section.)")
+        return 0
+    print("RESULT: RED -- perf instrumentation not measuring sanely (see checks).")
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))
