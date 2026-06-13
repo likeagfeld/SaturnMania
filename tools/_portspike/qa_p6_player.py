@@ -151,7 +151,7 @@ def main(argv):
         ("P8 engine ticks: state live, ANIMPAK animator, sane physics, VDP1 rects",
          v["_p6_w_plr_ticks"] >= 2
          and v["_p6_w_plr_state"] != 0
-         and 0x060B3000 <= (v["_p6_w_plr_animframes"] & 0xFFFFFFFF) < 0x060C4000
+         and 0x060B8000 <= (v["_p6_w_plr_animframes"] & 0xFFFFFFFF) < 0x060C9000
          and abs(v["_p6_w_plr_tick_y"] - my) <= (160 << 16)
          and v["_p6_w_plr_slotdelta"] >= 1,
          "ticks=%d state=%s animframes=%s dy=%d slotdelta=%d animid=%d onground=%d"

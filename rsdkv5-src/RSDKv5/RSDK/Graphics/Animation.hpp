@@ -29,11 +29,15 @@ namespace RSDK
 // W15 (Task #227, 2026-06-12): base raised 0x060AE000 -> 0x060AF000 (W14
 // growth pushed _end to 0x060AE56C; the overrun presented as a BOOT WEDGE --
 // the pak CD load clobbered live .bss, p6_w_scene_step froze at 1).
-// W15b: raised again 0x060AF000 -> 0x060B3000 -- verbatim Collision.cpp
-// (+12.8 KB) pushed _end to 0x060B174C. Funded by sliding the zone-overlay
-// base to 0x060C4000 (p6_ovl_api.h; Ring overlay uses 508 B of it). Window
-// ends EXACTLY at the new overlay base; floor margin 6,324 B.
-#define P6_HW_ANIMPAK     0x060B3000u
+// W15b: raised again 0x060AF000 -> 0x060B3000 -- verbatim Collision.cpp.
+// W17 (Task #227, 2026-06-13): the WRAM-H re-budget RAISES the floor again
+// 0x060B3000 -> 0x060B8000 (+20 KB of _end headroom; margin 1,092 -> ~21 KB)
+// by compacting the OVERSIZED windows ABOVE the pak -- OVL 16K->4K (Ring uses
+// 508 B) + GROUPWIN 40K->32K -- and sliding the upper stack down toward the
+// pak. PACKEDCOL (0x060E0000) + the layer sliding-window store
+// (SaturnLayout.cpp SATURNLAYOUT_WINBASE 0x060F0000, NOT a free gap) + the SGL
+// area stay FIXED. ANIMPAK ends contiguously at the new OVL base 0x060C9000.
+#define P6_HW_ANIMPAK     0x060B8000u
 #define P6_HW_ANIMPAK_CAP 0x00011000u // 69,632 B (build_anim_pack.py asserts)
 #else
 #define FRAMEHITBOX_COUNT (0x8)

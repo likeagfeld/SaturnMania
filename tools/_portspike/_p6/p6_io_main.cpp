@@ -657,7 +657,11 @@ DataStorage *dataStorage     = (DataStorage *)P6_LW_DATASTORAGE;
 // packed-collision window 0x060E0000). NOT .bss -- p6_scene_run memsets the
 // window before registration (the engine assumes zeroed class/draw lists).
 // typeGroups (68,112 B) stays .bss: it exceeds every free fixed gap.
-#define P6_HW_GROUPWIN 0x060D6000u
+// W17 (Task #227, 2026-06-13): slid UP 0x060D6000 -> 0x060D8000 by the WRAM-H
+// re-budget (the 0x8000 window now abuts the FIXED PACKEDCOL at 0x060E0000;
+// used 28,224 B + 4,544 B headroom). GLOBALS below it ends at 0x060D7B74
+// (1,164 B gap). The static_assert bound (0x060E0000) is unchanged.
+#define P6_HW_GROUPWIN 0x060D8000u
 #define P6_HW_GROUPWIN_OBJCLASS (P6_HW_GROUPWIN)
 #define P6_HW_GROUPWIN_DRAWGRP (P6_HW_GROUPWIN_OBJCLASS + sizeof(ObjectClass) * OBJECT_COUNT)
 #define P6_HW_GROUPWIN_SHTRECT (P6_HW_GROUPWIN_DRAWGRP + sizeof(DrawList) * DRAWGROUP_COUNT)
@@ -1065,7 +1069,7 @@ extern "C" void p6_ovl_register_object(void **staticVars, const char *name,
 // writes through the RETRO_SATURN offset-remap arm (RetroEngine.cpp +
 // generated SaturnGlobalsMap.inc).
 // =============================================================================
-#define P6_GLOBALS_WINDOW (P6_OVL_BASE + P6_OVL_WINDOW) /* 0x060C8000 */
+#define P6_GLOBALS_WINDOW (P6_OVL_BASE + P6_OVL_WINDOW) /* W17: 0x060CA000 */
 extern "C" void p6_register_global_variables_saturn(void **globals, int32 size)
 {
     p6_w_glb_size = size;

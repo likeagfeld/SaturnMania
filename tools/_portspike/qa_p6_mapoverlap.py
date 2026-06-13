@@ -100,7 +100,14 @@ def main(argv):
     # boot load clobbers live .bss (MEASURED p6_g2: scene_step froze at 1).
     # DIAG FLAVOR ONLY: the shipping build carries neither the window nor
     # the bound (discriminated by the p6_scene_run symbol).
-    ANIMPAK_FLOOR = 0x060B3000  # W15b: pak relocated above Collision.cpp growth
+    # W17 (Task #227, 2026-06-13): pak relocated UP to 0x060B8000 by the WRAM-H
+    # re-budget (OVL 16K->4K + GROUPWIN 40K->32K compaction; the layout window
+    # at 0x060F0000 and PACKEDCOL at 0x060E0000 are FIXED -- NOT a free gap).
+    ANIMPAK_FLOOR = 0x060B8000
+    # W17 RED-first: the re-budget must leave a working margin, not the 1,092 B
+    # the pre-W17 floor (0x060B3000) gave -- that fires RED on the old build and
+    # GREEN after the compaction. 16 KB headroom funds the next FX/TU growth.
+    MARGIN_MIN = 0x4000
     with open(mp, errors="ignore") as f:
         text = f.read()
     if "p6_scene_run" in text:
@@ -111,8 +118,13 @@ def main(argv):
                 print("RESULT: RED -- _end 0x%08X over the ANIMPAK window floor 0x%08X"
                       % (end, ANIMPAK_FLOOR))
                 return 1
+            margin = ANIMPAK_FLOOR - end
+            if margin < MARGIN_MIN:
+                print("RESULT: RED -- _end 0x%08X margin %d B < %d B floor "
+                      "(WRAM-H re-budget needed)" % (end, margin, MARGIN_MIN))
+                return 1
             print("  _end 0x%08X <= ANIMPAK window floor 0x%08X (margin %d B)"
-                  % (end, ANIMPAK_FLOOR, ANIMPAK_FLOOR - end))
+                  % (end, ANIMPAK_FLOOR, margin))
     print("RESULT: GREEN -- all allocated output sections disjoint")
     return 0
 

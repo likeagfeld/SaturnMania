@@ -78,7 +78,7 @@ LINKHPP = os.path.join(ROOT, "rsdkv5-src", "RSDKv5", "RSDK", "Core",
 LINKCPP = os.path.join(ROOT, "rsdkv5-src", "RSDKv5", "RSDK", "Core",
                        "Link.cpp")
 
-P6_GLOBALS_WINDOW = 0x060C8000
+P6_GLOBALS_WINDOW = 0x060CA000  # W17: WRAM-H re-budget slid OVL+globals up
 SAT_SIZEOF_EXPECT = 56180
 EXP_CLASSCOUNT = 26  # DefaultObject, DevOutput, overlay Ring + the 23
 #                      Player-wave registrations (p6_wave1_reg.c, Game.c line

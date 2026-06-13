@@ -41,8 +41,8 @@ _spec.loader.exec_module(_scene)
 
 MCS_DEFAULT = os.path.join(HERE, "_p6", "_p6_pack.mcs")
 OVL_BIN = os.path.join(ROOT, "cd", "OVLRING.BIN")
-OVL_BASE = 0x060C4000  # W15b: slid +16K to fund the ANIMPAK window (p6_ovl_api.h)
-OVL_WINDOW = 0x4000  # proof window; the P6.8 zone window is 124 KB
+OVL_BASE = 0x060C9000  # W17: slid UP by the WRAM-H re-budget (p6_ovl_api.h)
+OVL_WINDOW = 0x1000  # proof window 16K->4K (Ring 508 B); P6.8 zone window 124 KB
 
 SYMS = ["_p6_w_ovl_bytes", "_p6_w_ovl_hash", "_p6_w_ovl_classes",
         "_p6_w_ovl_updatefn"]

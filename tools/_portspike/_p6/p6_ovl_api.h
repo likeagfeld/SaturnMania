@@ -21,16 +21,16 @@
 #ifndef P6_OVL_API_H
 #define P6_OVL_API_H
 
-// W15b (Task #227, 2026-06-12): base slid 0x060C0000 -> 0x060C4000 and the
-// proof window halved (32 KB -> 16 KB; the Ring overlay uses 508 B) to fund
-// the ANIMPAK window relocation: verbatim Collision.cpp pushed _end to
-// 0x060B174C, past the pak's old 0x060AF000 floor, and no other contiguous
-// 68.8 KB WRAM-H region exists (MEASURED: globals tail 1,164 B free,
-// post-PACKEDCOL tail 16,384 B). ANIMPAK now spans 0x060B3000..0x060C4000
-// (Animation.hpp); the globals window stays at base+window = 0x060C8000.
-// The P6.8 zone-window re-budget (124 KB SPZ contract) supersedes this.
-#define P6_OVL_BASE   0x060C4000u
-#define P6_OVL_WINDOW 0x4000u
+// W15b: base slid 0x060C0000 -> 0x060C4000, window 32K -> 16K.
+// W17 (Task #227, 2026-06-13): the WRAM-H re-budget slides the overlay UP to
+// 0x060C9000 and shrinks the proof window 16K -> 4K (the Ring overlay is
+// 508 B). The reclaimed 12 KB + the GROUPWIN 8 KB trim fund the ANIMPAK
+// floor raise 0x060B3000 -> 0x060B8000 (+20 KB of _end headroom). GLOBALS
+// derives to base+window = 0x060CA000; it ends at 0x060D7B74, 1,164 B below
+// the relocated GROUPWIN (p6_io_main.cpp 0x060D8000). The P6.8 zone-window
+// re-budget (124 KB SPZ contract) supersedes this.
+#define P6_OVL_BASE   0x060C9000u
+#define P6_OVL_WINDOW 0x1000u
 
 typedef struct {
     /* ---- filled by MAIN before calling the entry ------------------------ */
