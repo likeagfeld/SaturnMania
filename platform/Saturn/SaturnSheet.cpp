@@ -37,7 +37,13 @@ typedef unsigned short uint16;
 typedef unsigned int uint32;
 typedef signed int int32;
 
-#define SATURNSHEET_SLOTS     4
+// W19 (Task #227): 8 slots (was 4) -- the staged set grows from 4 to 6
+// (SONIC1/2/3 + ITEMS + DISPLAY + SHIELDS) with headroom. The band-store
+// VRAM window 0x25E44000..0x25E80000 = 245,760 B holds the 6 deflated blobs
+// at 206,222 B (39,538 B margin, MEASURED build_sheet_bands.py). Tails1.gif
+// (58,643 B) is NOT staged -- adding it overflows the window by 19,105 B
+// (no-shrink guardrail; funded plan required to reclaim NBG1 cells).
+#define SATURNSHEET_SLOTS     8
 #define SATURNSHEET_VRAM_BASE 0x25E44000u // B0 tail (after the 16 KB NBG1 map)
 #define SATURNSHEET_VRAM_END  0x25E80000u // top of B1
 

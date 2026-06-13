@@ -41,11 +41,19 @@ BAND_ROWS = 16
 # Items.gif joined for the STG-sizing iteration (Task #227): banding it
 # drops the 32,768 B resident decode from DATASET_STG so the GHZ anim
 # working set (1,624 frames at FRAMEHITBOX_COUNT 2) fits the 80 KB pool.
+# W19 (Task #227): DISPLAY.SHT (GHZ HUD digits) + SHIELDS.SHT (shield FX) join
+# the staged set so their entity blits LAND (MEASURED 960 + 59 of the 1,139
+# silent VDP1 handle<0 drops/run). Tails1.gif is DELIBERATELY ABSENT: its
+# 58,643 B band store overflows the 245,760 B VDP2 band-store window by
+# 19,105 B (6-sheet total 206,222 B fits; 7-sheet total 264,865 B does not).
+# Adding Tails1 needs a funded plan (reclaim NBG1 cell tiles / relocate window).
 SHEETS = [
     ("Players/Sonic1.gif", "SONIC1.SHT"),
     ("Players/Sonic2.gif", "SONIC2.SHT"),
     ("Players/Sonic3.gif", "SONIC3.SHT"),
     ("Global/Items.gif", "ITEMS.SHT"),
+    ("Global/Display.gif", "DISPLAY.SHT"),
+    ("Global/Shields.gif", "SHIELDS.SHT"),
 ]
 
 

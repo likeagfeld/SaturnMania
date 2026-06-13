@@ -71,6 +71,9 @@ MCS_DEFAULT = os.path.join(HERE, "p6_m0.mcs")
 SYMS = ["_p6_w_vdp1_landed", "_p6_w_vdp1_handle_drops",
         "_p6_w_ringspr", "_p6_w_ringsheet", "_p6_w_ringsheethandle",
         "_p6_w_itemshandle", "_p6_w_bind_count",
+        # W19 (Task #227): the HUD/Shield sheet-band closer witnesses.
+        "_p6_w_dispsurf", "_p6_w_dispsheet", "_p6_w_disphandle",
+        "_p6_w_shldsurf", "_p6_w_shldsheet", "_p6_w_shldhandle",
         "RSDK::p6_saturn_anim_allocfail", "RSDK::p6_saturn_hitbox_clamps"]
 
 
@@ -125,8 +128,25 @@ def main(argv):
          "ringsheethandle=%d ringsheet(shtSlot)=%d itemshandle=%d ringspr(surf)=%d"
          % (v["_p6_w_ringsheethandle"], v["_p6_w_ringsheet"],
             v["_p6_w_itemshandle"], v["_p6_w_ringspr"])),
-        ("E4 bind_count >= 4 (SONIC1/2/3 banded + Items banded)",
-         v["_p6_w_bind_count"] >= 4, "bind_count=%d" % v["_p6_w_bind_count"]),
+        ("E4 bind_count >= 6 (SONIC1/2/3 + Items + Display + Shields banded)",
+         v["_p6_w_bind_count"] >= 6, "bind_count=%d" % v["_p6_w_bind_count"]),
+        # W19 (Task #227): Display.gif (HUD, 960 drops/run) + Shields.gif (59
+        # drops/run) bind to their staged DISPLAY.SHT/SHIELDS.SHT banded slots.
+        # RED on the W18 build: those surfaces had no banded slot (the staged
+        # set was 4 sheets, all slots full) -> never bound -> handle -1 ->
+        # 1,139 silent VDP1 drops/run. GREEN: both handles >= 0, banded slots
+        # resolved, and handle_drops falls to ~120 (the Tails1 residual gap,
+        # NOT staged -- band store overflows the VDP2 window by 19,105 B).
+        ("E6 HUD+Shield surfaces BIND (Display/Shields banded handle>=0)",
+         v["_p6_w_disphandle"] >= 0 and v["_p6_w_dispsheet"] >= 0
+         and v["_p6_w_shldhandle"] >= 0 and v["_p6_w_shldsheet"] >= 0,
+         "disphandle=%d dispsheet=%d dispsurf=%d | shldhandle=%d shldsheet=%d shldsurf=%d"
+         % (v["_p6_w_disphandle"], v["_p6_w_dispsheet"], v["_p6_w_dispsurf"],
+            v["_p6_w_shldhandle"], v["_p6_w_shldsheet"], v["_p6_w_shldsurf"])),
+        ("E7 silent drops collapse to the Tails1 residual (<= 200, was 1139)",
+         0 <= v["_p6_w_vdp1_handle_drops"] <= 200,
+         "handle_drops=%d (W18 build: 1139; W19 target ~120 = the Tails1 gap)"
+         % v["_p6_w_vdp1_handle_drops"]),
         ("E5 no budget regression (anim allocfail==0, hitbox clamps==0)",
          v["RSDK::p6_saturn_anim_allocfail"] == 0
          and v["RSDK::p6_saturn_hitbox_clamps"] == 0,

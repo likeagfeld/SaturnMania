@@ -537,6 +537,22 @@ __attribute__((used)) int32 p6_w_surfpop        = 0;
 // itemsurf >= 0 AND itemshandle >= 0 (banded slot bound).
 __attribute__((used)) int32 p6_w_itemsurf       = -1;
 __attribute__((used)) int32 p6_w_itemshandle    = -2;
+// W19 (Task #227, qa_p6_entdraw.py E6): the GHZ HUD/Shield sheet-band closer.
+// Display.gif (HUD digits, 960 drops/run) + Shields.gif (59 drops/run) are
+// staged as DISPLAY.SHT/SHIELDS.SHT into VDP2 and sheet-only loaded here so
+// the bind loop resolves their banded slots. disp*/shld* mirror the Items
+// witnesses: surf = LoadSpriteSheet surface id, sheet = resolved
+// saturnSheetSlot (>=0 GREEN), handle = bound VDP1 handle (>=0 GREEN).
+// Tails1.gif (120 drops) is the DECLARED W19 GAP: its 58,643 B band store
+// overflows the 245,760 B VDP2 window by 19,105 B (MEASURED), so it is NOT
+// staged -- a funded plan (reclaim NBG1 cell tiles or relocate the window)
+// is required. handle_drops therefore falls 1139 -> ~120 (the Tails1 residual).
+__attribute__((used)) int32 p6_w_dispsurf       = -1;
+__attribute__((used)) int32 p6_w_dispsheet      = -2;
+__attribute__((used)) int32 p6_w_disphandle     = -2;
+__attribute__((used)) int32 p6_w_shldsurf       = -1;
+__attribute__((used)) int32 p6_w_shldsheet      = -2;
+__attribute__((used)) int32 p6_w_shldhandle     = -2;
 // W18 diag: the first hash word of surfaces 0/5/8 (the dropping classes) so
 // the gate can name them offline against the candidate sprite-path MD5s.
 __attribute__((used)) int32 p6_w_surfhash[16]   = { 0 };
@@ -1524,15 +1540,24 @@ extern "C" void p6_scene_run(void)
         // Task #227 STG sizing: ITEMS.SHT joins the staged set -- banding
         // Items.gif drops its 32,768 B resident decode from DATASET_STG so
         // the GHZ anim working set fits the 80 KB pool (Storage.cpp).
-        static const char *shtFiles[4] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
-                                           "ITEMS.SHT" };
+        // W19 (Task #227): DISPLAY.SHT (HUD digits, 960 drops/run) +
+        // SHIELDS.SHT (59 drops/run) join the staged set. MEASURED band-store
+        // budget (build_sheet_bands.py): SONIC1 60,099 + SONIC2 61,549 +
+        // SONIC3 33,691 + ITEMS 7,252 + DISPLAY 11,416 + SHIELDS 32,215 =
+        // 206,222 B, inside the 245,760 B VDP2 window (0x25E44000..0x25E80000)
+        // with 39,538 B margin. Tails1.gif (58,643 B) is the DECLARED GAP --
+        // adding it overflows by 19,105 B (no-shrink guardrail).
+        static const char *shtFiles[6] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
+                                           "ITEMS.SHT", "DISPLAY.SHT", "SHIELDS.SHT" };
         // Engine PATH hashes (W12b): LoadSpriteSheet hashes the .bin-relative
         // sprite path -- these are what Player_StageLoad will resolve.
-        static const char *shtPaths[4] = { "Players/Sonic1.gif",
+        static const char *shtPaths[6] = { "Players/Sonic1.gif",
                                            "Players/Sonic2.gif",
                                            "Players/Sonic3.gif",
-                                           "Global/Items.gif" };
-        for (int32 i = 0; i < 4; ++i) {
+                                           "Global/Items.gif",
+                                           "Global/Display.gif",
+                                           "Global/Shields.gif" };
+        for (int32 i = 0; i < 6; ++i) {
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
                                                 (void *)P6_LW_ENTITYLIST, 0x10000);
             if (sn > 0) {
@@ -1935,6 +1960,31 @@ extern "C" void p6_scene_run(void)
                         p6_w_ringsheet = (int32)gfxSurface[rsurf].saturnSheetSlot;
                 }
 
+                // W19 (Task #227): same SHEET-ONLY nudge for the GHZ HUD +
+                // Shield surfaces. The HUD (Global/Display.gif, 960 drops/run)
+                // and Shields (Global/Shields.gif, 59 drops/run) draw blits but
+                // their surfaces had no banded slot -> every blit dropped at the
+                // VDP1 handle<0 check (MEASURED 1,139 silent drops total: 960
+                // Display + 120 Tails1 + 59 Shields). LoadSpriteSheet (NOT
+                // LoadSpriteAnimation -- zero DATASET_STG cost) allocates each
+                // surface + resolves its already-staged DISPLAY.SHT/SHIELDS.SHT
+                // banded slot by path hash (Sprite.cpp:949-967); the bind loop
+                // below then binds them (banded handle >= 0). Tails1.gif is NOT
+                // staged (band store overflows the VDP2 window by 19,105 B) so
+                // its 120 drops remain -- the DECLARED W19 GAP.
+                {
+                    int32 dsurf =
+                        (int32)(int16)LoadSpriteSheet("Global/Display.gif", SCOPE_STAGE);
+                    p6_w_dispsurf = dsurf;
+                    if (dsurf >= 0 && dsurf < SURFACE_COUNT)
+                        p6_w_dispsheet = (int32)gfxSurface[dsurf].saturnSheetSlot;
+                    int32 ssurf =
+                        (int32)(int16)LoadSpriteSheet("Global/Shields.gif", SCOPE_STAGE);
+                    p6_w_shldsurf = ssurf;
+                    if (ssurf >= 0 && ssurf < SURFACE_COUNT)
+                        p6_w_shldsheet = (int32)gfxSurface[ssurf].saturnSheetSlot;
+                }
+
                 for (int32 i = 0; i < SURFACE_COUNT; ++i) {
                     GFXSurface *sf = &gfxSurface[i];
                     if (sf->scope == SCOPE_NONE || p6_vdp1HandleBySurface[i] >= 0)
@@ -1977,6 +2027,20 @@ extern "C" void p6_scene_run(void)
                         }
                     }
                     p6_w_surfpop = pop;
+                    // W19: capture the Display/Shields bound handles (the bind
+                    // loop above set p6_vdp1HandleBySurface for surfaces whose
+                    // saturnSheetSlot resolved). LoadSpriteSheet returns the
+                    // EXISTING surface index for the already-loaded sheet.
+                    {
+                        int32 dsurf =
+                            (int32)(int16)LoadSpriteSheet("Global/Display.gif", SCOPE_STAGE);
+                        if (dsurf >= 0 && dsurf < SURFACE_COUNT)
+                            p6_w_disphandle = (int32)p6_vdp1HandleBySurface[dsurf];
+                        int32 ssurf =
+                            (int32)(int16)LoadSpriteSheet("Global/Shields.gif", SCOPE_STAGE);
+                        if (ssurf >= 0 && ssurf < SURFACE_COUNT)
+                            p6_w_shldhandle = (int32)p6_vdp1HandleBySurface[ssurf];
+                    }
                     int32 isurf = (int32)(int16)LoadSpriteSheet("Global/Items.gif", SCOPE_STAGE);
                     p6_w_itemsurf = isurf;
                     p6_w_ringsheethandle =
