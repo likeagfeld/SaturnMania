@@ -641,6 +641,7 @@ __attribute__((used)) int p6_w_objupd_n[64];
 __attribute__((used)) int32 p6_w_objupd_topclass = -1; // classID with the most Update vbl
 __attribute__((used)) int32 p6_w_objupd_topvbl   = 0;  // that class's total Update vbl
 __attribute__((used)) int32 p6_w_objupd_topn     = 0;  // that class's in-range count
+__attribute__((used)) int32 p6_w_obj_refills = 0; // SaturnLayout inflates DURING ProcessObjects
 __attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
 __attribute__((used)) int32 p6_w_hog_x   = 0;   // a hog entity's world x (fixed)
 __attribute__((used)) int32 p6_w_hog_y   = 0;   // a hog entity's world y (fixed)
@@ -1587,8 +1588,16 @@ static void p6_ghz_frame(void)
     // Phase 2d: reset the per-classID Update timing accumulators before the loop
     // (Object.cpp fills them when built -DP6_PERF_OBJPROF; harmless 0s otherwise).
     for (int32 _z = 0; _z < 64; ++_z) { p6_w_objupd_vbl[_z] = 0; p6_w_objupd_n[_z] = 0; }
-    vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjects();
-    t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
+    {
+        // Phase 2f: SaturnLayout re-inflates DURING ProcessObjects -- if the
+        // Player's collision sensors re-window the band store, this is the 194ms
+        // (the same root cause as the present's redundant inflate).
+        extern int p6_w_lay_refills;
+        int32 _r0 = p6_w_lay_refills;
+        vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjects();
+        t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
+        p6_w_obj_refills = p6_w_lay_refills - _r0;
+    }
     p6_w_perf_cyc_obj = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_obj = (int32)(vb1 - vb0);
     vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjectDrawLists();
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;

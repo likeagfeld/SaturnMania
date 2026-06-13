@@ -60,7 +60,7 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         "_p6_w_obj_inrange", "_p6_w_obj_topclass", "_p6_w_obj_topcount",
         "_p6_w_obj_classcnt",
         "_p6_w_objupd_topclass", "_p6_w_objupd_topvbl", "_p6_w_objupd_topn",
-        "_p6_w_hog_cid", "_p6_w_hog_x", "_p6_w_hog_y"]
+        "_p6_w_hog_cid", "_p6_w_hog_x", "_p6_w_hog_y", "_p6_w_obj_refills"]
 
 
 def main(argv):
@@ -243,6 +243,12 @@ def main(argv):
                     print("    hog identity     : full classID=%s  @ world "
                           "(%d, %d) px  (match to GHZ Act1 layout)"
                           % (hcid, (hx >> 16) if hx else 0, (hy >> 16) if hy else 0))
+                objr = v.get("_p6_w_obj_refills")
+                if objr is not None:
+                    verdict = ("ROOT CAUSE -- collision re-inflates the layout window"
+                               if objr > 0 else "NOT inflates (objr=0) -> soft-float / loop")
+                    print("    ProcessObjects SaturnLayout inflates/frame = %s  [%s]"
+                          % (objr, verdict))
         print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
               % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
     else:

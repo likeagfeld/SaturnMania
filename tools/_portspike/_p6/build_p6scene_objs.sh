@@ -289,7 +289,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_obj_classcnt \
     -u _p6_w_objupd_vbl -u _p6_w_objupd_n -u _p6_w_objupd_topclass \
     -u _p6_w_objupd_topvbl -u _p6_w_objupd_topn \
-    -u _p6_w_hog_cid -u _p6_w_hog_x -u _p6_w_hog_y \
+    -u _p6_w_hog_cid -u _p6_w_hog_x -u _p6_w_hog_y -u _p6_w_obj_refills \
     -u _p6_w_magic \
     -u _p6_bridge_proc_anim -u _p6_bridge_draw_sprite -u _p6_scene_entity \
     -u _p6_w_obj_classid -u _p6_w_obj_timer -u _p6_w_obj_vely \
