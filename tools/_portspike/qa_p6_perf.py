@@ -54,7 +54,9 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         "_p6_w_perf_cyc_present", "_p6_w_perf_cyc_total", "_p6_w_perf_cks",
         "_p6_w_perf_vbl_frame", "_p6_w_perf_vbl_jo", "_p6_w_perf_vbl_jo_max",
         "_p6_w_perf_vbl_input", "_p6_w_perf_vbl_obj", "_p6_w_perf_vbl_draw",
-        "_p6_w_perf_vbl_present"]
+        "_p6_w_perf_vbl_present",
+        "_p6_w_present_vbl_walk", "_p6_w_present_vbl_map",
+        "_p6_w_present_vbl_hash", "_p6_w_present_refills"]
 
 
 def main(argv):
@@ -186,6 +188,17 @@ def main(argv):
                   " NOT the bottleneck)" % (vbl_jo, vbl_jo * VBL_MS))
             print("    -> the cost is CPU work INSIDE p6_ghz_frame: the present +"
                   " ProcessObjects (see per-section above), NOT slSynch/VDP wait.")
+        # Phase 2b: sub-attribution INSIDE the present (850ms #1 target).
+        pw = v.get("_p6_w_present_vbl_walk"); pm = v.get("_p6_w_present_vbl_map")
+        ph_ = v.get("_p6_w_present_vbl_hash"); prf = v.get("_p6_w_present_refills")
+        if pw is not None:
+            print("  --- INSIDE the present (850ms #1 target; vblank-measured) ----")
+            print("    sec1 blank-char GetTile walk : %4s vbl %8.1f ms  "
+                  "[%s SaturnLayout inflate(s)/frame]" % (pw, pw * VBL_MS, prf))
+            print("    sec2 map build (GetTile+VDP2): %4s vbl %8.1f ms"
+                  % (pm, pm * VBL_MS))
+            print("    sec4 witness hash+count      : %4s vbl %8.1f ms  "
+                  "(DIAGNOSTIC-only -- droppable in shipping)" % (ph_, ph_ * VBL_MS))
         print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
               % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
     else:

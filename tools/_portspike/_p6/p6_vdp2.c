@@ -173,6 +173,17 @@ void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
 extern void SaturnLayout_Bind(int slot, int layer);
 extern unsigned short SaturnLayout_GetTile(int slot, int tx, int ty);
 
+/* Perf Phase 2b (Task #211): sub-section attribution of the 850ms present.
+ * VBLANK-MEASURED (overflow-immune) -- the present's heavy parts exceed the FRT
+ * /32 78ms range. + the per-present SaturnLayout refill (zlib inflate) count.
+ * Pack symbols (p6_vdp2.o is a pack member); the gate reads them by map name. */
+extern volatile unsigned int p6_perf_vbl_count;       /* p6_perf.c true-60Hz tally */
+extern int                   p6_w_lay_refills;          /* SaturnLayout.cpp cumulative (int32) */
+__attribute__((used)) int p6_w_present_vbl_walk    = 0; /* blank-char GetTile walk */
+__attribute__((used)) int p6_w_present_vbl_map     = 0; /* map build (GetTile + VDP2 writes) */
+__attribute__((used)) int p6_w_present_vbl_hash    = 0; /* witness hash+count (DIAGNOSTIC) */
+__attribute__((used)) int p6_w_present_refills     = 0; /* SaturnLayout inflates THIS present */
+
 void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                                 const unsigned short *pal565,
                                 unsigned int *out_pndhash, int *out_nblank)
@@ -183,11 +194,13 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
     static unsigned char used[1024]; /* file-static would collide with the
                                       * Title present's local; own copy */
     int t, c, x, y;
+    unsigned int pv0, prf0 = (unsigned int)p6_w_lay_refills;
 
     SaturnLayout_Bind(0, layer); /* slot 0 = the W16 walk window */
 
     /* 1) Blank char = smallest tile index the 64x64 rect never references
      *    (same rule + same rect as the gate's offline model). */
+    pv0 = p6_perf_vbl_count;
     for (t = 0; t < 1024; ++t) used[t] = 0;
     for (y = 0; y < 64; ++y)
         for (x = 0; x < 64; ++x) {
@@ -195,6 +208,8 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
             if (e != 0xFFFF)
                 used[e & 0x3FF] = 1;
         }
+    p6_w_present_vbl_walk = (int)(p6_perf_vbl_count - pv0);
+    pv0 = p6_perf_vbl_count;
     {
         int blank = 0;
         while (blank < 1024 && used[blank]) ++blank;
@@ -220,6 +235,7 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
             }
         }
     }
+    p6_w_present_vbl_map = (int)(p6_perf_vbl_count - pv0);
 
     /* 3) CRAM bank 0 from the GHZ active palette (post-LoadSceneAssets
      *    fullPalette[0]; engine RGB565 -> Saturn BGR555, MSB set). */
@@ -233,7 +249,10 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
 
     /* 4) Witness data: read-back hash over the map (the gate's S3 model is
      *    the same big-endian byte stream) + visible-window non-empty count
-     *    (S4; window = scroll + 320x224, the CORE_DEFS screen). */
+     *    (S4; window = scroll + 320x224, the CORE_DEFS screen). DIAGNOSTIC-ONLY:
+     *    out_pndhash/out_nblank feed the qa gate; 8,192 VDP2 VRAM reads of pure
+     *    overhead in a shipping frame (Phase 2b drop candidate). */
+    pv0 = p6_perf_vbl_count;
     {
         unsigned int h = 5381u;
         for (t = 0; t < 4096 * 2; ++t) { /* 8,192 words = 16,384 B */
@@ -252,6 +271,8 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                     ++n;
         *out_nblank = n;
     }
+    p6_w_present_vbl_hash = (int)(p6_perf_vbl_count - pv0);
+    p6_w_present_refills  = (int)((unsigned int)p6_w_lay_refills - prf0);
 
     /* 5) NBG1 config + camera-anchored scroll + display (same SGL sequence
      *    as the proven Title present part 4). */
