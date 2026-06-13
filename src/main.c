@@ -1215,6 +1215,18 @@ extern void p6_scene_run(void);
 extern void p6_scene_tick(void); /* P6.5b2: ProcessAnimation + VDP1 ring re-draw */
 #endif
 
+#ifdef P6_ENGINE_SHIPPING
+/* P6.8 Step B (Task #211): the verbatim engine is the SHIPPING boot. The lean
+ * entry runs the proven masked load core (InitStorage..LoadGameConfig + staged
+ * sheets/bands/anim-pack + audio) then returns; the first p6_scene_tick re-loads
+ * GHZ live + arms the continuous loop. NO diagnostic burst / Title reload /
+ * legacy Ring. Linked + booted only when `make P6_ENGINE_SHIPPING=1`; the
+ * default `make` (P6_ENGINE_SHIPPING unset) boots the hand-port below, byte-
+ * identical. Gate: tools/_portspike/qa_p6_shipping.py. */
+extern void p6_engine_boot_and_run(void);
+extern void p6_scene_tick(void);
+#endif
+
 void jo_main(void)
 {
     jo_core_init(JO_COLOR_RGB(96, 128, 224));
@@ -1236,6 +1248,19 @@ void jo_main(void)
      * shipping `make` (P6SCENE unset) compiles none of this.
      * P6.5b2: one callback ticks the engine's Ring animator + re-emits the
      * VDP1 sprite each frame (SGL command lists are per-frame). */
+    jo_core_add_callback(p6_scene_tick);
+    jo_core_run();
+    return;
+#endif
+
+#ifdef P6_ENGINE_SHIPPING
+    /* P6.8 Step B (Task #211): the verbatim engine is the SHIPPING boot. Run the
+     * lean load core (no diagnostic burst / proofs / Title reload / legacy Ring),
+     * then drive the engine GHZ scene every frame via p6_scene_tick -- its first
+     * lean tick re-loads GHZ live + arms the continuous loop. The hand-port boot
+     * below is compiled but never reached. Unset P6_ENGINE_SHIPPING to revert.
+     * Gate: tools/_portspike/qa_p6_shipping.py. */
+    p6_engine_boot_and_run();
     jo_core_add_callback(p6_scene_tick);
     jo_core_run();
     return;

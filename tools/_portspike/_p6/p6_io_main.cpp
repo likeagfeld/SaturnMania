@@ -582,6 +582,15 @@ __attribute__((used)) int32 p6_w_cont_frames    = 0;  // ++ per p6_ghz_frame() c
 __attribute__((used)) int32 p6_w_cont_plr_x     = 0;  // SLOT_PLAYER1 position, continuous
 __attribute__((used)) int32 p6_w_cont_plr_y     = 0;
 __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.animationID
+// P6.8 Step B (Task #211): the LEAN SHIPPING-boot flavor flag. 0 == DIAG
+// (P6SCENE: full burst + ~14 proofs + Title reload + legacy Ring + deferred
+// frame-260 GHZ switch -- byte-identical to W19/Step A). 1 == lean shipping
+// boot (P6_ENGINE_SHIPPING): p6_scene_run stops right after LoadGameConfig
+// (the masked load core through the staged sheets/bands/anim-pack + audio is
+// complete) and p6_scene_tick's FIRST tick re-loads GHZ live. Set ONLY by
+// p6_engine_boot_and_run; the DIAG p6_scene_run/p6_scene_tick lean guards are
+// no-ops while it is 0, so the diag flavor is unchanged.
+__attribute__((used)) int32 p6_lean_boot        = 0;  // 1 == lean engine shipping boot
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
 // post-hoc capture lands after the later Title pass, whose STG dataset clear
 // NULLs every tracked staticVars pointer (MEASURED p6_f8: Player/Zone/Camera
@@ -1914,6 +1923,22 @@ extern "C" void p6_scene_run(void)
         p6_w_sfx_skips       = p6_saturn_sfx_skips;
     }
 
+    // P6.8 Step B (Task #211): the LEAN SHIPPING boot stops HERE. Everything
+    // above is the masked load core BOTH flavors need (InitStorage, the staged
+    // overlay/layout-bands/anim-pack/sheets, SetupFunctionTables, RegisterObject
+    // set, p6_wave1_link, LoadDataPack, the audio core, LoadGameConfig). Below
+    // is DIAG-ONLY scaffolding (the 60-tick GHZ burst, ~14 one-shot proofs, the
+    // Title reload, PlayStream's Title CD-DA, the legacy Ring setup). The lean
+    // boot skips ALL of it: exit the interrupt mask and return; main.c then
+    // registers p6_scene_tick + jo_core_run, and the first lean tick re-loads
+    // GHZ live (the proven unmasked, vblank-active p6_ghz_reload path). When
+    // p6_lean_boot==0 (DIAG) this is a no-op -- p6_scene_run is byte-for-byte
+    // behavior-identical to W19/Step A.
+    if (p6_lean_boot) {
+        p6_load_phase_exit();
+        return;
+    }
+
     // 3a-ghz) P6.7 W11b (Task #226, qa_p6_ghzlive.py): GHZ1 AT SCALE through
     //     the engine's OWN chain, FIRST -- the Title pass below then ALSO
     //     exercises the engine's real scene-CHANGE path (different folder ->
@@ -2725,6 +2750,24 @@ static void p6_ghz_reload(void)
     p6_ghz_continuous_armed = 1;
 }
 
+// =============================================================================
+// P6.8 Step B (Task #211): p6_engine_boot_and_run -- the LEAN engine SHIPPING
+// boot entry. main.c's -DP6_ENGINE_SHIPPING branch calls this INSTEAD of the
+// hand-port boot, then registers p6_scene_tick + jo_core_run (the jo calls stay
+// in main.c -- this pack TU is compiled WITHOUT jo/jo.h, per build_p6scene_objs
+// note). This sets the lean flag and runs p6_scene_run, which -- with the flag
+// set -- executes only the masked load core (InitStorage..LoadGameConfig + the
+// staged sheets/bands/anim-pack + audio) and returns at the lean early-return.
+// The first p6_scene_tick then re-loads GHZ live and arms the continuous loop.
+// No diagnostic burst, no Title reload, no legacy Ring. Reversible: unset
+// P6_ENGINE_SHIPPING and main.c boots the hand-port (this entry is unreached).
+// =============================================================================
+extern "C" void p6_engine_boot_and_run(void)
+{
+    p6_lean_boot = 1;
+    p6_scene_run(); // masked load core -> lean early-return (no diag scaffolding)
+}
+
 // P6.5b2: per-frame tick, registered as a jo callback by main.c (the diag
 // build's only callback -- the park keeps the hand-port out). Advances the
 // REAL Ring animator with the engine's own ProcessAnimation and re-emits the
@@ -2743,6 +2786,18 @@ static void p6_ghz_reload(void)
 
 extern "C" void p6_scene_tick(void)
 {
+    // P6.8 Step B (Task #211): the LEAN shipping boot has no legacy-Ring proof
+    // and no deferred 260-frame switch. On its FIRST live tick -- vblank active,
+    // interrupts unmasked: the EXACT conditions the diag's deferred reload runs
+    // under -- re-load GHZ and arm the continuous loop, then run the first GHZ
+    // frame. Subsequent ticks take the armed fast path below. Gated on
+    // p6_lean_boot so the diag tick is unchanged.
+    if (p6_lean_boot && !p6_ghz_continuous_armed) {
+        p6_ghz_reload();
+        if (p6_ghz_continuous_armed)
+            p6_ghz_frame();
+        return;
+    }
     // P6.8 Step A (Task #211): once GHZ is the final live scene, drive the
     // engine GHZ frame every jo frame and RETURN -- the legacy Ring block is
     // skipped while armed (it stays reachable for the pre-switch legacy frames

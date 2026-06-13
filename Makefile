@@ -95,6 +95,12 @@ JO_GLOBAL_MEMORY_SIZE_FOR_MALLOC = 262144
 ifeq ($(P6SCENE),1)
 JO_GLOBAL_MEMORY_SIZE_FOR_MALLOC = 32768
 endif
+# P6.8 Step B (Task #211): the lean engine SHIPPING flavor uses the SAME 32 KB
+# engine-flavor pool as P6SCENE (the P6 load path runs through GFS windows /
+# LWRAM / fixed windows, not jo_malloc).
+ifeq ($(P6_ENGINE_SHIPPING),1)
+JO_GLOBAL_MEMORY_SIZE_FOR_MALLOC = 32768
+endif
 
 # --- QA build flag ---
 # `make QA_MODE=1` compiles main.c with -DQA_MODE so the title screen holds
@@ -168,6 +174,23 @@ endif
 # Gate: tools/_portspike/qa_p6_scene.py.
 ifeq ($(P6SCENE),1)
 CCFLAGS += -DP6SCENE_HOOK
+LIBS += tools/_portspike/_p6/p6_scene_pack.o
+endif
+
+# P6.8 Step B (Task #211): the verbatim engine becomes the SHIPPING boot.
+# `make P6_ENGINE_SHIPPING=1` defines P6_ENGINE_SHIPPING (main.c boots
+# p6_engine_boot_and_run() instead of parking at the diag proof or the
+# hand-port) and links the SAME pre-gc'd engine pack p6_scene_pack.o as P6SCENE
+# -- the pack now exports the lean boot entry (build_p6scene_objs.sh -u root).
+# The lean boot runs the masked load core (InitStorage..LoadGameConfig + staged
+# sheets/bands/anim-pack + audio) then drives GHZ continuously via p6_scene_tick;
+# no diagnostic burst / Title reload / legacy Ring. Same position as the P6SCENE
+# block so the pack PRECEDES LIBCD.A/-lgcc/-lc. P6_ENGINE_SHIPPING / P6SCENE /
+# P6IO are mutually exclusive (shared intermediate .o paths). Unset (the default
+# `make` hand-port build) skips this entirely.
+# Gate: tools/_portspike/qa_p6_shipping.py.
+ifeq ($(P6_ENGINE_SHIPPING),1)
+CCFLAGS += -DP6_ENGINE_SHIPPING
 LIBS += tools/_portspike/_p6/p6_scene_pack.o
 endif
 
@@ -245,6 +268,16 @@ SRCS = src/main.c src/rsdk/storage.c \
        tools/_portspike/_p6/p6_handport_stubs.c
 endif
 
+# P6.8 Step B (Task #211): the lean SHIPPING flavor links the SAME lean SRCS as
+# the diag (main.c + storage.c + the hand-port stub TU) -- the pack's only src/
+# import is rsdk_storage_load_to_lwram, and the hand-port game sources stay out
+# (their used-attribute atlas globals would breach the WRAM-H floor). The full
+# hand-port SRCS list above ships only in the default `make`.
+ifeq ($(P6_ENGINE_SHIPPING),1)
+SRCS = src/main.c src/rsdk/storage.c \
+       tools/_portspike/_p6/p6_handport_stubs.c
+endif
+
 # P6.5b2 (Task #208): the VDP1 sprite half of the engine proof compiles
 # INSIDE this make (appended AFTER the SRCS = assignment above -- an earlier
 # `SRCS +=` would be wiped) so it sees the project's exact jo configuration
@@ -254,6 +287,14 @@ ifeq ($(P6SCENE),1)
 SRCS += tools/_portspike/_p6/p6_vdp1.c
 # P6.6b (Task #209): the SCSP playback half -- routes the engine-converted
 # S16 buffer through jo_audio_play_sound (jo.h-dependent, same rule as above).
+SRCS += tools/_portspike/_p6/p6_snd.c
+endif
+
+# P6.8 Step B (Task #211): the lean SHIPPING flavor compiles the SAME jo-config-
+# dependent VDP1 sprite + SCSP halves inside the jo make as P6SCENE (jo/jo.h
+# struct layouts depend on the project's flags -- the FR-2 #189 clobber rule).
+ifeq ($(P6_ENGINE_SHIPPING),1)
+SRCS += tools/_portspike/_p6/p6_vdp1.c
 SRCS += tools/_portspike/_p6/p6_snd.c
 endif
 
