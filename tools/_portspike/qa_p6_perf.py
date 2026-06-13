@@ -56,7 +56,9 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         "_p6_w_perf_vbl_input", "_p6_w_perf_vbl_obj", "_p6_w_perf_vbl_draw",
         "_p6_w_perf_vbl_present",
         "_p6_w_present_vbl_walk", "_p6_w_present_vbl_map",
-        "_p6_w_present_vbl_hash", "_p6_w_present_refills"]
+        "_p6_w_present_vbl_hash", "_p6_w_present_refills",
+        "_p6_w_obj_inrange", "_p6_w_obj_topclass", "_p6_w_obj_topcount",
+        "_p6_w_obj_classcnt"]
 
 
 def main(argv):
@@ -207,6 +209,23 @@ def main(argv):
                   % (pm, pm * VBL_MS))
             print("    sec4 witness hash+count      : %4s vbl %8.1f ms  "
                   "(DIAGNOSTIC-only -- droppable in shipping)" % (ph_, ph_ * VBL_MS))
+        # Phase 2d: ProcessObjects sub-attribution by in-range entity population.
+        inr = v.get("_p6_w_obj_inrange"); topc = v.get("_p6_w_obj_topclass")
+        topn = v.get("_p6_w_obj_topcount"); dcnt = v.get("_p6_w_obj_classcnt")
+        if inr is not None:
+            # vblank-authoritative ProcessObjects ms (vo = vblanks, NOT FRT ticks)
+            obj_ms = (vo or 0) * VBL_MS
+            per = (obj_ms / inr) if inr else 0.0
+            print("  --- ProcessObjects population (%.0f ms; #2 target) ----------"
+                  % obj_ms)
+            print("    in-range entities : %s  (%.2f ms each over %s distinct "
+                  "classes)" % (inr, per, dcnt))
+            print("    dominant class    : classID&0xFF=%s  x%s in-range" % (topc, topn))
+            if inr and inr <= 60:
+                print("    -> FEW entities, high per-entity cost: a heavy class "
+                      "(Player collision?) -- targeted-win territory.")
+            elif inr:
+                print("    -> MANY entities: count-dominated -> culling / dual-SH2.")
         print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
               % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
     else:

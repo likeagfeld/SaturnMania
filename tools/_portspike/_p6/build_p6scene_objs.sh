@@ -285,6 +285,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_perf_vbl_present \
     -u _p6_w_present_vbl_walk -u _p6_w_present_vbl_map \
     -u _p6_w_present_vbl_hash -u _p6_w_present_refills \
+    -u _p6_w_obj_inrange -u _p6_w_obj_topclass -u _p6_w_obj_topcount \
+    -u _p6_w_obj_classcnt \
     -u _p6_w_magic \
     -u _p6_bridge_proc_anim -u _p6_bridge_draw_sprite -u _p6_scene_entity \
     -u _p6_w_obj_classid -u _p6_w_obj_timer -u _p6_w_obj_vely \

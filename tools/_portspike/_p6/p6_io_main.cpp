@@ -625,6 +625,15 @@ __attribute__((used)) int32 p6_w_perf_vbl_input   = 0;  // ProcessInput vblanks
 __attribute__((used)) int32 p6_w_perf_vbl_obj     = 0;  // ProcessObjects vblanks
 __attribute__((used)) int32 p6_w_perf_vbl_draw    = 0;  // ProcessObjectDrawLists vblanks
 __attribute__((used)) int32 p6_w_perf_vbl_present = 0;  // present vblanks
+// Phase 2d census (Task #211): the in-range entity POPULATION after
+// ProcessObjects (the engine set entity->inRange). NON-INVASIVE -- read from the
+// pack, no verbatim-engine edit. ProcessObjects_ms / inrange discriminates "few
+// heavy entities (Player collision -> targeted win)" from "many entities (->
+// culling / dual-SH2)". topclass = the classID with the most in-range entities.
+__attribute__((used)) int32 p6_w_obj_inrange   = 0;  // total inRange entities
+__attribute__((used)) int32 p6_w_obj_topclass  = -1; // classID with the most in-range
+__attribute__((used)) int32 p6_w_obj_topcount  = 0;  // count of that class
+__attribute__((used)) int32 p6_w_obj_classcnt  = 0;  // distinct in-range classes
 static unsigned int p6_perf_vbl_prev = 0;               // vblank tally at the previous frame END
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
 // post-hoc capture lands after the later Title pass, whose STG dataset clear
@@ -1588,6 +1597,27 @@ static void p6_ghz_frame(void)
     p6_w_perf_cyc_present = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_present = (int32)(vb1 - vb0);
     p6_w_perf_cyc_total   = p6_w_perf_cyc_input + p6_w_perf_cyc_obj
                           + p6_w_perf_cyc_draw + p6_w_perf_cyc_present;
+
+    // Phase 2d census: in-range entity population by class (read-only engine
+    // state; the histogram is local + the loop is ~1216 cheap reads << 1 vbl).
+    {
+        static int16 census[256];
+        int32 i, total = 0, distinct = 0, topc = -1, topn = 0;
+        for (i = 0; i < 256; ++i) census[i] = 0;
+        for (i = 0; i < ENTITY_COUNT; ++i) {
+            EntityBase *e = RSDK_ENTITY_AT(i);
+            if (e->classID && e->inRange) {
+                ++total;
+                uint16 cid = e->classID & 0xFF;
+                if (census[cid] == 0) ++distinct;
+                if (++census[cid] > topn) { topn = census[cid]; topc = (int32)cid; }
+            }
+        }
+        p6_w_obj_inrange  = total;
+        p6_w_obj_topclass = topc;
+        p6_w_obj_topcount = topn;
+        p6_w_obj_classcnt = distinct;
+    }
 
     ++p6_w_cont_frames;
 
