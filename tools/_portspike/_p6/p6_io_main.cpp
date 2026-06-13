@@ -604,7 +604,24 @@ __attribute__((used)) int32 p6_w_perf_cyc_draw    = 0;  // last-frame ProcessObj
 __attribute__((used)) int32 p6_w_perf_cyc_present = 0;  // last-frame present FRC ticks
 __attribute__((used)) int32 p6_w_perf_cyc_total   = 0;  // sum of the four sections
 __attribute__((used)) int32 p6_w_perf_cks         = -1; // FRT divider select (0=/8,1=/32,2=/128)
-static unsigned int p6_perf_vbl_prev = 0;               // vblank tally at the previous frame
+// Phase 2a attribution: split the per-frame true-vblank slip into the engine
+// work INSIDE p6_ghz_frame vs the jo_core_run loop body OUTSIDE it (dominated by
+// slSynch -- SGL sort-list build + VDP1 command transfer + VDP1-draw/vblank
+// wait; the loop has only jo_vdp1_buffer_reset+slUnitMatrix+the callback besides
+// slSynch, core.c:591-641). Measured purely from p6_ghz_frame's own start/end
+// vblank reads -- no jo-engine edit. Confirms whether the 91% is slSynch.
+__attribute__((used)) int32 p6_w_perf_vbl_frame   = 0;  // vblanks consumed inside p6_ghz_frame
+__attribute__((used)) int32 p6_w_perf_vbl_jo      = 0;  // vblanks in the jo loop body (~slSynch)
+__attribute__((used)) int32 p6_w_perf_vbl_jo_max  = 0;  // worst jo-loop (slSynch) slip
+// Phase 2b: per-section VBLANK deltas (overflow-immune). The FRT /32 wraps at
+// 78 ms, so the FRC per-section deltas UNDERCOUNT any section that exceeds that
+// (multi-wrap); the vbl_frame=77 vs cyc-sum=7 reconciliation proved one section
+// is huge. These vblank counters find WHICH section is the real 1.3s.
+__attribute__((used)) int32 p6_w_perf_vbl_input   = 0;  // ProcessInput vblanks
+__attribute__((used)) int32 p6_w_perf_vbl_obj     = 0;  // ProcessObjects vblanks
+__attribute__((used)) int32 p6_w_perf_vbl_draw    = 0;  // ProcessObjectDrawLists vblanks
+__attribute__((used)) int32 p6_w_perf_vbl_present = 0;  // present vblanks
+static unsigned int p6_perf_vbl_prev = 0;               // vblank tally at the previous frame END
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
 // post-hoc capture lands after the later Title pass, whose STG dataset clear
 // NULLs every tracked staticVars pointer (MEASURED p6_f8: Player/Zone/Camera
@@ -1522,22 +1539,35 @@ static void p6_ghz_arm_env(void)
 static void p6_ghz_frame(void)
 {
     unsigned short t0, t1;
+    // Phase 2a: vblanks consumed in the jo loop body since the last frame ended
+    // (slSynch + the loop's buffer_reset/unitmatrix) -- read BEFORE any work.
+    unsigned int vbl_frame_start = p6_perf_vbl_count;
+    {
+        int32 jo_gap = (int32)(vbl_frame_start - p6_perf_vbl_prev);
+        p6_w_perf_vbl_jo = jo_gap;
+        if (jo_gap > p6_w_perf_vbl_jo_max)
+            p6_w_perf_vbl_jo_max = jo_gap;
+    }
     currentScreen = &screens[0];
     for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
         engine.drawGroupVisible[g] = true;
 
-    // Per-section FRC-tick attribution (read-only FRT; us conversion at the gate
-    // using p6_w_perf_cks). Each section bracketed independently.
-    t0 = p6_perf_frt_get(); ProcessInput();            t1 = p6_perf_frt_get();
-    p6_w_perf_cyc_input   = P6_FRT_DELTA(t0, t1);
-    t0 = p6_perf_frt_get(); ProcessObjects();          t1 = p6_perf_frt_get();
-    p6_w_perf_cyc_obj     = P6_FRT_DELTA(t0, t1);
-    t0 = p6_perf_frt_get(); ProcessObjectDrawLists();  t1 = p6_perf_frt_get();
-    p6_w_perf_cyc_draw    = P6_FRT_DELTA(t0, t1);
+    // Per-section attribution: FRT (sub-78ms precision) + VBLANK (overflow-immune
+    // for >78ms sections -- the real discriminator). vb0/vb1 = true-60Hz tally.
+    unsigned int vb0, vb1;
+    vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessInput();
+    t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
+    p6_w_perf_cyc_input = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_input = (int32)(vb1 - vb0);
+    vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjects();
+    t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
+    p6_w_perf_cyc_obj = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_obj = (int32)(vb1 - vb0);
+    vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjectDrawLists();
+    t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
+    p6_w_perf_cyc_draw = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_draw = (int32)(vb1 - vb0);
 
     // W16 camera-anchored FG present (FG Low, layer 3), tracking the live
     // camera-driven screens[0].position.
-    t0 = p6_perf_frt_get();
+    vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get();
     {
         unsigned int ph = 0;
         int nb = 0;
@@ -1547,8 +1577,8 @@ static void p6_ghz_frame(void)
                                    (const unsigned short *)fullPalette[0],
                                    &ph, &nb);
     }
-    t1 = p6_perf_frt_get();
-    p6_w_perf_cyc_present = P6_FRT_DELTA(t0, t1);
+    t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
+    p6_w_perf_cyc_present = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_present = (int32)(vb1 - vb0);
     p6_w_perf_cyc_total   = p6_w_perf_cyc_input + p6_w_perf_cyc_obj
                           + p6_w_perf_cyc_draw + p6_w_perf_cyc_present;
 
@@ -1559,6 +1589,7 @@ static void p6_ghz_frame(void)
     {
         unsigned int vnow = p6_perf_vbl_count;
         int32 slip = (int32)(vnow - p6_perf_vbl_prev);
+        p6_w_perf_vbl_frame = (int32)(vnow - vbl_frame_start); // engine work this frame
         p6_perf_vbl_prev = vnow;
         p6_w_perf_vblanks = (int32)vnow;
         p6_w_perf_frames  = p6_w_cont_frames;

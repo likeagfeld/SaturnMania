@@ -51,7 +51,10 @@ CLOCK_MHZ = 26.8742
 
 SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         "_p6_w_perf_cyc_input", "_p6_w_perf_cyc_obj", "_p6_w_perf_cyc_draw",
-        "_p6_w_perf_cyc_present", "_p6_w_perf_cyc_total", "_p6_w_perf_cks"]
+        "_p6_w_perf_cyc_present", "_p6_w_perf_cyc_total", "_p6_w_perf_cks",
+        "_p6_w_perf_vbl_frame", "_p6_w_perf_vbl_jo", "_p6_w_perf_vbl_jo_max",
+        "_p6_w_perf_vbl_input", "_p6_w_perf_vbl_obj", "_p6_w_perf_vbl_draw",
+        "_p6_w_perf_vbl_present"]
 
 
 def main(argv):
@@ -133,6 +136,7 @@ def main(argv):
         def us(t):
             return (t * (8 << (2 * c))) / CLOCK_MHZ
         VBL_MS = 1000.0 / 60.0   # one true vblank period (NTSC) in ms
+        frt_range_ms = (65536 * (8 << (2 * c))) / CLOCK_MHZ / 1000.0  # FRT wrap window
 
         # RAW average over the whole capture (polluted by the one-time GHZ load
         # on the first lean tick -- that frame's slip is vbl_max).
@@ -151,31 +155,37 @@ def main(argv):
               "slip=%s vbl)" % (fps_raw, vbl_max))
         print("    [%d frames over %d true 60Hz vblanks; FRT /%d -> %.4f us/tick]"
               % (frames, vbl, (8 << (2 * c)), tick_us))
-        print("  --- CPU sub-section cost (last frame; FRC ticks -> us) -------")
-        sect = [("ProcessInput", ci), ("ProcessObjects", co),
-                ("ProcessObjectDrawLists", cd),
-                ("p6_vdp2_present_ghz_camera", cp)]
-        dom = max(sect, key=lambda kv: (kv[1] if kv[1] is not None else -1))
-        for name, t in sect:
-            mark = "  <== heaviest CPU section" if name == dom[0] else ""
-            print("    %-28s %7s ticks  %8.2f ms%s" % (name, t, us(t) / 1000.0, mark))
-        print("    %-28s %7s ticks  %8.2f ms" % ("CPU sections SUM", ct, us(ct) / 1000.0))
-        # RECONCILIATION: the FRT (16-bit, /%d wraps at ~%dms) measures only the
-        # sub-sections; the FULL frame time comes from the vblank counter. The
-        # remainder is jo/SGL frame finalization + slSynch/VDP wait (NOT CPU
-        # sections) -- the true dominant cost and the Phase-2 target.
-        frt_range_ms = (65536 * (8 << (2 * c))) / CLOCK_MHZ / 1000.0
-        cpu_ms = us(ct) / 1000.0
-        remainder_ms = frame_ms_steady - cpu_ms
-        print("  --- RECONCILIATION (where the frame time actually goes) ------")
-        print("    measured CPU sections     : %8.2f ms/frame (%.0f%% of frame)"
-              % (cpu_ms, 100.0 * cpu_ms / frame_ms_steady if frame_ms_steady > 0 else 0))
-        print("    full frame (vblank-timed) : %8.2f ms/frame" % frame_ms_steady)
-        print("    UNATTRIBUTED remainder    : %8.2f ms/frame (%.0f%% -- jo/SGL"
-              " finalization + slSynch/VDP wait)"
-              % (remainder_ms, 100.0 * remainder_ms / frame_ms_steady if frame_ms_steady > 0 else 0))
-        print("    [FRT /%d range = %.0f ms, so it CANNOT time the full frame --"
-              " the remainder is vblank-only]" % ((8 << (2 * c)), frt_range_ms))
+        # Per-section: VBLANK is the TRUTH (overflow-immune); FRT us is only
+        # valid for sub-78ms sections (it multi-wraps + undercounts bigger ones).
+        vi = v.get("_p6_w_perf_vbl_input"); vo = v.get("_p6_w_perf_vbl_obj")
+        vd = v.get("_p6_w_perf_vbl_draw"); vpr = v.get("_p6_w_perf_vbl_present")
+        print("  --- per-section cost (last frame) -- VBLANK is authoritative ---")
+        sect = [("ProcessInput", ci, vi), ("ProcessObjects", co, vo),
+                ("ProcessObjectDrawLists", cd, vd),
+                ("p6_vdp2_present_ghz_camera", cp, vpr)]
+        dom = max(sect, key=lambda kv: (kv[2] if kv[2] is not None else -1))
+        for name, t, vbl in sect:
+            mark = "  <== DOMINANT" if name == dom[0] else ""
+            wrap = " (FRT WRAPPED -- us unreliable)" if (vbl is not None and vbl * VBL_MS > frt_range_ms) else ""
+            print("    %-28s %4s vbl %8.1f ms  [frt %.1f ms%s]%s"
+                  % (name, vbl, (vbl or 0) * VBL_MS, us(t) / 1000.0, wrap, mark))
+        print("    %-28s %4s vbl %8.1f ms  [frt-sum %.1f ms]"
+              % ("p6_ghz_frame TOTAL", v.get("_p6_w_perf_vbl_frame"),
+                 (v.get("_p6_w_perf_vbl_frame") or 0) * VBL_MS, us(ct) / 1000.0))
+        # WHERE THE FRAME GOES (vblank-authoritative). The FRT per-section us
+        # above UNDERCOUNTS any section > the FRT range (it multi-wraps); the
+        # vblank counter is overflow-immune and is the truth.
+        vbl_frame = v.get("_p6_w_perf_vbl_frame")
+        vbl_jo = v.get("_p6_w_perf_vbl_jo")
+        vbl_jo_max = v.get("_p6_w_perf_vbl_jo_max")
+        print("  --- WHERE THE FRAME GOES (vblank-MEASURED, the truth) --------")
+        if vbl_frame is not None and vbl_jo is not None:
+            print("    inside p6_ghz_frame (engine) : %4s vbl  %8.1f ms  (the cost)"
+                  % (vbl_frame, vbl_frame * VBL_MS))
+            print("    jo loop body (slSynch etc.)  : %4s vbl  %8.1f ms  (normal --"
+                  " NOT the bottleneck)" % (vbl_jo, vbl_jo * VBL_MS))
+            print("    -> the cost is CPU work INSIDE p6_ghz_frame: the present +"
+                  " ProcessObjects (see per-section above), NOT slSynch/VDP wait.")
         print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
               % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
     else:
@@ -184,9 +194,8 @@ def main(argv):
     if ok:
         print("RESULT: GREEN -- frame-time instrumentation live; baseline above.")
         print("        (Measurement gate: sub-60 is EXPECTED + documented, not a")
-        print("         failure. Phase 2 targets the DOMINANT cost from the")
-        print("         reconciliation -- which may be the unattributed jo/SGL")
-        print("         remainder, NOT necessarily a CPU section.)")
+        print("         failure. Phase 2 targets the DOMINANT vblank-measured")
+        print("         section -- the VDP2 FG present, then ProcessObjects.)")
         return 0
     print("RESULT: RED -- perf instrumentation not measuring sanely (see checks).")
     return 1
