@@ -441,6 +441,11 @@ __attribute__((used)) int32 p6_w_draw_calls   = 0;  // FX_NONE dispatches comple
 __attribute__((used)) int32 p6_w_draw_xy      = 0;  // last blit top-left (x&FFFF)<<16|(y&FFFF)
 __attribute__((used)) int32 p6_w_draw_rect    = 0;  // last blit (sprX<<16)|sprY
 __attribute__((used)) int32 p6_w_draw_sheetid = -1; // last blit frame->sheetID
+// W18 (Task #227): per-sheetID DROP histogram -- counts DrawSprite blits
+// whose surface handle is < 0 (unbound), bucketed by frame->sheetID (0..15).
+// Names exactly which entity classes' surfaces are unbound. RED: rings/
+// other-classes' buckets nonzero; the fix zeroes the targeted bucket.
+__attribute__((used)) int32 p6_w_dropbysheet[16] = { 0 };
 // P6.6a (Task #209, qa_p6_sfx.py): engine audio-core witnesses.
 __attribute__((used)) int32 p6_w_sfx_inited   = 0;  // AudioDeviceBase::initializedAudioChannels
 __attribute__((used)) int32 p6_w_sfx_musbuf   = 0;  // stream-slot buffer alloc'd (DATASET_MUS)
@@ -520,6 +525,35 @@ __attribute__((used)) int32 p6_w_plr_drawflags  = -1; // (drawGroup<<16)|(visibl
 __attribute__((used)) int32 p6_w_bind_count     = 0;  // successful VDP1 binds in the GHZ pre-tick loop
 __attribute__((used)) int32 p6_w_bind_log[8]    = { 0 }; // (surfaceId<<8)|(handle&0xFF) per bind attempt
 __attribute__((used)) int32 p6_w_bind_logn      = 0;
+// W18 (Task #227, qa_p6_entdraw.py): the SURFACE CENSUS taken right after the
+// GHZ pre-tick bind loop -- proves WHICH surfaces exist + their bind state.
+// surfcensus[i] = (scope<<24)|(hasPixels<<16)|((shtSlot&0xFF)<<8)|(handle&0xFF)
+// for surface i; surfpop = count of scope!=NONE surfaces. The Items/ring
+// surface is the one with shtSlot>=0,pixels==0 -- RED if its handle == 0xFF.
+__attribute__((used)) int32 p6_w_surfcensus[16] = { 0 };
+__attribute__((used)) int32 p6_w_surfpop        = 0;
+// W18: the Items.gif surface index after the GHZ load (LoadSpriteSheet hash
+// resolve) and its bound handle. RED: itemsurf < 0 (never loaded). GREEN:
+// itemsurf >= 0 AND itemshandle >= 0 (banded slot bound).
+__attribute__((used)) int32 p6_w_itemsurf       = -1;
+__attribute__((used)) int32 p6_w_itemshandle    = -2;
+// W18 diag: the first hash word of surfaces 0/5/8 (the dropping classes) so
+// the gate can name them offline against the candidate sprite-path MD5s.
+__attribute__((used)) int32 p6_w_surfhash[16]   = { 0 };
+// W18 FIX (Task #227): GHZ Ring sprite-load + ring-arm witnesses.
+// ringspr = the Items.gif surface id from the GHZ sheet-only LoadSpriteSheet;
+// ringsheet = its resolved saturnSheetSlot (the staged ITEMS.SHT, >=0 GREEN);
+// ringsheethandle = its bound VDP1 handle (>=0 GREEN -- the ring SURFACE binds).
+// ringsarmed = count of GHZ scene Ring entities armed with anim frames.
+// DECLARED GAP (stays 0): the rings are NOT armed here -- arming needs
+// Ring.bin's animation resident, which overflows the DATASET_STG pool
+// (p6_saturn_anim_allocfail 0->1, also regresses qa_p6_player P7). The rings
+// therefore issue ZERO blits in this pass (Ring_Create NULL -> no frames);
+// "ring blits land" is blocked on that separate STG-residency budget item.
+__attribute__((used)) int32 p6_w_ringspr        = -1;
+__attribute__((used)) int32 p6_w_ringsheet      = -1;
+__attribute__((used)) int32 p6_w_ringsheethandle = -2;
+__attribute__((used)) int32 p6_w_ringsarmed     = 0;
 __attribute__((used)) int32 p6_w_plr_sheetid_t  = -1; // Player frame's sheetID after the ticks (GetFrame, stride-safe)
 __attribute__((used)) int32 p6_w_plr_handle     = -2; // p6_vdp1HandleBySurface[that sheetID]
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
@@ -769,6 +803,11 @@ static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
         || y + frame->height <= currentScreen->clipBound_Y1 || y >= currentScreen->clipBound_Y2)
         return;
     validDraw = true;
+    {
+        int32 hh = p6_vdp1HandlesInit ? p6_vdp1HandleBySurface[frame->sheetID] : -1;
+        if (hh < 0 && frame->sheetID < 16)
+            ++p6_w_dropbysheet[frame->sheetID]; /* W18 unbound-surface drop histogram */
+    }
     p6_vdp1_blit_flipped(p6_vdp1HandlesInit ? p6_vdp1HandleBySurface[frame->sheetID] : -1,
                          x, y, frame->width, frame->height, frame->sprX, frame->sprY,
                          (dir & FLIP_X) ? 1 : 0, (dir & FLIP_Y) ? 1 : 0);
@@ -1871,6 +1910,31 @@ extern "C" void p6_scene_run(void)
                         p6_vdp1HandleBySurface[i] = -1;
                     p6_vdp1HandlesInit = true;
                 }
+
+                // W18 FIX (Task #227): the GHZ scene's Ring entities draw the
+                // Global/Items.gif sheet, but the overlay Ring registers a NULL
+                // Create + StageLoad (p6_ovl_register_object:1047-1049), so the
+                // GHZ InitObjects chain never loads it -> Items.gif gets no
+                // gfxSurface entry -> the bind loop below cannot bind it.
+                // Populate the Items.gif surface HERE with a SHEET-ONLY load
+                // (RSDK.LoadSpriteSheet, NOT LoadSpriteAnimation): it allocates
+                // a gfxSurface slot and resolves the already-staged ITEMS.SHT
+                // banded slot (W12a; SaturnSheet_FindSlot by path hash ->
+                // saturnSheetSlot set, Sprite.cpp:949-967) WITHOUT touching the
+                // DATASET_STG anim pool. MEASURED-WHY sheet-only: the full
+                // LoadSpriteAnimation("Global/Ring.bin") overflows the GHZ anim
+                // pool after the Player closure StageLoads (p6_saturn_anim_-
+                // allocfail 0 -> 1) -- that both fails to load AND regresses
+                // qa_p6_player P7 (allocfail==0). The bind loop below then binds
+                // the Items surface (saturnSheetSlot 3 -> banded handle >= 0).
+                {
+                    int32 rsurf =
+                        (int32)(int16)LoadSpriteSheet("Global/Items.gif", SCOPE_STAGE);
+                    p6_w_ringspr   = rsurf; // reuse the witness as the Items surf id
+                    if (rsurf >= 0 && rsurf < SURFACE_COUNT)
+                        p6_w_ringsheet = (int32)gfxSurface[rsurf].saturnSheetSlot;
+                }
+
                 for (int32 i = 0; i < SURFACE_COUNT; ++i) {
                     GFXSurface *sf = &gfxSurface[i];
                     if (sf->scope == SCOPE_NONE || p6_vdp1HandleBySurface[i] >= 0)
@@ -1889,6 +1953,46 @@ extern "C" void p6_scene_run(void)
                         ++p6_w_bind_count;
                     if (p6_w_bind_logn < 8)
                         p6_w_bind_log[p6_w_bind_logn++] = (i << 8) | (h & 0xFF);
+                }
+
+                // W18: surface census + Items.gif resolve. LoadSpriteSheet
+                // returns the EXISTING surface index for an already-loaded
+                // sheet (Sprite.cpp:917-921 hash match) without re-loading --
+                // so this is a pure lookup of whether the GHZ load populated
+                // an Items.gif surface at all (RED: returns a fresh/none slot).
+                {
+                    int32 pop = 0;
+                    for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+                        GFXSurface *sf = &gfxSurface[i];
+                        if (sf->scope == SCOPE_NONE)
+                            continue;
+                        ++pop;
+                        if (i < 16) {
+                            p6_w_surfcensus[i] =
+                                ((int32)sf->scope << 24)
+                                | ((sf->pixels ? 1 : 0) << 16)
+                                | (((int32)sf->saturnSheetSlot & 0xFF) << 8)
+                                | ((int32)p6_vdp1HandleBySurface[i] & 0xFF);
+                            p6_w_surfhash[i] = (int32)sf->hash[0];
+                        }
+                    }
+                    p6_w_surfpop = pop;
+                    int32 isurf = (int32)(int16)LoadSpriteSheet("Global/Items.gif", SCOPE_STAGE);
+                    p6_w_itemsurf = isurf;
+                    p6_w_ringsheethandle =
+                        (isurf >= 0 && isurf < SURFACE_COUNT)
+                            ? (int32)p6_vdp1HandleBySurface[isurf] : -3;
+                    if (isurf >= 0 && isurf < SURFACE_COUNT) {
+                        p6_w_itemshandle = (int32)p6_vdp1HandleBySurface[isurf];
+                        // (scope<<24)|(hasPx<<16)|(shtSlot&0xFF)<<8|handle: proves
+                        // whether the banded ITEMS.SHT slot resolved on load.
+                        GFXSurface *isf = &gfxSurface[isurf];
+                        p6_w_itemsurf =
+                            (isurf << 24)
+                            | ((isf->pixels ? 1 : 0) << 16)
+                            | (((int32)isf->saturnSheetSlot & 0xFF) << 8)
+                            | ((int32)p6_vdp1HandleBySurface[isurf] & 0xFF);
+                    }
                 }
 
                 int32 slots0 = p6_w_vdp1_slots;

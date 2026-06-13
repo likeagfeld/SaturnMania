@@ -51,6 +51,16 @@ __attribute__((used)) int p6_w_vdp1_lastkey = 0;
 __attribute__((used)) int p6_w_vdp1_drops = 0;
 /* W14: jo_sprite_add_8bits_image failures (the silent no-drop exit). */
 __attribute__((used)) int p6_w_vdp1_joaddfail = 0;
+/* W18 (Task #227, qa_p6_entdraw.py): the UNBOUND-SURFACE silent drop. A
+ * DrawSprite blit whose surface never bound (handle < 0) returned early
+ * WITHOUT counting (the dominant ~5944 unrendered ring/entity blits/run);
+ * landed = blits that reached a valid VDP1 slot (handle >= 0, slot cached).
+ * Both counted across BOTH blit arms so the gate witnesses the bind+blit. */
+__attribute__((used)) int p6_w_vdp1_handle_drops = 0;
+__attribute__((used)) int p6_w_vdp1_landed       = 0;
+/* W18: the LAST handle passed to a dropped blit (== -1 for unbound surface;
+ * identifies whether the drop was unbound vs slot-cache exhaustion). */
+__attribute__((used)) int p6_w_vdp1_lastdrop_h   = -2;
 
 /* W12b: MULTI-SHEET bind table. A handle indexes this table; resident
  * sheets carry their engine surface pixels, banded sheets carry the
@@ -214,12 +224,16 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
 {
     int slot, padw;
 
-    if (sheet < 0 || sheet >= s_sheet_count)
+    if (sheet < 0 || sheet >= s_sheet_count) {
+        ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
+        p6_w_vdp1_lastdrop_h = sheet;
         return;
+    }
     slot = p6_slot_for(sheet, sx, sy, w, h);
     if (slot < 0)
         return;
 
+    ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
     padw = (w + 7) & ~7;
     jo_sprite_set_palette(1);
     jo_sprite_draw3D(s_slots[slot].jo_id,
@@ -241,12 +255,16 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
 {
     int slot, padw;
 
-    if (sheet < 0 || sheet >= s_sheet_count)
+    if (sheet < 0 || sheet >= s_sheet_count) {
+        ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
+        p6_w_vdp1_lastdrop_h = sheet;
         return;
+    }
     slot = p6_slot_for(sheet, sx, sy, w, h);
     if (slot < 0)
         return;
 
+    ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
     padw = (w + 7) & ~7;
     jo_sprite_set_palette(1);
     if (flipX)
