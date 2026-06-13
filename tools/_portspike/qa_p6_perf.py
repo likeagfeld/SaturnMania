@@ -127,6 +127,12 @@ def main(argv):
     prf = v.get("_p6_w_present_refills")
     pvp = v.get("_p6_w_perf_vbl_present")
     m4 = (prf is not None and prf == 0 and pvp is not None and pvp <= 3)
+    # M5 (Phase 2g don't-regress): the COLLISION path must do ZERO SaturnLayout
+    # inflates on the settled frame. RED on the pre-2g build (4 refills/frame --
+    # the Player's two stable sensor bands ping-ponged a single window); GREEN
+    # once the N-way window cache lets the two positions co-reside and SWAP.
+    objr = v.get("_p6_w_obj_refills")
+    m5 = (objr is not None and objr == 0)
 
     checks = [
         ("M2 instrumentation measuring (frames>0, vblanks>0, cyc_total>0)", m2,
@@ -135,6 +141,8 @@ def main(argv):
          "vbl_max=%s cks=%s" % (vbl_max, cks)),
         ("M4 present static-map CACHED (0 inflates, present<=3 vbl/frame)", m4,
          "present_refills=%s present=%s vbl/frame" % (prf, pvp)),
+        ("M5 collision window CACHED (0 ProcessObjects inflates/frame)", m5,
+         "obj_refills=%s" % (objr,)),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:

@@ -30,12 +30,24 @@ typedef unsigned int uint32;
 typedef signed int int32;
 
 #define SATURNLAYOUT_SLOTS    2
-#define SATURNLAYOUT_WIN_COLS 128
+#define SATURNLAYOUT_WIN_COLS 64
 #define SATURNLAYOUT_WIN_ROWS 32
 #define SATURNLAYOUT_BANDROWS 16
+// Phase 2g (Task #229): N-WAY window cache per slot. MEASURED root cause of
+// the GHZ collision frame-time hog (583 ms / 3 Player entities): the Player's
+// per-frame sensor reads hit TWO fixed vertical bands on each collidable layer
+// (the ring-of-origins diagnostic showed a STABLE 2-value ping-pong: slot
+// origins alternated wy=51 <-> wy=95 every frame -- feet at ty~59 and a deep
+// read at ty~103, 44 rows apart, exceeding the 32-row window). A single
+// window evicted+re-inflated both bands EVERY frame (4 refills x ~3 bands).
+// A 2-deep window cache lets the two stable positions co-reside and SWAP
+// (active-index flip) instead of re-inflating -> 0 steady-state inflates.
+// Backing budget unchanged: SLOTS*WAYS = 4 windows x 64*32*2 = 4,096 B each
+// = 16,384 B = the exact 0x060F0000..0x060F4000 hole (was 2 x 8,192 B).
+#define SATURNLAYOUT_WAYS     2
 
 // Window backing: the WRAM-H freed-region slack 0x060F0000..0x060F4000
-// (exactly 2 x 8,192 B windows; SaturnMemoryMap.h W11 ledger).
+// (exactly SLOTS*WAYS=4 x 4,096 B windows; SaturnMemoryMap.h W11 ledger).
 #define SATURNLAYOUT_WINBASE 0x060F0000u
 
 struct SaturnLayoutLayer {
@@ -43,10 +55,15 @@ struct SaturnLayoutLayer {
     const uint8 *dir; // 12 B per band: u32 offset, u32 zsize, u32 rawsize
 };
 
-struct SaturnLayoutSlot {
-    int32 layer;   // -1 = unbound
+struct SaturnLayoutWindow {
     int32 wx, wy;  // window origin in tile coords (-1 = empty)
     uint16 *win;   // SATURNLAYOUT_WIN_COLS * SATURNLAYOUT_WIN_ROWS
+};
+
+struct SaturnLayoutSlot {
+    int32 layer;    // -1 = unbound
+    int32 active;   // index of the active way [0..SATURNLAYOUT_WAYS)
+    SaturnLayoutWindow way[SATURNLAYOUT_WAYS];
 };
 
 static const uint8 *s_blob = 0;
@@ -57,6 +74,17 @@ static SaturnLayoutSlot s_slots[SATURNLAYOUT_SLOTS];
 // witnesses (read by qa_p6_layout via game.map)
 extern "C" {
 __attribute__((used)) int32 p6_w_lay_refills = 0;
+// Phase 2g diagnostic: per-slot refill count + a ring of the last 8 refill
+// origins per slot. Read post-hoc at a steady-state (player standing still)
+// capture to discriminate the inflate-thrash mechanism: all-same-origin =
+// frame-persistent waste (skip-if-unchanged fixes it); 2 alternating origins
+// = ping-pong (a 2-band decode cache fixes it); all-distinct = genuine wide
+// scan (needs a larger window or multi-band cache). NOT in any ship gate --
+// pure measurement before the Phase 2g fix selection.
+__attribute__((used)) int32 p6_w_lay_slot_refills[2] = {0, 0};
+__attribute__((used)) int32 p6_w_lay_ring_wx[2][8] = {{0}};
+__attribute__((used)) int32 p6_w_lay_ring_wy[2][8] = {{0}};
+__attribute__((used)) int32 p6_w_lay_ring_pos[2] = {0, 0};
 }
 
 // band-inflate scratch: caller-provided (DATASET_TMP; the zone's largest raw
@@ -107,9 +135,13 @@ extern "C" int32 SaturnLayout_Mount(const void *blob)
     }
     for (int32 s = 0; s < SATURNLAYOUT_SLOTS; ++s) {
         s_slots[s].layer = -1;
-        s_slots[s].wx = s_slots[s].wy = -1;
-        s_slots[s].win = (uint16 *)(SATURNLAYOUT_WINBASE
-                                    + (uint32)s * SATURNLAYOUT_WIN_COLS * SATURNLAYOUT_WIN_ROWS * 2);
+        s_slots[s].active = 0;
+        for (int32 w = 0; w < SATURNLAYOUT_WAYS; ++w) {
+            s_slots[s].way[w].wx = s_slots[s].way[w].wy = -1;
+            s_slots[s].way[w].win = (uint16 *)(SATURNLAYOUT_WINBASE
+                + ((uint32)s * SATURNLAYOUT_WAYS + (uint32)w)
+                      * SATURNLAYOUT_WIN_COLS * SATURNLAYOUT_WIN_ROWS * 2);
+        }
     }
     return s_layerCount;
 }
@@ -119,7 +151,9 @@ extern "C" void SaturnLayout_Bind(int32 slot, int32 layer)
     if (slot < 0 || slot >= SATURNLAYOUT_SLOTS)
         return;
     s_slots[slot].layer = layer;
-    s_slots[slot].wx = s_slots[slot].wy = -1; // force refill
+    s_slots[slot].active = 0;
+    for (int32 w = 0; w < SATURNLAYOUT_WAYS; ++w)
+        s_slots[slot].way[w].wx = s_slots[slot].way[w].wy = -1; // force refill
 }
 
 // Refill the slot's window to origin (wx, wy): inflate each intersecting
@@ -130,9 +164,10 @@ extern "C" void SaturnLayout_Bind(int32 slot, int32 layer)
 // the pack _sbrk; the heap window holds the proven ~44 KB inflate
 // transient) and a static 32 KB raw buffer in .bss would blow WRAM-H. We
 // inflate the band DIRECTLY to a heap buffer via mz_uncompress.
-static void SaturnLayout_Refill(SaturnLayoutSlot *slot, int32 wx, int32 wy)
+static void SaturnLayout_Refill(int32 slotIdx, int32 layerIdx,
+                                SaturnLayoutWindow *slot, int32 wx, int32 wy)
 {
-    const SaturnLayoutLayer *L = &s_layers[slot->layer];
+    const SaturnLayoutLayer *L = &s_layers[layerIdx];
     // clamp origin into the layer
     if (wx < 0) wx = 0;
     if (wy < 0) wy = 0;
@@ -179,6 +214,22 @@ static void SaturnLayout_Refill(SaturnLayoutSlot *slot, int32 wx, int32 wy)
     slot->wx = wx;
     slot->wy = wy;
     ++p6_w_lay_refills;
+    // Phase 2g diagnostic: record this (clamped) origin in the per-slot ring.
+    if (slotIdx >= 0 && slotIdx < SATURNLAYOUT_SLOTS) {
+        int32 p = p6_w_lay_ring_pos[slotIdx] & 7;
+        p6_w_lay_ring_wx[slotIdx][p] = wx;
+        p6_w_lay_ring_wy[slotIdx][p] = wy;
+        p6_w_lay_ring_pos[slotIdx] = p + 1;
+        ++p6_w_lay_slot_refills[slotIdx];
+    }
+}
+
+// True if the (clamped, non-empty) window `w` contains tile (tx,ty).
+static inline int32 SaturnLayout_WindowHas(const SaturnLayoutWindow *w,
+                                           int32 tx, int32 ty)
+{
+    return w->wx >= 0 && tx >= w->wx && tx < w->wx + SATURNLAYOUT_WIN_COLS
+        && ty >= w->wy && ty < w->wy + SATURNLAYOUT_WIN_ROWS;
 }
 
 extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty)
@@ -187,14 +238,33 @@ extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty)
     const SaturnLayoutLayer *L = &s_layers[S->layer];
     if (tx < 0 || ty < 0 || tx >= (int32)L->xsize || ty >= (int32)L->ysize)
         return 0xFFFF; // outside the layer = empty (engine memset default)
-    if (S->wx < 0 || tx < S->wx || tx >= S->wx + SATURNLAYOUT_WIN_COLS
-        || ty < S->wy || ty >= S->wy + SATURNLAYOUT_WIN_ROWS) {
-        // recentre with hysteresis: origin so the probe sits one quarter in
-        SaturnLayout_Refill(S, tx - SATURNLAYOUT_WIN_COLS / 4,
-                            ty - SATURNLAYOUT_WIN_ROWS / 4);
+
+    SaturnLayoutWindow *W = &S->way[S->active];
+    if (!SaturnLayout_WindowHas(W, tx, ty)) {
+        // Phase 2g: probe missed the active way. Search the OTHER ways before
+        // re-inflating -- the Player's two stable sensor bands each live in a
+        // way, so the steady-state miss is a SWAP (no inflate), not a refill.
+        int32 hit = -1;
+        for (int32 w = 0; w < SATURNLAYOUT_WAYS; ++w) {
+            if (w != S->active && SaturnLayout_WindowHas(&S->way[w], tx, ty)) {
+                hit = w;
+                break;
+            }
+        }
+        if (hit < 0) {
+            // genuine miss: evict the non-active way (keep the just-used one),
+            // refill it centred on the probe (probe sits one quarter in).
+            hit = S->active ^ 1;
+            if (hit >= SATURNLAYOUT_WAYS) hit = 0;
+            SaturnLayout_Refill(slot, S->layer, &S->way[hit],
+                                tx - SATURNLAYOUT_WIN_COLS / 4,
+                                ty - SATURNLAYOUT_WIN_ROWS / 4);
+        }
+        S->active = hit;
+        W = &S->way[hit];
     }
     // the file stores layout words LITTLE-endian (RSDK scene layout order,
     // copied raw into bands); swap on read -- SH-2 is big-endian
-    uint16 w = S->win[(uint32)(ty - S->wy) * SATURNLAYOUT_WIN_COLS + (tx - S->wx)];
+    uint16 w = W->win[(uint32)(ty - W->wy) * SATURNLAYOUT_WIN_COLS + (tx - W->wx)];
     return (uint16)((w >> 8) | (w << 8));
 }
