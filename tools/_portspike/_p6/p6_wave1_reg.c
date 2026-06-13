@@ -319,3 +319,23 @@ void p6_player_witness_tick(void)
     p6_w_scr_x = ScreenInfo->position.x;
     p6_w_scr_y = ScreenInfo->position.y;
 }
+
+// =============================================================================
+// p6_cont_witness -- P6.8 Step A (Task #211): snapshot SLOT_PLAYER1 into the
+// CONTINUOUS witnesses, called every frame from p6_ghz_frame(). Uses the same
+// RSDK_GET_ENTITY(SLOT_PLAYER1, Player) path as p6_player_witness_tick (the
+// engine headers + class globals live in this TU). Frame count is bumped on
+// the p6_io_main side so the witness stays valid even before Player is live.
+// =============================================================================
+extern int32 p6_w_cont_plr_x;
+extern int32 p6_w_cont_plr_y;
+extern int32 p6_w_cont_animid;
+void p6_cont_witness(void)
+{
+    if (!Player)
+        return;
+    EntityPlayer *p1 = RSDK_GET_ENTITY(SLOT_PLAYER1, Player);
+    p6_w_cont_plr_x  = p1->position.x;
+    p6_w_cont_plr_y  = p1->position.y;
+    p6_w_cont_animid = (int32)p1->animator.animationID;
+}

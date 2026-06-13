@@ -572,6 +572,16 @@ __attribute__((used)) int32 p6_w_ringsheethandle = -2;
 __attribute__((used)) int32 p6_w_ringsarmed     = 0;
 __attribute__((used)) int32 p6_w_plr_sheetid_t  = -1; // Player frame's sheetID after the ticks (GetFrame, stride-safe)
 __attribute__((used)) int32 p6_w_plr_handle     = -2; // p6_vdp1HandleBySurface[that sheetID]
+// P6.8 Step A (Task #211): CONTINUOUS-tick witnesses. The burst is a fixed
+// 60-iteration in-run loop; these are incremented/snapshotted ONLY inside
+// p6_ghz_frame() (the per-jo-frame path), so p6_w_cont_frames > 60 can only
+// arise from the continuous tick -- the burst-vs-continuous discriminator.
+__attribute__((used)) int32 p6_ghz_continuous_armed = 0; // 1 == p6_scene_tick drives GHZ
+__attribute__((used)) int32 p6_w_legacy_frames  = 0;  // legacy-Ring tick frames before the GHZ switch
+__attribute__((used)) int32 p6_w_cont_frames    = 0;  // ++ per p6_ghz_frame() call
+__attribute__((used)) int32 p6_w_cont_plr_x     = 0;  // SLOT_PLAYER1 position, continuous
+__attribute__((used)) int32 p6_w_cont_plr_y     = 0;
+__attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.animationID
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
 // post-hoc capture lands after the later Title pass, whose STG dataset clear
 // NULLs every tracked staticVars pointer (MEASURED p6_f8: Player/Zone/Camera
@@ -1145,6 +1155,7 @@ extern "C" void p6_wave1_witness(void);
 extern "C" void p6_player_witness_pre(int32 startSlot, int32 sceneCount);
 extern "C" void p6_player_witness_post(void);
 extern "C" void p6_player_witness_tick(void);
+extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
 // P6.7 W7: game-side input-pointer witness (p6_wave1_reg.c) + the Saturn
 // SMPC device backend (platform/Saturn/InputDevice_Saturn.cpp). The settle
 // busy-wait MUST run before p6_load_phase_enter (it waits on SGL's
@@ -1393,6 +1404,109 @@ static void p6_load_phase_enter(void)
 static void p6_load_phase_exit(void)
 {
     __asm__ volatile("ldc %0, sr" : : "r"(p6_saved_sr));
+}
+
+// =============================================================================
+// P6.8 Step A (Task #211): p6_ghz_arm_env -- factor the GHZ render-environment
+// arm out of the W14/W18/W19 burst preamble (p6_scene_run lines ~1889-1905
+// screen env + clip bounds, ~1955-2006 Items/Display/Shields SHEET-ONLY nudges
+// + the per-surface VDP1 bind loop). Assumes GHZ is the CURRENT loaded scene
+// (LoadSceneFolder/LoadSceneAssets/InitObjects already ran). Called from BOTH
+// the existing burst site AND the end-of-run continuous arm (no code dup).
+// =============================================================================
+static void p6_ghz_arm_env(void)
+{
+    // Screen env (mirror SetScreenSize: center = size/2) -- Camera_Create
+    // reads ScreenInfo->center; a zero center parks the viewport off-spawn.
+    videoSettings.screenCount = 1;
+    screens[0].size.x         = SCREEN_XMAX;
+    screens[0].size.y         = SCREEN_YSIZE;
+    screens[0].center.x       = SCREEN_XMAX / 2;
+    screens[0].center.y       = SCREEN_YSIZE / 2;
+    screens[0].pitch          = SCREEN_XMAX;
+    screens[0].clipBound_X1   = 0;
+    screens[0].clipBound_Y1   = 0;
+    screens[0].clipBound_X2   = SCREEN_XMAX;
+    screens[0].clipBound_Y2   = SCREEN_YSIZE;
+    currentScreen             = &screens[0];
+    sceneInfo.entity          = RSDK_ENTITY_AT(0);
+
+    if (!p6_vdp1HandlesInit) {
+        for (int32 i = 0; i < SURFACE_COUNT; ++i)
+            p6_vdp1HandleBySurface[i] = -1;
+        p6_vdp1HandlesInit = true;
+    }
+
+    // W18/W19 SHEET-ONLY nudges: allocate the Items/Display/Shields gfxSurface
+    // slots + resolve their already-staged banded slots (zero DATASET_STG cost)
+    // so the bind loop below can bind them. LoadSpriteSheet returns the
+    // EXISTING surface for an already-loaded sheet (idempotent re-arm).
+    {
+        int32 rsurf =
+            (int32)(int16)LoadSpriteSheet("Global/Items.gif", SCOPE_STAGE);
+        p6_w_ringspr   = rsurf;
+        if (rsurf >= 0 && rsurf < SURFACE_COUNT)
+            p6_w_ringsheet = (int32)gfxSurface[rsurf].saturnSheetSlot;
+        int32 dsurf =
+            (int32)(int16)LoadSpriteSheet("Global/Display.gif", SCOPE_STAGE);
+        p6_w_dispsurf = dsurf;
+        if (dsurf >= 0 && dsurf < SURFACE_COUNT)
+            p6_w_dispsheet = (int32)gfxSurface[dsurf].saturnSheetSlot;
+        int32 ssurf =
+            (int32)(int16)LoadSpriteSheet("Global/Shields.gif", SCOPE_STAGE);
+        p6_w_shldsurf = ssurf;
+        if (ssurf >= 0 && ssurf < SURFACE_COUNT)
+            p6_w_shldsheet = (int32)gfxSurface[ssurf].saturnSheetSlot;
+    }
+
+    for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+        GFXSurface *sf = &gfxSurface[i];
+        if (sf->scope == SCOPE_NONE || p6_vdp1HandleBySurface[i] >= 0)
+            continue;
+        int32 h = -1;
+        if (sf->pixels)
+            h = p6_vdp1_sheet_bind(sf->pixels, sf->width,
+                                   (const unsigned short *)fullPalette[0]);
+        else if (sf->saturnSheetSlot >= 0)
+            h = p6_vdp1_sheet_bind_banded(sf->saturnSheetSlot, sf->width,
+                                          (const unsigned short *)fullPalette[0]);
+        else
+            continue;
+        p6_vdp1HandleBySurface[i] = (int8)h;
+    }
+}
+
+// =============================================================================
+// P6.8 Step A (Task #211): p6_ghz_frame -- ONE continuous engine frame at GHZ.
+// Mirrors the ENGINESTATE_REGULAR head (ProcessInput/ProcessObjects/Process-
+// ObjectDrawLists, RetroEngine.cpp:392-394) + the W16 camera-anchored FG
+// present, then snapshots the continuous witnesses. Called every jo frame from
+// p6_scene_tick() when p6_ghz_continuous_armed. p6_w_cont_frames bumps here
+// only -- a one-shot burst can never increment it (the burst-vs-cont gate).
+// =============================================================================
+static void p6_ghz_frame(void)
+{
+    currentScreen = &screens[0];
+    for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
+        engine.drawGroupVisible[g] = true;
+    ProcessInput();
+    ProcessObjects();
+    ProcessObjectDrawLists();
+
+    // W16 camera-anchored FG present (FG Low, layer 3), tracking the live
+    // camera-driven screens[0].position.
+    {
+        unsigned int ph = 0;
+        int nb = 0;
+        p6_vdp2_present_ghz_camera(3 /* FG Low */,
+                                   screens[0].position.x,
+                                   screens[0].position.y,
+                                   (const unsigned short *)fullPalette[0],
+                                   &ph, &nb);
+    }
+
+    ++p6_w_cont_frames;
+    p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
 }
 
 extern "C" void p6_scene_run(void)
@@ -2554,6 +2668,63 @@ extern "C" void p6_scene_run(void)
     p6_load_phase_exit();
 }
 
+// =============================================================================
+// P6.8 Step A (Task #211): p6_ghz_reload -- RE-LOAD GHZ as the FINAL live
+// scene and arm the continuous tick. Deferred to the per-frame tick (NOT run
+// inside p6_scene_run) for two measured reasons:
+//   (1) ADDITIVE: p6_scene_run returns with EXACTLY the W19 state -- all ~14
+//       burst/proof witnesses intact, PlayStream's title CD-DA undisturbed,
+//       the legacy Ring set up. The deferred switch lets the legacy Ring
+//       continuous tick run first (obj/entdraw/scsp witnesses accumulate),
+//       then GHZ takes over -- both capturable from one late savestate.
+//   (2) CD-DA ordering (the 7c-moved hazard, :2510): the GHZ pack reads
+//       (LoadSceneFolder/Assets) share the CD block with CD-DA, so they must
+//       run OUTSIDE the masked load phase, in the live tick.
+// Selects GHZ1 the SAME way the W11b GHZ pass did (scan every category range
+// for folder "GHZ" id '1' -- GHZ lives in "Mania Mode", NOT category 0).
+// =============================================================================
+static void p6_ghz_reload(void)
+{
+    int32 found = 0;
+    for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
+        SceneListInfo *cat = &sceneInfo.listCategory[c];
+        for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+            if (!strcmp(sceneInfo.listData[i].folder, "GHZ")
+                && sceneInfo.listData[i].id[0] == '1') {
+                sceneInfo.activeCategory = c;
+                sceneInfo.listPos        = i;
+                found                    = 1;
+                break;
+            }
+        }
+    }
+    if (!found)
+        return;
+    LoadSceneFolder();
+    // Stage the GHZ tile CELLS to NBG1 NOW (tilesetPixels is the W11b
+    // load-phase transient aliasing the entityList window -- valid only
+    // between LoadSceneFolder's GIF decode and LoadSceneAssets' memset).
+    p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+    LoadSceneAssets();
+    // Screen env must exist BEFORE InitObjects (Camera_Create reads
+    // ScreenInfo->center) -- arm it here, then arm the binds after.
+    videoSettings.screenCount = 1;
+    screens[0].size.x         = SCREEN_XMAX;
+    screens[0].size.y         = SCREEN_YSIZE;
+    screens[0].center.x       = SCREEN_XMAX / 2;
+    screens[0].center.y       = SCREEN_YSIZE / 2;
+    screens[0].pitch          = SCREEN_XMAX;
+    screens[0].clipBound_X1   = 0;
+    screens[0].clipBound_Y1   = 0;
+    screens[0].clipBound_X2   = SCREEN_XMAX;
+    screens[0].clipBound_Y2   = SCREEN_YSIZE;
+    currentScreen             = &screens[0];
+    sceneInfo.entity          = RSDK_ENTITY_AT(0);
+    InitObjects();
+    p6_ghz_arm_env();
+    p6_ghz_continuous_armed = 1;
+}
+
 // P6.5b2: per-frame tick, registered as a jo callback by main.c (the diag
 // build's only callback -- the park keeps the hand-port out). Advances the
 // REAL Ring animator with the engine's own ProcessAnimation and re-emits the
@@ -2561,10 +2732,39 @@ extern "C" void p6_scene_run(void)
 // recur). Witness order matters for qa_p6_sprite.py's W8 cadence formula:
 // ProcessAnimation, copy frameID, THEN ticks++ -- ticks counts completed
 // ProcessAnimation calls.
+// P6.8 Step A: legacy-Ring tick frames to run BEFORE switching to GHZ. The
+// legacy Ring proof (obj/entdraw/scsp/draw gates) accumulates its witnesses
+// over these frames (Ring respawn cycle ~65 ticks, scsp re-trigger at 256),
+// keeping CD-DA undisturbed; then the GHZ re-load takes over and runs forever.
+// 260 frames clears the scsp re-trigger cadence (RETRIGGER at tick 256 ->
+// snd_plays reaches 2) before the GHZ switch, so the legacy Ring audio proof
+// is whole; the continuous GHZ pass then runs for the rest of the capture.
+#define P6_GHZ_SWITCH_FRAME 260
+
 extern "C" void p6_scene_tick(void)
 {
+    // P6.8 Step A (Task #211): once GHZ is the final live scene, drive the
+    // engine GHZ frame every jo frame and RETURN -- the legacy Ring block is
+    // skipped while armed (it stays reachable for the pre-switch legacy frames
+    // so the Ring-proof gates capture their witnesses first).
+    if (p6_ghz_continuous_armed) {
+        p6_ghz_frame();
+        return;
+    }
     if (p6_w_spr_id < 0)
         return;
+    // After the legacy Ring proof has run its frames, RE-LOAD GHZ + arm the
+    // continuous tick (deferred out of the masked p6_scene_run load phase so
+    // the GHZ pack reads don't displace the title CD-DA prematurely, and the
+    // burst/proof witnesses stay byte-identical to W19 at p6_scene_run return).
+    if (p6_w_legacy_frames >= P6_GHZ_SWITCH_FRAME) {
+        p6_ghz_reload();
+        if (p6_ghz_continuous_armed) {
+            p6_ghz_frame();
+            return;
+        }
+    }
+    ++p6_w_legacy_frames;
     ProcessAnimation(&p6_ringAnimator);
     p6_w_spr_frame = (int32)p6_ringAnimator.frameID;
     ++p6_w_spr_ticks;

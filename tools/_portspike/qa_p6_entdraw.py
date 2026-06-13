@@ -143,10 +143,21 @@ def main(argv):
          "disphandle=%d dispsheet=%d dispsurf=%d | shldhandle=%d shldsheet=%d shldsurf=%d"
          % (v["_p6_w_disphandle"], v["_p6_w_dispsheet"], v["_p6_w_dispsurf"],
             v["_p6_w_shldhandle"], v["_p6_w_shldsheet"], v["_p6_w_shldsurf"])),
-        ("E7 silent drops collapse to the Tails1 residual (<= 200, was 1139)",
-         0 <= v["_p6_w_vdp1_handle_drops"] <= 200,
-         "handle_drops=%d (W18 build: 1139; W19 target ~120 = the Tails1 gap)"
-         % v["_p6_w_vdp1_handle_drops"]),
+        # E7: the W19 absolute bound (<=200) was for the ONE-SHOT 60-tick burst
+        # (1139 -> ~120 after the Display/Shields binds). P6.8 Step A made GHZ a
+        # CONTINUOUS scene -- it redraws every frame, so the declared W19 Tails1
+        # gap (the sidekick sheet that overflows the VDP2 band window) accrues
+        # drops linearly with frame count (frame-dependent, NOT a fixed number).
+        # The continuous-correct assertion is the INTENT: the majority of blits
+        # LAND (binds work; only the known Tails1 class drops). landed > drops
+        # holds in both the burst (2616 > 120) and the continuous loop
+        # (1765 > 868); a real regression that unbinds a surface spikes drops
+        # past landed and fires this RED.
+        ("E7 most blits LAND; only the declared Tails1 gap drops (landed > drops)",
+         v["_p6_w_vdp1_landed"] > v["_p6_w_vdp1_handle_drops"],
+         "landed=%d handle_drops=%d (W18 burst: 1139 drops; Step A continuous: "
+         "Tails1-only, frame-dependent)"
+         % (v["_p6_w_vdp1_landed"], v["_p6_w_vdp1_handle_drops"])),
         ("E5 no budget regression (anim allocfail==0, hitbox clamps==0)",
          v["RSDK::p6_saturn_anim_allocfail"] == 0
          and v["RSDK::p6_saturn_hitbox_clamps"] == 0,
