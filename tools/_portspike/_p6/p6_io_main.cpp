@@ -634,6 +634,13 @@ __attribute__((used)) int32 p6_w_obj_inrange   = 0;  // total inRange entities
 __attribute__((used)) int32 p6_w_obj_topclass  = -1; // classID with the most in-range
 __attribute__((used)) int32 p6_w_obj_topcount  = 0;  // count of that class
 __attribute__((used)) int32 p6_w_obj_classcnt  = 0;  // distinct in-range classes
+// Phase 2d per-Update timing (P6_PERF_OBJPROF; Object.cpp accumulates, indexed
+// by classID&0x3F). p6_ghz_frame resets per frame + scans for the hog.
+__attribute__((used)) int p6_w_objupd_vbl[64];
+__attribute__((used)) int p6_w_objupd_n[64];
+__attribute__((used)) int32 p6_w_objupd_topclass = -1; // classID with the most Update vbl
+__attribute__((used)) int32 p6_w_objupd_topvbl   = 0;  // that class's total Update vbl
+__attribute__((used)) int32 p6_w_objupd_topn     = 0;  // that class's in-range count
 static unsigned int p6_perf_vbl_prev = 0;               // vblank tally at the previous frame END
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
 // post-hoc capture lands after the later Title pass, whose STG dataset clear
@@ -1574,6 +1581,9 @@ static void p6_ghz_frame(void)
     vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessInput();
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
     p6_w_perf_cyc_input = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_input = (int32)(vb1 - vb0);
+    // Phase 2d: reset the per-classID Update timing accumulators before the loop
+    // (Object.cpp fills them when built -DP6_PERF_OBJPROF; harmless 0s otherwise).
+    for (int32 _z = 0; _z < 64; ++_z) { p6_w_objupd_vbl[_z] = 0; p6_w_objupd_n[_z] = 0; }
     vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjects();
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
     p6_w_perf_cyc_obj = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_obj = (int32)(vb1 - vb0);
@@ -1617,6 +1627,14 @@ static void p6_ghz_frame(void)
         p6_w_obj_topclass = topc;
         p6_w_obj_topcount = topn;
         p6_w_obj_classcnt = distinct;
+
+        // Phase 2d: scan the per-classID Update-timing accumulators for the hog.
+        int32 hc = -1, hv = 0, hn = 0;
+        for (i = 0; i < 64; ++i)
+            if (p6_w_objupd_vbl[i] > hv) { hv = p6_w_objupd_vbl[i]; hc = i; hn = p6_w_objupd_n[i]; }
+        p6_w_objupd_topclass = hc;
+        p6_w_objupd_topvbl   = hv;
+        p6_w_objupd_topn     = hn;
     }
 
     ++p6_w_cont_frames;

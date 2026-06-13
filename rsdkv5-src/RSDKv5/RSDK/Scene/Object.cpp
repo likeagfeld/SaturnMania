@@ -387,6 +387,15 @@ void RSDK::InitObjects()
     if (!cameraCount)
         AddCamera(&screens[0].position, TO_FIXED(screens[0].center.x), TO_FIXED(screens[0].center.y), false);
 }
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+// Perf Phase 2d (Task #211): file-scope decls for the per-classID Update-timing
+// diagnostic (the globals live in p6_perf.c / p6_io_main.cpp; extern "C" escapes
+// the RSDK namespace to bind the global symbols).
+extern "C" volatile unsigned int p6_perf_vbl_count;
+extern "C" int p6_w_objupd_vbl[64];
+extern "C" int p6_w_objupd_n[64];
+#endif
+
 void RSDK::ProcessObjects()
 {
     for (int32 i = 0; i < DRAWGROUP_COUNT; ++i) drawGroups[i].entityCount = 0;
@@ -493,8 +502,23 @@ void RSDK::ProcessObjects()
             }
 
             if (sceneInfo.entity->inRange) {
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+                // Perf Phase 2d (Task #211): per-classID Update timing via the
+                // overflow-immune 60Hz vblank counter (an Update can exceed the
+                // FRT 78ms range). Diagnostic only -- gated by P6_PERF_OBJPROF.
+                // (decls = the file-scope extern "C" block above ProcessObjects)
+                unsigned int _ov0 = p6_perf_vbl_count;
                 if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update)
                     objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update();
+                {
+                    int _oc = sceneInfo.entity->classID & 0x3F;
+                    p6_w_objupd_vbl[_oc] += (int)(p6_perf_vbl_count - _ov0);
+                    p6_w_objupd_n[_oc]++;
+                }
+#else
+                if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update)
+                    objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update();
+#endif
 
 #if RETRO_PLATFORM == RETRO_SATURN
                 // P6.7b (Task #210): the Saturn group lists are entry-capped

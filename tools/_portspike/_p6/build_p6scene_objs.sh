@@ -121,8 +121,8 @@ echo "[7e/9] Audio_Audio.o (UNMODIFIED engine Audio.cpp -- LoadSfx/LoadSfxToSlot
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Audio_Audio.o" "$SRC/RSDK/Audio/Audio.cpp"
 
-echo "[7f] Scene_Object.o (UNMODIFIED engine Object.cpp -- RegisterObject + ResetEntitySlot + ProcessObjects + ProcessObjectDrawLists for P6.7a; editor/serialize surface gc-drops) ..."
-$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+echo "[7f] Scene_Object.o (UNMODIFIED engine Object.cpp -- RegisterObject + ResetEntitySlot + ProcessObjects + ProcessObjectDrawLists for P6.7a; editor/serialize surface gc-drops; +P6_PERF_OBJPROF Phase-2d per-classID Update timing diagnostic) ..."
+$CC $CXXFLAGS $ENG_DEFS -DP6_PERF_OBJPROF $CORE_INC \
     -c -o "$P6/Scene_Object.o" "$SRC/RSDK/Scene/Object.cpp"
 
 echo "[7q] Scene_Collision.o (VERBATIM engine Collision.cpp -- P6.7 W15b Task #227: ProcessObjectMovement/ProcessPathGrip/ProcessAirCollision_Down + the Find*/[ LR]Wall/Floor/Roof sensor walkers + CheckObjectCollision*; every tile read goes through the RSDK_*_MASK/_ANGLE seam -> PackedCollisionMask/PackedTileAngle (Scene.hpp:289-378, gate qa_p6_collision K1-K5); CopyCollisionMask + Legacy + ProcessAirCollision_Up preprocess out at REV02/MOD_LOADER=0; -Os NOT -O2: lone-TU census 2026-06-12 measured 18,696 B alloc at -O2 vs 13,016 B at -Os against a 2,708 B pre-land _end margin) ..."
@@ -287,6 +287,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_present_vbl_hash -u _p6_w_present_refills \
     -u _p6_w_obj_inrange -u _p6_w_obj_topclass -u _p6_w_obj_topcount \
     -u _p6_w_obj_classcnt \
+    -u _p6_w_objupd_vbl -u _p6_w_objupd_n -u _p6_w_objupd_topclass \
+    -u _p6_w_objupd_topvbl -u _p6_w_objupd_topn \
     -u _p6_w_magic \
     -u _p6_bridge_proc_anim -u _p6_bridge_draw_sprite -u _p6_scene_entity \
     -u _p6_w_obj_classid -u _p6_w_obj_timer -u _p6_w_obj_vely \

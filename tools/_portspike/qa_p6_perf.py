@@ -58,7 +58,8 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         "_p6_w_present_vbl_walk", "_p6_w_present_vbl_map",
         "_p6_w_present_vbl_hash", "_p6_w_present_refills",
         "_p6_w_obj_inrange", "_p6_w_obj_topclass", "_p6_w_obj_topcount",
-        "_p6_w_obj_classcnt"]
+        "_p6_w_obj_classcnt",
+        "_p6_w_objupd_topclass", "_p6_w_objupd_topvbl", "_p6_w_objupd_topn"]
 
 
 def main(argv):
@@ -226,6 +227,15 @@ def main(argv):
                       "(Player collision?) -- targeted-win territory.")
             elif inr:
                 print("    -> MANY entities: count-dominated -> culling / dual-SH2.")
+            # Phase 2d: the per-Update TIMING hog (P6_PERF_OBJPROF; the actual
+            # dominant by TIME, not just count -- this NAMES the target).
+            hc = v.get("_p6_w_objupd_topclass"); hv = v.get("_p6_w_objupd_topvbl")
+            hn = v.get("_p6_w_objupd_topn")
+            if hc is not None and hc >= 0:
+                hms = (hv or 0) * VBL_MS
+                print("    UPDATE-TIME HOG  : classID&0x3F=%s  %.0f ms over %s "
+                      "in-range (%.1f ms each) <== the fix target"
+                      % (hc, hms, hn, (hms / hn) if hn else 0.0))
         print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
               % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
     else:
