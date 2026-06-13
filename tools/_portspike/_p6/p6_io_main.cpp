@@ -641,6 +641,9 @@ __attribute__((used)) int p6_w_objupd_n[64];
 __attribute__((used)) int32 p6_w_objupd_topclass = -1; // classID with the most Update vbl
 __attribute__((used)) int32 p6_w_objupd_topvbl   = 0;  // that class's total Update vbl
 __attribute__((used)) int32 p6_w_objupd_topn     = 0;  // that class's in-range count
+__attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
+__attribute__((used)) int32 p6_w_hog_x   = 0;   // a hog entity's world x (fixed)
+__attribute__((used)) int32 p6_w_hog_y   = 0;   // a hog entity's world y (fixed)
 static unsigned int p6_perf_vbl_prev = 0;               // vblank tally at the previous frame END
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
 // post-hoc capture lands after the later Title pass, whose STG dataset clear
@@ -1635,6 +1638,20 @@ static void p6_ghz_frame(void)
         p6_w_objupd_topclass = hc;
         p6_w_objupd_topvbl   = hv;
         p6_w_objupd_topn     = hn;
+
+        // Phase 2e: locate the hog -- record the first in-range entity whose
+        // classID&0x3F == hog so its full classID + world pos identify it
+        // (match against the GHZ Act 1 entity layout).
+        p6_w_hog_cid = -1; p6_w_hog_x = 0; p6_w_hog_y = 0;
+        if (hc >= 0)
+            for (i = 0; i < ENTITY_COUNT; ++i) {
+                EntityBase *e = RSDK_ENTITY_AT(i);
+                if (e->classID && e->inRange && (e->classID & 0x3F) == hc) {
+                    p6_w_hog_cid = (int32)e->classID;
+                    p6_w_hog_x = e->position.x; p6_w_hog_y = e->position.y;
+                    break;
+                }
+            }
     }
 
     ++p6_w_cont_frames;
