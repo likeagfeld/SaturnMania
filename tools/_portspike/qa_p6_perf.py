@@ -117,12 +117,20 @@ def main(argv):
     m3 = (vbl is not None and frames is not None and vbl >= frames
           and all(x is not None and x >= 0 for x in (ci, co, cd, cp, ct))
           and cks is not None and 0 <= cks <= 3)
+    # M4 (Phase 2c don't-regress): the present's static-map build is CACHED --
+    # the last (settled) frame must do ZERO SaturnLayout inflates and a near-zero
+    # present. RED on the pre-2c build (6 inflates + 51 vbl/frame); GREEN cached.
+    prf = v.get("_p6_w_present_refills")
+    pvp = v.get("_p6_w_perf_vbl_present")
+    m4 = (prf is not None and prf == 0 and pvp is not None and pvp <= 3)
 
     checks = [
         ("M2 instrumentation measuring (frames>0, vblanks>0, cyc_total>0)", m2,
          "frames=%s vblanks=%s cyc_total=%s" % (frames, vbl, ct)),
         ("M3 measurement sane (vblanks>=frames, cyc>=0, cks 0..3)", m3,
          "vbl_max=%s cks=%s" % (vbl_max, cks)),
+        ("M4 present static-map CACHED (0 inflates, present<=3 vbl/frame)", m4,
+         "present_refills=%s present=%s vbl/frame" % (prf, pvp)),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:

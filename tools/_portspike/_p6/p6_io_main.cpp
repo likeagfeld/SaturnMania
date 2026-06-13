@@ -423,6 +423,10 @@ void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
 void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                                 const unsigned short *pal565,
                                 unsigned int *out_pndhash, int *out_nblank);
+// Perf Phase 2c (Task #211): re-arm the present's static-map cache on every GHZ
+// (re)load -- the build runs once, then per-frame the present only does the
+// hardware scroll (the static map/inflate was ~820ms/frame of waste).
+extern "C" int p6_vdp2_present_dirty;
 // P6.5b2 (Task #208, qa_p6_sprite.py): engine sprite-animation witnesses.
 __attribute__((used)) int32 p6_w_spr_id        = -1; // LoadSpriteAnimation slot
 __attribute__((used)) int32 p6_w_spr_animcount = 0;  // expect 5 (Ring.bin)
@@ -1462,6 +1466,9 @@ static void p6_load_phase_exit(void)
 // =============================================================================
 static void p6_ghz_arm_env(void)
 {
+    // Perf Phase 2c: a fresh GHZ env means a new static FG map -- re-arm the
+    // present cache so it rebuilds once on the first frame, then runs cached.
+    p6_vdp2_present_dirty = 1;
     // Screen env (mirror SetScreenSize: center = size/2) -- Camera_Create
     // reads ScreenInfo->center; a zero center parks the viewport off-spawn.
     videoSettings.screenCount = 1;

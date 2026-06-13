@@ -184,6 +184,19 @@ __attribute__((used)) int p6_w_present_vbl_map     = 0; /* map build (GetTile + 
 __attribute__((used)) int p6_w_present_vbl_hash    = 0; /* witness hash+count (DIAGNOSTIC) */
 __attribute__((used)) int p6_w_present_refills     = 0; /* SaturnLayout inflates THIS present */
 
+/* Perf Phase 2c (Task #211): the present's blank-char walk + 64x64 PND map +
+ * the diagnostic hash are ALL derived from the STATIC GHZ layout (the present
+ * reads a fixed top-left 64x64 via GetTile(0,x,y) -- camera-INDEPENDENT; the
+ * hardware slScrPosNbg1 below does the camera). So that build is identical every
+ * frame -- Phase 2b measured 6 redundant zlib inflates + ~820ms/frame of pure
+ * waste. Build it ONCE (dirty), cache the hash/count, and per-frame run only the
+ * CRAM upload (palette may cycle) + the hardware scroll. p6_vdp2_present_dirty is
+ * re-armed on every GHZ (re)load (p6_ghz_arm_env). VDP2 map bytes are BYTE-
+ * IDENTICAL to the per-frame rebuild (same static data) -- zero visual change. */
+int p6_vdp2_present_dirty = 1;
+static unsigned int s_present_pndhash = 0;
+static int          s_present_nblank  = 0;
+
 void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                                 const unsigned short *pal565,
                                 unsigned int *out_pndhash, int *out_nblank)
@@ -196,49 +209,85 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
     int t, c, x, y;
     unsigned int pv0, prf0 = (unsigned int)p6_w_lay_refills;
 
-    SaturnLayout_Bind(0, layer); /* slot 0 = the W16 walk window */
+    if (p6_vdp2_present_dirty) {
+        SaturnLayout_Bind(0, layer); /* slot 0 = the W16 walk window */
 
-    /* 1) Blank char = smallest tile index the 64x64 rect never references
-     *    (same rule + same rect as the gate's offline model). */
-    pv0 = p6_perf_vbl_count;
-    for (t = 0; t < 1024; ++t) used[t] = 0;
-    for (y = 0; y < 64; ++y)
-        for (x = 0; x < 64; ++x) {
-            unsigned short e = SaturnLayout_GetTile(0, x, y);
-            if (e != 0xFFFF)
-                used[e & 0x3FF] = 1;
-        }
-    p6_w_present_vbl_walk = (int)(p6_perf_vbl_count - pv0);
-    pv0 = p6_perf_vbl_count;
-    {
-        int blank = 0;
-        while (blank < 1024 && used[blank]) ++blank;
-        volatile Uint16 *dst = cel + blank * 128;
-        for (c = 0; c < 128; ++c) dst[c] = 0;
-
-        /* 2) Map: identity 64x64 rect of 2-word PNDs (p6_vdp2.c:105-119
-         *    formula -- fy bit11->31, fx bit10->30, charno = tile*8). */
-        for (y = 0; y < 64; ++y) {
+        /* 1) Blank char = smallest tile index the 64x64 rect never references
+         *    (same rule + same rect as the gate's offline model). */
+        pv0 = p6_perf_vbl_count;
+        for (t = 0; t < 1024; ++t) used[t] = 0;
+        for (y = 0; y < 64; ++y)
             for (x = 0; x < 64; ++x) {
                 unsigned short e = SaturnLayout_GetTile(0, x, y);
-                unsigned long pnd;
-                if (e == 0xFFFF)
-                    pnd = (unsigned long)blank * 8u;
-                else
-                    pnd = ((unsigned long)(e & 0x800) << 20)
-                        | ((unsigned long)(e & 0x400) << 20)
-                        | ((unsigned long)(e & 0x3FF) * 8u);
-                int page = ((y >> 5) << 1) + (x >> 5);
-                volatile Uint16 *p = map + page * 2048 + (((y & 31) << 5) + (x & 31)) * 2;
-                p[0] = (Uint16)(pnd >> 16);
-                p[1] = (Uint16)(pnd & 0xFFFF);
+                if (e != 0xFFFF)
+                    used[e & 0x3FF] = 1;
+            }
+        p6_w_present_vbl_walk = (int)(p6_perf_vbl_count - pv0);
+        pv0 = p6_perf_vbl_count;
+        {
+            int blank = 0;
+            while (blank < 1024 && used[blank]) ++blank;
+            volatile Uint16 *dst = cel + blank * 128;
+            for (c = 0; c < 128; ++c) dst[c] = 0;
+
+            /* 2) Map: identity 64x64 rect of 2-word PNDs (p6_vdp2.c:105-119
+             *    formula -- fy bit11->31, fx bit10->30, charno = tile*8). */
+            for (y = 0; y < 64; ++y) {
+                for (x = 0; x < 64; ++x) {
+                    unsigned short e = SaturnLayout_GetTile(0, x, y);
+                    unsigned long pnd;
+                    if (e == 0xFFFF)
+                        pnd = (unsigned long)blank * 8u;
+                    else
+                        pnd = ((unsigned long)(e & 0x800) << 20)
+                            | ((unsigned long)(e & 0x400) << 20)
+                            | ((unsigned long)(e & 0x3FF) * 8u);
+                    int page = ((y >> 5) << 1) + (x >> 5);
+                    volatile Uint16 *p = map + page * 2048 + (((y & 31) << 5) + (x & 31)) * 2;
+                    p[0] = (Uint16)(pnd >> 16);
+                    p[1] = (Uint16)(pnd & 0xFFFF);
+                }
             }
         }
-    }
-    p6_w_present_vbl_map = (int)(p6_perf_vbl_count - pv0);
+        p6_w_present_vbl_map = (int)(p6_perf_vbl_count - pv0);
 
-    /* 3) CRAM bank 0 from the GHZ active palette (post-LoadSceneAssets
-     *    fullPalette[0]; engine RGB565 -> Saturn BGR555, MSB set). */
+        /* 4) Witness data (cached): map read-back hash (gate S3 model) +
+         *    visible-window non-empty count. The map is static, so cache both. */
+        pv0 = p6_perf_vbl_count;
+        {
+            unsigned int h = 5381u;
+            for (t = 0; t < 4096 * 2; ++t) { /* 8,192 words = 16,384 B */
+                Uint16 w = map[t];
+                h = ((h << 5) + h) ^ (unsigned int)(w >> 8);
+                h = ((h << 5) + h) ^ (unsigned int)(w & 0xFF);
+            }
+            s_present_pndhash = h;
+
+            int n = 0;
+            int tx0 = scroll_x >> 4, tx1 = (scroll_x + 320 - 1) >> 4;
+            int ty0 = scroll_y >> 4, ty1 = (scroll_y + 224 - 1) >> 4;
+            for (y = ty0; y <= ty1; ++y)
+                for (x = tx0; x <= tx1; ++x)
+                    if (SaturnLayout_GetTile(0, x, y) != 0xFFFF)
+                        ++n;
+            s_present_nblank = n;
+        }
+        p6_w_present_vbl_hash = (int)(p6_perf_vbl_count - pv0);
+        p6_w_present_refills  = (int)((unsigned int)p6_w_lay_refills - prf0);
+        p6_vdp2_present_dirty = 0;
+    } else {
+        /* Cached: the static map/inflate/hash are done -- this is the hot path
+         *  (~0 vbl). Witnesses report 0 to make the cache visible to the gate. */
+        p6_w_present_vbl_walk = 0;
+        p6_w_present_vbl_map  = 0;
+        p6_w_present_vbl_hash = 0;
+        p6_w_present_refills  = 0;
+    }
+    *out_pndhash = s_present_pndhash;
+    *out_nblank  = s_present_nblank;
+
+    /* 3) CRAM bank 0 from the GHZ active palette (per-frame: the palette may
+     *    cycle; only 256 writes, ~0 vbl -- engine RGB565 -> Saturn BGR555). */
     for (c = 0; c < 256; ++c) {
         unsigned short v = pal565[c];
         unsigned short r5 = (v >> 11) & 0x1F;
@@ -246,33 +295,6 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
         unsigned short b5 = v & 0x1F;
         cram[c] = (Uint16)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
     }
-
-    /* 4) Witness data: read-back hash over the map (the gate's S3 model is
-     *    the same big-endian byte stream) + visible-window non-empty count
-     *    (S4; window = scroll + 320x224, the CORE_DEFS screen). DIAGNOSTIC-ONLY:
-     *    out_pndhash/out_nblank feed the qa gate; 8,192 VDP2 VRAM reads of pure
-     *    overhead in a shipping frame (Phase 2b drop candidate). */
-    pv0 = p6_perf_vbl_count;
-    {
-        unsigned int h = 5381u;
-        for (t = 0; t < 4096 * 2; ++t) { /* 8,192 words = 16,384 B */
-            Uint16 w = map[t];
-            h = ((h << 5) + h) ^ (unsigned int)(w >> 8);
-            h = ((h << 5) + h) ^ (unsigned int)(w & 0xFF);
-        }
-        *out_pndhash = h;
-
-        int n = 0;
-        int tx0 = scroll_x >> 4, tx1 = (scroll_x + 320 - 1) >> 4;
-        int ty0 = scroll_y >> 4, ty1 = (scroll_y + 224 - 1) >> 4;
-        for (y = ty0; y <= ty1; ++y)
-            for (x = tx0; x <= tx1; ++x)
-                if (SaturnLayout_GetTile(0, x, y) != 0xFFFF)
-                    ++n;
-        *out_nblank = n;
-    }
-    p6_w_present_vbl_hash = (int)(p6_perf_vbl_count - pv0);
-    p6_w_present_refills  = (int)((unsigned int)p6_w_lay_refills - prf0);
 
     /* 5) NBG1 config + camera-anchored scroll + display (same SGL sequence
      *    as the proven Title present part 4). */
