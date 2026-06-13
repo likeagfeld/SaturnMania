@@ -129,23 +129,13 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     ControllerInfo   = (RSDKControllerState *)controllerInfo; // Game.c:130
     AnalogStickInfoL = (RSDKAnalogState *)stickInfoL;    // Game.c:131
     TouchInfo        = (RSDKTouchInfo *)touchInfo;       // Game.c:132
-    // W15 (P9): the pack has no input backend yet (W7) and passes NULL for
-    // controller/stick/touch -- but the Player's 60-tick run reads
-    // ControllerInfo[controllerID] every tick (Player_ProcessP1Input), and
-    // &NULL[1] on SH-2 reads BIOS bytes as button state. Until W7 lands,
-    // park the game pointers on zeroed statics == "controller present, no
-    // buttons held" (the engine's own zero-init shape).
-    {
-        static RSDKControllerState p6_zeroPads[5];
-        static RSDKAnalogState p6_zeroSticks[5];
-        static RSDKTouchInfo p6_zeroTouch;
-        if (!ControllerInfo)
-            ControllerInfo = p6_zeroPads;
-        if (!AnalogStickInfoL)
-            AnalogStickInfoL = p6_zeroSticks;
-        if (!TouchInfo)
-            TouchInfo = &p6_zeroTouch;
-    }
+    // P6.7 W7 (Task #227): the W15 zeroed-statics stopgap is RETIRED --
+    // p6_io_main.cpp now passes the ENGINE's own input arrays
+    // (RSDK::controller / RSDK::stickL / &RSDK::touchInfo, the
+    // RetroEngine.cpp:1287-1292 EngineInfo shape), filled per tick by the
+    // verbatim ProcessInput + the Saturn SMPC device backend
+    // (platform/Saturn/InputDevice_Saturn.cpp). Gate qa_p6_input.py I3
+    // asserts these pointers equal the engine array addresses.
     ScreenInfo       = (RSDKScreenInfo *)screenInfo;     // Game.c:133
     UnknownInfo      = (RSDKUnknownInfo *)unknownInfo;   // Game.c:105 (REV02)
 
@@ -186,6 +176,23 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     RSDK_REGISTER_OBJECT(SizeLaser);    // Game.c:644
     RSDK_REGISTER_OBJECT(Soundboard);   // Game.c:649
     RSDK_REGISTER_OBJECT(Zone);         // Game.c:854
+}
+
+// =============================================================================
+// p6_input_witness -- P6.7 W7 (Task #227): called by p6_io_main.cpp right
+// after p6_wave1_link; copies the GAME-side input pointers into the main-
+// image witnesses so gate qa_p6_input.py I3 can compare them against the
+// ENGINE array addresses from the link map (proving the link landed on the
+// engine arrays, not the retired W15 statics).
+// =============================================================================
+extern int32 p6_w_in_ctrlptr;
+extern int32 p6_w_in_stickptr;
+extern int32 p6_w_in_touchptr;
+void p6_input_witness(void)
+{
+    p6_w_in_ctrlptr  = (int32)(size_t)ControllerInfo;
+    p6_w_in_stickptr = (int32)(size_t)AnalogStickInfoL;
+    p6_w_in_touchptr = (int32)(size_t)TouchInfo;
 }
 
 // =============================================================================

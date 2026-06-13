@@ -129,6 +129,18 @@ echo "[7q] Scene_Collision.o (VERBATIM engine Collision.cpp -- P6.7 W15b Task #2
 $CC ${CXXFLAGS/-O2/-Os} $ENG_DEFS $CORE_INC \
     -c -o "$P6/Scene_Collision.o" "$SRC/RSDK/Scene/Collision.cpp"
 
+echo "[7r] Input_Input.o (VERBATIM engine Input.cpp -- P6.7 W7 Task #227: the controller/stickL/stickR/triggerL/triggerR/touchInfo arrays + ClearInput/ProcessInput edge logic + InitInputDevices autoassign seed; no PC device backend compiles in (RETRO_INPUTDEVICE_KEYBOARD=0 under RETRO_SATURN, RetroEngine.hpp:449); -Os per the Collision census precedent -- lone-TU census 2026-06-12: text 1,332 B / bss 2,064 B, undefs videoSettings + SKU::userCore only, both pack-resident) ..."
+$CC ${CXXFLAGS/-O2/-Os} $ENG_DEFS $CORE_INC \
+    -c -o "$P6/Input_Input.o" "$SRC/RSDK/Input/Input.cpp"
+
+echo "[7s] InputDevice_Saturn.o (Saturn SMPC pad device backend -- the AudioDevice_Saturn precedent; SGL Smpc_Peripheral snapshot reader, KBInputDevice.cpp:681-806 registration/Update/Process mirror; census: text 760 B / data 50 B) ..."
+$CC ${CXXFLAGS/-O2/-Os} $ENG_DEFS $CORE_INC \
+    -c -o "$P6/InputDevice_Saturn.o" "$PLAT/InputDevice_Saturn.cpp"
+
+echo "[7t] CppRuntime_Saturn.o (freestanding operator new/delete -> newlib malloc/free -- the InitSaturnPadDevice registration news the device + the InputDevice virtual-dtor D0 references operator delete; census: text 76 B, gc keeps only the referenced operators) ..."
+$CC ${CXXFLAGS/-O2/-Os} $ENG_DEFS $CORE_INC \
+    -c -o "$P6/CppRuntime_Saturn.o" "$PLAT/CppRuntime_Saturn.cpp" 2>/dev/null
+
 echo "[7g] Core_Link.o (UNMODIFIED engine Link.cpp -- SetupFunctionTables + RSDKFunctionTable[], the P6.1-proven dispatch; recipe from link_p6.sh:316-318) ..."
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Core_Link.o" "$SRC/RSDK/Core/Link.cpp"
@@ -292,6 +304,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
+    "$P6/Input_Input.o" "$P6/InputDevice_Saturn.o" "$P6/CppRuntime_Saturn.o" \
     "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" \
     -o "$P6/p6_scene_gc.o"
 

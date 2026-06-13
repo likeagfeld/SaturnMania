@@ -550,6 +550,20 @@ __attribute__((used)) int32 p6_w_cam_boundsB  = -1;
 // fetches counters live in SaturnSheet.cpp).
 __attribute__((used)) int32 p6_w_sht_probes   = -1; // byte-exact rects (model 15)
 __attribute__((used)) int32 p6_w_sht_firstbad = -1;
+// P6.7 W7 (Task #227, qa_p6_input.py): engine input chain witnesses.
+// ticks/perid written by InputDevice_Saturn.cpp (the device UpdateInput);
+// ctrl/stick/touch ptrs by p6_input_witness (p6_wave1_reg.c, game side);
+// the rest filled after the 60-tick GHZ run below.
+__attribute__((used)) int32 p6_w_in_ticks    = 0;  // device UpdateInput count (I2)
+__attribute__((used)) int32 p6_w_in_perid    = -2; // Smpc_Peripheral[0].id at update (I4)
+__attribute__((used)) int32 p6_w_in_ctrlptr  = 0;  // game ControllerInfo after link (I3)
+__attribute__((used)) int32 p6_w_in_stickptr = 0;  // game AnalogStickInfoL after link (I3)
+__attribute__((used)) int32 p6_w_in_touchptr = 0;  // game TouchInfo after link (I3)
+__attribute__((used)) int32 p6_w_in_devcount = -1; // RSDK::inputDeviceCount (I4)
+__attribute__((used)) int32 p6_w_in_devid    = 0;  // inputDeviceList[0]->id (I4)
+__attribute__((used)) int32 p6_w_in_devstate = -1; // (active<<16)|(isAssigned<<8)|anyPress (I4)
+__attribute__((used)) int32 p6_w_in_slot0    = -3; // RSDK::inputSlots[0] (I4: INPUT_AUTOASSIGN)
+__attribute__((used)) int32 p6_w_in_btnbits  = -1; // OR of down|press, controller[0..4] x 12 (I4)
 // W12b GFS-table tracer RETIRED (Task #227, 2026-06-12): the corruption was
 // the pack's orphan .bss.* output sections overlapping the main .bss (179
 // pairs) -- typeGroups[126].entryCount=0 landed on the GfsMng GFCF_Seek
@@ -1072,6 +1086,13 @@ extern "C" void p6_wave1_witness(void);
 extern "C" void p6_player_witness_pre(int32 startSlot, int32 sceneCount);
 extern "C" void p6_player_witness_post(void);
 extern "C" void p6_player_witness_tick(void);
+// P6.7 W7: game-side input-pointer witness (p6_wave1_reg.c) + the Saturn
+// SMPC device backend (platform/Saturn/InputDevice_Saturn.cpp). The settle
+// busy-wait MUST run before p6_load_phase_enter (it waits on SGL's
+// per-vblank INTBACK result, ST-169-R1; it never issues an SMPC command).
+extern "C" void p6_input_witness(void);
+extern "C" int32 p6_input_settle(void);
+namespace RSDK { namespace SKU { void InitSaturnInputAPI(); } }
 extern "C" int p6_w_vdp1_slots; // p6_vdp1.c slot-cache population counter
 
 // src/rsdk/storage.c (hand-port TU, linked in this image): generic GFS
@@ -1317,6 +1338,14 @@ static void p6_load_phase_exit(void)
 
 extern "C" void p6_scene_run(void)
 {
+    // P6.7 W7: wait (bounded) for SGL's per-vblank INTBACK to populate
+    // Smpc_Peripheral[0] BEFORE interrupts are masked -- the data arrives in
+    // SGL's vblank handler (ST-238-R1 peripheral acquisition; ST-169-R1
+    // INTBACK), and the masked load phase below freezes it. The device's
+    // per-tick UpdateInput then reads the frozen (valid) snapshot memory;
+    // no SMPC command is ever issued by this chain (the dual-issue rule).
+    p6_input_settle();
+
     p6_load_phase_enter();
     // 0) Zero the WRAM-L windows (SLSTART zeroes only WRAM-H __bstart..__bend).
     memset((void *)P6_LW_ZERO_BASE, 0, P6_LW_ZERO_END - P6_LW_ZERO_BASE);
@@ -1557,13 +1586,27 @@ extern "C" void p6_scene_run(void)
     SKU::curSKU.platform = PLATFORM_SWITCH;
     SKU::curSKU.language = LANGUAGE_EN;
     SKU::curSKU.region   = 0;
+    // P6.7 W7: engine input devices come up BEFORE the game link, the
+    // RetroEngine::Init order mirror (InitInputDevices seeds every inputSlot
+    // to INPUT_AUTOASSIGN, Input.cpp:94-101; the Saturn SMPC pad device then
+    // registers via the InitKeyboardDevice shape, InputDevice_Saturn.cpp).
+    // Memory-only inside the masked region (registration `new` rides the
+    // pack _sbrk heap; the SMPC snapshot was settled pre-mask above).
+    InitInputDevices();
+    SKU::InitSaturnInputAPI();
     // Player wave: UnknownInfo joins the link (Game.c:105 REV02 shape --
     // PauseMenu's Unknown_pausePress macro reads it; the engine's own
     // instance is SKU::unknownInfo, Link.cpp:12).
+    // P6.7 W7: the ENGINE input arrays ride the link now -- the
+    // RetroEngine.cpp:1287-1292 EngineInfo shape (info.controller =
+    // controller; info.stickL = stickL; info.touchMouse = &touchInfo). The
+    // W15 zeroed-statics stopgap in p6_wave1_reg.c is retired with it.
     p6_wave1_link((void *)RSDKFunctionTable, (void *)&gameVerInfo,
                   (void *)&SKU::curSKU, (void *)&sceneInfo,
-                  NULL, NULL, NULL, (void *)screens,
+                  (void *)controller, (void *)stickL, (void *)&touchInfo,
+                  (void *)screens,
                   (void *)&SKU::unknownInfo);
+    p6_input_witness(); // game-side ControllerInfo/AnalogStickInfoL/TouchInfo (I3)
 
     p6_w_obj_classcount = objectClassCount;  // qa_p6_obj O1 / globals G9 (Player wave: 23)
     p6_w_scene_step = 2;
@@ -1850,6 +1893,13 @@ extern "C" void p6_scene_run(void)
                 // (0x3800/tick) to drop the spawn onto the GHZ1 start ground
                 // through the verbatim collision chain and settle onGround.
                 for (int32 t = 0; t < 60; ++t) {
+                    // P6.7 W7: the verbatim engine input tick joins the loop
+                    // -- the exact ENGINESTATE_REGULAR head (RetroEngine.cpp
+                    // :392-394: ProcessInput(); ... ProcessObjects();).
+                    // ProcessInput -> device UpdateInput (Input.cpp:199-205)
+                    // -> the SMPC snapshot -> RSDK::controller, which the
+                    // game's ControllerInfo now aliases via the link above.
+                    ProcessInput();
                     ProcessObjects();
                     ProcessObjectDrawLists();
                 }
@@ -1857,6 +1907,31 @@ extern "C" void p6_scene_run(void)
                 p6_w_plr_slotdelta = p6_w_vdp1_slots - slots0;
                 p6_w_plr_drawdelta = p6_w_draw_calls - draws0;
                 p6_player_witness_tick();
+                // P6.7 W7 post-tick input-contract witnesses (gate I4):
+                // device registered + active, autoassign slot persisted
+                // (anyPress==0 -> GetAvaliableInputDevice returns
+                // INPUT_AUTOASSIGN, Input.hpp:529-539 / Input.cpp:217-221),
+                // and every controller down/press bit clear (headless boot).
+                p6_w_in_devcount = inputDeviceCount;
+                if (inputDeviceCount > 0 && inputDeviceList[0]) {
+                    InputDevice *p6dev = inputDeviceList[0];
+                    p6_w_in_devid    = (int32)p6dev->id;
+                    p6_w_in_devstate = ((int32)p6dev->active << 16)
+                                     | ((int32)p6dev->isAssigned << 8)
+                                     | (int32)p6dev->anyPress;
+                }
+                p6_w_in_slot0 = inputSlots[0];
+                {
+                    int32 bb = 0;
+                    for (int32 c = 0; c <= PLAYER_COUNT; ++c) {
+                        // ControllerState == 12 consecutive InputState at
+                        // REV02 (Input.hpp:387-410) -- keyUp is element 0.
+                        InputState *ks = &controller[c].keyUp;
+                        for (int32 k = 0; k < 12; ++k)
+                            bb |= (ks[k].down ? 1 : 0) | (ks[k].press ? 2 : 0);
+                    }
+                    p6_w_in_btnbits = bb;
+                }
                 if (p6_w_plr_sheetid_t >= 0 && p6_w_plr_sheetid_t < SURFACE_COUNT)
                     p6_w_plr_handle = p6_vdp1HandleBySurface[p6_w_plr_sheetid_t];
             }

@@ -62,21 +62,13 @@ void LoadPalette(uint8 paletteID, const char *filename, uint16 disabledRows) {}
 void SetPaletteFade(uint8 destBankID, uint8 srcBankA, uint8 srcBankB, int16 blendAmount, int32 startIndex, int32 endIndex) {}
 
 // ---- Input (Input/Input.cpp) --------------------------------------------------
-InputDevice *inputDeviceList[INPUTDEVICE_COUNT];
-int32 inputDeviceCount = 0;
-int32 inputSlots[PLAYER_COUNT];
-InputDevice *inputSlotDevices[PLAYER_COUNT];
-int32 GetInputDeviceType(uint32 deviceID) { return 0; }
-// P6.7c: the pad-state arrays (Input.hpp:463-470, defined in Input.cpp which
-// is not a pack TU). DefaultObject_Update reads controller[CONT_ANY]
-// (DefaultObject.cpp:17-31); zeroed state = no buttons held, the dispatch is
-// inert until the Saturn input backend lands (P6.8 item).
-ControllerState controller[PLAYER_COUNT + 1];
-AnalogState stickL[PLAYER_COUNT + 1];
-AnalogState stickR[PLAYER_COUNT + 1];
-TriggerState triggerL[PLAYER_COUNT + 1];
-TriggerState triggerR[PLAYER_COUNT + 1];
-TouchInfo touchInfo;
+// P6.7 W7 (Task #227): the Input stubs are RETIRED -- the VERBATIM engine
+// Input/Input.cpp is a pack TU now (build_p6scene_objs.sh [7r]); it defines
+// inputDeviceList/inputDeviceCount/inputSlots/inputSlotDevices (Input.cpp:5-9),
+// the pad-state arrays controller/stickL/stickR/triggerL/triggerR/touchInfo
+// (Input.cpp:11-18), and the real GetInputDeviceType (Input.cpp:323). The
+// Saturn SMPC device backend is platform/Saturn/InputDevice_Saturn.cpp ([7s]),
+// the AudioDevice_Saturn precedent applied to input.
 
 // ---- Dev / misc ---------------------------------------------------------------
 // P6.7 W15b: debugHitboxCount/debugHitboxList/AddDebugHitbox stubs RETIRED --
