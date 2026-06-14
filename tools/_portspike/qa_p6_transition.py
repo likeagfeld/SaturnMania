@@ -41,14 +41,22 @@ _spec.loader.exec_module(_scene)
 MCS_DEFAULT = os.path.join(HERE, "_p6", "_p6_pack.mcs")
 
 SYMS = ["_p6_w_transitions", "_p6_w_cont_frames", "_p6_w_cont_plr_x",
-        "_p6_w_cont_plr_y", "_p6_w_cont_animid"]
+        "_p6_w_cont_plr_y", "_p6_w_cont_animid", "_p6_w_lay_bytes"]
 
 CONT_FRAMES_MIN = 120  # the injected trigger fires at 100; a capture past it
                        # proves the loop kept ticking THROUGH the transition.
+# F.2: the GHZ2 act advance lands the Player at its canonical spawn (256,1358)px,
+# GROUNDED. GHZ2's playfield is 96 tiles = 1536px tall. A player that FELL THROUGH
+# (the pre-scratch-fix bug) sits at ~1770px, BELOW the playfield -> the y-bound at
+# the playfield floor (1536px) is the grounded-vs-fell-through discriminator.
+# F.2 cross-zone discriminator: after the GHZ1 -> GHZ2 act advance the windowed
+# band store mounted at P6_LW_LAYOUTBANDS must be GHZ2's (43,347 B at bandRows=12),
+# NOT the boot GHZ1 store (51,094 B). p6_w_lay_bytes carries the mounted size.
+GHZ2_LAY_BYTES = 43347
 PLR_X_MIN = 0
 PLR_X_MAX = 16384 << 16
 PLR_Y_MIN = 0
-PLR_Y_MAX = 1004 << 16
+PLR_Y_MAX = 1536 << 16  # GHZ2 playfield floor (96 tiles); grounded < this, fell-through above
 
 
 def main(argv):
@@ -99,6 +107,7 @@ def main(argv):
     px = v["_p6_w_cont_plr_x"]
     py = v["_p6_w_cont_plr_y"]
     aid = v["_p6_w_cont_animid"]
+    lay = v["_p6_w_lay_bytes"]
 
     t2 = tr is not None and tr >= 1
     t3 = (cont is not None and cont > CONT_FRAMES_MIN
@@ -106,16 +115,20 @@ def main(argv):
           and PLR_X_MIN <= px <= PLR_X_MAX
           and PLR_Y_MIN <= py <= PLR_Y_MAX
           and aid >= 0)
+    t4 = lay is not None and lay == GHZ2_LAY_BYTES
 
     checks = [
         ("T2 ENGINESTATE_LOAD dispatch handled a transition "
          "(p6_w_transitions >= 1)", t2,
          "p6_w_transitions=%s" % tr),
         ("T3 loop SURVIVED the transition (cont_frames > %d, Player live "
-         "in re-initialised GHZ)" % CONT_FRAMES_MIN, t3,
+         "in re-initialised scene)" % CONT_FRAMES_MIN, t3,
          "cont_frames=%s plr=(%d,%d)px animid=%s"
          % (cont, (px >> 16) if px is not None else 0,
             (py >> 16) if py is not None else 0, aid)),
+        ("T4 CROSS-ZONE band store swapped to GHZ2 "
+         "(p6_w_lay_bytes == %d, not GHZ1's 51094)" % GHZ2_LAY_BYTES, t4,
+         "p6_w_lay_bytes=%s" % lay),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:

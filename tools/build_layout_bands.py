@@ -36,7 +36,17 @@ import sys
 import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BAND_ROWS = 16
+# P6.8 F.2: PER-ZONE band height (was a fixed 16). One raw band = maxWidth *
+# bandRows * 2 must fit the inflate scratch (P6_LW_LAYSCRATCH = 0x8000 = 32,768),
+# AND the deflated store must fit the LAYOUTBANDS window (0xC800 = 51,200). At
+# 16 rows GHZ2's 1280-wide FG band = 40,960 B OVERFLOWED the scratch -> Refill
+# aborted -> empty windows -> the player fell through GHZ2; but smaller fixed
+# rows blow GHZ1's store past the window (more dir + worse compression). So pick
+# the LARGEST bandRows<=16 whose widest band still fits the scratch, per zone:
+# GHZ1 (1024w)->16, GHZ2 (1280w)->12. bandRows is written in the file header
+# (u16 @ off 6) and read at mount -- SaturnLayout.cpp no longer hardcodes it.
+MAX_BAND_ROWS = 16
+SCRATCH_CAP = 32768  # P6_LW_LAYSCRATCH bytes; widest raw band must fit
 
 _spec = importlib.util.spec_from_file_location(
     "pte", os.path.join(ROOT, "tools", "parse_title_entities.py"))
@@ -85,6 +95,11 @@ def main():
     args = ap.parse_args()
 
     layers = parse_layers(os.path.join(ROOT, args.scene))
+
+    # PER-ZONE band height: largest <= MAX_BAND_ROWS whose widest raw band
+    # (maxWidth * bandRows * 2) fits the SCRATCH_CAP inflate buffer.
+    max_w = max((xs for _, xs, _, _ in layers), default=1)
+    BAND_ROWS = max(1, min(MAX_BAND_ROWS, SCRATCH_CAP // (max_w * 2)))
 
     # directory sizing
     n_layers = len(layers)

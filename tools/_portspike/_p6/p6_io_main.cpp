@@ -2876,6 +2876,61 @@ extern "C" void p6_scene_run(void)
 // qa_p6_transition). A scene-load triggered by an object (Zone sets
 // sceneInfo.state = ENGINESTATE_LOAD via RSDK.LoadScene) bumps this.
 __attribute__((used)) int32 p6_w_transitions = 0;
+// P6.8 Step F.2 diag: post-load runtime GetTile probes at the loaded scene's
+// spawn column (x tile 16). For GHZ2 the offline FG Low has solid ground at
+// ty=90 (0x2001) and FG High a platform at ty=86 (0x7413); if the windowed
+// store serves the new zone these read those values, if not they read 0xFFFF
+// (empty) -- the discriminator for "player falls through GHZ2".
+__attribute__((used)) int32 p6_w_xtile_lo = -1; // GetTile(slot0 FG Low, 16, 90)
+__attribute__((used)) int32 p6_w_xtile_hi = -1; // GetTile(slot1 FG High,16, 86)
+
+// P6.8 Step F.2 (Task #231): swap the windowed layout BAND STORE for the scene
+// currently selected by sceneInfo.listPos. The Saturn windowed layout (collision
+// + FG present) is per-zone; on a cross-zone transition the store at
+// P6_LW_LAYOUTBANDS must be replaced with the new scene's <folder><id>LAYT.BIN
+// and re-mounted. MUST run BEFORE LoadSceneFolder -- that is where Scene.cpp
+// (:439/444) calls SaturnLayout_Bind, and SaturnLayout_Mount re-inits (unbinds)
+// the slots, so the order is Mount-then-Bind (the same order p6_scene_run uses:
+// the boot mount at :1790 precedes LoadSceneFolder at :2149). Skipped when the
+// scene's tag already matches the mounted store (the GHZ1 boot mount + a GHZ1
+// self-reload pay no extra CD read). GHZ1/GHZ2 share the GHZ tileset +
+// TileConfig, so ONLY the band store + Scene.bin entities change. GHZ2LAYT.BIN
+// = 41,781 B fits the 0xC800 (51,200 B) window built for GHZ1's 51,094 B.
+static char s_layout_tag[12] = "GHZ1"; // tag of the mounted store (boot mounts GHZ1)
+extern "C" int32 SaturnLayout_Mount(const void *blob); // file-scope (matches the C symbol)
+extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty); // F.2 diag probe
+
+static void p6_layout_mount_for_scene(void)
+{
+    const char *folder = sceneInfo.listData[sceneInfo.listPos].folder;
+    char id            = sceneInfo.listData[sceneInfo.listPos].id[0];
+    char tag[12];
+    int32 n = 0;
+    for (const char *p = folder; *p && n < 7; ++p)
+        tag[n++] = *p;
+    tag[n++] = id;
+    tag[n]   = 0;
+    if (!strcmp(tag, s_layout_tag))
+        return; // already mounted -- no CD read
+
+    // filename = "<tag>LAYT.BIN" (<= 12 chars: SGL GFS_FNAME_LEN limit; e.g.
+    // GHZ2LAYT.BIN = 12). [[sgl-gfs-fname-len-12-limit]]
+    char fname[16];
+    int32 m = 0;
+    for (int32 i = 0; i < n; ++i)
+        fname[m++] = tag[i];
+    const char *suf = "LAYT.BIN";
+    for (const char *p = suf; *p; ++p)
+        fname[m++] = *p;
+    fname[m] = 0;
+
+    int32 b = rsdk_storage_load_to_lwram(fname, (void *)P6_LW_LAYOUTBANDS, 0xC800);
+    if (b > 0 && SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS) > 0) {
+        p6_w_lay_bytes = b;
+        for (int32 i = 0; i <= n; ++i)
+            s_layout_tag[i] = tag[i];
+    }
+}
 
 // P6.8 Step F (Task #211): p6_scene_load_and_arm -- load the scene CURRENTLY
 // selected by sceneInfo.activeCategory/listPos and re-arm the Saturn render
@@ -2894,6 +2949,10 @@ __attribute__((used)) int32 p6_w_transitions = 0;
 // new band store staged + re-mounted; that is F.2.
 static void p6_scene_load_and_arm(void)
 {
+    // F.2: (re)mount the windowed band store for the zone being loaded BEFORE
+    // LoadSceneFolder's SaturnLayout_Bind (Scene.cpp:439/444). No-op on a same-
+    // zone reload (tag match); swaps GHZ1<->GHZ2 on a cross-zone act advance.
+    p6_layout_mount_for_scene();
     LoadSceneFolder();
     // Stage the GHZ tile CELLS to NBG1 NOW (tilesetPixels is the W11b
     // load-phase transient aliasing the entityList window -- valid only
@@ -2916,6 +2975,13 @@ static void p6_scene_load_and_arm(void)
     sceneInfo.entity          = RSDK_ENTITY_AT(0);
     InitObjects();
     p6_ghz_arm_env();
+    // F.2 diag: probe the windowed store at the spawn column right after the
+    // mount+bind+InitObjects, to witness whether collision reads serve the
+    // newly-loaded zone (GHZ2 FG Low ty=90 solid / FG High ty=86) or empty.
+    {
+        p6_w_xtile_lo = (int32)SaturnLayout_GetTile(0, 16, 90);
+        p6_w_xtile_hi = (int32)SaturnLayout_GetTile(1, 16, 86);
+    }
 }
 
 // P6.8 Step A (Task #211): p6_ghz_reload -- RE-LOAD GHZ as the FINAL live
@@ -3007,16 +3073,31 @@ extern "C" void p6_scene_tick(void)
     // so the Ring-proof gates capture their witnesses first).
     if (p6_ghz_continuous_armed) {
 #if defined(P6_TRANSITION_TEST)
-        // P6.8 Step F.1 RED gate: inject a ONE-SHOT scene-reload request at a
-        // fixed continuous-frame count to exercise the ENGINESTATE_LOAD
-        // dispatch without a full playthrough to the act signpost. listPos is
-        // unchanged (GHZ1 self-reload) so the already-mounted band store stays
-        // valid (a different-layout transition is F.2). The REAL trigger is
-        // Zone's RSDK.LoadScene() at the signpost; this only drives the gate.
+        // P6.8 Step F.2 RED gate: inject a ONE-SHOT ACT ADVANCE (GHZ1 -> GHZ2)
+        // at a fixed continuous-frame count to exercise the full cross-zone
+        // transition (band-store swap + scene re-init) without a multi-minute
+        // playthrough to the act signpost. Select GHZ2's listPos the same way
+        // p6_ghz_reload selects GHZ1 (scan the category ranges), then request
+        // ENGINESTATE_LOAD. The REAL trigger is Zone's RSDK.LoadScene().
         {
             static int32 s_xtest_fired = 0;
             if (!s_xtest_fired && p6_w_cont_frames >= 100) {
-                s_xtest_fired   = 1;
+                s_xtest_fired = 1;
+                for (int32 c = 0; c < sceneInfo.categoryCount; ++c) {
+                    SceneListInfo *cat = &sceneInfo.listCategory[c];
+                    int32 hit = 0;
+                    for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+                        if (!strcmp(sceneInfo.listData[i].folder, "GHZ")
+                            && sceneInfo.listData[i].id[0] == '2') {
+                            sceneInfo.activeCategory = c;
+                            sceneInfo.listPos        = i;
+                            hit                      = 1;
+                            break;
+                        }
+                    }
+                    if (hit)
+                        break;
+                }
                 sceneInfo.state = ENGINESTATE_LOAD;
             }
         }

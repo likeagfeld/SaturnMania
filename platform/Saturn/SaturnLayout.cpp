@@ -32,7 +32,13 @@ typedef signed int int32;
 #define SATURNLAYOUT_SLOTS    2
 #define SATURNLAYOUT_WIN_COLS 64
 #define SATURNLAYOUT_WIN_ROWS 32
-#define SATURNLAYOUT_BANDROWS 16
+// P6.8 F.2: band height is now PER-ZONE, read from the store header at Mount
+// (u16 @ off 6), not a fixed #define. build_layout_bands.py picks the largest
+// bandRows<=16 whose widest raw band (maxWidth*bandRows*2) fits the 0x8000
+// inflate scratch: GHZ1 (1024w)->16, GHZ2 (1280w)->12. A fixed 16 overflowed
+// the scratch for GHZ2 (1280*16*2=40,960 > 32,768) -> Refill aborted -> empty
+// windows -> the player fell through GHZ2.
+static int32 s_bandRows = 16; // set from the mounted store header
 // Phase 2g (Task #229): N-WAY window cache per slot. MEASURED root cause of
 // the GHZ collision frame-time hog (583 ms / 3 Player entities): the Player's
 // per-frame sensor reads hit TWO fixed vertical bands on each collidable layer
@@ -124,6 +130,10 @@ extern "C" int32 SaturnLayout_Mount(const void *blob)
     s_layerCount = (int32)be16(b + 4);
     if (s_layerCount > 8)
         s_layerCount = 8;
+    // F.2: per-zone band height from the header (u16 @ off 6).
+    s_bandRows = (int32)be16(b + 6);
+    if (s_bandRows < 1)
+        s_bandRows = 16;
     const uint8 *hdr = b + 8;
     const uint8 *dir = hdr + s_layerCount * 8;
     for (int32 i = 0; i < s_layerCount; ++i) {
@@ -181,10 +191,10 @@ static void SaturnLayout_Refill(int32 slotIdx, int32 layerIdx,
     int32 cols = (int32)L->xsize - wx;
     if (cols > SATURNLAYOUT_WIN_COLS) cols = SATURNLAYOUT_WIN_COLS;
 
-    int32 firstBand = wy / SATURNLAYOUT_BANDROWS;
+    int32 firstBand = wy / s_bandRows;
     int32 lastRow = wy + SATURNLAYOUT_WIN_ROWS - 1;
     if (lastRow >= (int32)L->ysize) lastRow = (int32)L->ysize - 1;
-    int32 lastBand = lastRow / SATURNLAYOUT_BANDROWS;
+    int32 lastBand = lastRow / s_bandRows;
 
     for (int32 b = firstBand; b <= lastBand; ++b) {
         const uint8 *e = L->dir + b * 12;
@@ -201,9 +211,9 @@ static void SaturnLayout_Refill(int32 slotIdx, int32 layerIdx,
         if (p6_mz_uncompress(scratch, &dlen, s_blob + off, zsz) != MZ_OK)
             return;
         // copy the window's column slice of every window row in this band
-        int32 bandTop = b * SATURNLAYOUT_BANDROWS;
+        int32 bandTop = b * s_bandRows;
         int32 r0 = (wy > bandTop) ? wy : bandTop;
-        int32 r1 = bandTop + SATURNLAYOUT_BANDROWS - 1;
+        int32 r1 = bandTop + s_bandRows - 1;
         if (r1 > lastRow) r1 = lastRow;
         for (int32 r = r0; r <= r1; ++r) {
             const uint8 *src = scratch + ((uint32)(r - bandTop) * L->xsize + wx) * 2;
