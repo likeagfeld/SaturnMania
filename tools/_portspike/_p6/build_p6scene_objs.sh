@@ -287,8 +287,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_present_vbl_hash -u _p6_w_present_refills \
     -u _p6_w_obj_inrange -u _p6_w_obj_topclass -u _p6_w_obj_topcount \
     -u _p6_w_obj_classcnt \
-    -u _p6_w_objupd_vbl -u _p6_w_objupd_n -u _p6_w_objupd_topclass \
-    -u _p6_w_objupd_topvbl -u _p6_w_objupd_topn \
+    -u _p6_w_objupd_vbl -u _p6_w_objupd_n -u _p6_w_objupd_us -u _p6_w_objupd_topclass \
+    -u _p6_w_objupd_topvbl -u _p6_w_objupd_topus -u _p6_w_objupd_topn \
     -u _p6_w_hog_cid -u _p6_w_hog_x -u _p6_w_hog_y -u _p6_w_obj_refills \
     -u _p6_w_lay_slot_refills \
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \

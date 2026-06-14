@@ -394,6 +394,28 @@ void RSDK::InitObjects()
 extern "C" volatile unsigned int p6_perf_vbl_count;
 extern "C" int p6_w_objupd_vbl[64];
 extern "C" int p6_w_objupd_n[64];
+// Phase 2h: FRT microsecond-grade per-Update timing (the vbl counter is too
+// coarse once the frame fits ~1 vblank). p6_perf_frt_get() is the coherent
+// interrupt-masked 16-bit FRC read; a single Update is < the 78ms /32 wrap so
+// (unsigned short)(t1 - t0) is the exact tick delta even across one wrap.
+extern "C" unsigned short p6_perf_frt_get(void);
+extern "C" int p6_w_objupd_us[64];
+#endif
+
+#if RETRO_PLATFORM == RETRO_SATURN
+// Phase 2h (Task #230): the in-range slot list. ProcessObjects ran THREE full
+// ENTITY_COUNT (2368) scans/frame through SaturnEntityAt + slow-LWRAM entity
+// reads -- but only ~12 entities are in range, so the typeGroup-build and
+// lateUpdate passes wasted ~2356 reads each. Loop 1 already computes inRange
+// for every slot; we record the in-range slots (in ascending slot order) and
+// drive passes 2 + 3 off the list, turning two 2368-scans into two ~12-walks.
+// SAFE: inRange is engine-private -- no Mania object writes another entity's
+// inRange (verified: every object-level inRange write is a local bool32), so
+// the value recorded at each slot's loop-1 visit is the same value the stock
+// separate passes would re-read. The full diag sweep (player/continuous/
+// ghzlive/collision/entdraw) is the behavioural RED gate on this.
+static int16 s_p6_inrange[ENTITY_COUNT];
+static int32 s_p6_inrange_n = 0;
 #endif
 
 void RSDK::ProcessObjects()
@@ -432,6 +454,9 @@ void RSDK::ProcessObjects()
     }
 
     sceneInfo.entitySlot = 0;
+#if RETRO_PLATFORM == RETRO_SATURN
+    s_p6_inrange_n = 0; // Phase 2h: rebuild the in-range slot list this frame
+#endif
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
         sceneInfo.entity = RSDK_ENTITY_AT(e);
         if (sceneInfo.entity->classID) {
@@ -508,11 +533,14 @@ void RSDK::ProcessObjects()
                 // FRT 78ms range). Diagnostic only -- gated by P6_PERF_OBJPROF.
                 // (decls = the file-scope extern "C" block above ProcessObjects)
                 unsigned int _ov0 = p6_perf_vbl_count;
+                unsigned short _of0 = p6_perf_frt_get();
                 if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update)
                     objectClassList[stageObjectIDs[sceneInfo.entity->classID]].update();
                 {
+                    unsigned short _of1 = p6_perf_frt_get();
                     int _oc = sceneInfo.entity->classID & 0x3F;
                     p6_w_objupd_vbl[_oc] += (int)(p6_perf_vbl_count - _ov0);
+                    p6_w_objupd_us[_oc]  += (int)(unsigned short)(_of1 - _of0);
                     p6_w_objupd_n[_oc]++;
                 }
 #else
@@ -539,6 +567,14 @@ void RSDK::ProcessObjects()
             sceneInfo.entity->inRange = false;
         }
 
+#if RETRO_PLATFORM == RETRO_SATURN
+        // Phase 2h: record this slot if it ended the pass in range (read AFTER
+        // its update() so a self-deactivation is honoured -- same value the
+        // stock separate passes re-read). Drives passes 2 + 3 off the list.
+        if (sceneInfo.entity->classID && sceneInfo.entity->inRange)
+            s_p6_inrange[s_p6_inrange_n++] = (int16)e;
+#endif
+
         sceneInfo.entitySlot++;
     }
 
@@ -548,15 +584,16 @@ void RSDK::ProcessObjects()
 
     for (int32 i = 0; i < TYPEGROUP_COUNT; ++i) typeGroups[i].entryCount = 0;
 
-    sceneInfo.entitySlot = 0;
-    for (int32 e = 0; e < ENTITY_COUNT; ++e) {
+#if RETRO_PLATFORM == RETRO_SATURN
+    // Phase 2h: drive the typeGroup rebuild off the in-range list (ascending
+    // slot order == the stock full-scan order) instead of re-scanning all 2368
+    // slots to act on ~12. Entry-cap clamps per SaturnMemoryMap.h (P6.7b).
+    for (int32 li = 0; li < s_p6_inrange_n; ++li) {
+        int32 e = s_p6_inrange[li];
+        sceneInfo.entitySlot = e;
         sceneInfo.entity = RSDK_ENTITY_AT(e);
 
-        if (sceneInfo.entity->inRange && sceneInfo.entity->interaction) {
-#if RETRO_PLATFORM == RETRO_SATURN
-            // P6.7b: same entry-cap clamp as the drawGroups write above
-            // (typeGroups carry only inRange entities; cap per
-            // SaturnMemoryMap.h at the P6.8 flip).
+        if (sceneInfo.entity->interaction) { // inRange guaranteed by list membership
             if (typeGroups[GROUP_ALL].entryCount < ENTITY_COUNT)
                 RSDK_TYPEGROUP_APPEND(typeGroups[GROUP_ALL], e);
 
@@ -566,18 +603,25 @@ void RSDK::ProcessObjects()
             if (sceneInfo.entity->group >= TYPE_COUNT
                 && typeGroups[sceneInfo.entity->group].entryCount < ENTITY_COUNT)
                 RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->group], e);
+        }
+    }
 #else
+    sceneInfo.entitySlot = 0;
+    for (int32 e = 0; e < ENTITY_COUNT; ++e) {
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
+
+        if (sceneInfo.entity->inRange && sceneInfo.entity->interaction) {
             RSDK_TYPEGROUP_APPEND(typeGroups[GROUP_ALL], e); // All active objects
 
             RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->classID], e); // class-based groups
 
             if (sceneInfo.entity->group >= TYPE_COUNT)
                 RSDK_TYPEGROUP_APPEND(typeGroups[sceneInfo.entity->group], e); // extra groups
-#endif
         }
 
         sceneInfo.entitySlot++;
     }
+#endif
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {

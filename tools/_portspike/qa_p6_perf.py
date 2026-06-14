@@ -60,6 +60,7 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         "_p6_w_obj_inrange", "_p6_w_obj_topclass", "_p6_w_obj_topcount",
         "_p6_w_obj_classcnt",
         "_p6_w_objupd_topclass", "_p6_w_objupd_topvbl", "_p6_w_objupd_topn",
+        "_p6_w_objupd_topus", "_p6_w_objupd_us", "_p6_w_objupd_n",
         "_p6_w_hog_cid", "_p6_w_hog_x", "_p6_w_hog_y", "_p6_w_obj_refills"]
 
 
@@ -236,14 +237,15 @@ def main(argv):
                       "(Player collision?) -- targeted-win territory.")
             elif inr:
                 print("    -> MANY entities: count-dominated -> culling / dual-SH2.")
-            # Phase 2d: the per-Update TIMING hog (P6_PERF_OBJPROF; the actual
-            # dominant by TIME, not just count -- this NAMES the target).
-            hc = v.get("_p6_w_objupd_topclass"); hv = v.get("_p6_w_objupd_topvbl")
+            # Phase 2h: the per-Update TIMING hog ranked by FRT TICKS (the vbl
+            # profiler saturates to 0 once the frame fits ~1 vblank). us() maps
+            # ticks -> microseconds via the recorded TCR divider.
+            hc = v.get("_p6_w_objupd_topclass"); hu = v.get("_p6_w_objupd_topus")
             hn = v.get("_p6_w_objupd_topn")
-            if hc is not None and hc >= 0:
-                hms = (hv or 0) * VBL_MS
-                print("    UPDATE-TIME HOG  : classID&0x3F=%s  %.0f ms over %s "
-                      "in-range (%.1f ms each) <== the fix target"
+            if hc is not None and hc >= 0 and hu:
+                hms = us(hu) / 1000.0
+                print("    UPDATE-TIME HOG  : classID&0x3F=%s  %.2f ms over %s "
+                      "in-range (%.2f ms each) <== the fix target"
                       % (hc, hms, hn, (hms / hn) if hn else 0.0))
                 hcid = v.get("_p6_w_hog_cid"); hx = v.get("_p6_w_hog_x")
                 hy = v.get("_p6_w_hog_y")
@@ -251,6 +253,21 @@ def main(argv):
                     print("    hog identity     : full classID=%s  @ world "
                           "(%d, %d) px  (match to GHZ Act1 layout)"
                           % (hcid, (hx >> 16) if hx else 0, (hy >> 16) if hy else 0))
+                # Per-class FRT-us table (ranked) -- peek the us[64]/n[64] arrays.
+                usb = syms.get("_p6_w_objupd_us"); nb = syms.get("_p6_w_objupd_n")
+                if usb is not None and nb is not None:
+                    rows = []
+                    for ci_ in range(64):
+                        t = _scene.peek_u32(mod, sections, usb + ci_ * 4, perm, signed=True)
+                        n = _scene.peek_u32(mod, sections, nb + ci_ * 4, perm, signed=True)
+                        if t and t > 0:
+                            rows.append((t, ci_, n))
+                    rows.sort(reverse=True)
+                    tot = sum(r[0] for r in rows) or 1
+                    print("    per-class Update cost (FRT, ranked):")
+                    for t, ci_, n in rows[:8]:
+                        print("      classID&0x3F=%-2d  %6.2f ms  x%-2s  (%4.1f%% of obj)"
+                              % (ci_, us(t) / 1000.0, n, 100.0 * t / tot))
                 objr = v.get("_p6_w_obj_refills")
                 if objr is not None:
                     verdict = ("ROOT CAUSE -- collision re-inflates the layout window"

@@ -638,8 +638,14 @@ __attribute__((used)) int32 p6_w_obj_classcnt  = 0;  // distinct in-range classe
 // by classID&0x3F). p6_ghz_frame resets per frame + scans for the hog.
 __attribute__((used)) int p6_w_objupd_vbl[64];
 __attribute__((used)) int p6_w_objupd_n[64];
-__attribute__((used)) int32 p6_w_objupd_topclass = -1; // classID with the most Update vbl
+// Phase 2h (Task #230): per-Update FRT-TICK accumulator. At 30 fps the whole
+// frame is ~1 vblank, so the vbl[] profiler reads all-zero (every Update is
+// sub-vblank). The FRT (1.19 us/tick @ /32) is now reliable -- ProcessObjects
+// is sub-78ms -- so it resolves per-class Update cost. Reset + summed per frame.
+__attribute__((used)) int p6_w_objupd_us[64];
+__attribute__((used)) int32 p6_w_objupd_topclass = -1; // classID with the most Update time
 __attribute__((used)) int32 p6_w_objupd_topvbl   = 0;  // that class's total Update vbl
+__attribute__((used)) int32 p6_w_objupd_topus    = 0;  // that class's total Update FRT ticks
 __attribute__((used)) int32 p6_w_objupd_topn     = 0;  // that class's in-range count
 __attribute__((used)) int32 p6_w_obj_refills = 0; // SaturnLayout inflates DURING ProcessObjects
 __attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
@@ -1587,7 +1593,7 @@ static void p6_ghz_frame(void)
     p6_w_perf_cyc_input = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_input = (int32)(vb1 - vb0);
     // Phase 2d: reset the per-classID Update timing accumulators before the loop
     // (Object.cpp fills them when built -DP6_PERF_OBJPROF; harmless 0s otherwise).
-    for (int32 _z = 0; _z < 64; ++_z) { p6_w_objupd_vbl[_z] = 0; p6_w_objupd_n[_z] = 0; }
+    for (int32 _z = 0; _z < 64; ++_z) { p6_w_objupd_vbl[_z] = 0; p6_w_objupd_n[_z] = 0; p6_w_objupd_us[_z] = 0; }
     {
         // Phase 2f: SaturnLayout re-inflates DURING ProcessObjects -- if the
         // Player's collision sensors re-window the band store, this is the 194ms
@@ -1640,12 +1646,18 @@ static void p6_ghz_frame(void)
         p6_w_obj_topcount = topn;
         p6_w_obj_classcnt = distinct;
 
-        // Phase 2d: scan the per-classID Update-timing accumulators for the hog.
-        int32 hc = -1, hv = 0, hn = 0;
+        // Phase 2h: scan the per-classID Update-timing accumulators for the hog,
+        // ranked by FRT TICKS (us[]) -- the vbl[] profiler saturates to 0 once
+        // the frame fits ~1 vblank. Keep vbl as a back-compat tie-break readout.
+        int32 hc = -1, hu = 0, hn = 0, hv = 0;
         for (i = 0; i < 64; ++i)
-            if (p6_w_objupd_vbl[i] > hv) { hv = p6_w_objupd_vbl[i]; hc = i; hn = p6_w_objupd_n[i]; }
+            if (p6_w_objupd_us[i] > hu) {
+                hu = p6_w_objupd_us[i]; hc = i;
+                hn = p6_w_objupd_n[i]; hv = p6_w_objupd_vbl[i];
+            }
         p6_w_objupd_topclass = hc;
         p6_w_objupd_topvbl   = hv;
+        p6_w_objupd_topus    = hu;
         p6_w_objupd_topn     = hn;
 
         // Phase 2e: locate the hog -- record the first in-range entity whose
