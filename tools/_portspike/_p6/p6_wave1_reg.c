@@ -153,6 +153,7 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     // APICallback (Game.c:166) NOT registered: the verbatim TU needs
     // pre-REV02 RSDK.GetAPIFunction; its referenced entry points stub at
     // the closure edge until the SaveGame/UserStorage wave (p6_closure_edge.c).
+    RSDK_REGISTER_OBJECT(ActClear);     // Game.c:~160 (F.2: ActClear.c:782 ++listPos = the GHZ1->GHZ2 advance)
     RSDK_REGISTER_OBJECT(BoundsMarker); // Game.c:188
     RSDK_REGISTER_OBJECT(Camera);       // Game.c:212
     RSDK_REGISTER_OBJECT(DebugMode);    // Game.c:265

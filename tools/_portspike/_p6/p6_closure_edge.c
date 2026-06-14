@@ -49,7 +49,11 @@ int32 p6_w_edge_last  = 0; // ordinal of the last stub hit (1-based, file order)
 // entry points stub here instead; the SaveGame/UserStorage wave brings the
 // REV02-canonical replacement (engine User.cpp surface).
 ObjectAPICallback *APICallback   = NULL;
-ObjectActClear *ActClear         = NULL;
+// ActClear: now a REGISTERED pack object (Game_ActClear.o defines the global) --
+// F.2 act-clear: ActClear.c:782 ++listPos is the GHZ1->GHZ2 advance. Its closure
+// edge (Animals/TimeAttackData/StarPost/GameProgress/APICallback_Track*) stubs
+// below -- all leaderboard/save/progress, none on the listPos-advance path.
+ObjectAnimals *Animals           = NULL;
 ObjectAnnouncer *Announcer       = NULL;
 ObjectCPZSetup *CPZSetup         = NULL;
 ObjectChaosEmerald *ChaosEmerald = NULL;
@@ -123,6 +127,30 @@ void APICallback_SetRichPresence(int32 id, String *msg)
 {
     (void)id; (void)msg;
     P6_EDGE(51);
+}
+// F.2 ActClear closure edge (leaderboard/save/progress -- inert no-ops; none on
+// the ActClear.c:782 ++listPos act-advance path).
+uint16 *TimeAttackData_GetRecordedTime(uint8 z, uint8 a, uint8 c, uint8 r)
+{
+    (void)z; (void)a; (void)c; (void)r; P6_EDGE(52); return 0;
+}
+void TimeAttackData_AddRecord(uint8 z, uint8 a, uint8 c, uint8 rank, uint16 score)
+{
+    (void)z; (void)a; (void)c; (void)rank; (void)score; P6_EDGE(53);
+}
+uint32 TimeAttackData_GetPackedTime(int32 m, int32 s, int32 ms)
+{
+    (void)m; (void)s; (void)ms; P6_EDGE(54); return 0;
+}
+void StarPost_ResetStarPosts(void) { P6_EDGE(55); }
+void GameProgress_MarkZoneCompleted(int32 zoneID) { (void)zoneID; P6_EDGE(56); }
+void APICallback_TrackTAClear(uint8 z, uint8 a, uint8 p, int32 t)
+{
+    (void)z; (void)a; (void)p; (void)t; P6_EDGE(57);
+}
+void APICallback_TrackActClear(uint8 z, uint8 a, uint8 p, int32 t, int32 ri, int32 sc)
+{
+    (void)z; (void)a; (void)p; (void)t; (void)ri; (void)sc; P6_EDGE(58);
 }
 void ChaosEmerald_State_Rotate(void) { P6_EDGE(1); }
 void CompetitionSession_DeriveWinner(int32 playerID, int32 finishType)

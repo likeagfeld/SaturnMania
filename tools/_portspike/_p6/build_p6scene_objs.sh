@@ -224,7 +224,8 @@ echo "[7p] P6.7 Player wave GAME TUs (VERBATIM 17-TU closure, -Os census knob) .
 # -Os MATCHES THE CENSUS NUMBERS (102,904 B alloc sections, P6.7d.1 obj_os):
 # the -O2 wave-1 knob would inflate the set against the 142,108 B post-
 # hand-port-drop margin. Same GAME_DEFS as [7m] (REV02 ABI is binding).
-for w2 in Helpers_DrawHelpers:Game_DrawHelpers \
+for w2 in Global_ActClear:Game_ActClear \
+          Helpers_DrawHelpers:Game_DrawHelpers \
           Helpers_MathHelpers:Game_MathHelpers \
           Global_Soundboard:Game_Soundboard \
           Global_BoundsMarker:Game_BoundsMarker \
@@ -325,7 +326,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Game_HUD.o" "$P6/Game_Ice.o" "$P6/Game_ImageTrail.o" \
     "$P6/Game_Music.o" "$P6/Game_PauseMenu.o" "$P6/Game_Player.o" \
     "$P6/Game_SaveGame.o" "$P6/Game_ScoreBonus.o" "$P6/Game_Shield.o" \
-    "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" \
+    "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" "$P6/Game_ActClear.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
     "$P6/Input_Input.o" "$P6/InputDevice_Saturn.o" "$P6/CppRuntime_Saturn.o" \
