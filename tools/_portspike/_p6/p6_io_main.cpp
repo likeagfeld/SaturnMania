@@ -2871,6 +2871,53 @@ extern "C" void p6_scene_run(void)
 }
 
 // =============================================================================
+// P6.8 Step F (Task #211): p6_w_transitions -- count of engine-driven scene
+// transitions handled by the tick's ENGINESTATE_LOAD dispatch (read by
+// qa_p6_transition). A scene-load triggered by an object (Zone sets
+// sceneInfo.state = ENGINESTATE_LOAD via RSDK.LoadScene) bumps this.
+__attribute__((used)) int32 p6_w_transitions = 0;
+
+// P6.8 Step F (Task #211): p6_scene_load_and_arm -- load the scene CURRENTLY
+// selected by sceneInfo.activeCategory/listPos and re-arm the Saturn render
+// environment. Factored out of p6_ghz_reload so the SAME sequence serves both
+// (a) the boot GHZ1 select+load and (b) an engine-driven transition where an
+// object already set listPos (Zone act advance / death reload). Mirrors the
+// engine ENGINESTATE_LOAD case (RetroEngine.cpp:365-367): LoadSceneFolder ->
+// LoadSceneAssets -> InitObjects, with the Saturn-side VDP2 cell upload wedged
+// between the GIF decode and the LoadSceneAssets memset (the W11b transient),
+// the screen env armed before InitObjects (Camera_Create reads center), and the
+// VDP1 sheet binds re-armed after. InitObjects sets sceneInfo.state =
+// ENGINESTATE_REGULAR (Object.cpp:385) so the next tick runs the new scene.
+// NOTE (F.1 scope): re-uses the layout bands already mounted at p6_scene_run
+// (SaturnLayout_Mount) -- valid for a same-zone reload (GHZ1->GHZ1). A cross-
+// scene transition with a different layout (GHZ1->GHZ2) additionally needs the
+// new band store staged + re-mounted; that is F.2.
+static void p6_scene_load_and_arm(void)
+{
+    LoadSceneFolder();
+    // Stage the GHZ tile CELLS to NBG1 NOW (tilesetPixels is the W11b
+    // load-phase transient aliasing the entityList window -- valid only
+    // between LoadSceneFolder's GIF decode and LoadSceneAssets' memset).
+    p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+    LoadSceneAssets();
+    // Screen env must exist BEFORE InitObjects (Camera_Create reads
+    // ScreenInfo->center) -- arm it here, then arm the binds after.
+    videoSettings.screenCount = 1;
+    screens[0].size.x         = SCREEN_XMAX;
+    screens[0].size.y         = SCREEN_YSIZE;
+    screens[0].center.x       = SCREEN_XMAX / 2;
+    screens[0].center.y       = SCREEN_YSIZE / 2;
+    screens[0].pitch          = SCREEN_XMAX;
+    screens[0].clipBound_X1   = 0;
+    screens[0].clipBound_Y1   = 0;
+    screens[0].clipBound_X2   = SCREEN_XMAX;
+    screens[0].clipBound_Y2   = SCREEN_YSIZE;
+    currentScreen             = &screens[0];
+    sceneInfo.entity          = RSDK_ENTITY_AT(0);
+    InitObjects();
+    p6_ghz_arm_env();
+}
+
 // P6.8 Step A (Task #211): p6_ghz_reload -- RE-LOAD GHZ as the FINAL live
 // scene and arm the continuous tick. Deferred to the per-frame tick (NOT run
 // inside p6_scene_run) for two measured reasons:
@@ -2902,28 +2949,7 @@ static void p6_ghz_reload(void)
     }
     if (!found)
         return;
-    LoadSceneFolder();
-    // Stage the GHZ tile CELLS to NBG1 NOW (tilesetPixels is the W11b
-    // load-phase transient aliasing the entityList window -- valid only
-    // between LoadSceneFolder's GIF decode and LoadSceneAssets' memset).
-    p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
-    LoadSceneAssets();
-    // Screen env must exist BEFORE InitObjects (Camera_Create reads
-    // ScreenInfo->center) -- arm it here, then arm the binds after.
-    videoSettings.screenCount = 1;
-    screens[0].size.x         = SCREEN_XMAX;
-    screens[0].size.y         = SCREEN_YSIZE;
-    screens[0].center.x       = SCREEN_XMAX / 2;
-    screens[0].center.y       = SCREEN_YSIZE / 2;
-    screens[0].pitch          = SCREEN_XMAX;
-    screens[0].clipBound_X1   = 0;
-    screens[0].clipBound_Y1   = 0;
-    screens[0].clipBound_X2   = SCREEN_XMAX;
-    screens[0].clipBound_Y2   = SCREEN_YSIZE;
-    currentScreen             = &screens[0];
-    sceneInfo.entity          = RSDK_ENTITY_AT(0);
-    InitObjects();
-    p6_ghz_arm_env();
+    p6_scene_load_and_arm();
     p6_ghz_continuous_armed = 1;
 }
 
@@ -2980,6 +3006,31 @@ extern "C" void p6_scene_tick(void)
     // skipped while armed (it stays reachable for the pre-switch legacy frames
     // so the Ring-proof gates capture their witnesses first).
     if (p6_ghz_continuous_armed) {
+#if defined(P6_TRANSITION_TEST)
+        // P6.8 Step F.1 RED gate: inject a ONE-SHOT scene-reload request at a
+        // fixed continuous-frame count to exercise the ENGINESTATE_LOAD
+        // dispatch without a full playthrough to the act signpost. listPos is
+        // unchanged (GHZ1 self-reload) so the already-mounted band store stays
+        // valid (a different-layout transition is F.2). The REAL trigger is
+        // Zone's RSDK.LoadScene() at the signpost; this only drives the gate.
+        {
+            static int32 s_xtest_fired = 0;
+            if (!s_xtest_fired && p6_w_cont_frames >= 100) {
+                s_xtest_fired   = 1;
+                sceneInfo.state = ENGINESTATE_LOAD;
+            }
+        }
+#endif
+        // P6.8 Step F (Task #211): ENGINESTATE_LOAD dispatch -- an object (Zone)
+        // requested a scene transition (RSDK.LoadScene set state=LOAD + listPos).
+        // Mirror RetroEngine ProcessEngine's switch: load the selected scene +
+        // re-arm, then RETURN. InitObjects set state=REGULAR, so the next tick
+        // runs the new scene's first REGULAR frame.
+        if (sceneInfo.state == ENGINESTATE_LOAD) {
+            p6_scene_load_and_arm();
+            ++p6_w_transitions;
+            return;
+        }
         p6_ghz_frame();
         return;
     }

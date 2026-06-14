@@ -21,7 +21,8 @@ set -eu
 CC=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-gcc-8.2.0
 
 echo "[1/4] proof pack (engine TUs, ld -r gc-pack) ..."
-bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
+# P6.8 Step F.1: enable the diag-only injected scene-transition trigger.
+P6_XTEST=1 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
 
 echo "[2/4] engine-sized SGL area block ..."
 $CC -x c -std=gnu99 -m2 -O2 -fno-builtin \
