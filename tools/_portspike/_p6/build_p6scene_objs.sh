@@ -74,7 +74,10 @@ echo "=============================================================="
 echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _sbrk + p6_scene_run) ..."
 # P6.8 Step F.1: diag-only injected scene-transition trigger (build_diag.sh sets
 # P6_XTEST=1); shipping leaves it unset so the real trigger is Zone's RSDK.LoadScene.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} $CORE_INC \
+# P6.8 F.2-followup: P6_WARP=1 instead builds the debug-warp variant (teleport the
+# player to the GHZ1 signpost). The two are MUTUALLY EXCLUSIVE (build_diag.sh sets
+# exactly one); shipping leaves both unset.
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -295,6 +298,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_lay_slot_refills \
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \
     -u _p6_w_transitions -u _p6_w_xtile_lo -u _p6_w_xtile_hi \
+    -u _p6_w_warp_plrx -u _p6_w_warp_signactive \
     -u _p6_w_magic \
     -u _p6_bridge_proc_anim -u _p6_bridge_draw_sprite -u _p6_scene_entity \
     -u _p6_w_obj_classid -u _p6_w_obj_timer -u _p6_w_obj_vely \

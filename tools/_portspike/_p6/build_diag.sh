@@ -21,8 +21,15 @@ set -eu
 CC=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-gcc-8.2.0
 
 echo "[1/4] proof pack (engine TUs, ld -r gc-pack) ..."
-# P6.8 Step F.1: enable the diag-only injected scene-transition trigger.
-P6_XTEST=1 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
+# P6.8 Step F.1: diag-only injected trigger. Default = the F.2 GHZ2 act-advance
+# (P6_XTEST). P6.8 F.2-followup: setting P6_WARP=1 in the environment builds the
+# debug-warp variant INSTEAD (mutually exclusive -- the warp needs GHZ1, not the
+# GHZ2 advance). Pass via `docker run -e P6_WARP=1 ...`.
+if [ -n "$P6_WARP" ]; then
+  P6_WARP=1 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
+else
+  P6_XTEST=1 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
+fi
 
 echo "[2/4] engine-sized SGL area block ..."
 $CC -x c -std=gnu99 -m2 -O2 -fno-builtin \

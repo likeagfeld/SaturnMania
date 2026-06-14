@@ -586,6 +586,13 @@ __attribute__((used)) int32 p6_w_cont_frames    = 0;  // ++ per p6_ghz_frame() c
 __attribute__((used)) int32 p6_w_cont_plr_x     = 0;  // SLOT_PLAYER1 position, continuous
 __attribute__((used)) int32 p6_w_cont_plr_y     = 0;
 __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.animationID
+// P6.8 F.2-followup debug WARP (declared early -- the signpost-active scan in
+// p6_ghz_frame's census reads it). p6_w_warp_plrx = the player x after the warp
+// past the GHZ1 signpost (x=15792px); p6_w_warp_signactive = the active field of
+// an entity AT the signpost x: ACTIVE_BOUNDS(4) before the cross, ACTIVE_NORMAL
+// (2) once SignPost_CheckTouch fires. Diag-only (-DP6_WARP_TEST).
+__attribute__((used)) int32 p6_w_warp_plrx       = 0;
+__attribute__((used)) int32 p6_w_warp_signactive = -1;
 // P6.8 Step B (Task #211): the LEAN SHIPPING-boot flavor flag. 0 == DIAG
 // (P6SCENE: full burst + ~14 proofs + Title reload + legacy Ring + deferred
 // frame-260 GHZ switch -- byte-identical to W19/Step A). 1 == lean shipping
@@ -1640,6 +1647,13 @@ static void p6_ghz_frame(void)
                 if (census[cid] == 0) ++distinct;
                 if (++census[cid] > topn) { topn = census[cid]; topc = (int32)cid; }
             }
+            // F.2-followup warp probe: record the active state of an entity
+            // sitting AT the GHZ1 signpost x (15792px, both signposts) -- not
+            // the player (slot 0). ACTIVE_BOUNDS(4) until the warped player
+            // crosses it, ACTIVE_NORMAL(2) once SignPost_CheckTouch fires.
+            if (i != 0 && e->classID
+                && e->position.x >= (15760 << 16) && e->position.x <= (15824 << 16))
+                p6_w_warp_signactive = (int32)e->active;
         }
         p6_w_obj_inrange  = total;
         p6_w_obj_topclass = topc;
@@ -3100,6 +3114,23 @@ extern "C" void p6_scene_tick(void)
                 }
                 sceneInfo.state = ENGINESTATE_LOAD;
             }
+        }
+#endif
+#if defined(P6_WARP_TEST)
+        // P6.8 F.2-followup: ONE-SHOT debug WARP -- teleport SLOT_PLAYER1 just
+        // PAST the GHZ1 signpost (x=15792px) so the REAL SignPost_CheckTouch
+        // crossing (player.x > signpost.x, SignPost.c:313) fires in gameplay.
+        // The camera follows over the next frames, the signpost comes inRange,
+        // and SignPost flips ACTIVE_BOUNDS->ACTIVE_NORMAL + spins. This is the
+        // enabler for testing the act-clear chain without a full playthrough.
+        {
+            static int32 s_warp_fired = 0;
+            if (!s_warp_fired && p6_w_cont_frames >= 100) {
+                s_warp_fired = 1;
+                RSDK_ENTITY_AT(0)->position.x = 15820 << 16; // past the 15792 signpost
+                RSDK_ENTITY_AT(0)->position.y = 1180 << 16;  // just above the ground there
+            }
+            p6_w_warp_plrx = RSDK_ENTITY_AT(0)->position.x;
         }
 #endif
         // P6.8 Step F (Task #211): ENGINESTATE_LOAD dispatch -- an object (Zone)
