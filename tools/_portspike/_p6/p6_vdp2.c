@@ -142,6 +142,17 @@ void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
     slScrAutoDisp(NBG1ON | SPRON);
 }
 
+/* Boot/load cover: blank ALL VDP2 scroll + sprite display so the multi-second
+ * synchronous scene load shows a clean solid back-color instead of NBG1
+ * displaying half-written VRAM (the red/green static the user reported between
+ * boot and GHZ). Called from p6_load_phase_enter at the start of every load;
+ * the first GHZ present (p6_vdp2_present_ghz_camera) re-arms NBG1ON|SPRON once
+ * the scene's VRAM is fully written. */
+void p6_vdp2_blank(void)
+{
+    slScrAutoDisp(0);
+}
+
 /* ============================================================================
  * P6.7 W16 (Task #228): present the ENGINE-loaded GHZ1 FOREGROUND on NBG1,
  * anchored to the LIVE camera. Same VRAM/PND geometry as the Title present

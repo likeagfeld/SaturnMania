@@ -423,6 +423,10 @@ void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
 void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                                 const unsigned short *pal565,
                                 unsigned int *out_pndhash, int *out_nblank);
+// Boot/load cover: blank all VDP2 scroll+sprite display during the load phase so
+// the slow synchronous load shows a clean back-color, not NBG1's half-written VRAM
+// (the red/green static). The first GHZ present re-arms NBG1ON|SPRON.
+void p6_vdp2_blank(void);
 // Perf Phase 2c (Task #211): re-arm the present's static-map cache on every GHZ
 // (re)load -- the build runs once, then per-frame the present only does the
 // hardware scroll (the static map/inflate was ~820ms/frame of waste).
@@ -1546,6 +1550,11 @@ static void p6_obj_spawn_ring(void)
 static int p6_saved_sr = 0;
 static void p6_load_phase_enter(void)
 {
+    // Boot/load cover: blank VDP2 scroll+sprite display BEFORE masking interrupts
+    // so the multi-second synchronous load shows a clean back-color instead of the
+    // red/green static (NBG1 displaying half-written VRAM). Re-armed by the first
+    // GHZ present after the load completes.
+    p6_vdp2_blank();
     for (volatile int i = 0; i < 2000000 && (P6_SMPC_SF & 1); ++i) {}
     int sr;
     __asm__ volatile("stc sr, %0" : "=r"(sr));
