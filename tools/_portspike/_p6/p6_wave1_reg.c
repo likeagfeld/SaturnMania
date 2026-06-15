@@ -334,6 +334,12 @@ void p6_player_witness_tick(void)
 extern int32 p6_w_cont_plr_x;
 extern int32 p6_w_cont_plr_y;
 extern int32 p6_w_cont_animid;
+extern int32 p6_w_p2_animframes;
+extern int32 p6_w_p2_animid;
+extern int32 p6_w_p2_frameid;
+extern int32 p6_w_p2_sheetid;
+extern int32 p6_w_p2_aniframesid;
+extern int32 p6_w_p2_tailsframes;
 void p6_cont_witness(void)
 {
     if (!Player)
@@ -342,4 +348,23 @@ void p6_cont_witness(void)
     p6_w_cont_plr_x  = p1->position.x;
     p6_w_cont_plr_y  = p1->position.y;
     p6_w_cont_animid = (int32)p1->animator.animationID;
+    /* Task #244 (draw split): the Tails sidekick's BODY animator. animframes==0
+     * == the absence (no body sprite); !=0 with an unbound p2_sheetid == sheet
+     * not bound; !=0 with a bound sheetid == a draw cull. */
+    {
+        EntityPlayer *p2 = RSDK_GET_ENTITY(SLOT_PLAYER2, Player);
+        p6_w_p2_animframes  = (int32)(size_t)p2->animator.frames; /* 0 == NULL = no body sprite */
+        p6_w_p2_animid      = (int32)p2->animator.animationID;
+        p6_w_p2_frameid     = (int32)p2->animator.frameID;
+        p6_w_p2_aniframesid = (int32)(uint16)p2->aniFrames;
+        p6_w_p2_tailsframes = (int32)(uint16)Player->tailsFrames;
+        /* stride-safe via GetFrame (the game-side void* prefix struct must NOT
+         * index the engine frame array directly -- see SLOT_PLAYER1 above). */
+        {
+            SpriteFrame *fr = RSDK.GetFrame(p2->aniFrames,
+                                            p2->animator.animationID,
+                                            p2->animator.frameID);
+            p6_w_p2_sheetid = fr ? (int32)fr->sheetID : -1;
+        }
+    }
 }

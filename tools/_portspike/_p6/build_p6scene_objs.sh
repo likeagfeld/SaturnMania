@@ -272,7 +272,14 @@ $CC $CXXFLAGS $MINIZ_DEFS -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnLayout.o" "$PLAT/SaturnLayout.cpp"
 
 echo "[7o] SaturnSheet.o (P6.7 W12 sprite-sheet band stores; Task #241: P6_CART relocates the store to the 4MB cart) ..."
-$CC $CXXFLAGS $MINIZ_DEFS ${P6_CART:+-DP6_CART} -I"$DEPS" -I"$NEWLIB" \
+# Task #244: SaturnSheet ALWAYS uses the 4MB-cart band store (0x227A0000, 384 KB).
+# The project targets the Extended-RAM cart (ss.cart=extram4; Data.rsdk ingestion
+# requires it), and the 245 KB VDP2-fallback store overflows on the 7th sheet
+# (TAILS1 by 19,105 B -> Tails1 fails to stage -> Tails surface unbound -> Tails
+# invisible). Hardcoded (not ${P6_CART:+...}) because build_shipping.sh never set
+# P6_CART, so shipping silently used the small store. Storage/Scene stay WRAM
+# (env-gated) -- the cart's first 3.64 MB is unused here, so 0x227A0000 is free.
+$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnSheet.o" "$PLAT/SaturnSheet.cpp"
 
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
@@ -312,6 +319,10 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_lay_slot_refills \
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \
     -u _p6_w_transitions -u _p6_w_xtile_lo -u _p6_w_xtile_hi \
+    -u _p6_w_p1_classid -u _p6_w_p2_classid -u _p6_w_p2_active \
+    -u _p6_w_p2_x -u _p6_w_p2_y \
+    -u _p6_w_p2_animframes -u _p6_w_p2_animid -u _p6_w_p2_frameid -u _p6_w_p2_sheetid \
+    -u _p6_w_p2_aniframesid -u _p6_w_p2_tailsframes \
     -u _p6_w_warp_plrx -u _p6_w_warp_signactive \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \

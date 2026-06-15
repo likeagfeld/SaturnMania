@@ -590,6 +590,25 @@ __attribute__((used)) int32 p6_w_cont_frames    = 0;  // ++ per p6_ghz_frame() c
 __attribute__((used)) int32 p6_w_cont_plr_x     = 0;  // SLOT_PLAYER1 position, continuous
 __attribute__((used)) int32 p6_w_cont_plr_y     = 0;
 __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.animationID
+// Task #244: sidekick (Tails, SLOT_PLAYER2) census. "Tails not appearing" --
+// MEASURED-first: his follow/idle/run anims are ALL on Tails1 (which BINDS), so
+// absence is spawn-or-draw, NOT a sheet gap. p2_classid == p1_classid (nonzero)
+// == a Player IS in SLOT_PLAYER2 (spawned); p2_active/x/y say whether it runs +
+// where it sits relative to the camera.
+__attribute__((used)) int32 p6_w_p1_classid    = -1; // SLOT_PLAYER1 (Sonic) classID
+__attribute__((used)) int32 p6_w_p2_classid    = -1; // SLOT_PLAYER2 (sidekick) classID (0 == empty slot)
+__attribute__((used)) int32 p6_w_p2_active     = -1; // sidekick active field (0 == not ticking)
+__attribute__((used)) int32 p6_w_p2_x          = 0;  // sidekick position (fixed-point)
+__attribute__((used)) int32 p6_w_p2_y          = 0;
+// Task #244 (draw split): the sidekick's BODY animator. animframes==0 -> no body
+// sprite at all (the animator was never set up) == the absence; !=0 -> compare
+// p2_sheetid to the dropbysheet unbound surface (body sheet unbound) else a cull.
+__attribute__((used)) int32 p6_w_p2_animframes = -1; // animator.frames pointer (0 == NULL = no body sprite)
+__attribute__((used)) int32 p6_w_p2_animid     = -1; // animator.animationID
+__attribute__((used)) int32 p6_w_p2_frameid    = -1; // animator.frameID
+__attribute__((used)) int32 p6_w_p2_sheetid    = -1; // current body frame's surface ID (GetFrame-resolved)
+__attribute__((used)) int32 p6_w_p2_aniframesid = -1; // sidekick aniFrames id (0xFFFF == unassigned)
+__attribute__((used)) int32 p6_w_p2_tailsframes = -1; // Player->tailsFrames (0xFFFF == Tails.bin anim load FAILED)
 // P6.8 F.2-followup debug WARP (declared early -- the signpost-active scan in
 // p6_ghz_frame's census reads it). p6_w_warp_plrx = the player x after the warp
 // past the GHZ1 signpost (x=15792px); p6_w_warp_signactive = the active field of
@@ -1725,6 +1744,16 @@ static void p6_ghz_frame(void)
     {
         static int16 census[256];
         int32 i, total = 0, distinct = 0, topc = -1, topn = 0;
+        // Task #244: is the Tails sidekick (SLOT_PLAYER2) a spawned Player + where?
+        {
+            EntityBase *e1 = RSDK_ENTITY_AT(0); /* SLOT_PLAYER1 (Sonic) */
+            EntityBase *e2 = RSDK_ENTITY_AT(1); /* SLOT_PLAYER2 (sidekick) */
+            p6_w_p1_classid = (int32)e1->classID;
+            p6_w_p2_classid = (int32)e2->classID;
+            p6_w_p2_active  = (int32)e2->active;
+            p6_w_p2_x       = (int32)e2->position.x;
+            p6_w_p2_y       = (int32)e2->position.y;
+        }
         for (i = 0; i < 256; ++i) census[i] = 0;
         for (i = 0; i < ENTITY_COUNT; ++i) {
             EntityBase *e = RSDK_ENTITY_AT(i);
@@ -2052,22 +2081,23 @@ extern "C" void p6_scene_run(void)
         // 206,222 B, inside the 245,760 B VDP2 window (0x25E44000..0x25E80000)
         // with 39,538 B margin. Tails1.gif (58,643 B) is the DECLARED GAP --
         // adding it overflows by 19,105 B (no-shrink guardrail).
-        // Task #241: TAILS1.SHT (sidekick body) replaces SHIELDS in slot 5 -- the
-        // user's "Tails body blinking" was Tails1.gif never staged. The staged
-        // set is now 232,650 B (was 206,222) inside the 245,760 B VDP2 window
-        // (13,110 B margin). Shields FX lose residency (occasional pickup) to fund
-        // the constant sidekick character. Full all-characters store = cart move.
-        static const char *shtFiles[6] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
-                                           "ITEMS.SHT", "DISPLAY.SHT", "TAILS1.SHT" };
+        // Task #241 main: the band store is now in the 4MB cart (384 KB region,
+        // SaturnSheet.cpp @0x227A0000), so TAILS1 stages ALONGSIDE the full
+        // 6-sheet set -- SHIELDS is back (no trade). 7 sheets = 264,865 B inside
+        // the 384 KB cart store. SATURNSHEET_SLOTS=8 holds 7.
+        static const char *shtFiles[7] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
+                                           "ITEMS.SHT", "DISPLAY.SHT", "SHIELDS.SHT",
+                                           "TAILS1.SHT" };
         // Engine PATH hashes (W12b): LoadSpriteSheet hashes the .bin-relative
         // sprite path -- these are what Player_StageLoad will resolve.
-        static const char *shtPaths[6] = { "Players/Sonic1.gif",
+        static const char *shtPaths[7] = { "Players/Sonic1.gif",
                                            "Players/Sonic2.gif",
                                            "Players/Sonic3.gif",
                                            "Global/Items.gif",
                                            "Global/Display.gif",
+                                           "Global/Shields.gif",
                                            "Players/Tails1.gif" };
-        for (int32 i = 0; i < 6; ++i) {
+        for (int32 i = 0; i < 7; ++i) {
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
                                                 (void *)P6_LW_ENTITYLIST, 0x10000);
             if (sn > 0) {
