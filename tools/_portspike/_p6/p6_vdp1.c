@@ -47,8 +47,17 @@ __attribute__((used)) int p6_w_vdp1_slots = 0;
 /* P6.7a diagnostic: the LAST-uploaded cache key, packed
  * (sx<<20)|(sy<<12)|(w<<6)|h -- identifies an unexpected 17th rect. */
 __attribute__((used)) int p6_w_vdp1_lastkey = 0;
-/* W12b scale-safety: rect-cache exhaustion / oversize-frame drops. */
+/* W12b scale-safety: rect-cache exhaustion / oversize-frame drops.
+ * Task #241: with LRU eviction this is now ONLY oversize (>64x64) or banded-
+ * fetch-fail; a normal cache miss on a full cache EVICTS instead of dropping,
+ * so a BOUND sprite rect never drops -> the player no longer blinks. */
 __attribute__((used)) int p6_w_vdp1_drops = 0;
+/* Task #241: LRU evictions. A cache MISS on a full cache reuses the
+ * least-recently-used slot's VRAM in place via jo_sprite_replace (sprites.c:143)
+ * instead of dropping the blit. >0 proves the eviction path is live; the working
+ * set per frame (~20 distinct rects) is far below P6_VDP1_NSLOTS, so LRU keeps
+ * the hot frames resident and only cold rects churn. */
+__attribute__((used)) int p6_w_vdp1_evicts = 0;
 /* W14: jo_sprite_add_8bits_image failures (the silent no-drop exit). */
 __attribute__((used)) int p6_w_vdp1_joaddfail = 0;
 /* W18 (Task #227, qa_p6_entdraw.py): the UNBOUND-SURFACE silent drop. A
@@ -89,7 +98,11 @@ static struct {
     int sheet;        /* W12b: bind handle joins the cache key */
     int sx, sy, w, h; /* cache key: sheet rect */
     int jo_id;        /* jo sprite id of the uploaded rect */
+    int lastUse;      /* Task #241: LRU stamp (s_useclock at last hit/fill) */
 } s_slots[P6_VDP1_NSLOTS];
+/* Task #241: monotonic LRU clock; the slot with the smallest lastUse is the
+ * eviction victim when the cache is full and a new rect misses. */
+static int s_useclock = 0;
 
 static unsigned char s_stage[P6_SPR_MAXW * P6_SPR_MAXH]; /* padded upload copy */
 static unsigned char s_fetch[P6_SPR_MAXW * P6_SPR_MAXH]; /* banded-miss fetch */
@@ -120,8 +133,12 @@ int p6_vdp1_sheet_bind(const unsigned char *sheetPixels, int sheetWidth,
         int i;
         p6_pal_mirror(pal565);
         p6_w_vdp1_slots = 0;
-        for (i = 0; i < P6_VDP1_NSLOTS; ++i)
-            s_slots[i].jo_id = -1;
+        s_useclock = 0;
+        for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
+            s_slots[i].jo_id   = -1;
+            s_slots[i].sheet   = -1;
+            s_slots[i].lastUse = 0;
+        }
     }
     s_sheets[s_sheet_count].px      = sheetPixels;
     s_sheets[s_sheet_count].w       = sheetWidth;
@@ -140,8 +157,12 @@ int p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
         int i;
         p6_pal_mirror(pal565);
         p6_w_vdp1_slots = 0;
-        for (i = 0; i < P6_VDP1_NSLOTS; ++i)
-            s_slots[i].jo_id = -1;
+        s_useclock = 0;
+        for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
+            s_slots[i].jo_id   = -1;
+            s_slots[i].sheet   = -1;
+            s_slots[i].lastUse = 0;
+        }
     }
     s_sheets[s_sheet_count].px      = 0;
     s_sheets[s_sheet_count].w       = sheetWidth;
@@ -149,22 +170,38 @@ int p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
     return s_sheet_count++;
 }
 
-/* Find (or upload) the VDP1 residency slot for a (sheet, rect). */
+/* Find (or upload) the VDP1 residency slot for a (sheet, rect).
+ *
+ * Task #241 (was the "characters blink in and out" bug -- MEASURED: a saturated
+ * 40-slot fill-once cache dropped 1,333 bound rects/run): the cache is now LRU,
+ * not fill-once. A HIT touches the slot's LRU stamp. A MISS stages the rect into
+ * a FIXED P6_SPR_MAXW x P6_SPR_MAXH (64x64) box (content top-left, transparent
+ * pad) and either (a) cold-fills a new jo sprite while the cache is below
+ * capacity, or (b) EVICTS the least-recently-used slot and overwrites its VDP1
+ * VRAM in place via jo_sprite_replace (sprites.c:143 -- which requires identical
+ * dimensions, hence the fixed 64x64 slot). A BOUND rect therefore ALWAYS gets a
+ * slot; p6_w_vdp1_drops now only fires on an oversize frame (>64x64) or a banded-
+ * fetch failure. The per-frame working set (~20 distinct rects) is far below
+ * P6_VDP1_NSLOTS, so the player's hot frames stay resident and only cold rects
+ * churn through the victim slot. jo_sprite_add still runs at most NSLOTS times
+ * total (cold-fill only), so the #189 sprite-table overflow class cannot recur. */
 static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
 {
-    int i, x, y, padw;
+    int i, x, y, victim;
     const unsigned char *srcPx;
     int srcStride;
+    jo_img_8bits img;
 
     for (i = 0; i < p6_w_vdp1_slots; ++i) {
         if (s_slots[i].sheet == sheet &&
             s_slots[i].sx == sx && s_slots[i].sy == sy &&
-            s_slots[i].w == w && s_slots[i].h == h)
+            s_slots[i].w == w && s_slots[i].h == h) {
+            s_slots[i].lastUse = ++s_useclock; /* LRU touch on hit */
             return i;
+        }
     }
-    padw = (w + 7) & ~7;
-    if (p6_w_vdp1_slots >= P6_VDP1_NSLOTS
-        || padw > P6_SPR_MAXW || h > P6_SPR_MAXH) {
+    /* A fixed 64x64 slot cannot hold an oversize frame -> genuine drop. */
+    if (w > P6_SPR_MAXW || h > P6_SPR_MAXH) {
         ++p6_w_vdp1_drops;
         return -1;
     }
@@ -186,43 +223,72 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
         srcStride = w;
     }
 
-    for (y = 0; y < h; ++y) {
-        const unsigned char *src = srcPx + y * srcStride;
-        unsigned char *dst       = s_stage + y * padw;
-        for (x = 0; x < w; ++x) dst[x] = src[x];
-        for (; x < padw; ++x) dst[x] = 0; /* transparent right-pad */
+    /* Stage into a FIXED 64x64 box: content top-left, the rest transparent
+     * (palette index 0 -- VDP1 sprite transparent-pixel processing skips it).
+     * jo_sprite_replace re-DMAs exactly width*height bytes, so the staged box
+     * dimensions MUST equal the pre-allocated slot's (64x64). */
+    for (y = 0; y < P6_SPR_MAXH; ++y) {
+        unsigned char *dst = s_stage + y * P6_SPR_MAXW;
+        if (y < h) {
+            const unsigned char *src = srcPx + y * srcStride;
+            for (x = 0; x < w; ++x) dst[x] = src[x];
+            for (; x < P6_SPR_MAXW; ++x) dst[x] = 0;
+        }
+        else {
+            for (x = 0; x < P6_SPR_MAXW; ++x) dst[x] = 0;
+        }
     }
+    img.width  = P6_SPR_MAXW;
+    img.height = P6_SPR_MAXH;
+    img.data   = s_stage;
 
-    {
-        jo_img_8bits img;
-        int id;
-        img.width  = padw;
-        img.height = h;
-        img.data   = s_stage;
-        id = jo_sprite_add_8bits_image(&img);
+    if (p6_w_vdp1_slots < P6_VDP1_NSLOTS) {
+        /* Cold-fill: allocate a fresh fixed-size jo sprite. */
+        int id = jo_sprite_add_8bits_image(&img);
         if (id < 0) {
             ++p6_w_vdp1_joaddfail; /* W14: the silent no-drop exit */
             return -1;
         }
-        i                = p6_w_vdp1_slots++;
-        s_slots[i].sheet = sheet;
-        s_slots[i].sx    = sx;
-        s_slots[i].sy    = sy;
-        s_slots[i].w     = w;
-        s_slots[i].h     = h;
-        s_slots[i].jo_id = id;
-        p6_w_vdp1_lastkey = (sx << 20) | (sy << 12) | (w << 6) | h;
-        return i;
+        victim = p6_w_vdp1_slots++;
+        s_slots[victim].jo_id = id;
     }
+    else {
+        /* Cache full: evict the least-recently-used slot, reuse its VRAM. */
+        int oldest = s_slots[0].lastUse;
+        victim = 0;
+        for (i = 1; i < P6_VDP1_NSLOTS; ++i) {
+            if (s_slots[i].lastUse < oldest) {
+                oldest = s_slots[i].lastUse;
+                victim = i;
+            }
+        }
+        if (s_slots[victim].jo_id < 0) { /* defensive: never cold-filled */
+            ++p6_w_vdp1_drops;
+            return -1;
+        }
+        jo_sprite_replace(&img, s_slots[victim].jo_id);
+        ++p6_w_vdp1_evicts;
+    }
+
+    s_slots[victim].sheet   = sheet;
+    s_slots[victim].sx      = sx;
+    s_slots[victim].sy      = sy;
+    s_slots[victim].w       = w;
+    s_slots[victim].h       = h;
+    s_slots[victim].lastUse = ++s_useclock;
+    p6_w_vdp1_lastkey       = (sx << 20) | (sy << 12) | (w << 6) | h;
+    return victim;
 }
 
 /* Draw a sheet rect with its TOP-LEFT at engine screen px (x,y) -- the
  * coordinate DrawSpriteFlipped receives (Drawing.cpp:2785: pos + pivot).
  * jo_sprite_draw3D positions the sprite CENTER in screen-centered coords;
- * centering on the PADDED width keeps the content at [x, x+w). */
+ * the slot is a fixed P6_SPR_MAXW x P6_SPR_MAXH box with content in the
+ * top-left corner, so centering on the box (offset 32) keeps the content at
+ * engine [x, x+w) x [y, y+h). */
 void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
 {
-    int slot, padw;
+    int slot;
 
     if (sheet < 0 || sheet >= s_sheet_count) {
         ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
@@ -234,26 +300,31 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
         return;
 
     ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
-    padw = (w + 7) & ~7;
     jo_sprite_set_palette(1);
+    /* Task #241: the slot is a fixed P6_SPR_MAXW x P6_SPR_MAXH box with content
+     * in the top-left corner; the box CENTER sits at content-top-left + 32, so
+     * placing the center there lands the content at engine top-left (x,y). */
     jo_sprite_draw3D(s_slots[slot].jo_id,
-                     x + padw / 2 - JO_TV_WIDTH_2,
-                     y + h / 2 - JO_TV_HEIGHT_2, 450);
+                     x + P6_SPR_MAXW / 2 - JO_TV_WIDTH_2,
+                     y + P6_SPR_MAXH / 2 - JO_TV_HEIGHT_2, 450);
 }
 
 /* W14c (Task #227): flipped draw -- the DrawSprite FX_FLIP arm. VDP1 HF/VF
  * (CMDCTRL Dir bits, ST-013-R3 sec 5.5.4) mirror the PIXELS inside the
  * part's bbox; jo exposes them as the h/v flip attribute toggles
  * (sprites.h:292-312). The caller passes the RSDK world TOP-LEFT already
- * flip-adjusted (Drawing.cpp:2796-2808: x - width - pivotX for FLIP_X), so
- * only the right-pad needs compensating: HF mirrors content into the
- * [padw-w, padw) columns of the padded box, so the box shifts LEFT by
- * (padw - w) to keep content exactly at [x, x+w). Heights are never padded
- * -- VF needs no shift. */
+ * flip-adjusted (Drawing.cpp:2796-2808: x - width - pivotX for FLIP_X).
+ *
+ * Task #241: the slot is now a FIXED 64x64 box (content top-left). VDP1 HF
+ * mirrors the WHOLE box around its center, moving content from columns [0,w)
+ * to [64-w,64); VF mirrors rows [0,h) to [64-h,64). To keep the (flipped)
+ * content top-left at engine (x,y), the box origin compensates by (64-w) in X
+ * when flipped (and (64-h) in Y) -- which reduces to the symmetric center
+ * formula below (32 == P6_SPR_MAXW/2 == P6_SPR_MAXH/2). */
 void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
                           int flipX, int flipY)
 {
-    int slot, padw;
+    int slot;
 
     if (sheet < 0 || sheet >= s_sheet_count) {
         ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
@@ -265,15 +336,14 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
         return;
 
     ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
-    padw = (w + 7) & ~7;
     jo_sprite_set_palette(1);
     if (flipX)
         jo_sprite_enable_horizontal_flip();
     if (flipY)
         jo_sprite_enable_vertical_flip();
     jo_sprite_draw3D(s_slots[slot].jo_id,
-                     (flipX ? x + w - padw / 2 : x + padw / 2) - JO_TV_WIDTH_2,
-                     y + h / 2 - JO_TV_HEIGHT_2, 450);
+                     (flipX ? x + w - P6_SPR_MAXW / 2 : x + P6_SPR_MAXW / 2) - JO_TV_WIDTH_2,
+                     (flipY ? y + h - P6_SPR_MAXH / 2 : y + P6_SPR_MAXH / 2) - JO_TV_HEIGHT_2, 450);
     if (flipX)
         jo_sprite_disable_horizontal_flip();
     if (flipY)
