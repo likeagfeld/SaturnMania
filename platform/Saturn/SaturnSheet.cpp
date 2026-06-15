@@ -37,15 +37,27 @@ typedef unsigned short uint16;
 typedef unsigned int uint32;
 typedef signed int int32;
 
-// W19 (Task #227): 8 slots (was 4) -- the staged set grows from 4 to 6
-// (SONIC1/2/3 + ITEMS + DISPLAY + SHIELDS) with headroom. The band-store
-// VRAM window 0x25E44000..0x25E80000 = 245,760 B holds the 6 deflated blobs
-// at 206,222 B (39,538 B margin, MEASURED build_sheet_bands.py). Tails1.gif
-// (58,643 B) is NOT staged -- adding it overflows the window by 19,105 B
-// (no-shrink guardrail; funded plan required to reclaim NBG1 cells).
+// W19 (Task #227): 8 slots. Task #241 main: the band store is RELOCATED from
+// the 245,760 B VDP2 VRAM window to a 384 KB region in the 4MB Extended-RAM
+// cart (cache-through alias 0x227A0000..0x22800000), funded by shrinking
+// DATASET_TMP 768->640KB (Storage.cpp). The cart dissolves the VDP2 window wall
+// (which fit only 6 sheets at 206,222 B): the full 7-sheet set SONIC1/2/3 +
+// ITEMS + DISPLAY + SHIELDS + TAILS1 = 264,865 B now co-resides (no
+// SHIELDS<->TAILS trade -- the sidekick body + shield FX both stay resident).
+// Cart is plain CPU-addressable memory (A-Bus; wait-stated but read once per
+// band-fetch, NOT per frame), so the VDP2 "16-bit only" access contract no
+// longer applies -- the existing u16 copy loops are kept (correct + harmless on
+// the cart). Map: [[cart-4mb-extram-measured-map]]. The VDP2 0x25E44000 window
+// is the non-cart fallback (kept so a hypothetical non-P6_CART build still
+// links + boots; it stages only the 6 that fit).
 #define SATURNSHEET_SLOTS     8
-#define SATURNSHEET_VRAM_BASE 0x25E44000u // B0 tail (after the 16 KB NBG1 map)
+#if defined(P6_CART)
+#define SATURNSHEET_VRAM_BASE 0x227A0000u // 4MB cart, after STG(3MB)+TMP(640KB)
+#define SATURNSHEET_VRAM_END  0x22800000u // top of the 4MB cart (384 KB store)
+#else
+#define SATURNSHEET_VRAM_BASE 0x25E44000u // VDP2 B0 tail (non-cart fallback)
 #define SATURNSHEET_VRAM_END  0x25E80000u // top of B1
+#endif
 
 struct SaturnSheetSlot {
     uint16 width, height, bandRows, bandCount;

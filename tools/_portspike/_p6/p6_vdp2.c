@@ -276,25 +276,21 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                                           * Bind ONLY on (re)load -- not on every
                                           * crossing -- so the window cache isn't
                                           * thrown away as the camera pans. */
-            /* Blank char = smallest tile index the visible+margin rect never
-             * uses; zero its CEL so empty (0xFFFF) layout cells read as a
-             * transparent tile. Off-screen plane cells outside the rewritten
-             * rect are NOT pre-filled -- every camera crossing rewrites the
-             * whole visible+margin rect before it can scroll into view, so a
-             * stale off-screen cell is never displayed (saves the 4096-cell
-             * whole-plane fill, keeping _end under the W17 floor). */
-            pv0 = p6_perf_vbl_count;
-            for (t = 0; t < 1024; ++t) used[t] = 0;
-            for (y = vy0; y <= vy1; ++y)
-                for (x = vx0; x <= vx1; ++x) {
-                    unsigned short e = SaturnLayout_GetTile(0, x, y);
-                    if (e != 0xFFFF)
-                        used[e & 0x3FF] = 1;
-                }
-            { int b = 0; while (b < 1024 && used[b]) ++b; s_blank_char = b; }
-            { volatile Uint16 *dst = cel + s_blank_char * 128;
-              for (c = 0; c < 128; ++c) dst[c] = 0; }
-            p6_w_present_vbl_walk = (int)(p6_perf_vbl_count - pv0);
+            /* BUG FIX (Task #241, user "blocks of grass missing"): empty
+             * (0xFFFF) cells map to TILE 0, which is the RSDK canonical empty
+             * tile -- VERIFIED transparent for GHZ (16x16Tiles.gif tile 0 = all
+             * palette index 0). The previous code STOLE the smallest tile index
+             * unused in the LOAD region and zeroed its CEL char; but the camera
+             * streams into NEW regions where that index is a REAL tile, so its
+             * (zeroed) char rendered as a transparent HOLE in the grass. Tile 0
+             * is uploaded transparent by p6_vdp2_upload_cells and is never a
+             * solid tile, so mapping empties to it needs NO char-stealing -- no
+             * collision is possible level-wide. (The non-streaming
+             * p6_vdp2_present_layout scans the WHOLE resident layout so its
+             * stolen-blank stays safe; only the windowed streaming path broke.) */
+            s_blank_char = 0;
+            (void)used;
+            p6_w_present_vbl_walk = 0;
         } else {
             p6_w_present_vbl_walk = 0;
         }

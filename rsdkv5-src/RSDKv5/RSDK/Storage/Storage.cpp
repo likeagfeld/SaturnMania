@@ -143,8 +143,12 @@ bool32 RSDK::InitStorage()
     // sheets 786KB + anims with headroom; FBZ2's 3MB worst case fits a bank);
     // TMP=768KB (TileConfig 77KB inflate + GIF/band scratch). MUS/SFX/STR stay in
     // the WRAM-L heap (small + audio-hot; A-Bus wait-states make cart costlier).
-    dataStorage[DATASET_STG].storageLimit = 3 * 1024 * 1024; // 3 MB (cart)
-    dataStorage[DATASET_TMP].storageLimit = 768 * 1024;      // 768 KB (cart)
+    dataStorage[DATASET_STG].storageLimit = 3 * 1024 * 1024; // 3 MB (cart @0x22400000)
+    // Task #241: TMP 768->640KB frees a 384 KB cart tail (0x227A0000..0x22800000)
+    // for the relocated SaturnSheet band store. 640KB still keeps ~8x headroom
+    // over the largest single TMP consumer (TileConfig 77KB inflate + GIF/band
+    // scratch); STG ends 0x22700000, TMP ends 0x227A0000, store ends 0x22800000.
+    dataStorage[DATASET_TMP].storageLimit = 640 * 1024;      // 640 KB (cart @0x22700000)
 #endif
 
 #if RETRO_PLATFORM == RETRO_SATURN

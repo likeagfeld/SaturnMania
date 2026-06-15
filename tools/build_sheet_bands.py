@@ -53,12 +53,12 @@ SHEETS = [
     ("Players/Sonic3.gif", "SONIC3.SHT"),
     ("Global/Items.gif", "ITEMS.SHT"),
     ("Global/Display.gif", "DISPLAY.SHT"),
-    # Task #241: TAILS1 (sidekick body sheet) replaces SHIELDS in the staged set
-    # -- the user's "Tails body blinking" was Tails1.gif never staged (it overflows
-    # the 245,760 B VDP2 band window beyond the 6-Sonic+HUD set). SHIELDS.SHT
-    # (32,215 B) is dropped to fund TAILS1.SHT (58,643 B): the sidekick body is a
-    # constant on-screen character; shield FX are occasional pickups. The full
-    # all-characters band store is the cart-relocation follow-up (Task #241 main).
+    ("Global/Shields.gif", "SHIELDS.SHT"),
+    # Task #241 main: the SaturnSheet band store is RELOCATED from the 245,760 B
+    # VDP2 VRAM window to a 384 KB region in the 4MB cart (0x227A0000..0x22800000,
+    # funded by shrinking DATASET_TMP 768->640KB). That dissolves the VDP2 window
+    # wall: TAILS1 (sidekick body) stages ALONGSIDE the full 6-sheet set -- no
+    # SHIELDS trade. 7 sheets = 264,865 B inside the 384 KB cart store.
     ("Players/Tails1.gif", "TAILS1.SHT"),
 ]
 
@@ -115,10 +115,14 @@ def build_one(rel, outname):
     # Probe rects: spread across the sheet (typical frame sizes), expected =
     # djb2 over the rect bytes from the RAW decode; the SH-2 gate replays the
     # SAME rects through SaturnSheet_FetchRect.
+    # Task #241: 3 probe rects/sheet (was 5). The 7th sheet (cart relocation)
+    # grew p6SheetProbes by 5 entries x 24 B = 120 B, pushing the shipping _end
+    # over the W17 ANIMPAK floor; 3 spread rects still exercise top/middle/bottom
+    # bands byte-exact. 7 sheets x 3 = 21 entries < the prior 6 x 5 = 30.
     probes = []
-    for (sx, sy, pw, ph) in [(0, 0, 48, 48), (w // 2, 8, 64, 48),
-                             (w - 64, h // 2 - 8, 64, 64), (16, h - 40, 48, 40),
-                             (w // 4, (h // 2) - (h // 4), 32, 56)]:
+    for (sx, sy, pw, ph) in [(0, 0, 48, 48),
+                             (w - 64, h // 2 - 8, 64, 64),
+                             (16, h - 40, 48, 40)]:
         rect = bytearray()
         for r in range(ph):
             rect += px[(sy + r) * w + sx:(sy + r) * w + sx + pw]

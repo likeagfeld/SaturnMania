@@ -271,8 +271,8 @@ echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding w
 $CC $CXXFLAGS $MINIZ_DEFS -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnLayout.o" "$PLAT/SaturnLayout.cpp"
 
-echo "[7o] SaturnSheet.o (P6.7 W12: sprite-sheet band stores in VDP2 + slot-cache miss rect fetch) ..."
-$CC $CXXFLAGS $MINIZ_DEFS -I"$DEPS" -I"$NEWLIB" \
+echo "[7o] SaturnSheet.o (P6.7 W12 sprite-sheet band stores; Task #241: P6_CART relocates the store to the 4MB cart) ..."
+$CC $CXXFLAGS $MINIZ_DEFS ${P6_CART:+-DP6_CART} -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnSheet.o" "$PLAT/SaturnSheet.cpp"
 
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
