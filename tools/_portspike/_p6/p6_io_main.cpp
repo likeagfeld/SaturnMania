@@ -728,6 +728,17 @@ __attribute__((used)) int32 p6_w_objupd_topvbl   = 0;  // that class's total Upd
 __attribute__((used)) int32 p6_w_objupd_topus    = 0;  // that class's total Update FRT ticks
 __attribute__((used)) int32 p6_w_objupd_topn     = 0;  // that class's in-range count
 __attribute__((used)) int32 p6_w_obj_refills = 0; // SaturnLayout inflates DURING ProcessObjects
+// Phase 2i (Task #245): ProcessObjects internal sub-phase FRT timing. The 13.5ms
+// section splits into loop1 (the 2368-slot inRange scan + the ~12 in-range
+// Update()s + drawgroup append), loop2 (typeGroup build, already in-range-list
+// driven by Phase 2h), loop3 (the lateUpdate pass -- STILL a full 2368-slot
+// RSDK_ENTITY_AT scan + onScreen clear, NOT yet list-driven). Object.cpp brackets
+// each loop under P6_PERF_OBJPROF. The gate isolates the scan cost as
+// loop1 - sum(p6_w_objupd_us) (Update dispatch). Measure-first: which loop owns
+// the 13.5ms picks the Lever-2 optimization (no guessing).
+__attribute__((used)) int32 p6_w_objsec_loop1 = 0; // inRange scan + Update + drawgroup (FRT ticks)
+__attribute__((used)) int32 p6_w_objsec_loop2 = 0; // typeGroup build (FRT ticks)
+__attribute__((used)) int32 p6_w_objsec_loop3 = 0; // lateUpdate full-scan + onScreen clear (FRT ticks)
 __attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
 __attribute__((used)) int32 p6_w_hog_x   = 0;   // a hog entity's world x (fixed)
 __attribute__((used)) int32 p6_w_hog_y   = 0;   // a hog entity's world y (fixed)

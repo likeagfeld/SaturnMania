@@ -400,6 +400,10 @@ extern "C" int p6_w_objupd_n[64];
 // (unsigned short)(t1 - t0) is the exact tick delta even across one wrap.
 extern "C" unsigned short p6_perf_frt_get(void);
 extern "C" int p6_w_objupd_us[64];
+// Phase 2i (Task #245): per-loop ProcessObjects sub-phase FRT timing.
+extern "C" int p6_w_objsec_loop1;
+extern "C" int p6_w_objsec_loop2;
+extern "C" int p6_w_objsec_loop3;
 #endif
 
 #if RETRO_PLATFORM == RETRO_SATURN
@@ -456,6 +460,12 @@ void RSDK::ProcessObjects()
     sceneInfo.entitySlot = 0;
 #if RETRO_PLATFORM == RETRO_SATURN
     s_p6_inrange_n = 0; // Phase 2h: rebuild the in-range slot list this frame
+#endif
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+    // Phase 2i (Task #245): bracket the three internal loops to split the
+    // ProcessObjects FRT cost (loop1 inRange-scan+Update / loop2 typeGroup /
+    // loop3 lateUpdate-scan). Diagnostic only.
+    unsigned short _ps_tA = p6_perf_frt_get(), _ps_tB = _ps_tA, _ps_tC = _ps_tA, _ps_tD = _ps_tA;
 #endif
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
         sceneInfo.entity = RSDK_ENTITY_AT(e);
@@ -577,6 +587,9 @@ void RSDK::ProcessObjects()
 
         sceneInfo.entitySlot++;
     }
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+    _ps_tB = p6_perf_frt_get(); // end loop1 (inRange scan + Update + drawgroup)
+#endif
 
 #if RETRO_USE_MOD_LOADER
     RunModCallbacks(MODCB_ONUPDATE, INT_TO_VOID(ENGINESTATE_REGULAR));
@@ -622,6 +635,9 @@ void RSDK::ProcessObjects()
         sceneInfo.entitySlot++;
     }
 #endif
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+    _ps_tC = p6_perf_frt_get(); // end loop2 (typeGroup build)
+#endif
 
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
@@ -635,6 +651,12 @@ void RSDK::ProcessObjects()
         sceneInfo.entity->onScreen = 0;
         sceneInfo.entitySlot++;
     }
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+    _ps_tD = p6_perf_frt_get(); // end loop3 (lateUpdate full-scan + onScreen clear)
+    p6_w_objsec_loop1 = (int)(unsigned short)(_ps_tB - _ps_tA);
+    p6_w_objsec_loop2 = (int)(unsigned short)(_ps_tC - _ps_tB);
+    p6_w_objsec_loop3 = (int)(unsigned short)(_ps_tD - _ps_tC);
+#endif
 
 #if RETRO_USE_MOD_LOADER
     RunModCallbacks(MODCB_ONLATEUPDATE, INT_TO_VOID(ENGINESTATE_REGULAR));

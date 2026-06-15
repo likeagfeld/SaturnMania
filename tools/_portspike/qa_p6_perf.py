@@ -274,6 +274,36 @@ def main(argv):
                                if objr > 0 else "NOT inflates (objr=0) -> soft-float / loop")
                     print("    ProcessObjects SaturnLayout inflates/frame = %s  [%s]"
                           % (objr, verdict))
+        # Phase 2i (Task #245): ProcessObjects internal sub-attribution. The
+        # 13ms section splits into loop1 (the full ENTITY_COUNT inRange scan +
+        # the ~12 in-range Update()s), loop2 (typeGroup, 2h-list-driven), loop3
+        # (the lateUpdate pass -- STILL a full ENTITY_COUNT scan). Object.cpp
+        # brackets each under P6_PERF_OBJPROF; optional (absent on a non-profiled
+        # build -> this block silently skips, no RED).
+        l1s = _scene.map_symbol(map_text, "_p6_w_objsec_loop1")
+        l2s = _scene.map_symbol(map_text, "_p6_w_objsec_loop2")
+        l3s = _scene.map_symbol(map_text, "_p6_w_objsec_loop3")
+        if l1s and l2s and l3s:
+            l1 = _scene.peek_u32(mod, sections, l1s, perm, signed=True)
+            l2 = _scene.peek_u32(mod, sections, l2s, perm, signed=True)
+            l3 = _scene.peek_u32(mod, sections, l3s, perm, signed=True)
+            usb2 = syms.get("_p6_w_objupd_us")
+            upd = 0
+            if usb2 is not None:
+                for ci_ in range(64):
+                    upd += _scene.peek_u32(mod, sections, usb2 + ci_ * 4, perm, signed=True)
+            tot = (l1 + l2 + l3) or 1
+            print("  --- INSIDE ProcessObjects (FRT-measured; Lever-2 target) ----")
+            print("    loop1 inRange-scan+Update : %6.2f ms" % (us(l1) / 1000.0))
+            print("      - game-logic Update     : %6.2f ms  (objupd_us sum)"
+                  % (us(upd) / 1000.0))
+            print("      - bare full-slot scan   : %6.2f ms  (loop1 - Update)"
+                  % (us(l1 - upd) / 1000.0))
+            print("    loop2 typeGroup (2h-list) : %6.2f ms" % (us(l2) / 1000.0))
+            print("    loop3 lateUpdate full-scan: %6.2f ms" % (us(l3) / 1000.0))
+            print("    -> %.0f%% of ProcessObjects = the two full entity-table "
+                  "scans, NOT game logic (%.2f ms)."
+                  % (100.0 * (l1 - upd + l3) / tot, us(upd) / 1000.0))
         print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
               % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
     else:
