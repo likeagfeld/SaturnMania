@@ -54,6 +54,16 @@ typedef signed int int32;
 #if defined(P6_CART)
 #define SATURNSHEET_VRAM_BASE 0x227A0000u // 4MB cart, after STG(3MB)+TMP(640KB)
 #define SATURNSHEET_VRAM_END  0x22800000u // top of the 4MB cart (384 KB store)
+// Task #243 Lever 1 (render perf): the per-frame miniz band-inflate in
+// SaturnSheet_FetchRect was MEASURED as the render bottleneck (~43 ms/frame,
+// 3.2 inflates/frame from the wait-stated cart). Fix: decompress each sheet ONCE
+// at load into a RESIDENT buffer in the otherwise-unused 3.64 MB of the cart
+// (Storage stays in WRAM in shipping, so 0x22400000..0x227A0000 is free,
+// cache-through alias). FetchRect then COPIES the rect from resident pixels with
+// NO inflate -> the 43 ms goes to a ~w*h cart->WRAM copy. Bounds-checked; a sheet
+// that doesn't fit falls back to the banded inflate path (resident == 0).
+#define SATURNSHEET_RES_BASE  0x22400000u
+#define SATURNSHEET_RES_END   0x227A0000u
 #else
 #define SATURNSHEET_VRAM_BASE 0x25E44000u // VDP2 B0 tail (non-cart fallback)
 #define SATURNSHEET_VRAM_END  0x25E80000u // top of B1
@@ -65,11 +75,15 @@ struct SaturnSheetSlot {
     uint32 hash[4]; // engine path MD5 (GEN_HASH_MD5 of e.g. "Players/Sonic1.gif")
                     // -- set by the harness after staging; LoadSpriteSheet's
                     // Saturn arm resolves its banded slot through this.
+    uint32 resident; // Task #243: cart address of the fully-inflated sheet (0 = banded)
 };
 
 static SaturnSheetSlot s_sheets[SATURNSHEET_SLOTS];
 static uint32 s_cursor = SATURNSHEET_VRAM_BASE;
 static int32 s_count = 0;
+#if defined(P6_CART)
+static uint32 s_resCursor = SATURNSHEET_RES_BASE; // Task #243 resident-sheet bump alloc
+#endif
 
 // scratch: caller-provided WRAM window (pointer-indirect, the W11b pattern)
 static uint8 **s_scratchPtr = 0;
@@ -117,10 +131,64 @@ extern "C" int32 SaturnSheet_Stage(const void *blob, uint32 bytes)
     s->bandRows = (uint16)((b[8] << 8) | b[9]);
     s->bandCount = (uint16)((b[10] << 8) | b[11]);
     s->vbase    = vbase;
+    s->resident = 0; /* Task #243: banded until SaturnSheet_MakeResident runs */
     s_cursor    = vbase + bytes;
     ++p6_w_sht_staged;
     return s_count++;
 }
+
+#if defined(P6_CART)
+// Task #243 Lever 1: decompress the WHOLE sheet ONCE into the resident cart
+// region. Per band: copy the compressed stream out of the store (16-bit, the
+// VDP2/cart access contract) into the WRAM scratch low half, inflate into the
+// scratch high half (WRAM->WRAM, fast -- not into the wait-stated cart), then
+// copy the raw band into the resident cart buffer. After this, FetchRect serves
+// every rect of this sheet by a direct copy with NO miniz inflate. Returns 0 ok,
+// -1 if it doesn't fit the resident region (the sheet stays banded -> the old
+// inflate path still serves it, just slower). Witness: p6_w_sht_resident counts
+// sheets made resident.
+__attribute__((used)) int32 p6_w_sht_resident = 0;
+extern "C" int32 SaturnSheet_MakeResident(int32 slot)
+{
+    if (slot < 0 || slot >= s_count)
+        return -1;
+    SaturnSheetSlot *S = &s_sheets[slot];
+    uint32 sheetBytes = (uint32)S->width * (uint32)S->height;
+    uint32 resbase = (s_resCursor + 3u) & ~3u;
+    if (resbase + sheetBytes > SATURNSHEET_RES_END)
+        return -1;
+    uint8 *scratch = s_scratchPtr ? *s_scratchPtr : 0;
+    if (!scratch || s_scratchCap < 0x8000)
+        return -1;
+    uint8 *zbuf = scratch;          /* low half: compressed band copy (< 16 KB) */
+    uint8 *raw  = scratch + 0x4000; /* high half: inflated band (<= 8,192 B) */
+    uint32 dirBase = S->vbase + 12;
+    for (int32 b = 0; b < (int32)S->bandCount; ++b) {
+        uint32 e   = dirBase + (uint32)b * 12;
+        uint32 off = v32be(e);
+        uint32 zsz = v32be(e + 4);
+        uint32 rsz = v32be(e + 8);
+        if (zsz > 0x4000 || rsz > 0x4000)
+            return -1;
+        uint32 srcStart   = S->vbase + off;
+        uint32 srcAligned = srcStart & ~1u;
+        uint32 lead       = srcStart - srcAligned;
+        uint32 words      = (lead + zsz + 1) / 2;
+        volatile uint16 *vsrc = (volatile uint16 *)srcAligned;
+        uint16 *zdst = (uint16 *)zbuf;
+        for (uint32 i = 0; i < words; ++i)
+            zdst[i] = vsrc[i];
+        mz_ulong dlen = rsz;
+        if (p6_mz_uncompress(raw, &dlen, zbuf + lead, zsz) != MZ_OK)
+            return -1;
+        memcpy((void *)(resbase + (uint32)b * S->bandRows * S->width), raw, rsz);
+    }
+    S->resident = resbase;
+    s_resCursor = resbase + sheetBytes;
+    ++p6_w_sht_resident;
+    return 0;
+}
+#endif
 
 extern "C" void SaturnSheet_SetHash(int32 slot, const uint32 *hash)
 {
@@ -161,6 +229,17 @@ extern "C" int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
     if (sx < 0 || sy < 0 || w <= 0 || h <= 0
         || sx + w > (int32)S->width || sy + h > (int32)S->height)
         return 0;
+#if defined(P6_CART)
+    if (S->resident) {
+        /* Task #243: direct copy from the resident (pre-inflated) cart buffer --
+         * NO per-frame miniz inflate (was the ~43 ms/frame render bottleneck). */
+        const uint8 *res = (const uint8 *)S->resident;
+        for (int32 r = 0; r < h; ++r)
+            memcpy(dst + (uint32)r * w,
+                   res + (uint32)(sy + r) * S->width + sx, (uint32)w);
+        return 1;
+    }
+#endif
     uint8 *scratch = s_scratchPtr ? *s_scratchPtr : 0;
     if (!scratch || s_scratchCap < 0x8000)
         return 0;

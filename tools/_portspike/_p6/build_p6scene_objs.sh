@@ -77,7 +77,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # P6.8 F.2-followup: P6_WARP=1 instead builds the debug-warp variant (teleport the
 # player to the GHZ1 signpost). The two are MUTUALLY EXCLUSIVE (build_diag.sh sets
 # exactly one); shipping leaves both unset.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -319,10 +319,6 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_lay_slot_refills \
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \
     -u _p6_w_transitions -u _p6_w_xtile_lo -u _p6_w_xtile_hi \
-    -u _p6_w_p1_classid -u _p6_w_p2_classid -u _p6_w_p2_active \
-    -u _p6_w_p2_x -u _p6_w_p2_y \
-    -u _p6_w_p2_animframes -u _p6_w_p2_animid -u _p6_w_p2_frameid -u _p6_w_p2_sheetid \
-    -u _p6_w_p2_aniframesid -u _p6_w_p2_tailsframes \
     -u _p6_w_warp_plrx -u _p6_w_warp_signactive \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \

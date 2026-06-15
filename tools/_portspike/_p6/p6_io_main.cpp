@@ -590,25 +590,6 @@ __attribute__((used)) int32 p6_w_cont_frames    = 0;  // ++ per p6_ghz_frame() c
 __attribute__((used)) int32 p6_w_cont_plr_x     = 0;  // SLOT_PLAYER1 position, continuous
 __attribute__((used)) int32 p6_w_cont_plr_y     = 0;
 __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.animationID
-// Task #244: sidekick (Tails, SLOT_PLAYER2) census. "Tails not appearing" --
-// MEASURED-first: his follow/idle/run anims are ALL on Tails1 (which BINDS), so
-// absence is spawn-or-draw, NOT a sheet gap. p2_classid == p1_classid (nonzero)
-// == a Player IS in SLOT_PLAYER2 (spawned); p2_active/x/y say whether it runs +
-// where it sits relative to the camera.
-__attribute__((used)) int32 p6_w_p1_classid    = -1; // SLOT_PLAYER1 (Sonic) classID
-__attribute__((used)) int32 p6_w_p2_classid    = -1; // SLOT_PLAYER2 (sidekick) classID (0 == empty slot)
-__attribute__((used)) int32 p6_w_p2_active     = -1; // sidekick active field (0 == not ticking)
-__attribute__((used)) int32 p6_w_p2_x          = 0;  // sidekick position (fixed-point)
-__attribute__((used)) int32 p6_w_p2_y          = 0;
-// Task #244 (draw split): the sidekick's BODY animator. animframes==0 -> no body
-// sprite at all (the animator was never set up) == the absence; !=0 -> compare
-// p2_sheetid to the dropbysheet unbound surface (body sheet unbound) else a cull.
-__attribute__((used)) int32 p6_w_p2_animframes = -1; // animator.frames pointer (0 == NULL = no body sprite)
-__attribute__((used)) int32 p6_w_p2_animid     = -1; // animator.animationID
-__attribute__((used)) int32 p6_w_p2_frameid    = -1; // animator.frameID
-__attribute__((used)) int32 p6_w_p2_sheetid    = -1; // current body frame's surface ID (GetFrame-resolved)
-__attribute__((used)) int32 p6_w_p2_aniframesid = -1; // sidekick aniFrames id (0xFFFF == unassigned)
-__attribute__((used)) int32 p6_w_p2_tailsframes = -1; // Player->tailsFrames (0xFFFF == Tails.bin anim load FAILED)
 // P6.8 F.2-followup debug WARP (declared early -- the signpost-active scan in
 // p6_ghz_frame's census reads it). p6_w_warp_plrx = the player x after the warp
 // past the GHZ1 signpost (x=15792px); p6_w_warp_signactive = the active field of
@@ -1744,16 +1725,6 @@ static void p6_ghz_frame(void)
     {
         static int16 census[256];
         int32 i, total = 0, distinct = 0, topc = -1, topn = 0;
-        // Task #244: is the Tails sidekick (SLOT_PLAYER2) a spawned Player + where?
-        {
-            EntityBase *e1 = RSDK_ENTITY_AT(0); /* SLOT_PLAYER1 (Sonic) */
-            EntityBase *e2 = RSDK_ENTITY_AT(1); /* SLOT_PLAYER2 (sidekick) */
-            p6_w_p1_classid = (int32)e1->classID;
-            p6_w_p2_classid = (int32)e2->classID;
-            p6_w_p2_active  = (int32)e2->active;
-            p6_w_p2_x       = (int32)e2->position.x;
-            p6_w_p2_y       = (int32)e2->position.y;
-        }
         for (i = 0; i < 256; ++i) census[i] = 0;
         for (i = 0; i < ENTITY_COUNT; ++i) {
             EntityBase *e = RSDK_ENTITY_AT(i);
@@ -2064,6 +2035,7 @@ extern "C" void p6_scene_run(void)
         SaturnSheet_SetScratch(&p6_shtScratch, 0x8000);
 
         extern void SaturnSheet_SetHash(int32 slot, const uint32 *hash);
+        extern int32 SaturnSheet_MakeResident(int32 slot); /* Task #243 render perf */
         // W12b root-cause fix: hand the PACK-side FetchRect to the jo-side
         // VDP1 cache as a runtime pointer -- a static jo->pack reference
         // re-shapes the mixed LTO/non-LTO link and crashes the GFS pack
@@ -2106,6 +2078,14 @@ extern "C" void p6_scene_run(void)
                     RETRO_HASH_MD5(ph);
                     GEN_HASH_MD5(shtPaths[i], ph);
                     SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                    /* Task #243 Lever 1: decompress the sheet ONCE into the
+                     * resident cart region so SaturnSheet_FetchRect serves rects
+                     * with no per-frame miniz inflate (the render cost). The
+                     * P6_SHT_NO_RESIDENT toggle builds the A/B RED variant (the
+                     * old per-frame inflate path) for measured before/after. */
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
                 }
             }
         }
