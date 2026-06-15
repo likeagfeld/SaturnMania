@@ -242,6 +242,60 @@ __attribute__((used)) int p6_w_fg_visok      = 0; /* visible plane cells == layo
 __attribute__((used)) int p6_w_fg_visok_far  = 1; /* sticky: 0 if EVER mismatched at camtx>=64 */
 __attribute__((used)) int p6_w_fg_crosses    = 0; /* cumulative map (re)builds: dirty + crossings */
 
+/* Task #242 (user "chunks of grass missing while moving"): the present built the
+ * VDP2 PND map with CPU stores DURING ACTIVE DISPLAY, which TEAR / land partially
+ * (hand-port src/_archived/main_streaming_WORKING.c.bak:9-12; ST-210 SCU; memory
+ * saturn-vdp2-streaming-solved). FIX (the proven in-repo src/rsdk/scene_ghz.c
+ * ghz_fg_vblank pattern): build the 64x64 PND page in a CART (A-Bus) buffer, then
+ * slDMAXCopy it to the VDP2 map IN THE VBLANK callback (reliable, tear-free).
+ * ST-210: A-Bus READ -> B-Bus WRITE SCU-DMA is legal (only A-Bus write + VDP2
+ * read + WRAM-L are barred). slDMAXCopy (NOT slDMACopy) per memory
+ * sgl-audio-vs-scroll-cpu-dma-conflict (different SCU controller than audio CPU
+ * DMA). P6_FG_PAGE is already a cache-through cart alias (0x227...), so the CPU
+ * page writes and the DMA read are coherent without an extra |0x20000000. */
+#define P6_FG_PAGE 0x227F0000u /* 4MB cart tail: 64x64x4 B = 16 KB (sheet store
+                                * ends ~0x227E0A00; this 16 KB ends 0x227F4000) */
+__attribute__((used)) int          p6_w_fg_dma     = 0; /* count of vblank page DMAs */
+__attribute__((used)) volatile int p6_fg_dma_pending = 0; /* present->vblank handoff */
+__attribute__((used)) volatile int p6_fg_scroll_x  = 0;   /* latest camera (vblank reads) */
+__attribute__((used)) volatile int p6_fg_scroll_y  = 0;
+
+/* Vblank callback: DMA the cart page to the VDP2 NBG1 map (only when it changed)
+ * + arm the hardware scroll every vblank for smooth sub-tile panning even when
+ * the game loop runs below 60 Hz. Registered via jo_core_add_vblank_callback. */
+void p6_fg_vblank(void)
+{
+    if (p6_fg_dma_pending) {
+        slDMAXCopy((void *)P6_FG_PAGE, (void *)P6_VDP2_MAP,
+                   (Uint32)(4096u * 4u), Sinc_Dinc_Long); /* 4096 cells x 4 B */
+        p6_fg_dma_pending = 0;
+        ++p6_w_fg_dma;
+    }
+    slScrPosNbg1(toFIXED(p6_fg_scroll_x), toFIXED(p6_fg_scroll_y));
+}
+
+/* Task #242 ROOT CAUSE (MEASURED from extracted/Data/Stages/GHZ/Scene1.bin):
+ * GHZ has TWO foreground layers -- "FG Low" (layer 3, 72,366 tiles) and
+ * "FG High" (layer 4, 15,418 tiles). The present drew ONLY FG Low, so the
+ * 11,321 cells that are EMPTY in FG Low but PRESENT in FG High (1,065 of them
+ * in the visible grass band rows 44-64) rendered as transparent HOLES -- the
+ * user's "chunks of grass missing". (NOT tearing: the vblank DMA ran, visok=1.)
+ * FIX: composite FG High over empty FG-Low cells. The 4,097 BOTH-present cells
+ * keep FG Low (a behind/in-front FG split that puts FG High in front of the
+ * player is the later refinement; filling the holes is the user-visible fix). */
+__attribute__((used)) int p6_w_fg_highfill = 0; /* FG-High composites this run (MEASURED) */
+
+/* FG Low (slot 0) with a FG High (slot 1) fallback on empty cells. */
+static unsigned short p6_fg_gettile(int x, int y, int *hf)
+{
+    unsigned short e = SaturnLayout_GetTile(0, x, y);
+    if (e == 0xFFFF) {
+        unsigned short eh = SaturnLayout_GetTile(1, x, y);
+        if (eh != 0xFFFF) { e = eh; if (hf) ++*hf; }
+    }
+    return e;
+}
+
 /* PND word for a layout tile e (0xFFFF = empty -> blank char). Same packing as
  * the present map build (p6_vdp2.c: fy bit11->31, fx bit10->30, charno=tile*8). */
 static unsigned long p6_pnd_for(unsigned short e, int blank)
@@ -258,7 +312,10 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                                 unsigned int *out_pndhash, int *out_nblank)
 {
     volatile Uint16 *cel  = (volatile Uint16 *)P6_VDP2_CEL;
-    volatile Uint16 *map  = (volatile Uint16 *)P6_VDP2_MAP;
+    volatile Uint16 *map  = (volatile Uint16 *)P6_FG_PAGE; /* Task #242: build the
+                              * PND page in the CART buffer (NOT VDP2) -- the
+                              * vblank DMA (p6_fg_vblank) pushes it to VDP2 tear-
+                              * free. Self-check reads this cart mirror too. */
     volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
     static unsigned char used[1024]; /* file-static would collide with the
                                       * Title present's local; own copy */
@@ -272,10 +329,12 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
 
     if (rebuild) {
         if (p6_vdp2_present_dirty) {
-            SaturnLayout_Bind(0, layer); /* slot 0 = the FG-Low walk window.
-                                          * Bind ONLY on (re)load -- not on every
-                                          * crossing -- so the window cache isn't
-                                          * thrown away as the camera pans. */
+            SaturnLayout_Bind(0, layer);     /* slot 0 = FG Low (layer 3) window */
+            SaturnLayout_Bind(1, layer + 1); /* slot 1 = FG High (layer 4) window --
+                                              * Task #242: composite over empty FG
+                                              * Low cells. Bind ONLY on (re)load so
+                                              * neither window is thrown away as the
+                                              * camera pans. */
             /* BUG FIX (Task #241, user "blocks of grass missing"): empty
              * (0xFFFF) cells map to TILE 0, which is the RSDK canonical empty
              * tile -- VERIFIED transparent for GHZ (16x16Tiles.gif tile 0 = all
@@ -290,6 +349,10 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
              * stolen-blank stays safe; only the windowed streaming path broke.) */
             s_blank_char = 0;
             (void)used;
+            /* Zero the whole cart page = tile 0 (transparent) everywhere; the
+             * rebuild below drops real tiles into the visible+margin rect. The
+             * page is cart garbage on first load, so this fill is mandatory. */
+            for (t = 0; t < 4096 * 2; ++t) map[t] = 0;
             p6_w_present_vbl_walk = 0;
         } else {
             p6_w_present_vbl_walk = 0;
@@ -299,17 +362,21 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
          * plane at (tx & 63, ty & 63). The hardware scroll uses the full camera
          * position, so these cells line up no matter how far we have travelled. */
         pv0 = p6_perf_vbl_count;
-        for (y = vy0; y <= vy1; ++y) {
-            int cyw = y & 63;
-            for (x = vx0; x <= vx1; ++x) {
-                int cxw = x & 63;
-                unsigned short e = SaturnLayout_GetTile(0, x, y);
-                unsigned long pnd = p6_pnd_for(e, s_blank_char);
-                int page = ((cyw >> 5) << 1) + (cxw >> 5);
-                volatile Uint16 *p = map + page * 2048 + (((cyw & 31) << 5) + (cxw & 31)) * 2;
-                p[0] = (Uint16)(pnd >> 16);
-                p[1] = (Uint16)(pnd & 0xFFFF);
+        {
+            int hf = 0;
+            for (y = vy0; y <= vy1; ++y) {
+                int cyw = y & 63;
+                for (x = vx0; x <= vx1; ++x) {
+                    int cxw = x & 63;
+                    unsigned short e = p6_fg_gettile(x, y, &hf); /* FG Low + FG High */
+                    unsigned long pnd = p6_pnd_for(e, s_blank_char);
+                    int page = ((cyw >> 5) << 1) + (cxw >> 5);
+                    volatile Uint16 *p = map + page * 2048 + (((cyw & 31) << 5) + (cxw & 31)) * 2;
+                    p[0] = (Uint16)(pnd >> 16);
+                    p[1] = (Uint16)(pnd & 0xFFFF);
+                }
             }
+            p6_w_fg_highfill = hf;
         }
         p6_w_present_vbl_map = (int)(p6_perf_vbl_count - pv0);
 
@@ -317,6 +384,7 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
         s_last_cty = cty;
         p6_vdp2_present_dirty = 0;
         ++p6_w_fg_crosses;
+        p6_fg_dma_pending = 1; /* the cart page changed -> DMA it next vblank */
         p6_w_present_vbl_hash = 0;
         p6_w_present_refills  = (int)((unsigned int)p6_w_lay_refills - prf0);
     } else {
@@ -340,7 +408,7 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
             int cyw = y & 63;
             for (x = tx0; x <= tx1; ++x) {
                 int cxw = x & 63;
-                unsigned short e = SaturnLayout_GetTile(0, x, y);
+                unsigned short e = p6_fg_gettile(x, y, 0); /* same FG Low+High */
                 unsigned long pnd = p6_pnd_for(e, s_blank_char);
                 int page = ((cyw >> 5) << 1) + (cxw >> 5);
                 volatile Uint16 *p = map + page * 2048 + (((cyw & 31) << 5) + (cxw & 31)) * 2;
@@ -378,7 +446,10 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
     slPlaneNbg1(PL_SIZE_2x2);
     slMapNbg1((void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP,
               (void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP);
-    slScrPosNbg1(toFIXED(scroll_x), toFIXED(scroll_y));
+    /* Task #242: slScrPosNbg1 moved to p6_fg_vblank (runs at true 60 Hz for
+     * smooth sub-tile panning); publish the latest camera for it to read. */
+    p6_fg_scroll_x = scroll_x;
+    p6_fg_scroll_y = scroll_y;
     slPriorityNbg1(1); /* FG plane BELOW the VDP1 sprites (HUD/Sonic/Tails at pri 7)
                         * so the characters render IN FRONT of the foreground plane
                         * (plants/totems), not behind it. No other VDP2 layer competes

@@ -1251,6 +1251,10 @@ void jo_main(void)
      * P6.5b2: one callback ticks the engine's Ring animator + re-emits the
      * VDP1 sprite each frame (SGL command lists are per-frame). */
     jo_core_add_vblank_callback(p6_perf_vblank); /* Perf Phase 1: true-60Hz tally */
+    {
+        extern void p6_fg_vblank(void); /* Task #242: SCU-DMA FG page in vblank */
+        jo_core_add_vblank_callback(p6_fg_vblank);
+    }
     jo_core_add_callback(p6_scene_tick);
     jo_core_run();
     return;
@@ -1265,6 +1269,11 @@ void jo_main(void)
      * Gate: tools/_portspike/qa_p6_shipping.py. */
     p6_engine_boot_and_run();
     jo_core_add_vblank_callback(p6_perf_vblank); /* Perf Phase 1: true-60Hz tally */
+    {
+        extern void p6_fg_vblank(void); /* Task #242: SCU-DMA the FG page to VDP2
+                                         * in vblank (tear-free) + slScrPosNbg1. */
+        jo_core_add_vblank_callback(p6_fg_vblank);
+    }
     jo_core_add_callback(p6_scene_tick);
     jo_core_run();
     return;

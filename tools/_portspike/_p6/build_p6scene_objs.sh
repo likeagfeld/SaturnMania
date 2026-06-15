@@ -302,6 +302,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_perf_vbl_present \
     -u _p6_w_present_vbl_walk -u _p6_w_present_vbl_map \
     -u _p6_w_present_vbl_hash -u _p6_w_present_refills \
+    -u _p6_fg_vblank -u _p6_w_fg_dma -u _p6_w_fg_highfill \
+    -u _p6_fg_dma_pending -u _p6_fg_scroll_x -u _p6_fg_scroll_y \
     -u _p6_w_obj_inrange -u _p6_w_obj_topclass -u _p6_w_obj_topcount \
     -u _p6_w_obj_classcnt \
     -u _p6_w_objupd_vbl -u _p6_w_objupd_n -u _p6_w_objupd_us -u _p6_w_objupd_topclass \
