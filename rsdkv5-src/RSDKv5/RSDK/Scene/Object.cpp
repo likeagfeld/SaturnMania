@@ -472,6 +472,12 @@ void RSDK::ProcessObjects()
     sceneInfo.entitySlot = 0;
 #if RETRO_PLATFORM == RETRO_SATURN
     s_p6_inrange_n = 0; // Phase 2h: rebuild the in-range slot list this frame
+    // Phase 2i (Task #245): advance the entity pointer by the dual-stride pool's
+    // region size (wide reserve/temp, narrow scene) instead of recomputing
+    // RSDK_ENTITY_AT(e) (the SaturnEntityAt branch+multiply) every slot. _ep ==
+    // RSDK_ENTITY_AT(e) at each slot -> parity-exact, just cheaper addressing on
+    // the hottest ENTITY_COUNT scan.
+    uint8 *_ep = (uint8 *)objectEntityList;
 #endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
     // Phase 2i (Task #245): bracket the three internal loops to split the
@@ -480,7 +486,13 @@ void RSDK::ProcessObjects()
     unsigned short _ps_tA = p6_perf_frt_get(), _ps_tB = _ps_tA, _ps_tC = _ps_tA, _ps_tD = _ps_tA;
 #endif
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
+#if RETRO_PLATFORM == RETRO_SATURN
+        sceneInfo.entity = (EntityBase *)_ep;
+        _ep += (e < RESERVE_ENTITY_COUNT || e >= TEMPENTITY_START)
+                   ? (uint32)ENTITY_WIDE_SIZE : (uint32)sizeof(EntityBase);
+#else
         sceneInfo.entity = RSDK_ENTITY_AT(e);
+#endif
         if (sceneInfo.entity->classID) {
             switch (sceneInfo.entity->active) {
                 default:
