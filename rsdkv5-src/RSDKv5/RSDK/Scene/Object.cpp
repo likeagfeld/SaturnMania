@@ -418,8 +418,20 @@ extern "C" int p6_w_objsec_loop3;
 // the value recorded at each slot's loop-1 visit is the same value the stock
 // separate passes would re-read. The full diag sweep (player/continuous/
 // ghzlive/collision/entdraw) is the behavioural RED gate on this.
-static int16 s_p6_inrange[ENTITY_COUNT];
+// Phase 2i (Task #245): the in-range slot list is bounded by the camera-local
+// population the draw/type groups already cap at 0x100 (TYPEGROUP/DRAWGROUP_
+// ENTRY_CAP); a 426x240 maxView holds far fewer than 256 (GHZ peak ~12-100).
+// Capping shrinks the array from ENTITY_COUNT int16 AND frees room for the
+// _prev buffer below; appends clamp (drop > cap) like the group appends.
+#define SATURN_INRANGE_CAP (0x100)
+static int16 s_p6_inrange[SATURN_INRANGE_CAP];
 static int32 s_p6_inrange_n = 0;
+// loop3: last frame's in-range list. onScreen is set during Draw ONLY for
+// entities that were in a draw group (== in range), so clearing it over the
+// PREVIOUS frame's in-range set is parity-exact with the stock clear-all (every
+// other slot is already 0). Carried forward at the end of ProcessObjects.
+static int16 s_p6_inrange_prev[SATURN_INRANGE_CAP];
+static int32 s_p6_inrange_prev_n = 0;
 #endif
 
 void RSDK::ProcessObjects()
@@ -581,7 +593,8 @@ void RSDK::ProcessObjects()
         // Phase 2h: record this slot if it ended the pass in range (read AFTER
         // its update() so a self-deactivation is honoured -- same value the
         // stock separate passes re-read). Drives passes 2 + 3 off the list.
-        if (sceneInfo.entity->classID && sceneInfo.entity->inRange)
+        if (sceneInfo.entity->classID && sceneInfo.entity->inRange
+            && s_p6_inrange_n < SATURN_INRANGE_CAP)
             s_p6_inrange[s_p6_inrange_n++] = (int16)e;
 #endif
 
@@ -639,6 +652,26 @@ void RSDK::ProcessObjects()
     _ps_tC = p6_perf_frt_get(); // end loop2 (typeGroup build)
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN
+    // Phase 2i (Task #245): loop3 off the in-range lists, not a full ENTITY_COUNT
+    // scan. lateUpdate over THIS frame's in-range (post-all-updates; inRange is
+    // engine-private so the loop1 snapshot == the live set, ascending-slot order
+    // == the stock scan order). onScreen was set during LAST frame's Draw ONLY
+    // for entities then in a draw group == last frame's in-range, so clearing it
+    // over s_p6_inrange_prev is parity-exact with the stock clear-all (every
+    // other slot is already 0). Carry this frame's list forward for next frame.
+    for (int32 li = 0; li < s_p6_inrange_n; ++li) {
+        int32 e         = s_p6_inrange[li];
+        sceneInfo.entitySlot = e;
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
+        if (objectClassList[stageObjectIDs[sceneInfo.entity->classID]].lateUpdate)
+            objectClassList[stageObjectIDs[sceneInfo.entity->classID]].lateUpdate();
+    }
+    for (int32 li = 0; li < s_p6_inrange_prev_n; ++li)
+        RSDK_ENTITY_AT(s_p6_inrange_prev[li])->onScreen = 0;
+    for (int32 li = 0; li < s_p6_inrange_n; ++li) s_p6_inrange_prev[li] = s_p6_inrange[li];
+    s_p6_inrange_prev_n = s_p6_inrange_n;
+#else
     sceneInfo.entitySlot = 0;
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
         sceneInfo.entity = RSDK_ENTITY_AT(e);
@@ -651,8 +684,9 @@ void RSDK::ProcessObjects()
         sceneInfo.entity->onScreen = 0;
         sceneInfo.entitySlot++;
     }
+#endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
-    _ps_tD = p6_perf_frt_get(); // end loop3 (lateUpdate full-scan + onScreen clear)
+    _ps_tD = p6_perf_frt_get(); // end loop3 (list-driven lateUpdate + onScreen)
     p6_w_objsec_loop1 = (int)(unsigned short)(_ps_tB - _ps_tA);
     p6_w_objsec_loop2 = (int)(unsigned short)(_ps_tC - _ps_tB);
     p6_w_objsec_loop3 = (int)(unsigned short)(_ps_tD - _ps_tC);
