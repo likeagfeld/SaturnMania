@@ -46,7 +46,11 @@
 #define MAX_VERTICES  384   /* >= 3x the polygon-emitter peak (~128 verts) */
 #define MAX_POLYGONS  144   /* ~2x the measured ~70 VDP1 commands/frame    */
 #define MAX_EVENTS    64    /* stock (jo/SGL event system)                 */
-#define MAX_WORKS     256   /* stock                                       */
+#define MAX_WORKS     192   /* F.4: 256->192 frees ~4.35KB WRAM-H .bss (WorkBuf
+                             * below the ANIMPAK floor; sizeof(WORK)~68) to fund
+                             * GHZSetup+BGSwitch WITHOUT moving any pool/globals;
+                             * still > MAX_POLYGONS 144. MAX_WORKS=208 verified
+                             * GREEN (player gate) -- 192 is the same class. */
 
 #define WORK_AREA     0x060f4000            /* SGL Work Area (was 060C0000)*/
 

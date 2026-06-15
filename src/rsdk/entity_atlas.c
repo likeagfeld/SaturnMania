@@ -36,9 +36,24 @@
  */
 
 #include "entity_atlas.h"
+#include "storage.h"
 
 #include <jo/jo.h>
 #include <string.h>
+
+/* HUD-regression diag (#186): records the exact return-false branch of the
+ * most recent entity_atlas_load_ex so the HUD gate can discriminate WHY the
+ * HUD atlas reports ready=0. Codes:
+ *   0  = success (ready=1)
+ *   1  = SP2 read returned NULL or length < 8 (jo_fs_read_file/pool/missing)
+ *   2  = SP2 magic mismatch
+ *   3  = zero frames uploaded (all jo_sprite_add failed = VDP1 exhausted)
+ *   4  = MET read returned NULL or length < 8
+ *   5  = MET magic mismatch
+ *   9  = entered with NULL atlas/name
+ * The caller (hud_load) snapshots this immediately after the HUD load, before
+ * any other atlas overwrites it. */
+__attribute__((used)) int32_t g_entity_atlas_last_fail = -1;
 
 /* === Per-entity BSS globals (P4-peek-accessible).
  *
@@ -81,7 +96,9 @@ __attribute__((used)) entity_atlas_t g_titlecard_atlas;
  * Phase 2.4h extended table size from 10 to 13 (badnik atlases).
  * Phase 2.4i extended table size from 13 to 14 (HUD atlas).
  * Phase 2.4-PLAT extended table size from 14 to 15 (Bridge atlas).
- * Phase 2.4j.1 extended table size from 15 to 16 (TitleCard atlas). */
+ * Phase 2.4j.1 extended table size from 15 to 16 (TitleCard atlas).
+ * FR-2: TitleCard now populated (was a trailing NULL) so the lazy
+ * residency begin-frame loop clears its per-frame sprite_id[] too. */
 __attribute__((used)) entity_atlas_t * const g_entity_atlas_table[16] = {
     &g_ring_atlas,
     &g_itembox_atlas,
@@ -98,6 +115,7 @@ __attribute__((used)) entity_atlas_t * const g_entity_atlas_table[16] = {
     &g_batbrain_atlas,
     &g_hud_atlas,
     &g_bridge_atlas,
+    &g_titlecard_atlas,
 };
 
 /* === BE byte readers (Saturn SH-2 is big-endian; ALSO match decomp
@@ -125,6 +143,158 @@ static void _concat(char *dst, size_t dstn, const char *base, const char *ext)
     dst[i] = '\0';
 }
 
+/* === FR-2 lazy residency: MRU blob pool + per-tick rebuild ===========
+ *
+ * Pixel source for the per-tick uploads is a 192 KB MRU pool of whole-atlas
+ * SP2 blobs in LWRAM at 0x00260000. This region holds the dead-after-upload
+ * SKY.DAT staging (0x260000..0x278000, scene_ghz.c GHZ_SKY_DAT_LWRAM_ADDR)
+ * plus the per-scene file-read scratch (0x278000..0x290000, storage.c
+ * SCENE_LWRAM_RAW). Both are idle during GHZ gameplay (SKY.DAT was uploaded
+ * to VDP2 once; the scratch is only used while rsdk_load_scene runs, which
+ * completes synchronously before the first gameplay tick). entity_residency_
+ * reset() flushes the pool at every scene (re)load so no blob survives the
+ * window where rsdk_load_scene reuses the upper half as scratch.
+ *
+ * Distinct from the player MRU pool (0x002D0000, player_atlas.c) -- no
+ * overlap; the live scene entity table sits between them (0x290000..0x2D0000,
+ * storage.c SCENE_LWRAM_ARENA). */
+#define ENTITY_POOL_ADDR   ((unsigned char *)0x00260000)
+#define ENTITY_POOL_SIZE   0x30000u      /* 192 KB (0x260000..0x290000)     */
+/* Largest single atlas SP2 = SPRING 94592 B (measured cd/SPRING.SP2). The
+ * worst-case headroom must therefore exceed 94592; 0x18000 (98304) guarantees
+ * a whole-blob inflate never overruns the pool tail (we flush if it won't
+ * fit). Two such blobs fit the 192 KB pool. */
+#define ENTITY_MAX_BLOB    0x18000u      /* 96 KB (>= SPRING 94592 B)        */
+#define ENTITY_BLOB_SLOTS  18
+
+/* Task #192 (player-only resident): entities are NOT resident. The earlier
+ * resident entity sprite pack was retired -- it collided byte-for-byte with
+ * the live #188 FG.CEL LWRAM region and corrupted the foreground after the
+ * title card. Entity SP2 pixel blobs are CD-streamed on demand into the MRU
+ * pool below (occasional reads, far rarer than the per-anim player reads that
+ * the resident SONIC.SPC eliminates -- see player_atlas.c). */
+
+static unsigned char *const s_epool = ENTITY_POOL_ADDR;
+static uint32_t s_epool_head;
+static struct {
+    const entity_atlas_t *atlas;   /* owner (NULL = empty slot)             */
+    uint32_t off;
+    uint32_t len;
+} s_eblob[ENTITY_BLOB_SLOTS];
+static int s_eblob_count;
+
+/* The jo sprite id just above the player's resident block; the dynamic
+ * entity/HUD/titlecard sprites for the current tick start here. -1 until the
+ * first begin_frame arms residency. */
+static int s_dyn_base = -1;
+
+/* #192 slow-motion diagnostic (behavior-neutral, never reset). Divide each by
+ * g_gp_draw_ticks (Game.c) to get the per-tick rate:
+ *   g_er_cd_reads   -- count of jo_fs_read_file_ptr CD streams in _blob_get.
+ *                      A per-tick rate >> 0 means the 192 KB MRU pool is
+ *                      thrashing (working set > ~96 KB effective) and every
+ *                      tick re-streams atlas blobs from CD (~100 ms/seek ->
+ *                      multi-frame stall -> the user-reported slow motion).
+ *   g_er_sprite_adds-- count of jo_sprite_add VDP1 uploads in _er_ensure.
+ *                      A per-tick rate ~= on-screen distinct frame count
+ *                      (~77 measured) is the unavoidable rebuild DMA cost;
+ *                      that alone does NOT explain a 10x slowdown, CD thrash
+ *                      does. The two counters separate the two hypotheses. */
+__attribute__((used)) uint32_t g_er_cd_reads   = 0;
+__attribute__((used)) uint32_t g_er_sprite_adds = 0;
+
+void entity_residency_reset(void)
+{
+    s_epool_head  = 0;
+    s_eblob_count = 0;
+    s_dyn_base    = -1;
+    for (int i = 0; i < ENTITY_BLOB_SLOTS; ++i) s_eblob[i].atlas = NULL;
+}
+
+/* Locate (or CD-stream) the atlas's whole SP2 blob in the MRU pool. Returns
+ * the pool pointer or NULL on read/validate failure. Wholesale-flushes the
+ * pool (MRU) when the next blob cannot fit -- harmless mid-tick because any
+ * already-uploaded VDP1 sprites are independent of the blob bytes. */
+static unsigned char *_blob_get(const entity_atlas_t *atlas)
+{
+    for (int i = 0; i < s_eblob_count; ++i)
+        if (s_eblob[i].atlas == atlas)
+            return s_epool + s_eblob[i].off;
+
+    if (s_epool_head + ENTITY_MAX_BLOB > ENTITY_POOL_SIZE ||
+        s_eblob_count >= ENTITY_BLOB_SLOTS) {
+        s_epool_head  = 0;
+        s_eblob_count = 0;
+        for (int i = 0; i < ENTITY_BLOB_SLOTS; ++i) s_eblob[i].atlas = NULL;
+    }
+
+    /* CD-stream the atlas's SPR2 blob into the pool. The filename stem is the
+     * atlas base_name the builder used (e.g. "RING" / "SPRING" / "TITLCARD"),
+     * so the CD file is "<base>.SP2". This is an occasional gameplay CD read
+     * (only on first display / after MRU eviction), far rarer than the player
+     * per-anim reads that #192 made resident. */
+    char fname[24];
+    _concat(fname, sizeof(fname), atlas->base_name, ".SP2");
+    unsigned char *dst = s_epool + s_epool_head;
+    int raw = 0;
+    if (!jo_fs_read_file_ptr(fname, dst, &raw)) return NULL;
+    ++g_er_cd_reads;            /* #192 diag: a CD blob stream just happened */
+    if (raw < 8 ||
+        dst[0] != 'S' || dst[1] != 'P' || dst[2] != 'R' || dst[3] != '2') {
+        return NULL;
+    }
+    s_eblob[s_eblob_count].atlas = atlas;
+    s_eblob[s_eblob_count].off   = s_epool_head;
+    s_eblob[s_eblob_count].len   = (uint32_t)raw;
+    ++s_eblob_count;
+    s_epool_head += ((uint32_t)raw + 3u) & ~3u;
+    return dst;
+}
+
+/* Ensure atlas-flat frame `idx` is VDP1-resident this tick; return its jo
+ * sprite id (-1 on failure). Per-tick dedup: a non-negative sprite_id[idx]
+ * means this frame was already uploaded this tick (begin_frame cleared them
+ * all to -1), so we reuse it. */
+static int _er_ensure(entity_atlas_t *atlas, int idx)
+{
+    if (!atlas || !atlas->ready) return -1;
+    if (idx < 0 || idx >= atlas->frame_total) return -1;
+    if (atlas->sprite_id[idx] >= 0) return atlas->sprite_id[idx];
+
+    unsigned char *blob = _blob_get(atlas);
+    if (!blob) return -1;
+
+    unsigned char *fp = blob + atlas->frame_off[idx];
+    uint16_t w = _rd_u16(fp);
+    uint16_t h = _rd_u16(fp + 2);
+    jo_img img;
+    img.data   = (jo_color *)(fp + 4);
+    img.width  = (unsigned short)w;
+    img.height = (unsigned short)h;
+    int sid = jo_sprite_add(&img);
+    if (sid < 0) return -1;          /* VDP1 slots/VRAM exhausted          */
+    ++g_er_sprite_adds;              /* #192 diag: a VDP1 upload just ran   */
+    atlas->sprite_id[idx] = (int16_t)sid;
+    return sid;
+}
+
+void entity_residency_begin_frame(int dyn_base)
+{
+    s_dyn_base = dyn_base;
+    if (dyn_base >= 0)
+        jo_sprite_free_from(dyn_base);   /* LIFO rewind -- free last tick   */
+
+    /* Clear every atlas's resident sprite_id[] so accessors re-upload this
+     * tick (the VDP1 slots above dyn_base were just freed). */
+    for (int t = 0; t < ENTITY_BLOB_SLOTS && t < 16; ++t) {
+        entity_atlas_t *a = g_entity_atlas_table[t];
+        if (!a) continue;
+        int n = a->frame_total;
+        if (n > ENTITY_ATLAS_MAX_FRAMES) n = ENTITY_ATLAS_MAX_FRAMES;
+        for (int f = 0; f < n; ++f) a->sprite_id[f] = -1;
+    }
+}
+
 /* === Load implementation =============================================
  *
  * Sequence:
@@ -150,95 +320,83 @@ static void _concat(char *dst, size_t dstn, const char *base, const char *ext)
 bool entity_atlas_load_ex(entity_atlas_t *atlas, const char *base_name,
                           void *scratch, int scratch_cap)
 {
-    if (!atlas || !base_name) return false;
+    if (!atlas || !base_name) { g_entity_atlas_last_fail = 9; return false; }
+    g_entity_atlas_last_fail = -2;   /* in-progress sentinel */
     memset(atlas, 0, sizeof(*atlas));
+
+    /* FR-2: scratch/scratch_cap are no longer needed -- the lazy loader
+     * reads the SP2 transiently into the MRU blob pool (LWRAM) for a
+     * metadata-only parse and NEVER calls jo_malloc, so the pool-exhaustion
+     * concern the scratch path addressed (Phase 2.4j.2) is moot. */
+    (void)scratch;
+    (void)scratch_cap;
+
+    /* Remember the basename so the residency manager can CD-stream the
+     * pixel blob on demand (jo_fs filenames are <=12 chars; base <=8). */
+    {
+        int i = 0;
+        for (; base_name[i] && i < (int)sizeof(atlas->base_name) - 1; ++i)
+            atlas->base_name[i] = base_name[i];
+        atlas->base_name[i] = '\0';
+    }
 
     char path[24];
 
-    /* --- SP2 ------------------------------------------------------- */
+    /* --- SP2 (metadata-only: per-frame w/h + byte offset; NO upload) ---
+     * CD-stream the whole SP2 transiently into the blob pool base (load-time
+     * read; entities are NOT resident). We do NOT register a cache entry
+     * (entities_load_assets ran entity_residency_reset first; the upper pool
+     * half is reused as rsdk_load_scene scratch right after this load, so
+     * nothing may persist). Runtime first-ensure re-reads the blob into the
+     * pool via _blob_get (also a CD stream -- occasional, far rarer than the
+     * per-anim player reads that #192 made resident). */
     _concat(path, sizeof(path), base_name, ".SP2");
     int sp2_len = 0;
-    unsigned char *sp2;
-    if (scratch) {
-        sp2 = (unsigned char *)jo_fs_read_file_ptr(path, scratch, &sp2_len);
-    } else {
-        sp2 = (unsigned char *)jo_fs_read_file(path, &sp2_len);
-    }
+    unsigned char *sp2 =
+        (unsigned char *)jo_fs_read_file_ptr(path, s_epool, &sp2_len);
     if (!sp2 || sp2_len < 8) {
-        if (sp2 && !scratch) jo_free(sp2);
+        g_entity_atlas_last_fail = 1;
         return false;
     }
     if (sp2[0] != 'S' || sp2[1] != 'P' || sp2[2] != 'R' || sp2[3] != '2') {
-        if (!scratch) jo_free(sp2);
+        g_entity_atlas_last_fail = 2;
         return false;
     }
     uint16_t fc = _rd_u16(sp2 + 4);
-    if (fc == 0 || fc > ENTITY_ATLAS_MAX_FRAMES) {
-        /* Cap silently at MAX_FRAMES (excess frames simply don't load
-         * sprites; the walker will index into the loaded range only). */
-        if (fc > ENTITY_ATLAS_MAX_FRAMES) fc = ENTITY_ATLAS_MAX_FRAMES;
-    }
-    atlas->frame_total = fc;
+    if (fc > ENTITY_ATLAS_MAX_FRAMES) fc = ENTITY_ATLAS_MAX_FRAMES;
 
-    /* Iterate frames: each is u16 w + u16 h + w*h * u16 BGR1555. */
-    unsigned char *p = sp2 + 8;
+    /* Walk frames recording (w, h, byte-offset-of-record). No jo_sprite_add:
+     * pixels stay in CD/the pool and upload on demand per displayed frame. */
+    unsigned char *p   = sp2 + 8;
     unsigned char *end = sp2 + sp2_len;
     int loaded = 0;
-    {
-        jo_img img;
-        for (int i = 0; i < fc; ++i) {
-            if (p + 4 > end) break;
-            uint16_t w = _rd_u16(p);
-            uint16_t h = _rd_u16(p + 2);
-            p += 4;
-            size_t bytes = (size_t)w * (size_t)h * 2u;
-            if (p + bytes > end) break;
-            /* jo_sprite_add reads jo_color (u16) pixels in the platform's
-             * byte order. SH-2 is big-endian and the SP2 file was emitted
-             * in big-endian network order by Python struct.pack(">H"), so
-             * the bytes already match the in-register u16 value. We can
-             * pass the buffer pointer directly. */
-            img.data   = (jo_color *)p;
-            img.width  = (unsigned short)w;
-            img.height = (unsigned short)h;
-            int sid = jo_sprite_add(&img);
-            if (sid < 0) {
-                /* jo VRAM / slot exhausted. Stop loading further frames;
-                 * the walker will still play the loaded subset. */
-                break;
-            }
-            atlas->sprite_id[i] = (int16_t)sid;
-            atlas->width[i]     = w;
-            atlas->height[i]    = h;
-            p += bytes;
-            ++loaded;
-        }
+    for (int i = 0; i < fc; ++i) {
+        if (p + 4 > end) break;
+        uint16_t w = _rd_u16(p);
+        uint16_t h = _rd_u16(p + 2);
+        size_t bytes = (size_t)w * (size_t)h * 2u;
+        if (p + 4 + bytes > end) break;
+        atlas->frame_off[i] = (uint32_t)(p - sp2);   /* offset of (w,h,px) */
+        atlas->width[i]      = w;
+        atlas->height[i]     = h;
+        atlas->sprite_id[i]  = -1;                   /* not resident yet   */
+        p += 4 + bytes;
+        ++loaded;
     }
-    /* SP2 pixels are now resident in VDP1 VRAM; the SP2 bytes are no
-     * longer needed. For the pool path, free them. For the scratch path,
-     * the buffer is caller-owned and we reuse it below for the MET read. */
-    if (!scratch) jo_free(sp2);
     atlas->frame_total = (uint16_t)loaded;
-    if (loaded == 0) return false;
+    if (loaded == 0) { g_entity_atlas_last_fail = 3; return false; }
 
-    /* --- MET ------------------------------------------------------- */
+    /* --- MET (cadence + pivot/duration; reuse the pool for the read) --- */
     _concat(path, sizeof(path), base_name, ".MET");
     int met_len = 0;
-    unsigned char *met;
-    if (scratch) {
-        /* Reuse the scratch buffer (SP2 processing is complete). MET is
-         * ~500 B, far under scratch_cap. */
-        (void)scratch_cap;
-        met = (unsigned char *)jo_fs_read_file_ptr(path, scratch, &met_len);
-    } else {
-        met = (unsigned char *)jo_fs_read_file(path, &met_len);
-    }
+    unsigned char *met =
+        (unsigned char *)jo_fs_read_file_ptr(path, s_epool, &met_len);
     if (!met || met_len < 8) {
-        if (met && !scratch) jo_free(met);
+        g_entity_atlas_last_fail = 4;
         return false;
     }
     if (met[0] != 'M' || met[1] != 'E' || met[2] != 'T' || met[3] != '1') {
-        if (!scratch) jo_free(met);
+        g_entity_atlas_last_fail = 5;
         return false;
     }
     uint16_t ac = _rd_u16(met + 4);
@@ -274,7 +432,7 @@ bool entity_atlas_load_ex(entity_atlas_t *atlas, const char *base_name,
         atlas->unicode_char[i] = _rd_u16(p + 8);  /* glyph codepoint */
         p += FRAME_REC;
     }
-    if (!scratch) jo_free(met);
+    /* met lives in the MRU pool (no jo_malloc) -- nothing to free. */
 
     /* Synthesize the scratch_frames table the rsdk walker reads from.
      * Decomp Animation.cpp:174 reads animator->frames[frame_id].duration
@@ -292,6 +450,7 @@ bool entity_atlas_load_ex(entity_atlas_t *atlas, const char *base_name,
      * the moment the load returns. */
     atlas->ready = 1;
     entity_atlas_play(atlas, 0);
+    g_entity_atlas_last_fail = 0;
     return true;
 }
 
@@ -361,10 +520,12 @@ void entity_atlas_tick(entity_atlas_t *atlas)
 
 int entity_atlas_current_sprite(const entity_atlas_t *atlas)
 {
+    /* FR-2: upload-on-demand. The atlas globals are mutable BSS; the const
+     * qualifier is an API courtesy (callers pass const pointers, e.g.
+     * animation.c:250). Casting it away to mutate residency is safe. */
     if (!atlas || !atlas->ready) return -1;
     int idx = atlas->current_atlas_frame;
-    if (idx < 0 || idx >= atlas->frame_total) return -1;
-    return (int)atlas->sprite_id[idx];
+    return _er_ensure((entity_atlas_t *)atlas, idx);
 }
 
 void entity_atlas_pivot(const entity_atlas_t *atlas, int *out_px, int *out_py)
@@ -432,9 +593,8 @@ int entity_atlas_frame_for_unicode(const entity_atlas_t *atlas, int anim_id,
 
 int entity_atlas_sprite_at(const entity_atlas_t *atlas, int idx)
 {
-    if (!atlas || !atlas->ready) return -1;
-    if (idx < 0 || idx >= atlas->frame_total) return -1;
-    return (int)atlas->sprite_id[idx];
+    /* FR-2: upload-on-demand (see entity_atlas_current_sprite). */
+    return _er_ensure((entity_atlas_t *)atlas, idx);
 }
 
 void entity_atlas_pivot_at(const entity_atlas_t *atlas, int idx,

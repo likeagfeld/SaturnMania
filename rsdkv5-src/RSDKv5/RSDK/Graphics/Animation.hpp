@@ -37,6 +37,12 @@ namespace RSDK
 // pak. PACKEDCOL (0x060E0000) + the layer sliding-window store
 // (SaturnLayout.cpp SATURNLAYOUT_WINBASE 0x060F0000, NOT a free gap) + the SGL
 // area stay FIXED. ANIMPAK ends contiguously at the new OVL base 0x060C9000.
+// P6.8 F.4 (Task #235) re-budget REVERTED: a naive +0x2000 shift of the whole
+// pool stack FROZE the boot (MEASURED: ticks=0 with GHZSetup disabled too) --
+// the GLOBALS window blob is seeded with baked absolute pointers for its fixed
+// address, so moving its base breaks the seed remap. A correct re-budget must
+// re-seed globals at the new base (or find 4KB WITHOUT moving GLOBALS). Floor
+// restored to the verified-GREEN 0x060B8000.
 #define P6_HW_ANIMPAK     0x060B8000u
 #define P6_HW_ANIMPAK_CAP 0x00011000u // 69,632 B (build_anim_pack.py asserts)
 #else

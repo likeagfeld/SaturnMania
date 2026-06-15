@@ -219,7 +219,14 @@ __attribute__((used)) volatile uint32_t g_scene_diag_data_total = 0;
 #define SCENE_LWRAM_RAW_ADDR    ((void *)0x00278000)
 #define SCENE_LWRAM_RAW_SIZE    0x18000u           /* 96 KB file scratch   */
 #define SCENE_LWRAM_ARENA_ADDR  ((uint8_t *)0x00290000)
-#define SCENE_LWRAM_ARENA_SIZE  0x40000u           /* 256 KB table + blob  */
+/* Shrunk 256->192 KB for #180 step 4c: the freed tail 0x002C0000..0x002D0000
+ * (64 KB) now backs colwindow.c's resident compressed collision blob
+ * (COLWINDOW_RESIDENT_ADDR). GHZ scene-arena peak is ~41 KB (20.3 KB table +
+ * 20.8 KB blob), so 192 KB is still 4.6x headroom and overflow stays graceful
+ * (scene_arena_alloc returns NULL -> load failure path). Does NOT touch the
+ * FR-2 entity pool (#189, 0x260000..0x290000), FG.TMP, the player MRU pool
+ * (0x2D0000+), or the GHZ1SURF mask carve. */
+#define SCENE_LWRAM_ARENA_SIZE  0x30000u           /* 192 KB table + blob  */
 
 static bool     s_scene_use_lwram    = false;
 static uint32_t s_scene_arena_cursor = 0;

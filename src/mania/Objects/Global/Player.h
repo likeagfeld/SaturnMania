@@ -62,6 +62,89 @@ typedef enum {
  * raw int32 = Q16.16 throughout. */
 #define PLAYER_FIXED(x) ((int32_t)((double)(x) * 65536.0))
 
+/* Player sprite-animation IDs — FR-1 (faithful re-port), 2026-06-01.
+ *
+ * Mechanical 1:1 mirror of the decomp ANI_* enum
+ * (tools/_decomp_raw/SonicMania_Objects_Global_Player.h:20-81), with
+ * MANIA_USE_PLUS undefined (so ANI_FLUME is omitted and every value equals
+ * the corresponding Players/Sonic.bin animation index — verified by
+ * tools/build_entity_atlas.py Sonic dump: bin anim 16 == "Dropdash" ==
+ * ANI_ABILITY_0). The decomp drives rendering through
+ * `self->animator.animationID`; the Saturn player_t carries the same value
+ * and src/rsdk/player_atlas.c maps it to the kept-atlas slot by name.
+ *
+ * Only the 15 gameplay-reachable anims (FR-1 keep set) are resident on
+ * disc; the rest are valid enum values but map to the IDLE fallback in
+ * player_atlas until their mechanic ports (see cd/SONIC.SP2 drop list). */
+typedef enum {
+    ANI_IDLE = 0,
+    ANI_BORED_1,
+    ANI_BORED_2,
+    ANI_LOOK_UP,
+    ANI_CROUCH,
+    ANI_WALK,
+    ANI_AIR_WALK,
+    ANI_JOG,
+    ANI_RUN,
+    ANI_DASH,
+    ANI_JUMP,
+    ANI_SPRING_TWIRL,
+    ANI_SPRING_DIAGONAL,
+    ANI_SKID,
+    ANI_SKID_TURN,
+    ANI_SPINDASH,
+    ANI_ABILITY_0,
+    ANI_PUSH,
+    ANI_HURT,
+    ANI_DIE,
+    ANI_DROWN,
+    ANI_BALANCE_1,
+    ANI_BALANCE_2,
+    ANI_SPRING_CS,
+    ANI_STAND_CS,
+    ANI_FAN,
+    ANI_VICTORY,
+    ANI_OUTTA_HERE,
+    ANI_HANG,
+    ANI_HANG_MOVE,
+    ANI_POLE_SWING_V,
+    ANI_POLE_SWING_H,
+    ANI_SHAFT_SWING,
+    ANI_TURNTABLE,
+    ANI_TWISTER,
+    ANI_SPIRAL_RUN,
+    ANI_STICK,
+    ANI_PULLEY_HOLD,
+    ANI_SHIMMY_IDLE,
+    ANI_SHIMMY_MOVE,
+    ANI_BUBBLE,
+    ANI_BREATHE,
+    ANI_RIDE,
+    ANI_CLING,
+    ANI_BUNGEE,
+    ANI_TWIST_RUN,
+    ANI_TRANSFORM,
+    ANI_ABILITY_1,
+    ANI_ABILITY_2,
+    ANI_ABILITY_3,
+    ANI_ABILITY_4,
+    ANI_ABILITY_5,
+    ANI_ABILITY_6,
+    ANI_ABILITY_7,
+
+    /* Sonic ability aliases (decomp Player.h:80-81). */
+    ANI_DROPDASH = ANI_ABILITY_0,
+    ANI_PEELOUT  = ANI_ABILITY_1
+} player_animation_t;
+
+/* FR-1 (faithful re-port) -- sentinel for animSpeed meaning "use the anim's
+ * MET default speed" (no SetSpriteAnimation override). Player_HandleGround/
+ * IdleAnimation and the air-anim switch leave animSpeed at this value unless a
+ * state explicitly ramps it (Jump/Spindash). The player_atlas driver maps it to
+ * PLAYER_ATLAS_SPEED_DEFAULT. Declared in the header so Player_Init (Player.c)
+ * can seed it before the in-body handlers' local copy is defined. */
+#define PLAYER_ANIM_SPEED_DEFAULT (-1)
+
 /* Player state-machine selector — Phase 2.5.1.
  *
  * The decomp drives behaviour through a `StateMachine self->state` function
@@ -196,6 +279,56 @@ typedef struct {
     int32_t jumpAbilityState;
     bool    jumpHold;
 
+    /* FR-1 (faithful re-port) — animation system. Mirrors decomp
+     * EntityPlayer::animator (RSDK Animator) + the velocity-threshold and
+     * skid/push fields the animation handlers consume.
+     *   animationID <-> animator.animationID — the ANI_* currently playing.
+     *                   Set at each ported state's SetSpriteAnimation site
+     *                   (Jump/Roll/Spindash/Crouch/LookUp/DropDash) and by
+     *                   Player_HandleGroundAnimation / the air-anim switch.
+     *   animFrame   <-> animator.frameID  — frame index within the anim.
+     *   animTimer   <-> animator.timer    — sub-frame accumulator; the
+     *                   walker adds animSpeed each tick and advances a frame
+     *                   when it crosses the per-frame duration<<8 (decomp
+     *                   Animation.cpp:150-177 ProcessAnimation).
+     *   animSpeed   <-> animator.speed     — per-tick advance rate. Defaults
+     *                   to the anim's MET speed; SetSpriteAnimation overrides
+     *                   it for Jump (=((|gsp|*0xF0)/0x60000)+0x30, cap 0xF0,
+     *                   Player.c:3326) and Spindash.
+     *   prevAnimationID — last tick's animationID; lets the walker reset
+     *                   frame/timer on an anim change (decomp resets via the
+     *                   != check in SetSpriteAnimation). */
+    int32_t animationID;
+    int32_t prevAnimationID;
+    int32_t animFrame;
+    int32_t animTimer;
+    int32_t animSpeed;
+
+    /* animFrameCount <-> animator.frameCount — frame count of the anim that
+     * is currently resident. Written back by the player_atlas walker each
+     * tick (alongside animFrame) so Player_HandleGroundAnimation can perform
+     * the decomp's `frameID == frameCount - 1` SKID_TURN test (Player.c:2924)
+     * without a direct atlas dependency. */
+    int32_t animFrameCount;
+
+    /* Decomp EntityPlayer::skidding — set to 24 when reversing on the
+     * ground (Player.c:3112/3134), decremented each tick (L2961); gates the
+     * ANI_SKID / ANI_SKID_TURN selection in Player_HandleGroundAnimation. */
+    int32_t skidding;
+
+    /* Decomp EntityPlayer velocity thresholds (UpdatePhysicsState
+     * L686-688: 0x40000 / 0x60000 / 0xC0000). Player_HandleGroundAnimation
+     * (L2970-3012) mutates these with hysteresis to gate WALK->JOG->RUN->
+     * DASH and reassigns them back on each branch. */
+    int32_t minJogVelocity;
+    int32_t minRunVelocity;
+    int32_t minDashVelocity;
+
+    /* Decomp EntityPlayer::outtaHereTimer — increments while idle-against
+     * a wall (Player.c:3062); at >=72000000 selects ANI_OUTTA_HERE. Carried
+     * for handler parity; OUTTA_HERE is a dropped anim (maps to IDLE). */
+    int32_t outtaHereTimer;
+
     /* Per-character physics-state (from sonicPhysicsTable per
      * UpdatePhysicsState, decomp Player.c:2747-2813). Phase 2.2 sets
      * these once at init from the default table-entry-0 chunk. */
@@ -287,13 +420,20 @@ int8_t Player_Sin8(unsigned char a);
  *   struct Hitbox { int16 left, top, right, bottom; };
  *
  * Saturn port uses int16 to match the decomp memory layout exactly. */
-typedef enum {
+/* Shared sentinel with src/rsdk/collision.h so a TU including both does not
+ * redeclare the C_* enumerators. The player_collision_side_t typedef name is
+ * unused; only the C_* constants matter (73 consumers, many include only this
+ * header). */
+#ifndef RSDK_COLLISION_SIDES_DEFINED
+#define RSDK_COLLISION_SIDES_DEFINED
+enum {
     C_NONE   = 0,
     C_TOP    = 1,
     C_LEFT   = 2,
     C_RIGHT  = 3,
     C_BOTTOM = 4
-} player_collision_side_t;
+};
+#endif
 
 typedef struct {
     int16_t left;

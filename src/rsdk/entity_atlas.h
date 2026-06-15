@@ -106,6 +106,16 @@ typedef struct entity_atlas_s {
      * single rsdk_sprite_frame_t for the current_atlas_frame each tick
      * so ProcessAnimation walks correctly). */
     rsdk_sprite_frame_t scratch_frames[ENTITY_ATLAS_MAX_FRAMES];
+
+    /* FR-2 (lazy residency) -- the byte offset of each frame's
+     * (u16 w, u16 h, w*h*2 pixels) record within the atlas's SP2 blob.
+     * Computed once at load; used by the on-demand uploader to address a
+     * single frame's pixels in the MRU blob pool without re-walking. */
+    uint32_t frame_off[ENTITY_ATLAS_MAX_FRAMES];
+
+    /* SP2 basename (no extension), so the residency manager can CD-stream
+     * the atlas's pixel blob on demand. */
+    char base_name[16];
 } entity_atlas_t;
 
 /* === Public API ====================================================== */
@@ -172,6 +182,37 @@ int  entity_atlas_frame_for_unicode(const entity_atlas_t *atlas, int anim_id,
 
 /* jo sprite_id / pivot / size for a specific atlas-flat frame index. */
 int  entity_atlas_sprite_at(const entity_atlas_t *atlas, int idx);
+
+/* === FR-2 lazy entity residency (per-tick rebuild) ===================
+ *
+ * The eager loader uploaded EVERY frame of EVERY atlas to VDP1 at scene
+ * load, pushing __jo_sprite_id to 407 -- past the fixed JO_MAX_SPRITE=255
+ * [255] def/pic arrays (sprites.c has no release-build bounds check), which
+ * silently clobbered g_titlecard + the HUD glyph VRAM addresses (#189).
+ *
+ * Lazy residency uploads ONLY the frames actually displayed on the current
+ * tick, into a single dynamic block sitting ABOVE the player's resident
+ * block (which is itself above the static scene sprites). Each tick the
+ * draw pass rewinds the jo sprite stack to `dyn_base` (freeing last frame's
+ * entity/HUD/titlecard sprites, LIFO) and clears every atlas's per-frame
+ * sprite_id[]; the accessors (entity_atlas_current_sprite / _sprite_at)
+ * then upload-on-demand with per-tick dedup. The pixel source is a 192 KB
+ * LWRAM MRU pool of whole-atlas SP2 blobs streamed from CD on first need.
+ *
+ * Mirrors the FR-1 player_atlas MRU pattern (player_atlas.h). */
+
+/* Flush the MRU blob pool + clear all residency. Call at the top of
+ * entities_load_assets (scene (re)load) so no stale blob survives a
+ * transition (the pool overlaps the per-scene file-read scratch window). */
+void entity_residency_reset(void);
+
+/* Begin a fresh draw frame. Rewinds the jo sprite stack to `dyn_base`
+ * (jo_sprite_free_from -> frees every entity/HUD/titlecard sprite uploaded
+ * last frame) and clears every atlas's resident sprite_id[] so the
+ * accessors re-upload on demand this tick. `dyn_base` MUST be the sprite id
+ * just above the player's resident block (player_atlas_top()). A negative
+ * dyn_base no-ops the rewind (residency not yet armed). */
+void entity_residency_begin_frame(int dyn_base);
 void entity_atlas_pivot_at(const entity_atlas_t *atlas, int idx,
                            int *out_px, int *out_py);
 void entity_atlas_size_at(const entity_atlas_t *atlas, int idx,

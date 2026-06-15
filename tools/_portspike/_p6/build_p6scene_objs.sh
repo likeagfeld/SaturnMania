@@ -89,12 +89,12 @@ echo "[3/7] Core_Reader.o (UNMODIFIED engine Reader.cpp) ..."
 $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Core_Reader.o" "$SRC/RSDK/Core/Reader.cpp"
 
-echo "[4/7] Scene_Scene.o (UNMODIFIED engine Scene.cpp -- LoadSceneAssets UNDER TEST) ..."
-$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+echo "[4/7] Scene_Scene.o (engine Scene.cpp -- LoadSceneAssets; P6_CART=1 loads full layers resident in cart STG) ..."
+$CC $CXXFLAGS $ENG_DEFS ${P6_CART:+-DP6_CART} $CORE_INC \
     -c -o "$P6/Scene_Scene.o" "$SRC/RSDK/Scene/Scene.cpp"
 
-echo "[5/7] Storage_Storage.o (UNMODIFIED engine Storage.cpp -- InitStorage + AllocateStorage) ..."
-$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+echo "[5/7] Storage_Storage.o (engine Storage.cpp -- InitStorage + AllocateStorage; P6_CART=1 puts STG/TMP pools in the 4MB cart) ..."
+$CC $CXXFLAGS $ENG_DEFS ${P6_CART:+-DP6_CART} $CORE_INC \
     -c -o "$P6/Storage_Storage.o" "$SRC/RSDK/Storage/Storage.cpp"
 
 echo "[6/8] miniz.o       (lean inflate-only miniz -- mz_uncompress for ReadCompressed) ..."
@@ -243,9 +243,20 @@ for w2 in Global_ActClear:Game_ActClear \
           Global_SaveGame:Game_SaveGame \
           Global_ScoreBonus:Game_ScoreBonus \
           Global_Shield:Game_Shield \
+          Global_SignPost:Game_SignPost \
           MMZ_SizeLaser:Game_SizeLaser \
           Global_Zone:Game_Zone; do
     src_tu="${w2%%:*}"; out_tu="${w2##*:}"
+    "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+        $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
+        -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
+done
+# F.4 (Task #235): GHZ1->GHZ2 ATL transition objects (BGSwitch + GHZSetup). Closures
+# fully satisfied (Zone_StoreEntities/ReloadStoredEntities already in Game_Zone.o);
+# funded by the +0x2000 WRAM-H re-budget (ANIMPAK floor 0x060BA000).
+for w4 in Common_BGSwitch:Game_BGSwitch \
+          GHZ_GHZSetup:Game_GHZSetup; do
+    src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
         -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
@@ -300,6 +311,13 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \
     -u _p6_w_transitions -u _p6_w_xtile_lo -u _p6_w_xtile_hi \
     -u _p6_w_warp_plrx -u _p6_w_warp_signactive \
+    -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
+    -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
+    -u _p6_w_ac_laststate -u _p6_w_listpos_max \
+    -u _p6_w_mount_tag -u _p6_w_mount_listpos \
+    -u _p6_w_sign_crossed \
+    -u _p6_w_sign_count -u _p6_w_sign_type -u _p6_w_sign_posx \
+    -u _p6_w_cart_ok -u _p6_w_cart_rb0 -u _p6_w_cart_rb1 \
     -u _p6_w_magic \
     -u _p6_bridge_proc_anim -u _p6_bridge_draw_sprite -u _p6_scene_entity \
     -u _p6_w_obj_classid -u _p6_w_obj_timer -u _p6_w_obj_vely \
@@ -327,6 +345,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Game_Music.o" "$P6/Game_PauseMenu.o" "$P6/Game_Player.o" \
     "$P6/Game_SaveGame.o" "$P6/Game_ScoreBonus.o" "$P6/Game_Shield.o" \
     "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" "$P6/Game_ActClear.o" \
+    "$P6/Game_SignPost.o" "$P6/Game_BGSwitch.o" "$P6/Game_GHZSetup.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
     "$P6/Input_Input.o" "$P6/InputDevice_Saturn.o" "$P6/CppRuntime_Saturn.o" \

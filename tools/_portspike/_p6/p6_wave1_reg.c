@@ -153,7 +153,8 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     // APICallback (Game.c:166) NOT registered: the verbatim TU needs
     // pre-REV02 RSDK.GetAPIFunction; its referenced entry points stub at
     // the closure edge until the SaveGame/UserStorage wave (p6_closure_edge.c).
-    RSDK_REGISTER_OBJECT(ActClear);     // Game.c:~160 (F.2: ActClear.c:782 ++listPos = the GHZ1->GHZ2 advance)
+    RSDK_REGISTER_OBJECT(ActClear);     // Game.c:~160 (F.2: ActClear -> stageFinishCallback)
+    RSDK_REGISTER_OBJECT(BGSwitch);     // Game.c:178 (F.4: GHZSetup BG switch; funded by MAX_WORKS reclaim)
     RSDK_REGISTER_OBJECT(BoundsMarker); // Game.c:188
     RSDK_REGISTER_OBJECT(Camera);       // Game.c:212
     RSDK_REGISTER_OBJECT(DebugMode);    // Game.c:265
@@ -161,6 +162,7 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     RSDK_REGISTER_OBJECT(Dust);         // Game.c:280
     RSDK_REGISTER_OBJECT(ERZStart);     // Game.c:305
     RSDK_REGISTER_OBJECT(GameOver);     // Game.c:352
+    RSDK_REGISTER_OBJECT(GHZSetup);     // Game.c:363 (F.4: GHZ1->GHZ2 ATL trigger via stageFinishCallback)
     RSDK_REGISTER_OBJECT(HUD);          // Game.c:395
     RSDK_REGISTER_OBJECT(Ice);          // Game.c:396
     RSDK_REGISTER_OBJECT(ImageTrail);   // Game.c:399
@@ -174,6 +176,7 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     RSDK_REGISTER_OBJECT(SaveGame);     // Game.c:623
     RSDK_REGISTER_OBJECT(ScoreBonus);   // Game.c:629
     RSDK_REGISTER_OBJECT(Shield);       // Game.c:636
+    RSDK_REGISTER_OBJECT(SignPost);     // Game.c:642 (F.3: spawns ActClear -> GHZ1->GHZ2)
     RSDK_REGISTER_OBJECT(SizeLaser);    // Game.c:644
     RSDK_REGISTER_OBJECT(Soundboard);   // Game.c:649
     RSDK_REGISTER_OBJECT(Zone);         // Game.c:854

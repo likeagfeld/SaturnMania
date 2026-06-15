@@ -110,7 +110,8 @@ def render_frame_native(atlas_rgba, sx, sy, fw, fh):
 def build_atlas(bin_path: str, spr_path: str, met_path: str,
                 drop_anims: list[str] | None = None,
                 sprite_dir: str = SPRITE_DIR,
-                frame_caps: dict[str, int] | None = None):
+                frame_caps: dict[str, int] | None = None,
+                slice_base: str | None = None):
     """Extract every anim+frame from `bin_path`, write SPR2 to `spr_path`
     and MET1 sidecar to `met_path`. If `drop_anims` lists anim names
     (latin-1), they are excluded (mitigation path).
@@ -219,6 +220,38 @@ def build_atlas(bin_path: str, spr_path: str, met_path: str,
     with open(spr_path, "wb") as f:
         f.write(spr_buf)
     print(f"  {spr_path}: {len(flat_frames)} frames, {len(spr_buf)} B")
+
+    # --- Write per-anim SPR2 slices (MRU CD-streaming residency) --------
+    # When `slice_base` is set, also emit one standalone SPR2 file per kept
+    # anim: <slice_base><nn>.SP2 (nn = kept-anim index 00..). Each slice is
+    # a complete SPR2 (magic + frame_count + per-frame w,h,pixels) carrying
+    # ONLY that anim's frames, sourced from the SAME padded `flat_frames`
+    # the combined SP2 uses -- so pixels are byte-identical, no synthesis.
+    # The Saturn player_atlas MRU pool CD-reads exactly one slice on a cache
+    # miss (player chose "MRU pool + CD slices" residency, 2026-06-01),
+    # keeping all 15 anims reachable while only the hot working set stays in
+    # the 192 KB LWRAM cache. Slice name length: "SONIC"+"00"+".SP2" = 11
+    # <= GFS_FNAME_LEN 12 (memory: sgl-gfs-fname-len-12-limit).
+    if slice_base is not None:
+        out_dir = os.path.dirname(spr_path) or "."
+        for kept_idx, a in enumerate(kept_anim_table):
+            first = a["first"]
+            fc = a["frame_count"]
+            sl_buf = bytearray()
+            sl_buf += SPR2_MAGIC
+            sl_buf += struct.pack(">HH", fc, 0)
+            for px_bytes, fw, fh in flat_frames[first:first + fc]:
+                sl_buf += struct.pack(">HH", fw, fh)
+                sl_buf += px_bytes
+            sl_name = f"{slice_base}{kept_idx:02d}.SP2"
+            if len(sl_name) > 12:
+                raise ValueError(
+                    f"slice name {sl_name!r} exceeds GFS_FNAME_LEN 12")
+            sl_path = os.path.join(out_dir, sl_name)
+            with open(sl_path, "wb") as f:
+                f.write(sl_buf)
+            print(f"    slice {sl_name}: anim {kept_idx} {a['name']!r} "
+                  f"{fc} frames, {len(sl_buf)} B")
 
     # --- Write MET1 ----------------------------------------------------
     met_buf = bytearray()
@@ -400,6 +433,47 @@ MANIFEST = [
     # char against the per-frame frame.unicodeChar -- so EVERY frame of
     # EVERY anim is shipped (drop=[]) and the per-frame unicode is carried
     # into the .MET sidecar (the u16 unicode_char field added above).
+    # === FR-1 Task #173: Player (Sonic) gameplay animation keep set =======
+    #
+    # extracted/Data/Sprites/Players/Sonic.bin ships 53 anims / 547 frames /
+    # 1314 KB native. The full set CANNOT be VDP1-resident (512 KB VRAM) nor
+    # held entirely decoded. The FR-1 increment ships the 15 gameplay-
+    # reachable anims (every anim selectable by a currently-ported Player
+    # state: Ground/Air/Roll/Crouch/Spindash/LookUp/DropDash) = 149 frames.
+    # ALL frames of every KEPT anim ship (decomp-assets-only rule); the drop
+    # list below names ONLY anims unreachable by a ported state, each re-
+    # added with its mechanic's port. Residency at runtime is one-anim VDP1
+    # (<=35 KB, Air Walk bound) + a ~339 KB LWRAM decoded hot pool
+    # (src/rsdk/player_atlas.c). Drop rationale:
+    #   Bored 2          rare 2nd idle fidget (720-tick hold); 68 f/175 KB
+    #                    disproportionate -- re-add with CD-streaming loader.
+    #   Hurt/Die/Drown   land with the Hurt/Death/Drown states (FR-2+).
+    #   Balance 1/2      need 5-sensor ObjectTileGrip flailing detect
+    #                    (Player.c:3016-3025); Saturn has no flailing yet.
+    #   all cutscene/mechanic anims (Spring Twirl..Transform/Fly/Swim):
+    #                    driven by objects/mechanics not ported (springs-
+    #                    twirl, poles, CPZ tubes, water, super) -- no GHZ
+    #                    Act 1 trigger reachable now. Each re-added with its
+    #                    mechanic. (FR plan KEEP/DROP list, 2026-06-01.)
+    {
+        "name":  "Sonic",
+        "bin":   "extracted/Data/Sprites/Players/Sonic.bin",
+        # 8.3-compliant base "SONIC" -> "SONIC.SP2" = 9 chars < GFS_FNAME_LEN(12).
+        "spr":   "cd/SONIC.SP2",
+        "met":   "cd/SONIC.MET",
+        # Per-anim CD slices SONIC00.SP2..SONIC14.SP2 for the MRU residency
+        # pool (player_atlas streams one slice on a cache miss).
+        "slice_base": "SONIC",
+        "drop":  ["Bored 2", "Spring Twirl", "Spring Diagonal",
+                  "Hurt", "Die", "Drown", "Balance 1", "Balance 2",
+                  "Spring CS", "Stand CS", "Fan", "Victory", "Outta Here",
+                  "Hang", "Hang Move", "Pole Swing V", "Pole Swing H",
+                  "Shaft Swing", "Turntable", "Twister", "Spiral Run",
+                  "Stick", "Pulley Hold", "Shimmy Idle", "Shimmy Move",
+                  "Bubble", "Breathe", "Ride", "Cling", "Bungee",
+                  "TwistRun", "Transform", "Fly", "Fly Tired", "Fly Lift",
+                  "Fly Lift Tired", "Swim", "Swim Tired"],
+    },
     {
         "name":  "TitleCard",
         "bin":   "extracted/Data/Sprites/Global/TitleCard.bin",
@@ -415,12 +489,14 @@ MANIFEST = [
 ]
 
 
-def build_all():
+def build_all(only=None):
     print("Phase 2.4e Task #142 -- generalized entity-atlas build")
     print("=" * 60)
     total_frames = 0
     total_anims = 0
     for entry in MANIFEST:
+        if only and entry["name"] != only:
+            continue
         bin_full = os.path.join(REPO, entry["bin"])
         spr_full = os.path.join(REPO, entry["spr"])
         met_full = os.path.join(REPO, entry["met"])
@@ -430,7 +506,8 @@ def build_all():
         print(f"== {entry['name']} ==")
         fc, ac = build_atlas(bin_full, spr_full, met_full,
                              drop_anims=entry["drop"],
-                             frame_caps=entry.get("caps"))
+                             frame_caps=entry.get("caps"),
+                             slice_base=entry.get("slice_base"))
         total_frames += fc
         total_anims += ac
     print("=" * 60)
@@ -447,8 +524,12 @@ def main():
                     help="Anim name(s) to drop (repeatable)")
     ap.add_argument("--all", action="store_true",
                     help="Build every entity in MANIFEST")
+    ap.add_argument("--only", help="Build only the named MANIFEST entry")
     args = ap.parse_args()
 
+    if args.only:
+        build_all(only=args.only)
+        return
     if args.all or (not args.bin and not args.spr):
         build_all()
         return

@@ -429,7 +429,19 @@ void RSDK::LoadSceneAssets()
             layer->saturnSlot = -1;
             if (layer->xsize || layer->ysize) {
                 uint32 layoutBytes = sizeof(uint16) * (1UL << layer->widthShift) * (1UL << layer->heightShift);
+#if defined(P6_CART)
+                // Task #238 step 2b: the 3MB cart STG holds FULL layers resident
+                // (GHZ FG Low/High = 262,144 B each). Threshold = 512KB, kept below
+                // the 768KB cart TMP so the ReadCompressed inflate (else-branch
+                // below) fits. layer->layout non-NULL -> SaturnLayerGetTile takes
+                // the native path (Scene.hpp:211); the SaturnLayout band-window is
+                // never bound (p6_saturn_layer_binds stays 0 = band machinery
+                // retired on the cart build). FBZ2's 3MB single layer still exceeds
+                // this + TMP, so it correctly falls back to the band-window.
+                if (layoutBytes <= 0x80000u) {
+#else
                 if (layoutBytes <= P6_RESIDENT_LAYER_MAX_BYTES) {
+#endif
                     AllocateStorage((void **)&layer->layout, layoutBytes, DATASET_STG, true);
                     if (layer->layout)
                         memset(layer->layout, 0xFF, layoutBytes);

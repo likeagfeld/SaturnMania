@@ -135,6 +135,18 @@ bool32 RSDK::InitStorage()
     dataStorage[DATASET_TMP].storageLimit = 8 * 1024 * 1024;  //  8MB
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_CART)
+    // Task #238 step 2: the 4MB Extended RAM Cart (A-Bus CS0, MEASURED contiguous
+    // 0x02400000-0x027FFFFF, qa_p6_cart.py GREEN) backs the two big pools so the
+    // engine can hold a full scene's tiles/sheets/anims/collision RESIDENT --
+    // retiring the bespoke WRAM band-windows. STG=3MB (full GHZ layout 551KB +
+    // sheets 786KB + anims with headroom; FBZ2's 3MB worst case fits a bank);
+    // TMP=768KB (TileConfig 77KB inflate + GIF/band scratch). MUS/SFX/STR stay in
+    // the WRAM-L heap (small + audio-hot; A-Bus wait-states make cart costlier).
+    dataStorage[DATASET_STG].storageLimit = 3 * 1024 * 1024; // 3 MB (cart)
+    dataStorage[DATASET_TMP].storageLimit = 768 * 1024;      // 768 KB (cart)
+#endif
+
 #if RETRO_PLATFORM == RETRO_SATURN
     // P6.7 W11 closer C1: carve the per-dataset entry backings from the
     // dataStorage window itself, right after the 5 structs (Storage.hpp C1
@@ -161,7 +173,21 @@ bool32 RSDK::InitStorage()
         dataStorage[s].usedStorage = 0;
         dataStorage[s].entryCount  = 0;
         dataStorage[s].clearCount  = 0;
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_CART)
+        // Task #238 step 2: STG + TMP memoryTable points into the 4MB cart
+        // (cache-through A-Bus alias 0x22400000 to bypass SH-2 cache; MEASURED
+        // contiguous 0x22400000-0x227FFFFF). STG 3MB at the bank base, TMP 768KB
+        // after it (0x22400000 + 0x300000 = 0x22700000). No malloc -> 172KB of
+        // WRAM-L heap freed. MUS/SFX/STR keep the WRAM-L heap.
+        if (s == DATASET_STG)
+            dataStorage[s].memoryTable = (uint32 *)0x22400000u;
+        else if (s == DATASET_TMP)
+            dataStorage[s].memoryTable = (uint32 *)0x22700000u;
+        else
+            dataStorage[s].memoryTable = (uint32 *)malloc(dataStorage[s].storageLimit);
+#else
         dataStorage[s].memoryTable = (uint32 *)malloc(dataStorage[s].storageLimit);
+#endif
 
         if (dataStorage[s].memoryTable == NULL)
             return false;

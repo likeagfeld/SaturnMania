@@ -55,6 +55,9 @@ ObjectAPICallback *APICallback   = NULL;
 // below -- all leaderboard/save/progress, none on the listPos-advance path.
 ObjectAnimals *Animals           = NULL;
 ObjectAnnouncer *Announcer       = NULL;
+ObjectCompetition *Competition   = NULL; // F.3: SignPost competition branch (DEAD in Mania mode)
+ObjectDecoration *Decoration     = NULL; // F.4: GHZSetup editor-only ref
+ObjectGHZ2Outro *GHZ2Outro       = NULL; // F.4: GHZSetup_StageFinish_EndAct2 (Act2-only) ref
 ObjectCPZSetup *CPZSetup         = NULL;
 ObjectChaosEmerald *ChaosEmerald = NULL;
 ObjectDebris *Debris             = NULL;
@@ -83,6 +86,10 @@ ObjectUIControl *UIControl       = NULL;
 ObjectUIDialog *UIDialog         = NULL;
 ObjectUIWidgets *UIWidgets       = NULL;
 ObjectWater *Water               = NULL;
+// F.3: GameProgress's achievement table. SignPost reads &achievementList[ACH_
+// SIGNPOST]=idx 5; sized to 6 (idx 0-5) to stay under the WRAM-H floor.
+// The unlock API is a no-op on Saturn, so the .id field value is irrelevant.
+AchievementID achievementList[6];
 
 // ---- 2. out-of-set FUNCTIONS (witnessed inert stubs, header signatures) ------
 void APICallback_AssignControllerID(uint8 inputSlot, int32 deviceID)
@@ -227,6 +234,26 @@ void Ring_LoseRings(EntityPlayer *player, int32 rings, uint8 cPlane)
     P6_EDGE(30);
 }
 void Ring_State_Lost(void) { P6_EDGE(31); }
+// P6.8 F.3 (Task #235): SignPost closure. The sparkle Ring entities SignPost
+// creates use these state/draw fns -- no-op (cosmetic; the act-clear chain
+// does NOT depend on the sparkles rendering). The pack `Ring` pointer is wired
+// to the overlay's registered Ring object at scene-load so CREATE_ENTITY(Ring)
+// is safe (p6_io_main p6_scene_load_and_arm).
+void Ring_State_Sparkle(void) { P6_EDGE(59); }
+void Ring_Draw_Sparkle(void)  { P6_EDGE(60); }
+// SignPost competition + achievement edges (competition branches are DEAD in
+// Mania mode -- never reached at runtime; the achievement unlock fires on a
+// signpost pass but the API call is a no-op on Saturn).
+void Announcer_AnnounceGoal(int32 screen) { (void)screen; P6_EDGE(61); }
+// NOTE: Zone_StartFadeOut_Competition is provided by the compiled Zone TU
+// (Game_Zone.o) -- do NOT stub it here (multiple-definition).
+void APICallback_UnlockAchievement(const char *name) { (void)name; P6_EDGE(62); }
+// F.4 GHZSetup closure: CutsceneRules act predicates. GHZSetup_StageLoad uses
+// IsAct1 to set Zone->stageFinishCallback=EndAct1 (the GHZ1->GHZ2 ATL trigger),
+// so these must reflect Zone->actID (0=Act1, 1=Act2). No reload in this build.
+bool32 CutsceneRules_CheckStageReload(void) { return false; }
+bool32 CutsceneRules_IsAct1(void) { return Zone && Zone->actID == 0; }
+bool32 CutsceneRules_IsAct2(void) { return Zone && Zone->actID == 1; }
 int32 UIButtonPrompt_GetGamepadType(void)
 {
     P6_EDGE(32);

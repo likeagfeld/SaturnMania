@@ -30,6 +30,7 @@
 #include "Entities.h"
 #include "../../../rsdk/audio.h"
 #include "../../../rsdk/entity_atlas.h"
+#include "../../../rsdk/player_atlas.h"
 #include "../../../rsdk/storage.h"
 
 #include <jo/jo.h>
@@ -40,6 +41,40 @@
 int g_hud_rings = 0;
 int g_hud_score = 0;
 int g_hud_ticks = 0;
+
+/* === HUD diag mirrors (BSS, peeked from a gameplay savestate) =========
+ * Phase FR-HUD (#186): discriminate why the HUD vanished in gameplay.
+ *   g_hud_diag_ready  -> g_hud_atlas.ready at the last hud_draw entry.
+ *   g_hud_diag_base   -> player_atlas_base() (the jo-stack base the player
+ *                        rewinds to; must stay ABOVE every HUD sprite id).
+ *   g_hud_diag_sid0   -> g_hud_atlas.sprite_id[anims[0].first] (HUD's first
+ *                        uploaded sprite id; -1 means frames never uploaded).
+ *   g_hud_diag_blits  -> count of hud_blit calls that reached jo_sprite_draw3D
+ *                        in the last hud_draw (0 means every blit early-out).
+ * Discrimination: ready=0 -> load failed; sid0<0 -> upload failed;
+ * base<=sid0 -> player rewind wipes HUD ids (candidate 2); blits>0 but
+ * invisible -> SGL sortlist overflow (candidate 1). */
+__attribute__((used)) int32_t g_hud_diag_ready = -1;
+__attribute__((used)) int32_t g_hud_diag_base  = -2;
+__attribute__((used)) int32_t g_hud_diag_sid0  = -2;
+__attribute__((used)) int32_t g_hud_diag_blits = -1;
+/* #186 sub-discriminator: entity_atlas_load_ex return-false branch for the
+ * HUD load, snapshotted in hud_load before any other atlas overwrites it.
+ * See g_entity_atlas_last_fail codes in src/rsdk/entity_atlas.c. -3 = hud_load
+ * never ran. */
+__attribute__((used)) int32_t g_hud_diag_loadfail = -3;
+/* #186 decisive 4-way split of the jo_fs_read_file("HUD.SP2") NULL path,
+ * sampled in hud_load BEFORE the real load (probe is freed immediately so it
+ * does not perturb the subsequent allocation):
+ *   g_hud_diag_fid    = GFS_NameToId("HUD.SP2"); <0 => not registered in the
+ *                       GFS dir table (file-not-found class), >=0 => present.
+ *   g_hud_diag_poolok = 1 if a jo_malloc(HUD.SP2 size+1) with the SAME
+ *                       behaviour jo_fs_read_file uses succeeds at hud_load
+ *                       entry; 0 => jo pool exhausted (the assumed cause);
+ *                       -1 => probe skipped because fid<0.
+ * fid>=0 & poolok=1 but loadfail=1 still => GFS_Load (disc read) failure. */
+__attribute__((used)) int32_t g_hud_diag_fid    = -99;
+__attribute__((used)) int32_t g_hud_diag_poolok = -99;
 
 /* === SFX storage =====================================================
  *
@@ -989,7 +1024,35 @@ static void hud_load(void)
 {
     /* entity_atlas_load soft-fails (ready stays false) if HUD.SP2/.MET
      * are missing; hud_draw then no-ops, matching the per-class pattern. */
-    if (entity_atlas_load(&g_hud_atlas, "HUD")) {
+    extern int32_t g_entity_atlas_last_fail;
+
+    /* #186 decisive split: which jo_fs_read_file NULL path is HUD.SP2 hitting?
+     * GFS_NameToId mirrors fs.c:271; the probe malloc mirrors fs.c:284
+     * (jo_malloc_with_behaviour(fsize+1, JO_MALLOC_TRY_REUSE_BLOCK)). The
+     * probe is freed instantly so the real load below sees an identical pool. */
+    g_hud_diag_fid = (int32_t)GFS_NameToId((Sint8 *)"HUD.SP2");
+    if (g_hud_diag_fid >= 0) {
+        void *probe = jo_malloc_with_behaviour(27536 + 1, JO_MALLOC_TRY_REUSE_BLOCK);
+        g_hud_diag_poolok = probe ? 1 : 0;
+        if (probe)
+            jo_free(probe);
+    } else {
+        g_hud_diag_poolok = -1;
+    }
+
+    /* #186 fix: the jo malloc pool is saturated at GHZ gameplay (measured:
+     * ~8.9 KB free, HUD.SP2 needs 27536) because TITLE.DAT (114688) stays
+     * resident in the pool, so the pool-path load NULLs out (loadfail=1).
+     * Route HUD.SP2/.MET through the transient scene file-scratch in LWRAM
+     * (SCENE_LWRAM_RAW_ADDR 0x00278000, 96 KB, storage.c:219) which is dead
+     * after rsdk_scene_load returns and free at entities_load_assets time.
+     * Same LWRAM-bypass mechanism as the TitleCard SP2 and binding rule
+     * memory/ghz-sky-dat-lwram-bypass.md. HUD.SP2 27536 + HUD.MET 404 both
+     * fit the 96 KB scratch with room to spare. */
+    bool ok = entity_atlas_load_ex(&g_hud_atlas, "HUD",
+                                   (void *)0x00278000, 0x18000);
+    g_hud_diag_loadfail = g_entity_atlas_last_fail;
+    if (ok) {
         /* The HUD doesn't animate per-tick (speed 0 anims, frame chosen
          * by game state). We still seed anim 0 so current_* are sane. */
         entity_atlas_play(&g_hud_atlas, 0);
@@ -999,6 +1062,8 @@ static void hud_load(void)
 /* Draw atlas-flat frame `idx` so its TOP-LEFT lands at screen (sx, sy).
  * jo_sprite_draw3D anchors at canvas center, so add half the frame's
  * authentic width/height then re-center to the 320x224 screen. */
+static int s_hud_blit_count;   /* reset each hud_draw; mirrored to diag */
+
 static void hud_blit(int idx, int sx, int sy)
 {
     if (!g_hud_atlas.ready) return;
@@ -1008,6 +1073,7 @@ static void hud_blit(int idx, int sx, int sy)
     int w = g_hud_atlas.width[idx];
     int h = g_hud_atlas.height[idx];
     jo_sprite_draw3D(sid, (sx + w / 2) - 160, (sy + h / 2) - 112, HUD_Z);
+    ++s_hud_blit_count;
 }
 
 /* Atlas-flat index of HUD Elements frame `f` (anim 0, first=0). */
@@ -1042,7 +1108,17 @@ void hud_tick(void)
 
 void hud_draw(void)
 {
-    if (!g_hud_atlas.ready) return;
+    /* Diag mirrors (peeked from a gameplay savestate, #186): record state
+     * EVERY frame, including the early-out path, so a missing HUD can be
+     * discriminated (load vs upload vs rewind vs sortlist). */
+    g_hud_diag_ready = g_hud_atlas.ready ? 1 : 0;
+    g_hud_diag_base  = player_atlas_base();
+    g_hud_diag_sid0  = (g_hud_atlas.ready && g_hud_atlas.anim_count > 0)
+                       ? g_hud_atlas.sprite_id[g_hud_atlas.anims[0].first]
+                       : -1;
+    s_hud_blit_count = 0;
+
+    if (!g_hud_atlas.ready) { g_hud_diag_blits = 0; return; }
 
     /* --- Score (label at 16,12; number at +97,+14 per HUD.c:141-147) --- */
     int score_x = 16, score_y = 12;
@@ -1084,12 +1160,32 @@ void hud_draw(void)
      * Non-Plus path: characterID ID_SONIC -> lifeIconAnimator.frameID = 0
      * (HUD.c:292-294). atlas-flat = anims[2].first + 0. */
     hud_blit((int)g_hud_atlas.anims[2].first + 0, 16, 212);
+
+    g_hud_diag_blits = s_hud_blit_count;
 }
 
 /* === Master load entry =============================================== */
 
 void entities_load_assets(void)
 {
+    /* FR-2 (Task #189) -- flush the lazy-residency MRU blob pool + the
+     * per-atlas resident sprite_id caches at every scene (re)load. The
+     * pool lives at 0x00260000 (the SKY.DAT staging window, dead after the
+     * VDP2 upload); resetting here guarantees no entity blob is held across
+     * rsdk_load_scene's transient scratch window (0x278000-0x290000) and
+     * that stale sprite ids from the prior scene cannot survive the
+     * jo sprite-stack rewind. Must precede the per-class *_load calls so
+     * those calls' metadata loads land in a clean pool. */
+    entity_residency_reset();
+
+    /* Task #192 (player-only resident): entities are NOT resident -- their
+     * SP2 metadata is CD-read here at scene-load time, and per-tick pixel
+     * blobs are CD-streamed on demand during gameplay (occasional, far rarer
+     * than the per-anim player reads the resident SONIC.SPC eliminates). The
+     * earlier resident entity pack was retired because it byte-collided with
+     * the live #188 FG.CEL LWRAM region (foreground corruption after the
+     * title card). See entity_atlas.c / player_atlas.c. */
+
     /* Order: small allocations first so that any pool fragmentation is
      * less likely to bite the larger BADNIK.SPR load. Each *_load is
      * idempotent on second call so harmless to invoke twice. */

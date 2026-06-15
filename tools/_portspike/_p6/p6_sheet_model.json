@@ -188,6 +188,100 @@
           "hash": "0xFB4F0968"
         }
       ]
+    },
+    {
+      "sheet": "Global/Display.gif",
+      "file": "DISPLAY.SHT",
+      "width": 256,
+      "height": 256,
+      "band_rows": 16,
+      "bands": 16,
+      "bytes": 11416,
+      "file_hash": "0x031970CF",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x7BE3A8F8"
+        },
+        {
+          "sx": 128,
+          "sy": 8,
+          "w": 64,
+          "h": 48,
+          "hash": "0xBBB881D0"
+        },
+        {
+          "sx": 192,
+          "sy": 120,
+          "w": 64,
+          "h": 64,
+          "hash": "0x5F4EE231"
+        },
+        {
+          "sx": 16,
+          "sy": 216,
+          "w": 48,
+          "h": 40,
+          "hash": "0x81A24528"
+        },
+        {
+          "sx": 64,
+          "sy": 64,
+          "w": 32,
+          "h": 56,
+          "hash": "0x7353AAEB"
+        }
+      ]
+    },
+    {
+      "sheet": "Global/Shields.gif",
+      "file": "SHIELDS.SHT",
+      "width": 512,
+      "height": 512,
+      "band_rows": 16,
+      "bands": 32,
+      "bytes": 32215,
+      "file_hash": "0x1806EDF2",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0xFE7BEA1A"
+        },
+        {
+          "sx": 256,
+          "sy": 8,
+          "w": 64,
+          "h": 48,
+          "hash": "0x23BA53CD"
+        },
+        {
+          "sx": 448,
+          "sy": 248,
+          "w": 64,
+          "h": 64,
+          "hash": "0xF22E5804"
+        },
+        {
+          "sx": 16,
+          "sy": 472,
+          "w": 48,
+          "h": 40,
+          "hash": "0x3733CA05"
+        },
+        {
+          "sx": 128,
+          "sy": 128,
+          "w": 32,
+          "h": 56,
+          "hash": "0xA4BB54D6"
+        }
+      ]
     }
   ]
 }

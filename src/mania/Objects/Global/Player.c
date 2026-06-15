@@ -10,6 +10,7 @@
  * implements. */
 
 #include "Player.h"
+#include "../../../rsdk/collision.h"   /* #180 step 4b - tile-backed surface query */
 #include <string.h>
 
 /* === Q1.7 SIN table for Mania's Q0.8 angle byte =========================
@@ -351,46 +352,65 @@ void Player_Init(player_t *p, player_character_t who,
     p->jumpCap          = P_JUMP_CAP;
     p->gravityStrength  = P_GRAVITY;
 
+    /* FR-1 — animation state. UpdatePhysicsState (Player.c:686-688) seeds the
+     * three velocity thresholds; Player_HandleGroundAnimation mutates them
+     * with hysteresis thereafter. Start on ANI_IDLE with the MET-default
+     * speed sentinel. */
+    p->animationID     = ANI_IDLE;
+    p->prevAnimationID = ANI_IDLE;
+    p->animFrame       = 0;
+    p->animTimer       = 0;
+    p->animSpeed       = PLAYER_ANIM_SPEED_DEFAULT;
+    p->animFrameCount  = 0;
+    p->minJogVelocity  = 0x40000;
+    p->minRunVelocity  = 0x60000;
+    p->minDashVelocity = 0xC0000;
+
     /* On land, expected onGround=true is set BY THE CALLER once a surface-
      * snap has been performed (see Game.c, where the camera y-clamp drops
      * Sonic onto the surface table's column-0 surfY immediately after
      * Player_Init). */
 }
 
-/* === Surface table lookups =========================================== */
-
-/* Phase 2.4g.3 — select the active collision-plane table. `active_path`
- * is set by Player_Tick from p->collisionPlane (which PlaneSwitch writes).
- * raw_alt == raw until a divergent plane-B asset is extracted; the
- * selection is what makes the PlaneSwitch toggle observable in the probe. */
-static inline const unsigned char *player_surface_table(const sms_world_t *w)
-{
-    return (w->active_path && w->raw_alt) ? w->raw_alt : w->raw;
-}
+/* === Surface lookups (#180 step 4b — tile-backed) ===================== *
+ *
+ * Repointed from the old per-column cd/GHZ1SURF.BIN heightmap onto the
+ * streamed tile window: Player_SurfaceY/Angle now query
+ * rsdk_collision_column_floor (src/rsdk/collision.c), the LINE-FOR-LINE
+ * mirror of tools/qa_ghz_fall_through_gate.py oracle_floor. The fall-through
+ * gate proved the heightmap dropped Sonic through 2384 real-floor columns
+ * while this tile model drops him through 0. The integrate-then-snap state
+ * machine below is UNCHANGED — only the surface DATA SOURCE swapped.
+ *
+ * w->raw is the resident GHZ1MASK.BIN blob (non-NULL load sentinel); a NULL
+ * raw means the collision bind failed -> graceful-degrade to "no floor"
+ * (Sonic floats at fixed Y) exactly as the Phase 2.2 heightmap path did.
+ * The plane-A/B raw_alt/active_path selector is retired here: the tile model
+ * resolves plane 0 directly, and GHZ1's B path was degenerate (raw_alt==raw)
+ * so no behavior is lost. */
 
 int Player_SurfaceY(const sms_world_t *w, int x_px)
 {
-    const unsigned char *tbl = player_surface_table(w);
+    if (!w->raw) return SMS_NO_FLOOR;
     if (x_px < 0)            x_px = 0;
     if (x_px >= w->width_px) x_px = w->width_px - 1;
-    /* SH-2 is big-endian; the 4 B/col table stores u16 BE -> direct read. */
-    return (int) *((const unsigned short *)(tbl + (x_px << 2)));
+    return rsdk_collision_column_floor(x_px, 0);
 }
 
 int Player_SurfaceAngle(const sms_world_t *w, int x_px)
 {
-    const unsigned char *tbl = player_surface_table(w);
+    int32_t angle = 0;
+    if (!w->raw) return 0;
     if (x_px < 0)            x_px = 0;
     if (x_px >= w->width_px) x_px = w->width_px - 1;
-    return (int) tbl[(x_px << 2) + 2];
+    (void) rsdk_collision_column_floor(x_px, &angle);
+    return (int) angle;
 }
 
 int Player_SurfaceFlag(const sms_world_t *w, int x_px)
 {
-    const unsigned char *tbl = player_surface_table(w);
-    if (x_px < 0)            x_px = 0;
-    if (x_px >= w->width_px) x_px = w->width_px - 1;
-    return (int) tbl[(x_px << 2) + 3];
+    (void) w; (void) x_px;
+    return 0;   /* vestigial: the GHZ1SURF flag byte retired with the heightmap */
 }
 
 /* === HandleGroundMovement (Player.c:3081-3206) ======================== *
@@ -404,12 +424,14 @@ int Player_SurfaceFlag(const sms_world_t *w, int x_px)
  * "no input" friction branch. */
 static void player_update_ground(player_t *p, bool left, bool right, bool down)
 {
-    /* Skid-mode marker. Decomp tracks `self->skidding` as a draw-anim
-     * trigger countdown; Phase 2.2 doesn't draw a skid anim, so we
-     * elide the field but still honour the skid-decel math. */
     (void)down;
 
-    /* left/right input branches — decomp Player.c:3104-3146. */
+    /* left/right input branches — decomp Player.c:3104-3146. The skidding=24
+     * trigger (decomp L3110-3113 / L3132-3134) drives the SKID / SKID_TURN
+     * animation in Player_HandleGroundAnimation. The decomp guards the
+     * trigger with `!collisionMode && !Zone->autoScrollSpeed`; on GHZ flat
+     * ground collisionMode==0 (floor) and autoScrollSpeed==0, so those are
+     * constant-true here and only the |gsp| > 0x40000 threshold gates. */
     if (left) {
         if (p->gsp > -p->topSpeed) {
             if (p->gsp <= 0) {
@@ -417,16 +439,19 @@ static void player_update_ground(player_t *p, bool left, bool right, bool down)
                 p->gsp -= p->acceleration;
             } else {
                 /* Skidding from rightward run — decel by skidSpeed. */
+                if (p->gsp > 0x40000) {
+                    p->facing_left = false;   /* decomp FLIP_NONE */
+                    p->skidding    = 24;
+                }
                 if (p->gsp < p->skidSpeed)
                     p->gsp = -iabs(p->skidSpeed);
                 else
                     p->gsp -= p->skidSpeed;
             }
         }
-        /* facing flips only once gsp is no longer positive (the decomp
-         * delays the visual flip during the skid-and-turn animation;
-         * we approximate by flipping as soon as gsp <= 0). */
-        if (p->gsp <= 0) p->facing_left = true;
+        /* decomp Player.c:3122 — facing flips to FLIP_X only once gsp is no
+         * longer positive AND the skid-turn countdown has elapsed. */
+        if (p->gsp <= 0 && p->skidding < 1) p->facing_left = true;
     }
 
     if (right) {
@@ -435,13 +460,19 @@ static void player_update_ground(player_t *p, bool left, bool right, bool down)
                 p->gsp += p->acceleration;
             } else {
                 /* Skidding from leftward run. */
+                if (p->gsp < -0x40000) {
+                    p->facing_left = true;    /* decomp FLIP_X */
+                    p->skidding    = 24;
+                }
                 if (p->gsp > -p->skidSpeed)
                     p->gsp = iabs(p->skidSpeed);
                 else
                     p->gsp += p->skidSpeed;
             }
         }
-        if (p->gsp >= 0) p->facing_left = false;
+        /* decomp Player.c:3144 — facing flips to FLIP_NONE only once gsp is
+         * no longer negative AND the skid-turn countdown has elapsed. */
+        if (p->gsp >= 0 && p->skidding < 1) p->facing_left = false;
     }
 
     /* Slope force + no-input deceleration — decomp Player.c:3148-3194.
@@ -521,6 +552,204 @@ static void player_update_air(player_t *p, bool left, bool right, bool jump_held
     }
 }
 
+/* === FR-1 animation system =========================================== *
+ *
+ * Mechanical port of the decomp's animator-driving handlers. Player.c owns
+ * the animationID + animSpeed decisions (the decomp's
+ * `RSDK.SetSpriteAnimation` call sites + Player_HandleGroundAnimation +
+ * Player_HandleIdleAnimation + the State_Air anim switch); src/rsdk/
+ * player_atlas owns the MET-driven frame walk + LWRAM/VDP1 residency and
+ * writes the resident frame index back into p->animFrame / p->animFrameCount
+ * each tick (so the handlers can read frameID/frameCount without an atlas
+ * dependency).
+ *
+ * player_set_anim mirrors RSDK.SetSpriteAnimation(forceApply=false): if the
+ * requested anim is already current it is a no-op (frame is retained);
+ * otherwise animationID/animFrame are reset and animSpeed is set to the
+ * "use MET default" sentinel (-1). State code that needs a speed override
+ * assigns p->animSpeed AFTER the call, exactly as the decomp assigns
+ * animator.speed after SetSpriteAnimation. PLAYER_ANIM_SPEED_DEFAULT (-1) is
+ * defined in Player.h so Player_Init can seed animSpeed before this point. */
+
+static void player_set_anim(player_t *p, int ani, int frame)
+{
+    if (p->animationID != ani) {
+        p->animationID = ani;
+        p->animFrame   = frame;
+        p->animTimer   = 0;
+        p->animSpeed   = PLAYER_ANIM_SPEED_DEFAULT;
+    }
+}
+
+/* Keep-frame variant — mirrors the SetSpriteAnimation sites that pass
+ * `self->animator.frameID` (carry the current frame across the anim swap;
+ * decomp Player.c:2976, 3905, 3921). */
+static void player_set_anim_keepframe(player_t *p, int ani)
+{
+    if (p->animationID != ani) {
+        p->animationID = ani;
+        p->animTimer   = 0;
+        p->animSpeed   = PLAYER_ANIM_SPEED_DEFAULT;
+    }
+}
+
+/* === Player_HandleIdleAnimation (Player.c:2818-2854, ID_SONIC) ========= *
+ *
+ * timer < 240 -> ANI_IDLE; >= 240 -> ANI_BORED_1 (looping; resets timer to
+ * 0 when frameID reaches 41). The decomp's timer==720 -> ANI_BORED_2 second
+ * fidget is a DROPPED anim (build_entity_atlas.py keep/drop list — rare
+ * 720-tick / 12-second idle, 175 KB VDP1+LWRAM cost). The Saturn port keeps
+ * cycling ANI_BORED_1 past 720 instead of switching to the unresident
+ * BORED_2; surfaced at the FR-1 checkpoint. */
+static void Player_HandleIdleAnimation(player_t *p)
+{
+    if (p->timer != 720) {
+        if (p->timer < 240) {
+            p->timer++;
+            player_set_anim(p, ANI_IDLE, 0);
+        }
+        else {
+            p->timer++;
+            if (p->animationID == ANI_BORED_1) {
+                if (p->animFrame == 41)
+                    p->timer = 0;
+            }
+            else {
+                player_set_anim(p, ANI_BORED_1, 0);
+            }
+        }
+    }
+    else {
+        /* decomp switches to ANI_BORED_2 here; dropped -> recycle BORED_1. */
+        if (p->animationID != ANI_BORED_1)
+            player_set_anim(p, ANI_BORED_1, 0);
+        p->timer = 0;
+    }
+}
+
+/* === Player_HandleGroundAnimation (Player.c:2917-3080) ================= *
+ *
+ * Mechanical port. The skid block (skidding > 0) selects ANI_SKID /
+ * ANI_SKID_TURN; the walk block selects WALK/JOG/RUN/DASH by the
+ * minJog/minRun/minDash velocity thresholds (with the decomp's hysteresis
+ * reassignment of those thresholds); PUSH when pushing >= 3.
+ *
+ * Reductions, each cited:
+ *   - The skid SFX (sfxSkidding) + Dust trail spawn (Player.c:2942-2944)
+ *     are audio/effect-system concerns deferred with their systems.
+ *   - The flailing/balance branch (Player.c:3016-3059) needs the 5-sensor
+ *     ObjectTileGrip model; the Saturn per-column surface table has no
+ *     flailing signal, so ANI_BALANCE_1/2 are DROPPED and the "not
+ *     balancing" default path (Player_HandleIdleAnimation) is always taken.
+ *   - ANI_OUTTA_HERE + Player_State_OuttaHere are unported; the
+ *     72000000-tick (~333 h) threshold is unreachable in normal play, so the
+ *     outtaHereTimer increment is kept but its trigger is inert. */
+static void Player_HandleGroundAnimation(player_t *p)
+{
+    if (p->skidding > 0) {
+        if (p->animationID != ANI_SKID) {
+            if (p->animationID == ANI_SKID_TURN) {
+                if (p->animFrame == p->animFrameCount - 1) {
+                    p->facing_left = !p->facing_left;   /* direction ^= FLIP_X */
+                    p->skidding    = 1;
+                    player_set_anim(p, ANI_WALK, 0);
+                }
+            }
+            else {
+                player_set_anim(p, ANI_SKID, 0);
+                if (iabs(p->gsp) >= 0x60000) {
+                    if (iabs(p->gsp) >= 0xA0000)
+                        p->animSpeed = 64;
+                    else
+                        p->animSpeed = 144;
+                }
+                else {
+                    p->skidding -= 8;
+                }
+                /* sfxSkidding + Dust_State_DustTrail deferred. */
+            }
+        }
+        else {
+            int32_t spd = p->animSpeed;
+            if (p->facing_left) {
+                if (p->gsp >= 0)
+                    player_set_anim(p, ANI_SKID_TURN, 0);
+            }
+            else if (p->gsp <= 0) {
+                player_set_anim(p, ANI_SKID_TURN, 0);
+            }
+            p->animSpeed = spd;
+        }
+
+        --p->skidding;
+    }
+    else {
+        if (p->pushing > -3 && p->pushing < 3) {
+            if (p->gsp || (p->angle >= 0x20 && p->angle <= 0xE0)) {
+                p->timer          = 0;
+                p->outtaHereTimer = 0;
+
+                int32_t velocity = iabs(p->gsp);
+                if (velocity < p->minJogVelocity) {
+                    if (p->animationID == ANI_JOG) {
+                        if (p->animFrame == 9)
+                            player_set_anim(p, ANI_WALK, 9);
+                    }
+                    else if (p->animationID == ANI_AIR_WALK) {
+                        player_set_anim(p, ANI_WALK, p->animFrame);
+                    }
+                    else {
+                        player_set_anim(p, ANI_WALK, 0);
+                    }
+                    p->animSpeed     = (velocity >> 12) + 48;
+                    p->minJogVelocity = 0x40000;
+                }
+                else if (velocity < p->minRunVelocity) {
+                    if (p->animationID != ANI_WALK || p->animFrame == 3)
+                        player_set_anim(p, ANI_JOG, 0);
+                    p->animSpeed     = (velocity >> 12) + 0x40;
+                    p->minJogVelocity = 0x38000;
+                    p->minRunVelocity = 0x60000;
+                }
+                else if (velocity < p->minDashVelocity) {
+                    if (p->animationID == ANI_DASH || p->animationID == ANI_RUN)
+                        player_set_anim(p, ANI_RUN, 0);
+                    else
+                        player_set_anim(p, ANI_RUN, 1);
+
+                    int32_t s = (velocity >> 12) + 0x60;
+                    p->animSpeed      = (s < 0x200) ? s : 0x200;
+                    p->minRunVelocity = 0x58000;
+                    p->minDashVelocity = 0xC0000;
+                }
+                else {
+                    if (p->animationID == ANI_DASH || p->animationID == ANI_RUN)
+                        player_set_anim(p, ANI_DASH, 0);
+                    else
+                        player_set_anim(p, ANI_DASH, 1);
+                    p->minDashVelocity = 0xB8000;
+                }
+            }
+            else {
+                p->minJogVelocity  = 0x40000;
+                p->minRunVelocity  = 0x60000;
+                p->minDashVelocity = 0xC0000;
+
+                /* flailing/balance detection dropped (see header) -> idle. */
+                Player_HandleIdleAnimation(p);
+
+                /* outtaHereTimer increment kept; trigger inert (see header). */
+                p->outtaHereTimer++;
+            }
+        }
+        else {
+            if (p->pushing < -3) p->pushing = -3;
+            else if (p->pushing > 3) p->pushing = 3;
+            player_set_anim(p, ANI_PUSH, 0);
+        }
+    }
+}
+
 /* === Action_Jump (Player.c:3295-3329) ================================= *
  *
  * Decomp launches the jump along the ground normal:
@@ -539,10 +768,19 @@ static void player_action_jump(player_t *p)
     p->xsp = (p->gsp * cos_q7 + jumpForce * sin_q7) >> 7;
     p->ysp = (p->gsp * sin_q7 - jumpForce * cos_q7) >> 7;
 
+    /* decomp Player.c:3312-3319 — ANI_JUMP (the ball) + speed ramp. The Tails
+     * fixed-120 branch is character-gated; base Sonic uses the |gsp| ramp. */
+    player_set_anim(p, ANI_JUMP, 0);
+    {
+        int32_t s = ((iabs(p->gsp) * 0xF0) / 0x60000) + 0x30;
+        p->animSpeed = (s > 0xF0) ? 0xF0 : s;
+    }
+
     p->onGround     = false;
     p->jumping      = true;
     p->applyJumpCap = true;
     p->angle        = 0;
+    p->skidding     = 0;                  /* decomp Action_Jump (Player.c:3323) */
     p->jumpAbilityState = 1;              /* decomp Action_Jump: arm (Player.c:3325) */
     p->state        = PLAYER_STATE_AIR;   /* decomp Action_Jump: state=Air */
     /* Decomp also resets collisionMode/skidding and plays sfxJump — Phase 2.2
@@ -561,6 +799,9 @@ static void player_action_jump(player_t *p)
  * later increment. */
 static void Player_Action_Roll(player_t *p)
 {
+    /* decomp Player.c:3334 — ANI_JUMP (the ball; roll shares the jump-ball
+     * sprite). State_Roll ramps animSpeed from |gsp| each grounded tick. */
+    player_set_anim(p, ANI_JUMP, 0);
     p->pushing = 0;
     p->state   = PLAYER_STATE_ROLL;
 }
@@ -636,6 +877,13 @@ static void Player_State_Roll(player_t *p, bool left, bool right, bool jump_pres
 
     p->applyJumpCap = false;
 
+    /* decomp Player.c:3944-3951 — grounded roll animator-speed ramp (ANI_JUMP
+     * ball spins faster the quicker you roll), cap 0xF0. */
+    {
+        int32_t s = ((iabs(p->gsp) * 0xF0) / 0x60000) + 0x30;
+        p->animSpeed = (s > 0xF0) ? 0xF0 : s;
+    }
+
     /* Project groundVel onto world axes along the surface tangent (same shape
      * as player_update_ground, Player.c port). */
     {
@@ -660,6 +908,13 @@ static void Player_State_Roll(player_t *p, bool left, bool right, bool jump_pres
  * SFX-channel systems in a later increment (same deferral as Action_Roll). */
 static void Player_Action_Spindash(player_t *p)
 {
+    /* decomp Player.c:3350 — ANI_SPINDASH (forceApply=true). The Dust
+     * spin-charge effect + sfxCharge land with the effect/SFX systems. */
+    p->animationID = ANI_SPINDASH;
+    p->animFrame   = 0;
+    p->animTimer   = 0;
+    p->animSpeed   = PLAYER_ANIM_SPEED_DEFAULT;
+
     p->state          = PLAYER_STATE_SPINDASH;
     p->abilityTimer   = 0;
     p->spindashCharge = 0;
@@ -692,8 +947,13 @@ static void Player_State_Crouch(player_t *p, bool left, bool right, bool down,
      * nextAirState indirection is elided. */
 
     if (down) {
-        /* Decomp Player.c:4099-4115 — ANI_CROUCH settle (deferred), then a
-         * 60-tick hold before the camera look-down pan. */
+        /* Decomp Player.c:4099-4101 — ANI_CROUCH (frame 1); settle (speed 0)
+         * once the anim reaches frame 4. */
+        player_set_anim(p, ANI_CROUCH, 1);
+        if (p->animFrame == 4)
+            p->animSpeed = 0;
+
+        /* Decomp Player.c:4103-4115 — 60-tick hold before the look-down pan. */
         if (p->timer < 60)
             p->timer++;
         /* else: camera->lookPos.y += 2 (cap 96) — wired in 2.5.3 camera-pan. */
@@ -701,8 +961,12 @@ static void Player_State_Crouch(player_t *p, bool left, bool right, bool down,
         if (jump_press)
             Player_Action_Spindash(p);
     } else {
-        /* Decomp Player.c:4121-4128 — un-crouch back to Ground; jumpPress
-         * jumps. left/right also leave (handled by the !down path here). */
+        /* Decomp Player.c:4122-4128 — resume the crouch anim (speed 128) and
+         * un-crouch back to Ground. The Saturn state-level reduction keys the
+         * exit on releasing DOWN (the decomp keys on the anim reversing to
+         * frame 0); the speed bump still drives the stand-up frames the tick
+         * before the state swap. */
+        p->animSpeed = 128;
         p->state = PLAYER_STATE_GROUND;
         if (jump_press)
             player_action_jump(p);
@@ -799,6 +1063,12 @@ static void Player_State_LookUp(player_t *p, bool left, bool right, bool up,
         /* Decomp Player.c:4037-4041 — left/right forced false, then ground move. */
         player_update_ground(p, false, false, false);
 
+        /* Decomp Player.c:4043-4045 — ANI_LOOK_UP (frame 1); settle (speed 0)
+         * once the anim reaches frame 5. */
+        player_set_anim(p, ANI_LOOK_UP, 1);
+        if (p->animFrame == 5)
+            p->animSpeed = 0;
+
         /* Decomp Player.c:4047-4058 — 60-tick hold, then pan lookPos to -96. */
         if (p->timer < 60) {
             p->timer++;
@@ -810,10 +1080,12 @@ static void Player_State_LookUp(player_t *p, bool left, bool right, bool up,
         if (jump_press)
             player_action_jump(p);  /* statePeelout default-OFF for base Sonic */
     } else {
-        /* Decomp Player.c:4070-4079 — resume movement; left/right (or the
-         * anim reversing to frame 0) returns to Ground. Saturn keys the exit
-         * on releasing UP, the state-level reduction of the frameID settle. */
+        /* Decomp Player.c:4071-4079 — resume movement (anim speed 64); left/
+         * right (or the anim reversing to frame 0) returns to Ground. Saturn
+         * keys the exit on releasing UP, the state-level reduction of the
+         * frameID settle. */
         player_update_ground(p, left, right, false);
+        p->animSpeed = 64;
         p->state = PLAYER_STATE_GROUND;
         if (jump_press)
             player_action_jump(p);
@@ -831,6 +1103,12 @@ static void player_state_ground(player_t *p, bool left, bool right, bool down,
                                 bool up, bool jump_press)
 {
     player_update_ground(p, left, right, down);
+
+    /* decomp Player.c:3804 — HandleGroundAnimation runs every grounded tick
+     * (after HandleGroundMovement, before the jump/roll/crouch checks),
+     * selecting IDLE/WALK/JOG/RUN/DASH/SKID/PUSH from groundVel + skidding +
+     * pushing. This is what makes Sonic visibly walk/run/skid/idle. */
+    Player_HandleGroundAnimation(p);
 
     if (jump_press) {
         player_action_jump(p);
@@ -896,8 +1174,9 @@ static void Player_JumpAbility_Sonic(player_t *p, bool jump_press)
     if (!dropdash_disabled && p->jumpHold) {
         if (++p->jumpAbilityState >= 22) {
             p->state = PLAYER_STATE_DROPDASH;
-            /* ANI_DROPDASH + sfxDropdash land with the player animation /
-             * audio systems in a later increment. */
+            /* decomp Player.c:6212 — ANI_DROPDASH (the charged spin). sfxDropdash
+             * lands with the audio system. */
+            player_set_anim(p, ANI_DROPDASH, 0);
         }
     }
 }
@@ -921,8 +1200,45 @@ static void player_state_air(player_t *p, bool left, bool right,
 {
     player_update_air(p, left, right, jump_held);
 
-    if (p->jumping && p->ysp >= p->jumpCap)
-        Player_JumpAbility_Sonic(p, jump_press);
+    /* decomp Player.c:3900-3929 — air-anim switch. Now that the Saturn player
+     * carries animationID, the JumpAbility (dropdash) gate keys on
+     * animationID == ANI_JUMP && velocity.y >= jumpCap exactly as the decomp
+     * (replaces the Phase 2.5.4 `jumping`-bool stand-in). The spring-twirl
+     * pre-block (Player.c:3889-3898) is for DROPPED spring anims and is
+     * omitted. */
+    switch (p->animationID) {
+        case ANI_IDLE:
+        case ANI_WALK:
+            if (p->animSpeed < 64)
+                p->animSpeed = 64;
+            player_set_anim_keepframe(p, ANI_AIR_WALK);
+            break;
+
+        case ANI_LOOK_UP:
+        case ANI_CROUCH:
+        case ANI_SKID_TURN:
+        case ANI_JOG:
+            player_set_anim(p, ANI_AIR_WALK, 0);
+            break;
+
+        case ANI_JUMP:
+            if (p->ysp >= p->jumpCap)
+                Player_JumpAbility_Sonic(p, jump_press);
+            break;
+
+        case ANI_SKID:
+            if (p->skidding <= 0)
+                player_set_anim_keepframe(p, ANI_AIR_WALK);
+            else
+                p->skidding--;
+            break;
+
+        case ANI_SPINDASH:
+            player_set_anim(p, ANI_JUMP, 0);
+            break;
+
+        default: break;
+    }
 }
 
 /* === State_DropDash (Player.c:4455-4543, base-Sonic onGround launch) == *

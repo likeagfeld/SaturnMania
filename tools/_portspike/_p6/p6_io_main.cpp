@@ -593,6 +593,75 @@ __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.a
 // (2) once SignPost_CheckTouch fires. Diag-only (-DP6_WARP_TEST).
 __attribute__((used)) int32 p6_w_warp_plrx       = 0;
 __attribute__((used)) int32 p6_w_warp_signactive = -1;
+// P6.8 F.2-ActClear debug (Task #234): SLOT_ACTCLEAR(=16) census. ActClear is
+// the act-clear tally object SignPost spawns via RSDK.ResetEntitySlot(SLOT_
+// ACTCLEAR) after the goalpost spin (SignPost.c:452); its ActClear.c:782
+// ++SceneInfo->listPos is what advances GHZ1->GHZ2. p6_w_ac_classid = the slot-16
+// entity classID (0 == never spawned). p6_w_ac_state = its StateMachine(state)
+// fn pointer (the first field after RSDK_ENTITY in EntityActClear; offset
+// sizeof(Entity)) -- map the raw pointer to a game.map ActClear_State_* symbol to
+// see WHICH state it stalls in. p6_w_ac_timer = the int32 timer right after state
+// (progress within a state). Read read-only in the census; diag witnesses only.
+__attribute__((used)) int32 p6_w_ac_classid      = -1;
+__attribute__((used)) int32 p6_w_ac_state        = 0;
+__attribute__((used)) int32 p6_w_ac_timer        = 0;
+__attribute__((used)) int32 p6_w_ac_frames       = 0;  // sticky: frames slot-16 alive
+__attribute__((used)) int32 p6_w_ac_laststate    = 0;  // last ActClear state fn ptr while alive (which state)
+__attribute__((used)) int32 p6_w_listpos_max     = 0;  // sticky MAX sceneInfo.listPos seen (did ++listPos fire?)
+__attribute__((used)) int32 p6_w_mount_tag       = 0;  // last p6_layout_mount_for_scene resolved tag (4 chars packed)
+__attribute__((used)) int32 p6_w_mount_listpos   = -1; // sceneInfo.listPos at that mount call
+__attribute__((used)) int32 p6_w_ac_objcid       = -3; // global ActClear->classID (registered?)
+__attribute__((used)) int32 p6_w_sign_state      = 0;  // latched signpost entity state fn ptr
+__attribute__((used)) int32 p6_w_ring_cid        = -1; // pack Ring->classID after overlay wire (F.3)
+// F.5 (real-signpost-trigger): sticky =1 once the located SignPost entity's
+// `active` flips ACTIVE_BOUNDS(4) -> ACTIVE_NORMAL(2), which SignPost_CheckTouch
+// sets (SignPost.c:326) the instant the canonical crossing (player.x>signpost.x)
+// fires. Drift-proof (no .text address dependence). Combined with p6_w_ac_frames>0
+// + the direct ActClear-spawn REMOVED, this proves ActClear came from the REAL
+// SignPost_State_Spin ResetEntitySlot (SignPost.c:452), not a scripted spawn.
+__attribute__((used)) int32 p6_w_sign_crossed    = 0;
+// F.5 diagnostics: ground-truth the GHZ1 signpost setup (scene_objects.json is a
+// broken parse for GHZ). count = SignPost entities present; type/posx = the
+// last RUNPAST/DROP one found (RUNPAST=0, DROP=1, COMP=2, DECOR=3 per SignPost.h).
+__attribute__((used)) int32 p6_w_sign_count      = 0;
+__attribute__((used)) int32 p6_w_sign_type       = -1;
+__attribute__((used)) int32 p6_w_sign_posx       = 0;
+// 4MB Extended RAM Cart probe (Task #238). A-Bus CS0 cart region (Saturn_Overview
+// .txt:688; skill memory map A-Bus CS0 0x02000000). The 4MB cart presents two 2MB
+// banks; probe RW at each bank start + last longword via the cache-through alias
+// (+0x20000000 -> 0x22400000/0x22600000) to bypass SH-2 cache on the A-Bus. ok
+// bitmask: bit0=bank0 RW, bit1=bank1 RW -> 3 == full 4MB confirmed. Measure-first:
+// the 1996 DTS docs predate this cart, so its addressability is CONFIRMED here, not
+// assumed. Mednafen ss.cart=extram4 maps it; wrong token -> garbage readback -> RED.
+__attribute__((used)) int32 p6_w_cart_ok         = -2; // -2 = probe never ran
+__attribute__((used)) int32 p6_w_cart_rb0        = 0;  // bank0 readback sentinel
+__attribute__((used)) int32 p6_w_cart_rb1        = 0;  // bank1 readback sentinel
+// F.3 SignPost-by-state-pointer diagnostic. To avoid adding net WRAM-H .bss (it
+// would push _end over the W17 floor), REUSE existing witnesses for the REAL
+// SignPost (the entity whose `state` @off sizeof(Entity) lands in SignPost .text):
+//   p6_w_sign_state     <- the SignPost current state pointer
+//   p6_w_warp_signactive<- the SignPost active field
+//   p6_w_warp_plrx stays the player x; p6_w_ac_timer/ac_state are FREE (ActClear
+//   never spawns) -> repurpose: ac_timer = MIN spinCount (off 128) ever seen
+//   (0 => spawned ActClear); ac_state = 1 if it EVER entered State_Spin.
+#define P6_SIGN_TEXT_LO 0x06032780u
+#define P6_SIGN_TEXT_HI 0x06033900u
+#define P6_SIGN_STATE_SPIN 0x06032dfcu
+// The verbatim ActClear TU defines `ObjectActClear *ActClear;` (C linkage). We
+// only need its classID (RSDK_OBJECT first field, uint16 @ off 0) to tell whether
+// RegisterObject gave it a live classID -- so a void* extern + a uint16 read.
+extern void *ActClear;
+// F.3: the pack's Ring object pointer (NULL by default; wired to the overlay
+// Ring object in p6_ghz_frame so SignPost's sparkle CREATE_ENTITY is safe).
+extern void *Ring;
+// F.5: the verbatim SignPost TU defines `ObjectSignPost *SignPost;` (C linkage).
+// Its first field is the registered classID (uint16 @ off 0); entities of that
+// class carry the same classID -> a drift-proof entity locator.
+extern void *SignPost;
+// F.5: the verbatim SignPost_State_Falling state fn -- assigning it to a DROP
+// signpost's `state` reproduces the canonical GHZ drop (GHZ_DDWrecker.c:921);
+// the signpost falls, lands, and transitions to State_Spin -> spawns ActClear.
+extern void SignPost_State_Falling(void);
 // P6.8 Step B (Task #211): the LEAN SHIPPING-boot flavor flag. 0 == DIAG
 // (P6SCENE: full burst + ~14 proofs + Title reload + legacy Ring + deferred
 // frame-260 GHZ switch -- byte-identical to W19/Step A). 1 == lean shipping
@@ -1592,6 +1661,15 @@ static void p6_ghz_frame(void)
     for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
         engine.drawGroupVisible[g] = true;
 
+    // P6.8 F.3 (Task #235): point the pack `Ring` global at the overlay's
+    // registered Ring object so SignPost's sparkle CREATE_ENTITY(Ring,...) has a
+    // valid classID (the pack Ring is otherwise NULL -- the P6.7 overlay seam).
+    // Cheap per-frame; robust across scene reloads. Witness = the wired classID.
+    if (s_ovl.staticvars_slot && *(void **)s_ovl.staticvars_slot) {
+        Ring = *(void **)s_ovl.staticvars_slot;
+        p6_w_ring_cid = (int32)*(uint16 *)Ring;
+    }
+
     // Per-section attribution: FRT (sub-78ms precision) + VBLANK (overflow-immune
     // for >78ms sections -- the real discriminator). vb0/vb1 = true-60Hz tally.
     unsigned int vb0, vb1;
@@ -1651,14 +1729,92 @@ static void p6_ghz_frame(void)
             // sitting AT the GHZ1 signpost x (15792px, both signposts) -- not
             // the player (slot 0). ACTIVE_BOUNDS(4) until the warped player
             // crosses it, ACTIVE_NORMAL(2) once SignPost_CheckTouch fires.
-            if (i != 0 && e->classID
-                && e->position.x >= (15760 << 16) && e->position.x <= (15824 << 16))
-                p6_w_warp_signactive = (int32)e->active;
+            // F.3: identify the REAL SignPost by its state POINTER (the prior
+            // x-band-only match caught a different entity). Only record when the
+            // entity's state @off sizeof(Entity) lands in the SignPost .text
+            // range. Reuse witnesses (no new .bss -> _end stays under the floor):
+            //   sign_state=state; warp_signactive=active; ac_state=ever-Spin flag;
+            //   ac_timer=min spinCount (off 128) seen (0 => it spawned ActClear).
+            // F.5: locate SignPost entities by object classID (drift-proof; the
+            // prior state-ptr text-range match broke on rebuild drift). Record the
+            // count + the last RUNPAST/DROP one's type/state/active/posx so the
+            // gate can ground-truth GHZ1's actual signpost setup.
+            if (i != 0 && e->classID && SignPost
+                && e->classID == (uint16)*(uint16 *)SignPost) {
+                uint8 *body  = (uint8 *)e + sizeof(Entity);
+                int32 sstate = *(int32 *)body;
+                int32 stype  = (int32)body[4]; // EntitySignPost.type (uint8 @ +4)
+                ++p6_w_sign_count;
+                if (stype <= 1) { // RUNPAST/DROP = the real end-of-act signpost
+                    p6_w_sign_state      = sstate;
+                    p6_w_warp_signactive = (int32)e->active;
+                    p6_w_sign_type       = stype;
+                    p6_w_sign_posx       = (int32)e->position.x;
+                }
+                // STICKY proof of the canonical crossing: ACTIVE_NORMAL(2) is set
+                // by SignPost_CheckTouch (SignPost.c:326) when player.x>signpost.x.
+                if ((int32)e->active == 2) p6_w_sign_crossed = 1;
+#if defined(P6_WARP_TEST)
+                // Canonical trigger by type (one-shot, at cont_frames>=120), so the
+                // act-clear chain runs from the REAL entry, not a scripted spawn:
+                //   RUNPAST(0): relocate beside the player -> CheckTouch crossing
+                //               (player.x>signpost.x) -> State_Spin (SignPost.c:416).
+                //   DROP(1):    set state=SignPost_State_Falling + drop 64px above
+                //               the player's ground (mirrors GHZ_DDWrecker.c:921) ->
+                //               land -> State_Spin (SignPost.c:581).
+                // Either path ends in SignPost's OWN ResetEntitySlot(SLOT_ACTCLEAR)
+                // (SignPost.c:452).
+                static int32 s_sign_reloc = 0;
+                if (!s_sign_reloc && p6_w_cont_frames >= 120 && stype <= 1) {
+                    EntityBase *plr = RSDK_ENTITY_AT(0);
+                    if (stype == 0) {
+                        e->position.x = plr->position.x - 0x80000; // -TO_FIXED(8)
+                        e->position.y = plr->position.y;
+                    } else {
+                        e->position.x = plr->position.x;
+                        e->position.y = plr->position.y - 0x400000; // 64px above
+                        *(void **)body = (void *)SignPost_State_Falling;
+                        e->active      = 2; // ACTIVE_NORMAL so it ticks every frame
+                    }
+                    s_sign_reloc = 1;
+                }
+#endif
+            }
         }
         p6_w_obj_inrange  = total;
         p6_w_obj_topclass = topc;
         p6_w_obj_topcount = topn;
         p6_w_obj_classcnt = distinct;
+
+        // Task #234: did ActClear spawn (SLOT_ACTCLEAR=16), and which state is
+        // it stuck in? state is the first field after RSDK_ENTITY in
+        // EntityActClear -> offset sizeof(Entity); timer is the int32 after it.
+        {
+            // STICKY latch: ActClear spawns transiently (it triggers the
+            // Zone reload, after which the slot is empty again). A plain
+            // per-frame read misses it whenever the snapshot lands in the
+            // reloaded phase. So latch the FIRST non-zero spawn + count the
+            // frames it was alive, and keep the LAST live state pointer.
+            EntityBase *ac = RSDK_ENTITY_AT(16);
+            if (ac->classID) {
+                if (p6_w_ac_classid <= 0) p6_w_ac_classid = (int32)ac->classID;
+                ++p6_w_ac_frames;
+                uint8 *acp = (uint8 *)ac + sizeof(Entity);
+                p6_w_ac_state = *(int32 *)acp;        // state fn pointer (32-bit)
+                p6_w_ac_laststate = p6_w_ac_state;    // latch last live ActClear state
+                p6_w_ac_timer = *(int32 *)(acp + 4);  // EntityActClear.timer
+            }
+            // F.4 diag: did ActClear's ++SceneInfo->listPos ever fire? Sticky max
+            // (GHZ1=listPos N, GHZ2=N+1). If listpos_max never advances, ActClear
+            // never reached State_SaveGameProgress; if it does but lay_bytes stays
+            // GHZ1, the band-store mount ignored the advanced listPos.
+            if ((int32)sceneInfo.listPos > p6_w_listpos_max)
+                p6_w_listpos_max = (int32)sceneInfo.listPos;
+            // Is the ActClear Object registered with a live classID? If 0, the
+            // SignPost.c:452 ResetEntitySlot(SLOT_ACTCLEAR, ActClear->classID,..)
+            // spawns NOTHING (classID 0 = blank slot) -> the act never advances.
+            p6_w_ac_objcid = ActClear ? (int32)*(uint16 *)ActClear : -1;
+        }
 
         // Phase 2h: scan the per-classID Update-timing accumulators for the hog,
         // ranked by FRT TICKS (us[]) -- the vbl[] profiler saturates to 0 once
@@ -1709,8 +1865,34 @@ static void p6_ghz_frame(void)
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
 }
 
+// Task #238: 4MB Extended RAM Cart probe. Write distinct sentinels to bank0/bank1
+// start + last longword via the cache-through A-Bus alias (0x22400000/0x22600000,
+// = 0x024xxxxx|0x20000000) so the SH-2 cache is bypassed and we test the physical
+// cart RAM. ok bit0/bit1 set when both the start and last-longword readbacks match
+// per bank -> p6_w_cart_ok==3 confirms a contiguous, RW-correct 4MB. If the cart is
+// absent / Mednafen ss.cart!=extram4, writes hit open bus -> readback mismatch -> 0.
+static void p6_cart_probe(void)
+{
+    volatile uint32 *b0 = (volatile uint32 *)0x22400000u; // bank0, cache-through
+    volatile uint32 *b1 = (volatile uint32 *)0x22600000u; // bank1, cache-through
+    const uint32 S0 = 0xC0DECAFEu, S1 = 0x5A7064A7u;
+    const uint32 LAST = 0x7FFFFu; // last longword index in a 2MB bank (0x200000/4-1)
+    b0[0] = S0;       b0[LAST] = S0 ^ 0x0F0F0F0Fu;
+    b1[0] = S1;       b1[LAST] = S1 ^ 0xF0F0F0F0u;
+    p6_w_cart_rb0 = (int32)b0[0];
+    p6_w_cart_rb1 = (int32)b1[0];
+    int32 ok = 0;
+    if (b0[0] == S0 && b0[LAST] == (S0 ^ 0x0F0F0F0Fu)) ok |= 1;
+    if (b1[0] == S1 && b1[LAST] == (S1 ^ 0xF0F0F0F0u)) ok |= 2;
+    p6_w_cart_ok = ok;
+}
+
 extern "C" void p6_scene_run(void)
 {
+    // Task #238: probe the 4MB cart FIRST (raw A-Bus RW; harmless -- the cart is
+    // not yet used by any pool). Result peeked by qa_p6_cart.py before pool retarget.
+    p6_cart_probe();
+
     // P6.7 W7: wait (bounded) for SGL's per-vblank INTBACK to populate
     // Smpc_Peripheral[0] BEFORE interrupts are masked -- the data arrives in
     // SGL's vblank handler (ST-238-R1 peripheral acquisition; ST-169-R1
@@ -2924,6 +3106,11 @@ static void p6_layout_mount_for_scene(void)
         tag[n++] = *p;
     tag[n++] = id;
     tag[n]   = 0;
+    // F.4 diag: capture what this mount call resolved (tag + listPos) so the gate
+    // can see whether ActClear's listPos=8 landed on GHZ2 or fell back to GHZ1.
+    p6_w_mount_tag = (int32)((uint32)(uint8)tag[0] | ((uint32)(uint8)tag[1] << 8)
+                   | ((uint32)(uint8)tag[2] << 16) | ((uint32)(uint8)tag[3] << 24));
+    p6_w_mount_listpos = (int32)sceneInfo.listPos;
     if (!strcmp(tag, s_layout_tag))
         return; // already mounted -- no CD read
 
@@ -3014,18 +3201,36 @@ static void p6_scene_load_and_arm(void)
 // =============================================================================
 static void p6_ghz_reload(void)
 {
-    int32 found = 0;
+    // F.4 FIX (adversarial-QA finding): prefer the GHZ1 that is IMMEDIATELY
+    // FOLLOWED BY GHZ2 -- i.e. the "Mania Mode" category, where the act-advance
+    // ++SceneInfo->listPos correctly resolves GHZ2. The old "first GHZ1" scan
+    // landed in [Media Demo] (GHZ1 then SPZ1), so ++listPos hit SPZ1, not GHZ2
+    // (MEASURED: p6_w_mount_tag='SPZ1' at listPos=8). The GHZ1 SCENE content is
+    // identical across categories (folder/id == "GHZ"/"1" -> same Scene1.bin),
+    // so this changes ONLY the act-advance target -- zero GHZ1-gameplay change.
+    // Fallback to any GHZ1 (old behavior) if no adjacent GHZ1->GHZ2 pair exists.
+    int32 found = 0, fb_c = -1, fb_i = -1;
     for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
         SceneListInfo *cat = &sceneInfo.listCategory[c];
         for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
-            if (!strcmp(sceneInfo.listData[i].folder, "GHZ")
-                && sceneInfo.listData[i].id[0] == '1') {
+            if (strcmp(sceneInfo.listData[i].folder, "GHZ")
+                || sceneInfo.listData[i].id[0] != '1')
+                continue;
+            if (fb_c < 0) { fb_c = c; fb_i = i; } // first GHZ1 = fallback
+            if (i < cat->sceneOffsetEnd
+                && !strcmp(sceneInfo.listData[i + 1].folder, "GHZ")
+                && sceneInfo.listData[i + 1].id[0] == '2') {
                 sceneInfo.activeCategory = c;
                 sceneInfo.listPos        = i;
                 found                    = 1;
                 break;
             }
         }
+    }
+    if (!found && fb_c >= 0) {
+        sceneInfo.activeCategory = fb_c;
+        sceneInfo.listPos        = fb_i;
+        found                    = 1;
     }
     if (!found)
         return;
@@ -3124,12 +3329,13 @@ extern "C" void p6_scene_tick(void)
         // and SignPost flips ACTIVE_BOUNDS->ACTIVE_NORMAL + spins. This is the
         // enabler for testing the act-clear chain without a full playthrough.
         {
-            static int32 s_warp_fired = 0;
-            if (!s_warp_fired && p6_w_cont_frames >= 100) {
-                s_warp_fired = 1;
-                RSDK_ENTITY_AT(0)->position.x = 15820 << 16; // past the 15792 signpost
-                RSDK_ENTITY_AT(0)->position.y = 1180 << 16;  // just above the ground there
-            }
+            // F.5 (real-signpost-trigger): the F.4 direct ActClear spawn is REMOVED.
+            // The act-clear chain now runs ONLY from the CANONICAL entry: the census
+            // relocates the GHZ1 RUNPAST signpost next to the player (above), the
+            // player.x>signpost.x crossing fires SignPost_CheckTouch -> State_Spin ->
+            // its OWN ResetEntitySlot(SLOT_ACTCLEAR) (SignPost.c:452). Proof =
+            // p6_w_sign_crossed (active->ACTIVE_NORMAL) + p6_w_ac_frames>0 + lay_bytes
+            // 51094(GHZ1)->43347(GHZ2). Keep the player x witness for the gate.
             p6_w_warp_plrx = RSDK_ENTITY_AT(0)->position.x;
         }
 #endif

@@ -39,6 +39,7 @@
 #include <jo/jo.h>
 #include "scene_ghz.h"
 #include "storage.h"     /* Phase 2.2c: rsdk_storage_load_to_lwram for FG.TMP */
+#include "breadcrumb.h"  /* #192: WRAM-L forensic ring (writer self-naming)  */
 
 /* Phase 2.2c — Saturn Work RAM-L (0x00200000-0x002FFFFF, 1 MB) sub-region
  * map for GHZ act 1 resident assets that would otherwise blow jo's 393 KB
@@ -127,6 +128,49 @@
  *     (decomp engine-side allocation pattern this mirrors) */
 #define GHZ_SKY_DAT_LWRAM_ADDR ((unsigned char *)0x00260000)
 #define GHZ_SKY_DAT_LWRAM_SIZE 0x18000
+
+/* #188 (2026-06-01) — FG.CEL LWRAM bypass (5th application of the
+ * ghz-sky-dat-lwram-bypass.md binding pattern, after FG.TMP / SKY.DAT /
+ * HUD / TITLE.DAT).
+ *
+ * MEASURED root cause (tools/qa_pool_walk.py against a gameplay-attempt
+ * savestate): #187 took TITLE.DAT (114 KB) off the jo pool. The pre-#187
+ * build only reached gameplay because freeing TITLE.DAT left an interior
+ * free hole that FG.CEL (88 KB < 114 KB) reused whole (jo never splits or
+ * coalesces, malloc.c:127-133). With TITLE.DAT gone, the jo pool at the
+ * title->GHZ transition is a single 256 KB zone holding 207 KB resident
+ * with a 48 KB free tail and ZERO interior free blocks. cd/GHZ1FG.CEL is
+ * 89984 bytes (88 KB) and does NOT fit the 48 KB tail, so jo_fs_read_file
+ * returns NULL, this function sets g_ghz_load_error_code |= 0x04 and
+ * returns false, and TS_TRANSITION_TO_GHZ retries forever (s_ts_state
+ * stuck at 5, never reaching 6 = TS_GHZ_ACTIVE).
+ *
+ * Fix: load FG.CEL into a dedicated LWRAM region, bypassing the pool. The
+ * cel buffer has two consumers, both base-pointer-agnostic and both proven
+ * to work from LWRAM: jo_vdp2_set_nbg1_8bits_image (line ~381, CPU copy
+ * into nbg1_cell -- SKY.DAT proves the LWRAM->jo_vdp2_set_nbgN path) and
+ * slDMACopy(cel -> nbg1_cell) (line ~413, SH-2 CPU DMA -- the archived
+ * shipping main.c already DMAs cel->VRAM, and the GFS-written LWRAM source
+ * is not in CPU cache so the cached alias is correct, identical to the
+ * pool path). cel is consumed then dead, so the LWRAM staging is never
+ * jo_free'd (LWRAM is not pool memory).
+ *
+ * Sizing: cd/GHZ1FG.CEL = 89984 bytes = g_ghz_num_cells * 64 (1406 cells).
+ * 96 KB region (0x18000 = 98304) gives ~8 KB headroom. Address 0x002D0000
+ * is the first free LWRAM byte: it starts immediately after the scene
+ * arena ends at 0x002D0000 (storage.c:201-238 SCENE_LWRAM_ARENA 0x00290000
+ * + 0x40000), and the 1 MB LWRAM ends at 0x00300000 -- 192 KB free here.
+ *
+ * Authority:
+ *   - Binding rule: memory/ghz-sky-dat-lwram-bypass.md
+ *   - Pattern template: this file lines 96-129 (SKY.DAT LWRAM bypass)
+ *   - Measurement: tools/qa_pool_walk.py (256 KB zone, 207 KB used,
+ *     48 KB tail, 0 interior free; FG.CEL 88 KB NOT AVAILABLE)
+ *   - ST-097-R5-072694.pdf §2.1: LWRAM 1 MB available at 0x00200000
+ *   - storage.c:646-690: rsdk_storage_load_to_lwram implementation
+ *   - storage.c:201-238: SCENE_LWRAM arena ends at 0x002D0000 */
+#define GHZ_FG_CEL_LWRAM_ADDR  ((unsigned char *)0x002D0000)
+#define GHZ_FG_CEL_LWRAM_SIZE  0x18000
 
 /* jo's NBG1 char base (VRAM A0) + page (VRAM B0). These are owned by
  * jo's VDP2 init; we read them after jo_vdp2_set_nbg1_8bits_image
@@ -278,6 +322,21 @@ void ghz_fg_vblank(void)
                Sinc_Dinc_Long);
     slScrPosNbg1(JO_MULT_BY_65536(g_ghz_cam_x),
                  JO_MULT_BY_65536(g_ghz_cam_y));
+
+    /* #192 breadcrumb: record this per-frame V-blank DMA (dest+len+source
+     * halfword) and sample the live stack pointer + WRAM-H probes. PR at the
+     * crash was ghz_fg_vblank+24, so this is the prime suspect; the ring in
+     * WRAM-L survives the 0x03EF WRAM-H stomp and the last record before a
+     * derail names the writer. */
+    {
+        static unsigned int s_bc_tick = 0u;
+        volatile unsigned int sp_probe;
+        rsdk_breadcrumb(RSDK_BC_GHZ_VBLANK_DMA, (unsigned int)nbg1_map,
+                        GHZ_FG_PAGE_LEN * sizeof(unsigned short),
+                        *(volatile unsigned short *)
+                            ((unsigned int)g_ghz_page | 0x20000000));
+        rsdk_breadcrumb_mark_sp((unsigned int)&sp_probe, s_bc_tick++);
+    }
 }
 
 /* Compose `cd/GHZ<act>FG.<suffix>` into a static buffer. The cd: prefix
@@ -303,6 +362,10 @@ bool ghz_setup_foreground(int act)
     int                 len_pal = 0, len_cel = 0, len_pat = 0, len_tmp = 0;
     unsigned char      *cel = NULL;
     unsigned short     *fgpal = NULL, *tmp = NULL, *pat_raw = NULL;
+
+    /* #192: arm the WRAM-L breadcrumb ring at GHZ load, before any GHZ DMA
+     * (the two setup DMAs below + the per-frame ghz_fg_vblank) can record. */
+    rsdk_breadcrumb_init();
 
     /* Phase 2.3j: removed entry-canary probe (g_ghz_fg_probe.entry = 0xA5).
      * The synchronous-load architecture means a savestate captured after
@@ -345,17 +408,29 @@ bool ghz_setup_foreground(int act)
         if (fgpal) jo_free(fgpal);
         return false;
     }
-    cel = (unsigned char *)jo_fs_read_file((char *)ghz_path(act, "FG.CEL"), &len_cel);
-    if (!cel || len_cel < 64) {
-        g_ghz_load_error_code |= 0x04;   /* FG.CEL failed */
-        jo_free(fgpal);
-        if (cel) jo_free(cel);
-        return false;
+    /* #188: load FG.CEL to LWRAM (bypass jo's pool entirely). 88 KB cannot
+     * fit the 48 KB free tail of the 256 KB pool at the transition (see the
+     * GHZ_FG_CEL_LWRAM_ADDR comment block). cel is consumed by
+     * jo_vdp2_set_nbg1_8bits_image + slDMACopy below, then dead -- LWRAM is
+     * never jo_free'd. */
+    {
+        int cel_bytes = rsdk_storage_load_to_lwram((char *)ghz_path(act, "FG.CEL"),
+                                                   (void *)GHZ_FG_CEL_LWRAM_ADDR,
+                                                   GHZ_FG_CEL_LWRAM_SIZE);
+        if (cel_bytes < 64) {
+            g_ghz_load_error_code |= 0x04;   /* FG.CEL failed */
+            jo_free(fgpal);
+            /* tmp + cel are LWRAM-resident -- no jo_free. */
+            return false;
+        }
+        len_cel = cel_bytes;
+        cel     = (unsigned char *)GHZ_FG_CEL_LWRAM_ADDR;
     }
     pat_raw = (unsigned short *)jo_fs_read_file((char *)ghz_path(act, "FG.PAT"), &len_pat);
     if (!pat_raw || len_pat < 2) {
         g_ghz_load_error_code |= 0x08;   /* FG.PAT failed */
-        jo_free(fgpal); jo_free(cel);
+        jo_free(fgpal);
+        /* tmp + cel are LWRAM-resident -- no jo_free. */
         if (pat_raw) jo_free(pat_raw);
         return false;
     }
@@ -411,6 +486,10 @@ bool ghz_setup_foreground(int act)
      * one-shot — there's a downstream consumer not visible in the
      * static read of jo). */
     slDMACopy(cel, (void *)nbg1_cell, g_ghz_num_cells * 64);
+    rsdk_breadcrumb(RSDK_BC_GHZ_CELL_DMA, (unsigned int)nbg1_cell,
+                    g_ghz_num_cells * 64,
+                    *(volatile unsigned short *)
+                        ((unsigned int)cel | 0x20000000));
 
     /* Also push the just-built page so the first visible frame already
      * shows valid tile data (rather than the BSS-zero stripe pattern). */
@@ -420,6 +499,12 @@ bool ghz_setup_foreground(int act)
                Sinc_Dinc_Long);
     slScrPosNbg1(JO_MULT_BY_65536(g_ghz_cam_x),
                  JO_MULT_BY_65536(g_ghz_cam_y));
+
+    /* #192 breadcrumb: record the one-shot scene-load page push. */
+    rsdk_breadcrumb(RSDK_BC_GHZ_PAGE_DMA, (unsigned int)nbg1_map,
+                    GHZ_FG_PAGE_LEN * sizeof(unsigned short),
+                    *(volatile unsigned short *)
+                        ((unsigned int)g_ghz_page | 0x20000000));
 
     /* Phase 2.3j: removed exit canary probe stamp. The caller blocks
      * on the `return true` so a captured-post-load savestate IS proof

@@ -46,6 +46,10 @@
 #include "../rsdk/audio.h"
 #include "../rsdk/save.h"
 #include "../rsdk/storage.h"
+#include "../rsdk/player_atlas.h"   /* FR-1 (Task #177/#178) -- player anim atlas */
+#include "../rsdk/entity_atlas.h"   /* FR-2 (Task #189) -- lazy entity residency */
+#include "../rsdk/collision.h"      /* #180 step 4b -- tile-backed surface query  */
+#include "../rsdk/colwindow.h"      /* #180 step 4b -- toroidal column streamer   */
 #include "Objects/Title/TitleSetup.h"
 #include "Objects/Title/TitleLogo.h"
 #include "Objects/Title/TitleSonic.h"
@@ -1060,9 +1064,12 @@ static unsigned int     s_ts_total_frames = 0;
 
 static player_t       g_ghz_player;
 static sms_world_t    g_ghz_world;
-static int            g_ghz_sonic_idle_sid  = -1;  /* jo sprite id (32x40 idle) */
-static int            g_ghz_sonic_walk_sid0 = -1;  /* first walk frame (12 frames consecutive) */
-static int            g_ghz_sonic_walk_count = 0;
+/* FR-1 (Task #178): the legacy 2-anim Sonic (idle + 12-frame walk via
+ * SONIC.SPR/SONWALK.SPR) is REPLACED by the full player_atlas (15 anims /
+ * 149 frames, MRU residency). Per CLAUDE.md §5 the hand-rolled draw is
+ * retired; the atlas is driven from g_ghz_player.animationID. Dropping the
+ * two legacy jo_sprite_add loads also reclaims ~40 KB of VDP1 VRAM that the
+ * single-anim player residency now uses (Air Walk peak 35.5 KB). */
 /* Phase 2.3f (Task #88) — extern-visible volatile to defeat LTO CSE
  * across the mania_tick -> ghz_is_active() -> mania_ghz_tick_and_draw
  * chain. Removing `static` keeps the symbol in the .map (LTO whole-
@@ -1098,6 +1105,21 @@ __attribute__((used)) int32_t g_player_diag_charge = 0;
 /* Phase 2.5.3 (Task #168) — LookUp camera-pan landmark for
  * qa_phase2_5_3_gate.py P3b (after the 60-tick hold: -96 <= lookPos < 0). */
 __attribute__((used)) int32_t g_player_diag_lookpos = 0;
+
+/* FR-1 (Task #178) — animation-system landmarks for qa_fr1_parity_gate.py.
+ * The static gates (2.5.x) proved the STATE machine entered the right state;
+ * these prove the RENDERED FRAME actually changes with state. Mirrored once
+ * per tick from the player_atlas driver (mania_ghz_drive_player_anim):
+ *   _anim     = player_t.animationID (the ANI_* currently playing),
+ *   _frame    = animator frame index within that anim,
+ *   _spriteid = the jo VDP1 sprite id resolved for the current frame.
+ * S4 asserts the three symbols exist in game.map; R1 captures savestates
+ * under distinct inputs and asserts _anim AND _spriteid DIFFER across
+ * states (the runtime "frame changes with state" check the static gates
+ * lacked). Never read by gameplay code. */
+__attribute__((used)) uint16_t g_player_diag_anim     = 0;
+__attribute__((used)) uint16_t g_player_diag_frame    = 0;
+__attribute__((used)) int16_t  g_player_diag_spriteid = -1;
 
 static bool           g_ghz_autorun = false;
 static int            g_ghz_input_grace = 0;
@@ -1205,48 +1227,21 @@ int mania_phase23d_probe_sprite_id(void) { return s_phase23d_probe_sprite_id; }
  * N*W*H*u16 BE BGR1555 pixels — verified by tools/_phase22_inspect.py). */
 void mania_ghz_player_load_assets(void)
 {
-    if (g_ghz_sonic_idle_sid >= 0) return;  /* already loaded */
-
-    /* Idle frame. */
-    int len = 0;
-    unsigned char *raw = (unsigned char *)jo_fs_read_file("SONIC.SPR", &len);
-    if (raw && len >= 6) {
-        unsigned short fc = ((unsigned short)raw[0] << 8) | raw[1];
-        unsigned short w  = ((unsigned short)raw[2] << 8) | raw[3];
-        unsigned short h  = ((unsigned short)raw[4] << 8) | raw[5];
-        if (fc == 1 && (int)(6 + (int)w * (int)h * 2) == len) {
-            jo_img img;
-            img.data   = (jo_color *)(raw + 6);
-            img.width  = w;
-            img.height = h;
-            g_ghz_sonic_idle_sid = jo_sprite_add(&img);
-        }
-    }
-    if (raw) jo_free(raw);
-
-    /* Walk frames — load as N consecutive sprite ids by chopping the
-     * payload into per-frame jo_img calls. jo_sprite_add returns
-     * sequential ids when called in a row. */
-    len = 0;
-    raw = (unsigned char *)jo_fs_read_file("SONWALK.SPR", &len);
-    if (raw && len >= 6) {
-        unsigned short fc = ((unsigned short)raw[0] << 8) | raw[1];
-        unsigned short w  = ((unsigned short)raw[2] << 8) | raw[3];
-        unsigned short h  = ((unsigned short)raw[4] << 8) | raw[5];
-        int per = w * h * 2;
-        if ((int)(6 + (int)fc * per) == len) {
-            for (int f = 0; f < (int)fc; ++f) {
-                jo_img img;
-                img.data   = (jo_color *)(raw + 6 + f * per);
-                img.width  = w;
-                img.height = h;
-                int sid = jo_sprite_add(&img);
-                if (f == 0) g_ghz_sonic_walk_sid0 = sid;
-            }
-            g_ghz_sonic_walk_count = fc;
-        }
-    }
-    if (raw) jo_free(raw);
+    /* FR-1 (Task #178) — load the player animation atlas metadata
+     * (cd/SONIC.MET, all 15 kept anims). NO pixels are uploaded here; each
+     * anim's frames stream from its CD slice (SONICnn.SP2) into the LWRAM MRU
+     * pool + VDP1 on the first player_atlas_play of that anim. Idempotent:
+     * player_atlas_load memsets + re-reads, so re-entry just reloads the
+     * (tiny) metadata. Replaces the retired legacy SONIC.SPR/SONWALK.SPR
+     * 2-anim loads (see the global-removal note above). */
+    /* Task #180 step 5 -- load the resident compressed player pack
+     * cd/SONIC.SPC into LWRAM ONCE here (CD read permitted at scene-load
+     * time). After this, every per-anim slice is puff-inflated from the
+     * resident pack RAM->RAM on the anim change that needs it, with ZERO CD
+     * access during gameplay -> the single CD head stays on the GHZ CD-DA
+     * music track. MUST precede the first player_atlas_play. */
+    player_atlas_pack_load();
+    player_atlas_load(&g_player_atlas);
 
     /* Phase 2.3d Lead A probe — register a sentinel-green 16x16 BGR1555
      * sprite AFTER all Sonic SPR loads (and AFTER entities_load_assets
@@ -1296,36 +1291,73 @@ void mania_ghz_player_load_assets(void)
  * Failure path preserved: if the SBL load fails, g_ghz_world.raw stays
  * NULL and Phase 2.2's graceful-degrade keeps Sonic floating instead
  * of crashing (per Phase 2.2 anti-regression policy). */
-#define GHZ_SURF_LWRAM_ADDR  ((unsigned char *)0x00200000)
-#define GHZ_SURF_LWRAM_SIZE  0x10000   /* 64 KB — exact GHZ1SURF.BIN size */
+/* #180 step 4b — the surface data source is no longer the per-column
+ * cd/GHZ1SURF.BIN heightmap (which dropped Sonic through 2384 real-floor
+ * columns per tools/qa_ghz_fall_through_gate.py). It is now the decomp-
+ * faithful tile model:
+ *   - cd/GHZ1MASK.BIN (GMS2 compact mask/info/remap blob, 39644 B for the
+ *     FG Low + FG High referenced-tile union) resident in the low part of the
+ *     LWRAM carve at 0x00200000 (cap GHZ_MASK_LWRAM_CAP 0xA000), bound via
+ *     rsdk_collision_bind_compact.
+ *   - cd/GHZ1COL.BIN (GCO3 block-DEFLATE column-major tile layout, 60575 B)
+ *     loaded ONCE into the resident region @0x002C0000 (cap 0xF000) at scene
+ *     start, then decoded RAM->RAM a 48-column band at a time through
+ *     src/rsdk/colwindow.c (window @0x0020A000, decode scratch @0x002CF000).
+ *     Zero CD access during gameplay; FG.TMP @0x00210000 and the FR-2 entity
+ *     pool @0x00260000 are untouched. Full carve proof:
+ *     tools/qa_ghz_lwram_layout_gate.py.
+ * Player_SurfaceY/Angle then read rsdk_collision_column_floor over the bound
+ * window. g_ghz_world.raw holds the mask-blob address as the non-NULL load
+ * sentinel (the graceful-degrade NULL check + Entities.c `w->raw` guards). */
+#define GHZ_MASK_LWRAM_ADDR  ((unsigned char *)0x00200000)
+#define GHZ_MASK_LWRAM_CAP   0xA000    /* 40960 B capacity (>= 39644 B file)  */
+#define GHZ_MASK_FILE_SIZE   39644     /* exact cd/GHZ1MASK.BIN logical size   */
 
 void mania_ghz_player_preload_world(void)
 {
     if (g_ghz_world.raw) return;   /* idempotent */
 
-    int read = rsdk_storage_load_to_lwram("GHZ1SURF.BIN",
-                                          (void *)GHZ_SURF_LWRAM_ADDR,
-                                          GHZ_SURF_LWRAM_SIZE);
+    /* (1) Resident mask/info/remap blob. */
+    int read = rsdk_storage_load_to_lwram("GHZ1MASK.BIN",
+                                          (void *)GHZ_MASK_LWRAM_ADDR,
+                                          GHZ_MASK_LWRAM_CAP);
+    bool ok = (read == GHZ_MASK_FILE_SIZE);
 
-    if (read == (int)GHZ_SURF_LWRAM_SIZE) {
-        /* Load succeeded — point the world struct at the LWRAM region.
-         * No jo_malloc was issued; pool consumption is unchanged. */
-        g_ghz_world.raw       = (const unsigned char *)GHZ_SURF_LWRAM_ADDR;
-        g_ghz_world.width_px  = 16384;
-        /* world height set later in init_on_transition after GHZSetup. */
-        g_ghz_world.height_px = 2048;  /* placeholder until GHZSetup runs */
-        /* Phase 2.4g.3 — two-plane bridge. GHZ1SURF.BIN carries only the
-         * primary plane, so the B path (raw_alt) is degenerate / identical
-         * to A for now. PlaneSwitch toggles active_path between them; when a
-         * divergent plane-B asset is extracted only this seed changes. */
+    if (ok) {
+        rsdk_collision_clear_layers();
+        rsdk_collision_bind_compact((const void *)GHZ_MASK_LWRAM_ADDR);
+
+        /* (2) Open the column streamer and fill the initial band. The window
+         * buffer lives in the carve immediately above the mask blob. */
+        ok = colwindow_open("GHZ1COL.BIN");
+        if (ok) {
+            int32_t xs = colwindow_xsize();
+            int32_t ys = colwindow_ysize();
+            uint8_t ws = colwindow_width_shift();
+            int32_t ww = colwindow_winW();
+            int32_t base = colwindow_ensure_band(0);   /* initial fill [0,W)  */
+            int32_t nl = colwindow_layer_count();
+            for (int32_t li = 0; li < nl; ++li) {
+                rsdk_collision_set_layer_window((int)li, colwindow_layer_win(li),
+                                                xs, ys, ws, ww, base, 0, 0);
+            }
+        }
+    }
+
+    if (ok) {
+        /* raw = mask-blob address as the non-NULL load sentinel. */
+        g_ghz_world.raw         = (const unsigned char *)GHZ_MASK_LWRAM_ADDR;
+        g_ghz_world.width_px    = 16384;
+        g_ghz_world.height_px   = 2048;  /* placeholder until GHZSetup runs */
         g_ghz_world.raw_alt     = g_ghz_world.raw;
         g_ghz_world.active_path = 0;
     } else {
-        /* Soft fail — Player still inits with raw=NULL, falls back to
-         * "Sonic floats at fixed Y" per Phase 2.2 graceful-degrade. */
-        g_ghz_world.raw       = NULL;
-        g_ghz_world.width_px  = 16384;
-        g_ghz_world.height_px = 2048;
+        /* Soft fail — Player inits with raw=NULL, falls back to "Sonic floats
+         * at fixed Y" per Phase 2.2 graceful-degrade. */
+        colwindow_close();
+        g_ghz_world.raw         = NULL;
+        g_ghz_world.width_px    = 16384;
+        g_ghz_world.height_px   = 2048;
         g_ghz_world.raw_alt     = NULL;
         g_ghz_world.active_path = 0;
     }
@@ -1450,44 +1482,140 @@ void mania_ghz_player_init_on_transition(void)
     g_ghz_player_ready = true;
 }
 
-/* Phase 2.2 — Sonic sprite draw at player screen position.
- * Animation: walk frame index = (anim_timer >> 1) % 12 when moving,
- * idle frame when stationary. Decomp Player_HandleGroundAnimation
- * (Player.c:2917-3080) handles full anim selection (idle/bored/walk/
- * jog/run/dash/skid/push/spindash); Phase 2.2 ships idle + walk only. */
+/* FR-1 (Task #178) — ANI_* value -> MET kept-anim index.
+ *
+ * The player_atlas anims[]/slice files are keyed by KEPT-anim load order
+ * (0=Idle..14=Push), which is NOT the decomp ANI_* value: the keep set
+ * skips the dropped Bored2 (ANI 2) and Spring Twirl/Diagonal (ANI 11/12),
+ * so e.g. ANI_JUMP(10)->kept 9, ANI_SPINDASH(15)->kept 12, ANI_DROPDASH
+ * (ANI_ABILITY_0=16)->kept 13. The order is fixed by the build manifest
+ * keep/drop list (tools/build_entity_atlas.py:458-476). -1 = a dropped/
+ * unreachable anim (no resident slice); a ported Player handler never
+ * selects one (Bored2 is recycled to Bored1 in Player_HandleIdleAnimation),
+ * so the -1 entries are a defensive guard, not a live path. Indexed by the
+ * ANI_* enum (Player.h:80-137); covers 0..ANI_PUSH(17). */
+static const int8_t k_ani_to_kept[ANI_PUSH + 1] = {
+    [ANI_IDLE]            =  0,
+    [ANI_BORED_1]         =  1,
+    [ANI_BORED_2]         = -1,   /* dropped (rare 720-tick 2nd fidget) */
+    [ANI_LOOK_UP]         =  2,
+    [ANI_CROUCH]          =  3,
+    [ANI_WALK]            =  4,
+    [ANI_AIR_WALK]        =  5,
+    [ANI_JOG]             =  6,
+    [ANI_RUN]             =  7,
+    [ANI_DASH]            =  8,
+    [ANI_JUMP]            =  9,
+    [ANI_SPRING_TWIRL]    = -1,   /* dropped (spring mechanic not ported) */
+    [ANI_SPRING_DIAGONAL] = -1,   /* dropped (spring mechanic not ported) */
+    [ANI_SKID]            = 10,
+    [ANI_SKID_TURN]       = 11,
+    [ANI_SPINDASH]        = 12,
+    [ANI_ABILITY_0]       = 13,   /* == ANI_DROPDASH */
+    [ANI_PUSH]            = 14,
+};
+
+/* Last ANI_* handed to player_atlas_play; lets the driver detect anim
+ * changes (re-upload) vs same-anim speed ramps (retarget only). */
+static int s_player_last_ani = -1;
+
+/* FR-1 (Task #178) — drive the player_atlas from the ported Player.c
+ * animation handlers' decisions, then advance the MET-cadence walker.
+ *
+ * Player_Tick already ran Player_HandleGroundAnimation / IdleAnimation /
+ * the air-anim switch (Player.c:549-1231), setting p->animationID +
+ * p->animFrame (start frame) + p->animSpeed (per-tick velocity ramp). This
+ * runs AFTER that tick:
+ *   1. On an animationID change, player_atlas_play frees the prior anim's
+ *      VDP1 sprites + uploads the new anim's frames (LWRAM-cached slice),
+ *      then we seat the animator at the handler-chosen start frame (e.g.
+ *      jog->walk@9, air_walk->walk carrying frame; Player.c:690-696).
+ *   2. Apply p->animSpeed (>=0) every tick so the walk/jog/run/dash speed
+ *      ramps + the spindash charge ramp take effect (Player.c:698,770,963).
+ *   3. player_atlas_tick advances the frame by MET per-frame durations
+ *      (rsdk_process_animation; Animation.cpp:150-177 parity).
+ *   4. Write the resident frame index back into p->animFrame/animFrameCount
+ *      so next tick's handlers can read frameID/frameCount (the contract in
+ *      Player.c:549-558), and mirror the QA landmarks for the FR-1 gate. */
+static void mania_ghz_drive_player_anim(void)
+{
+    if (!g_player_atlas.ready) return;
+    player_t *p = &g_ghz_player;
+
+    int ani  = p->animationID;
+    int kept = (ani >= 0 && ani <= ANI_PUSH) ? k_ani_to_kept[ani] : -1;
+    if (kept < 0)
+        return;   /* dropped/unreachable anim -- keep current resident anim */
+
+    int speed_override = (p->animSpeed >= 0) ? p->animSpeed
+                                             : PLAYER_ATLAS_SPEED_DEFAULT;
+
+    if (ani != s_player_last_ani) {
+        player_atlas_play(&g_player_atlas, kept, speed_override);
+        /* player_atlas_play seats frame_id at 0; honour the handler-chosen
+         * start frame (carry/keep-frame transitions). */
+        int sf = p->animFrame;
+        int fcnt = g_player_atlas.animator.frame_count;
+        if (sf < 0) sf = 0;
+        if (fcnt > 0 && sf >= fcnt) sf = fcnt - 1;
+        g_player_atlas.animator.frame_id       = (int16_t)sf;
+        g_player_atlas.animator.timer          = 0;
+        g_player_atlas.animator.frame_duration =
+            (int16_t)g_player_atlas.scratch_frames[sf].duration;
+        s_player_last_ani = ani;
+    }
+
+    /* Same-anim per-tick speed ramp (walk/jog/run/dash/spindash). When the
+     * handler left animSpeed at the -1 default, keep the MET default that
+     * player_atlas_play already loaded. */
+    if (p->animSpeed >= 0)
+        g_player_atlas.animator.speed = (int16_t)p->animSpeed;
+
+    player_atlas_tick(&g_player_atlas);
+
+    p->animFrame      = g_player_atlas.animator.frame_id;
+    p->animFrameCount = g_player_atlas.animator.frame_count;
+
+    g_player_diag_anim     = (uint16_t)p->animationID;
+    g_player_diag_frame    = (uint16_t)p->animFrame;
+    g_player_diag_spriteid =
+        (int16_t)player_atlas_current_sprite(&g_player_atlas);
+}
+
+/* FR-1 (Task #178) — draw the current player_atlas frame at the player's
+ * screen position with the decomp pivot + facing flip.
+ *
+ * Pivot convention mirrors src/rsdk/drawing.c:69-74 (_world_to_jo):
+ *   sprite top-left in world = pos + pivot; centre = TL + (w/2, h/2);
+ *   jo_sprite_draw3D anchors at centre, so jo (cx,cy) = centre - cam -
+ *   (160,112). For FLIP_X the pivot mirrors about the entity origin
+ *   (RSDK DrawSpriteFlipped): centre_x = pos.x - pivot_x - w/2. */
 static void mania_ghz_draw_sonic(int cam_x, int cam_y)
 {
-    int px = g_ghz_player.xpos >> 16;
-    int py = g_ghz_player.ypos >> 16;
-    int sx = (px - cam_x) - MANIA_SONIC_SCR_X;
-    int sy = (py - cam_y) - 112 - MANIA_SONIC_SPR_FEET_OFF;
-
-    /* Frame select. */
-    bool moving = g_ghz_player.onGround &&
-                  (g_ghz_player.gsp > PLAYER_FIXED(0.4) ||
-                   g_ghz_player.gsp < -PLAYER_FIXED(0.4));
-    int sid = g_ghz_sonic_idle_sid;
-    if (moving && g_ghz_sonic_walk_count > 0 && g_ghz_sonic_walk_sid0 >= 0) {
-        /* Faster cycle when going fast — decomp Player_HandleGround-
-         * Animation tunes animator.speed by |groundVel|. Phase 2.2
-         * uses a coarse 2-tier: normal cycle / fast cycle. */
-        int absgsp = g_ghz_player.gsp < 0 ? -g_ghz_player.gsp : g_ghz_player.gsp;
-        int divisor = absgsp > PLAYER_FIXED(3.0) ? 1 : 2;
-        int frame = (g_ghz_anim_timer / divisor) % g_ghz_sonic_walk_count;
-        sid = g_ghz_sonic_walk_sid0 + frame;
-    }
+    if (!g_player_atlas.ready) return;
+    int sid = player_atlas_current_sprite(&g_player_atlas);
     if (sid < 0) return;
 
-    /* z value below NBG2 sky (1) above NBG1 ground (6) — sprite layer.
-     * Decomp drawGroup=2 for player; we use z=150 to sit between any
-     * future foreground objects (z=100 monitors) and the HUD (z=200). */
+    int w = 0, h = 0, pvx = 0, pvy = 0;
+    player_atlas_size(&g_player_atlas, &w, &h);
+    player_atlas_pivot(&g_player_atlas, &pvx, &pvy);
+    if (w == 0 || h == 0) return;
+
+    int px = g_ghz_player.xpos >> 16;
+    int py = g_ghz_player.ypos >> 16;
+
+    /* z=150: player drawGroup layer, between foreground objects and HUD
+     * (z=200) -- unchanged from the legacy draw. */
     int z = 150;
+    int cy = (py + pvy + (h >> 1)) - cam_y - 112;
     if (g_ghz_player.facing_left) {
+        int cx = (px - pvx - (w >> 1)) - cam_x - 160;
         jo_sprite_enable_horizontal_flip();
-        jo_sprite_draw3D(sid, sx, sy, z);
+        jo_sprite_draw3D(sid, cx, cy, z);
         jo_sprite_disable_horizontal_flip();
     } else {
-        jo_sprite_draw3D(sid, sx, sy, z);
+        int cx = (px + pvx + (w >> 1)) - cam_x - 160;
+        jo_sprite_draw3D(sid, cx, cy, z);
     }
 }
 
@@ -1632,6 +1760,19 @@ void mania_ghz_tick_and_draw(void)
     }
 #endif
 
+    /* #180 step 4b — slide the resident collision window so the band covers
+     * the player's column BEFORE the physics tick reads Player_SurfaceY
+     * through it. base = playerCol - LEFT_MARGIN, clamped by ensure_band to
+     * [0, xsize-W]; only newly-entered columns stream from CD. The window
+     * fetch returns 0xFFFF (pit) for any x outside [base, base+W), so the
+     * margin keeps both feet sensors inside the resident band. */
+    if (!g_titlecard_active && colwindow_is_open()) {
+        int32_t pcol = (g_ghz_player.xpos >> 16) / RSDK_TILE_SIZE;
+        int32_t base = colwindow_ensure_band(pcol - COLWINDOW_LEFT_MARGIN);
+        rsdk_collision_set_window_base(0, base);
+        rsdk_collision_set_window_base(1, base);
+    }
+
     /* === Player physics tick ===
      * Phase 2.4j.1 — frozen while the TitleCard act-intro is showing. */
     if (!g_titlecard_active)
@@ -1645,6 +1786,14 @@ void mania_ghz_tick_and_draw(void)
     g_player_diag_gsp    = g_ghz_player.gsp;
     g_player_diag_charge = g_ghz_player.spindashCharge;  /* Phase 2.5.2 P3a */
     g_player_diag_lookpos = g_ghz_player.lookPos;        /* Phase 2.5.3 P3b */
+
+    /* FR-1 (Task #178) -- advance the player animation atlas AFTER Player_Tick
+     * has settled animationID / animSpeed for this frame. Gated by the same
+     * !g_titlecard_active condition as Player_Tick (decomp pauses Process-
+     * Animation during the act-intro card). Mirrors g_player_diag_anim /
+     * _frame / _spriteid for the parity gate. */
+    if (!g_titlecard_active)
+        mania_ghz_drive_player_anim();
 
 #ifdef QA_INVBLOCK_PROBE
     /* Phase 2.4g.1 gate P4 capture ONLY. Pin the player at the slot-1016
@@ -1742,6 +1891,25 @@ void mania_ghz_tick_and_draw(void)
  * H-D / H-E / H-F.
  *
  * Phase 2.3f (Task #88) — __attribute__((used)) per the LTO audit. */
+
+/* === #192 slow-crash measurement latch (diagnostic only) ============
+ *
+ * WHY: the user reports a visual crash 45-60s into GHZ gameplay, after
+ * scrolling into a dense section. entity_residency_begin_frame() rewinds
+ * __jo_sprite_id to the player top EVERY tick, so the per-tick PEAK
+ * sprite count is transient -- an instantaneous savestate peek
+ * (qa_jo_sprite_budget_gate, which read 55 at an early frame) cannot see
+ * a peak that briefly crosses JO_MAX_SPRITE (255) in a dense tick and
+ * clobbers __jo_sprite_def/pic[255] (the #189 overflow). These globals
+ * keep the MAXIMUM count ever reached (never reset), so a single
+ * post-crash F5 state reveals whether the count overflowed, plus a tick
+ * counter proving the capture was deep enough into gameplay. Reads
+ * jo_get_last_sprite_id() once per gameplay draw pass, stores the max;
+ * no behavior change. Peeked by tools/qa_jo_sprite_peak_gate.py. */
+__attribute__((used)) int32_t  g_gp_sprite_peak = 0;
+__attribute__((used)) int32_t  g_gp_sprite_last = 0;
+__attribute__((used)) uint32_t g_gp_draw_ticks = 0;
+
 __attribute__((used))
 void mania_ghz_draw_only(void)
 {
@@ -1750,6 +1918,17 @@ void mania_ghz_draw_only(void)
 
     int cx = g_ghz_cached_cam_x;
     int cy = g_ghz_cached_cam_y;
+
+    /* FR-2 (Task #189) -- lazy entity residency. Rewind the jo sprite
+     * stack to the player's top BEFORE any entity/HUD/titlecard draw this
+     * tick, so only the frames actually emitted below stay VDP1-resident.
+     * player_atlas_top() = player_base + current-anim frame count; the
+     * player's own block was (re)uploaded earlier this tick by
+     * mania_ghz_tick_and_draw -> drive_player_anim -> player_atlas_play.
+     * Each accessor below uploads its current frame on demand (dedup per
+     * tick), keeping __jo_sprite_id well under JO_MAX_SPRITE (#189 gate).
+     * Streaming pool is reset per scene load in entities_load_assets. */
+    entity_residency_begin_frame(player_atlas_top());
 
     /* === Phase 2.3 — entity ticks (Rings, Motobug, Spring, ItemBox,
      *     SignPost). Order matters because per-class tick+draw is
@@ -1846,6 +2025,19 @@ void mania_ghz_draw_only(void)
      * after the HUD so the card covers the whole screen during the intro
      * freeze. Inert once g_titlecard_active clears (state Supressed). */
     titlecard_draw_only();
+
+    /* #192 slow-crash latch: sample the jo sprite count AFTER every
+     * entity/HUD/Sonic/titlecard upload this tick -- this is the per-tick
+     * PEAK, just before next tick's begin_frame rewinds it. Keep the max
+     * ever reached (never reset) so a single post-crash F5 state proves
+     * whether the count crossed JO_MAX_SPRITE (255). g_gp_draw_ticks
+     * proves the capture was deep enough into gameplay. */
+    {
+        int32_t sid_now = (int32_t)jo_get_last_sprite_id();
+        if (sid_now > g_gp_sprite_peak) g_gp_sprite_peak = sid_now;
+        g_gp_sprite_last = sid_now;
+        ++g_gp_draw_ticks;
+    }
 }
 
 
@@ -1963,6 +2155,16 @@ bool mania_load_ghz_scene(void)
      * the act-intro freeze). */
     titlecard_load_assets();
     titlecard_spawn("GREEN HILL", TC_ACT_1);
+
+    /* FR-1 (Task #178) -- capture the jo sprite-stack base the player atlas
+     * owns. MUST come AFTER every entity atlas (entities_load_assets) and the
+     * TitleCard glyph atlas (titlecard_load_assets) have uploaded their frames,
+     * and BEFORE the first player_atlas_play. player_atlas_load uploaded NO
+     * pixels (metadata only), so the player owns the TOP of the jo LIFO stack:
+     * jo_sprite_free_from(base) on each anim change rewinds exactly the
+     * player's frames. Nothing else may jo_sprite_add during gameplay
+     * (player_atlas.h residency model). */
+    player_atlas_set_base(jo_get_last_sprite_id() + 1);
 
     /* Phase 2.4g.1 (Task #153) — spawn the GHZ scene's RSDK entities from
      * GHZSCN1.BIN (the verbatim decomp Scene1.bin object table) into the
