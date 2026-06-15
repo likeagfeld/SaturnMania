@@ -137,7 +137,11 @@ void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
     slMapNbg1((void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP,
               (void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP);
     slScrPosNbg1(toFIXED(P6_SCROLL_X), toFIXED(P6_SCROLL_Y));
-    slPriorityNbg1(7);
+    slPriorityNbg1(1); /* FG plane BELOW the VDP1 sprites (HUD/Sonic/Tails at pri 7)
+                        * so the characters render IN FRONT of the foreground plane
+                        * (plants/totems), not behind it. No other VDP2 layer competes
+                        * (BG parallax not yet drawn). Mania's player-between-FG-groups
+                        * layering needs a behind/front FG split -- a later refinement. */
     slBack1ColSet((void *)P6_VDP2_BAK, 0x8000); /* black backdrop = model's */
     slScrAutoDisp(NBG1ON | SPRON);
 }
@@ -315,7 +319,11 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
     slMapNbg1((void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP,
               (void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP);
     slScrPosNbg1(toFIXED(scroll_x), toFIXED(scroll_y));
-    slPriorityNbg1(7);
+    slPriorityNbg1(1); /* FG plane BELOW the VDP1 sprites (HUD/Sonic/Tails at pri 7)
+                        * so the characters render IN FRONT of the foreground plane
+                        * (plants/totems), not behind it. No other VDP2 layer competes
+                        * (BG parallax not yet drawn). Mania's player-between-FG-groups
+                        * layering needs a behind/front FG split -- a later refinement. */
     slBack1ColSet((void *)P6_VDP2_BAK, 0x8000);
     slScrAutoDisp(NBG1ON | SPRON);
 }
