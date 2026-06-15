@@ -53,7 +53,13 @@ SHEETS = [
     ("Players/Sonic3.gif", "SONIC3.SHT"),
     ("Global/Items.gif", "ITEMS.SHT"),
     ("Global/Display.gif", "DISPLAY.SHT"),
-    ("Global/Shields.gif", "SHIELDS.SHT"),
+    # Task #241: TAILS1 (sidekick body sheet) replaces SHIELDS in the staged set
+    # -- the user's "Tails body blinking" was Tails1.gif never staged (it overflows
+    # the 245,760 B VDP2 band window beyond the 6-Sonic+HUD set). SHIELDS.SHT
+    # (32,215 B) is dropped to fund TAILS1.SHT (58,643 B): the sidekick body is a
+    # constant on-screen character; shield FX are occasional pickups. The full
+    # all-characters band store is the cart-relocation follow-up (Task #241 main).
+    ("Players/Tails1.gif", "TAILS1.SHT"),
 ]
 
 

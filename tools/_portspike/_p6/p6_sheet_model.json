@@ -237,49 +237,49 @@
       ]
     },
     {
-      "sheet": "Global/Shields.gif",
-      "file": "SHIELDS.SHT",
+      "sheet": "Players/Tails1.gif",
+      "file": "TAILS1.SHT",
       "width": 512,
       "height": 512,
       "band_rows": 16,
       "bands": 32,
-      "bytes": 32215,
-      "file_hash": "0x1806EDF2",
+      "bytes": 58643,
+      "file_hash": "0x71B13C14",
       "probes": [
         {
           "sx": 0,
           "sy": 0,
           "w": 48,
           "h": 48,
-          "hash": "0xFE7BEA1A"
+          "hash": "0x1FED7E41"
         },
         {
           "sx": 256,
           "sy": 8,
           "w": 64,
           "h": 48,
-          "hash": "0x23BA53CD"
+          "hash": "0x9F334B45"
         },
         {
           "sx": 448,
           "sy": 248,
           "w": 64,
           "h": 64,
-          "hash": "0xF22E5804"
+          "hash": "0x1A89A82E"
         },
         {
           "sx": 16,
           "sy": 472,
           "w": 48,
           "h": 40,
-          "hash": "0x3733CA05"
+          "hash": "0x66FE4884"
         },
         {
           "sx": 128,
           "sy": 128,
           "w": 32,
           "h": 56,
-          "hash": "0xA4BB54D6"
+          "hash": "0x2A107D7B"
         }
       ]
     }

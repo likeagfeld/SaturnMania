@@ -2052,8 +2052,13 @@ extern "C" void p6_scene_run(void)
         // 206,222 B, inside the 245,760 B VDP2 window (0x25E44000..0x25E80000)
         // with 39,538 B margin. Tails1.gif (58,643 B) is the DECLARED GAP --
         // adding it overflows by 19,105 B (no-shrink guardrail).
+        // Task #241: TAILS1.SHT (sidekick body) replaces SHIELDS in slot 5 -- the
+        // user's "Tails body blinking" was Tails1.gif never staged. The staged
+        // set is now 232,650 B (was 206,222) inside the 245,760 B VDP2 window
+        // (13,110 B margin). Shields FX lose residency (occasional pickup) to fund
+        // the constant sidekick character. Full all-characters store = cart move.
         static const char *shtFiles[6] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
-                                           "ITEMS.SHT", "DISPLAY.SHT", "SHIELDS.SHT" };
+                                           "ITEMS.SHT", "DISPLAY.SHT", "TAILS1.SHT" };
         // Engine PATH hashes (W12b): LoadSpriteSheet hashes the .bin-relative
         // sprite path -- these are what Player_StageLoad will resolve.
         static const char *shtPaths[6] = { "Players/Sonic1.gif",
@@ -2061,7 +2066,7 @@ extern "C" void p6_scene_run(void)
                                            "Players/Sonic3.gif",
                                            "Global/Items.gif",
                                            "Global/Display.gif",
-                                           "Global/Shields.gif" };
+                                           "Players/Tails1.gif" };
         for (int32 i = 0; i < 6; ++i) {
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
                                                 (void *)P6_LW_ENTITYLIST, 0x10000);
