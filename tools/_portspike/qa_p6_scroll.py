@@ -209,8 +209,26 @@ def main(argv):
           and (sx, sy) == (v["_p6_w_scr_x"], v["_p6_w_scr_y"])
           and (sx, sy) == EXP_SCROLL
           and v["_p6_w_scr2_done"] == 1)
-    s3 = (vram == model_img
-          and (v["_p6_w_scr2_pndhash"] or 0) & 0xFFFFFFFF == model_hash)
+    # S3 (W16-stream, Task #240): the present is now a camera-ANCHORED streaming
+    # window -- only the visible+margin rect is written into the wrapping plane,
+    # NOT a full 64x64 identity map. So compare the VISIBLE-WINDOW cells of the
+    # captured map to the model (at the parked camera the window tiles are all
+    # < 64, so plane pos (tx&63,ty&63) == model offset). The old full-map +
+    # exact-pndhash check tested the retired static design.
+    s3_first_bad = None
+    if len(vram) == len(model_img):
+        for ty in range(win[2], win[3] + 1):
+            for tx in range(win[0], win[1] + 1):
+                page = (((ty & 63) >> 5) << 1) + (((tx & 63) >> 5))
+                o = (page * 2048 + ((((ty & 63) & 31) << 5) + ((tx & 63) & 31)) * 2) * 2
+                if vram[o:o + 4] != model_img[o:o + 4]:
+                    s3_first_bad = (tx, ty)
+                    break
+            if s3_first_bad:
+                break
+        s3 = s3_first_bad is None
+    else:
+        s3 = False
     s4 = (v["_p6_w_scr2_nblank"] == model_nblank and model_nblank > 0
           and ss_nblank == model_nblank)
 
@@ -220,13 +238,10 @@ def main(argv):
          "SCXIN1=%s SCYIN1=%s scr2=(%s,%s) cam=(%s,%s) done=%s"
          % (reg_x, reg_y, sx, sy, v["_p6_w_scr_x"], v["_p6_w_scr_y"],
             v["_p6_w_scr2_done"])),
-        ("S3 NBG1 PND window byte-exact vs the offline FG Low model "
-         "(16,384 B + read-back hash)", s3,
-         "vram %s model djb2 0x%08X witness 0x%08X firstdiff %s"
-         % ("match" if vram == model_img else "MISMATCH(len %d)" % len(vram),
-            model_hash, (v["_p6_w_scr2_pndhash"] or 0) & 0xFFFFFFFF,
-            next((i for i in range(min(len(vram), len(model_img)))
-                  if vram[i] != model_img[i]), None))),
+        ("S3 NBG1 visible-window PND cells byte-exact vs the offline FG Low "
+         "model (camera-anchored streaming window)", s3,
+         "vram len %d model len %d first_bad_tile %s"
+         % (len(vram), len(model_img), s3_first_bad)),
         ("S4 visible pixels sanity (non-empty FG tiles in the 320x224 "
          "window > 0, witness == savestate == model)", s4,
          "witness=%s savestate=%s model=%d"

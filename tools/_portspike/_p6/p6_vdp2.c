@@ -212,6 +212,47 @@ int p6_vdp2_present_dirty = 1;
 static unsigned int s_present_pndhash = 0;
 static int          s_present_nblank  = 0;
 
+/* P6.8 W16-stream (Task #240): the present was a STATIC top-left 64x64 tile rect
+ * built once and hardware-scrolled by slScrPosNbg1. The NBG1 plane is 64x64
+ * tiles = 1024x1024 px and WRAPS; GHZ1 is thousands of px wide, so once the
+ * camera scrolls past 1024 px the static rect shows nothing / the plane wraps
+ * onto stale data ("missing grass blocks" + "all VDP2 goes glitchy when I move",
+ * user 2026-06-14). Fix = a camera-ANCHORED streaming window: on every tile-
+ * boundary crossing (camera tile origin ctx/cty changes) rewrite the visible
+ * 320x224 region PLUS a 1-tile margin into the wrapping plane at (tx & 63,
+ * ty & 63). The hardware slScrPosNbg1 still takes the FULL camera position --
+ * the plane wraps mod 1024 px so the freshly-written cells line up seamlessly
+ * no matter how far the camera has travelled. The rewrite is 23x17 cells which
+ * fits inside ONE SaturnLayout 64x32 window (SaturnLayout.cpp:33-34), so it
+ * costs at most one zlib refill per crossing (not per frame) -- it does NOT
+ * reintroduce the per-frame full-plane GetTile walk Perf Phase 2c retired. */
+static int          s_last_ctx = 0x7fffffff; /* camera tile origin at last build */
+static int          s_last_cty = 0x7fffffff;
+static int          s_blank_char = 0;
+
+/* Streaming witnesses (read by qa_p6_fgstream.py from game.map). The self-check
+ * walks the VISIBLE tile rect every present and compares each plane cell to the
+ * layout GetTile -- this is the RED->GREEN signal: on the static build the
+ * plane cannot match a camera that moved past 1024 px (visok_far stays 0); the
+ * streaming build keeps it matched at any camera (visok_far -> 1). All visible
+ * GetTile reads hit the same window the rewrite already loaded (visible 20x14
+ * tiles fit one 64x32 window), so the check is array-read cheap, no refills. */
+__attribute__((used)) int p6_w_fg_maxcamtx  = 0; /* max camera tile X seen (motion proof) */
+__attribute__((used)) int p6_w_fg_visok      = 0; /* visible plane cells == layout this present */
+__attribute__((used)) int p6_w_fg_visok_far  = 1; /* sticky: 0 if EVER mismatched at camtx>=64 */
+__attribute__((used)) int p6_w_fg_crosses    = 0; /* cumulative map (re)builds: dirty + crossings */
+
+/* PND word for a layout tile e (0xFFFF = empty -> blank char). Same packing as
+ * the present map build (p6_vdp2.c: fy bit11->31, fx bit10->30, charno=tile*8). */
+static unsigned long p6_pnd_for(unsigned short e, int blank)
+{
+    if (e == 0xFFFF)
+        return (unsigned long)blank * 8u;
+    return ((unsigned long)(e & 0x800) << 20)
+         | ((unsigned long)(e & 0x400) << 20)
+         | ((unsigned long)(e & 0x3FF) * 8u);
+}
+
 void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                                 const unsigned short *pal565,
                                 unsigned int *out_pndhash, int *out_nblank)
@@ -222,81 +263,104 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
     static unsigned char used[1024]; /* file-static would collide with the
                                       * Title present's local; own copy */
     int t, c, x, y;
+    int ctx = scroll_x >> 4, cty = scroll_y >> 4;       /* camera tile origin */
+    /* visible rect (20x14 tiles) plus a 1-tile margin all round = 23x17, which
+     * fits one SaturnLayout 64x32 window so the rewrite is a single refill. */
+    int vx0 = ctx - 1, vx1 = ctx + 21, vy0 = cty - 1, vy1 = cty + 15;
+    int rebuild = p6_vdp2_present_dirty || ctx != s_last_ctx || cty != s_last_cty;
     unsigned int pv0, prf0 = (unsigned int)p6_w_lay_refills;
 
-    if (p6_vdp2_present_dirty) {
-        SaturnLayout_Bind(0, layer); /* slot 0 = the W16 walk window */
-
-        /* 1) Blank char = smallest tile index the 64x64 rect never references
-         *    (same rule + same rect as the gate's offline model). */
-        pv0 = p6_perf_vbl_count;
-        for (t = 0; t < 1024; ++t) used[t] = 0;
-        for (y = 0; y < 64; ++y)
-            for (x = 0; x < 64; ++x) {
-                unsigned short e = SaturnLayout_GetTile(0, x, y);
-                if (e != 0xFFFF)
-                    used[e & 0x3FF] = 1;
-            }
-        p6_w_present_vbl_walk = (int)(p6_perf_vbl_count - pv0);
-        pv0 = p6_perf_vbl_count;
-        {
-            int blank = 0;
-            while (blank < 1024 && used[blank]) ++blank;
-            volatile Uint16 *dst = cel + blank * 128;
-            for (c = 0; c < 128; ++c) dst[c] = 0;
-
-            /* 2) Map: identity 64x64 rect of 2-word PNDs (p6_vdp2.c:105-119
-             *    formula -- fy bit11->31, fx bit10->30, charno = tile*8). */
-            for (y = 0; y < 64; ++y) {
-                for (x = 0; x < 64; ++x) {
+    if (rebuild) {
+        if (p6_vdp2_present_dirty) {
+            SaturnLayout_Bind(0, layer); /* slot 0 = the FG-Low walk window.
+                                          * Bind ONLY on (re)load -- not on every
+                                          * crossing -- so the window cache isn't
+                                          * thrown away as the camera pans. */
+            /* Blank char = smallest tile index the visible+margin rect never
+             * uses; zero its CEL so empty (0xFFFF) layout cells read as a
+             * transparent tile. Off-screen plane cells outside the rewritten
+             * rect are NOT pre-filled -- every camera crossing rewrites the
+             * whole visible+margin rect before it can scroll into view, so a
+             * stale off-screen cell is never displayed (saves the 4096-cell
+             * whole-plane fill, keeping _end under the W17 floor). */
+            pv0 = p6_perf_vbl_count;
+            for (t = 0; t < 1024; ++t) used[t] = 0;
+            for (y = vy0; y <= vy1; ++y)
+                for (x = vx0; x <= vx1; ++x) {
                     unsigned short e = SaturnLayout_GetTile(0, x, y);
-                    unsigned long pnd;
-                    if (e == 0xFFFF)
-                        pnd = (unsigned long)blank * 8u;
-                    else
-                        pnd = ((unsigned long)(e & 0x800) << 20)
-                            | ((unsigned long)(e & 0x400) << 20)
-                            | ((unsigned long)(e & 0x3FF) * 8u);
-                    int page = ((y >> 5) << 1) + (x >> 5);
-                    volatile Uint16 *p = map + page * 2048 + (((y & 31) << 5) + (x & 31)) * 2;
-                    p[0] = (Uint16)(pnd >> 16);
-                    p[1] = (Uint16)(pnd & 0xFFFF);
+                    if (e != 0xFFFF)
+                        used[e & 0x3FF] = 1;
                 }
+            { int b = 0; while (b < 1024 && used[b]) ++b; s_blank_char = b; }
+            { volatile Uint16 *dst = cel + s_blank_char * 128;
+              for (c = 0; c < 128; ++c) dst[c] = 0; }
+            p6_w_present_vbl_walk = (int)(p6_perf_vbl_count - pv0);
+        } else {
+            p6_w_present_vbl_walk = 0;
+        }
+
+        /* Rewrite the camera-anchored visible+margin rect into the wrapping
+         * plane at (tx & 63, ty & 63). The hardware scroll uses the full camera
+         * position, so these cells line up no matter how far we have travelled. */
+        pv0 = p6_perf_vbl_count;
+        for (y = vy0; y <= vy1; ++y) {
+            int cyw = y & 63;
+            for (x = vx0; x <= vx1; ++x) {
+                int cxw = x & 63;
+                unsigned short e = SaturnLayout_GetTile(0, x, y);
+                unsigned long pnd = p6_pnd_for(e, s_blank_char);
+                int page = ((cyw >> 5) << 1) + (cxw >> 5);
+                volatile Uint16 *p = map + page * 2048 + (((cyw & 31) << 5) + (cxw & 31)) * 2;
+                p[0] = (Uint16)(pnd >> 16);
+                p[1] = (Uint16)(pnd & 0xFFFF);
             }
         }
         p6_w_present_vbl_map = (int)(p6_perf_vbl_count - pv0);
 
-        /* 4) Witness data (cached): map read-back hash (gate S3 model) +
-         *    visible-window non-empty count. The map is static, so cache both. */
-        pv0 = p6_perf_vbl_count;
-        {
-            unsigned int h = 5381u;
-            for (t = 0; t < 4096 * 2; ++t) { /* 8,192 words = 16,384 B */
-                Uint16 w = map[t];
-                h = ((h << 5) + h) ^ (unsigned int)(w >> 8);
-                h = ((h << 5) + h) ^ (unsigned int)(w & 0xFF);
-            }
-            s_present_pndhash = h;
-
-            int n = 0;
-            int tx0 = scroll_x >> 4, tx1 = (scroll_x + 320 - 1) >> 4;
-            int ty0 = scroll_y >> 4, ty1 = (scroll_y + 224 - 1) >> 4;
-            for (y = ty0; y <= ty1; ++y)
-                for (x = tx0; x <= tx1; ++x)
-                    if (SaturnLayout_GetTile(0, x, y) != 0xFFFF)
-                        ++n;
-            s_present_nblank = n;
-        }
-        p6_w_present_vbl_hash = (int)(p6_perf_vbl_count - pv0);
-        p6_w_present_refills  = (int)((unsigned int)p6_w_lay_refills - prf0);
+        s_last_ctx = ctx;
+        s_last_cty = cty;
         p6_vdp2_present_dirty = 0;
+        ++p6_w_fg_crosses;
+        p6_w_present_vbl_hash = 0;
+        p6_w_present_refills  = (int)((unsigned int)p6_w_lay_refills - prf0);
     } else {
-        /* Cached: the static map/inflate/hash are done -- this is the hot path
-         *  (~0 vbl). Witnesses report 0 to make the cache visible to the gate. */
+        /* Cached: no tile-boundary crossing this frame -- the plane already
+         * holds the right cells; only the hardware scroll + CRAM run below. */
         p6_w_present_vbl_walk = 0;
         p6_w_present_vbl_map  = 0;
         p6_w_present_vbl_hash = 0;
         p6_w_present_refills  = 0;
+    }
+
+    /* Self-check witness (every present): compare each VISIBLE plane cell to the
+     * live layout. All these GetTile reads hit the window the rewrite loaded, so
+     * this is array-read cheap. visok_far stays 1 only while the plane matches
+     * the layout at a camera that has moved past the 1024 px plane wrap. */
+    {
+        int tx0 = scroll_x >> 4, tx1 = (scroll_x + 320 - 1) >> 4;
+        int ty0 = scroll_y >> 4, ty1 = (scroll_y + 224 - 1) >> 4;
+        int ok = 1, n = 0;
+        for (y = ty0; y <= ty1; ++y) {
+            int cyw = y & 63;
+            for (x = tx0; x <= tx1; ++x) {
+                int cxw = x & 63;
+                unsigned short e = SaturnLayout_GetTile(0, x, y);
+                unsigned long pnd = p6_pnd_for(e, s_blank_char);
+                int page = ((cyw >> 5) << 1) + (cxw >> 5);
+                volatile Uint16 *p = map + page * 2048 + (((cyw & 31) << 5) + (cxw & 31)) * 2;
+                if (p[0] != (Uint16)(pnd >> 16) || p[1] != (Uint16)(pnd & 0xFFFF))
+                    ok = 0;
+                if (e != 0xFFFF) ++n;
+            }
+        }
+        /* out_pndhash retired (the streaming plane is camera-anchored, not a
+         * fixed identity map); the visible-window non-blank count is the cheap
+         * scroll-gate signal that survives. */
+        s_present_pndhash = (unsigned int)n;
+        s_present_nblank  = n;
+        p6_w_fg_visok      = ok;
+        if (ctx > p6_w_fg_maxcamtx) p6_w_fg_maxcamtx = ctx;
+        if (ctx >= 64 && !ok) p6_w_fg_visok_far = 0;
     }
     *out_pndhash = s_present_pndhash;
     *out_nblank  = s_present_nblank;
