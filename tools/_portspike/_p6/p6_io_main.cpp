@@ -1951,8 +1951,15 @@ static void p6_ghz_frame(void)
     p6_w_perf_cyc_total   = p6_w_perf_cyc_input + p6_w_perf_cyc_obj
                           + p6_w_perf_cyc_draw + p6_w_perf_cyc_present;
 
+#ifndef P6_PERF_NOSCAN
     // Phase 2d census: in-range entity population by class (read-only engine
     // state; the histogram is local + the loop is ~1216 cheap reads << 1 vbl).
+    // #246 MEASURED: this whole diagnostic block (census + ActClear latch + hog
+    // locator) is TWO MORE full ENTITY_COUNT(2368) scans over a ~12-live table =
+    // the 5.08ms TAIL. It has NO render/gameplay side-effect (read-only + witness
+    // writes only). Gate it behind P6_PERF_NOSCAN so the shipping frame can skip
+    // it; build -e P6_NOSCAN=1 -> compute 19.8->~14.7ms < the 16.67ms vblank, a
+    // falsifiable RED->GREEN test of compute-bound vs VDP1-bound.
     {
         static int16 census[256];
         int32 i, total = 0, distinct = 0, topc = -1, topn = 0;
@@ -2084,6 +2091,7 @@ static void p6_ghz_frame(void)
                 }
             }
     }
+#endif /* P6_PERF_NOSCAN -- skip the diagnostic census/hog scans in the timed frame */
 
     ++p6_w_cont_frames;
 
