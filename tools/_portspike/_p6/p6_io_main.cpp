@@ -1734,9 +1734,20 @@ static void p6_ghz_frame(void)
         int32 txp = (int32)((plr->position.x >> 16) / 16);
         int32 typ = yy / 16;
         if (yy > p6_w_ghz2_max_plry) p6_w_ghz2_max_plry = yy;
-        int32 floor = (int32)(unsigned)SaturnLayout_GetTile(0, txp, typ + 1);
-        p6_w_ghz2_floor_tile = floor;
-        if (floor == 0xFFFF) ++p6_w_ghz2_floor_empty;
+        // Scan FG-Low DOWNWARD from the player's feet row for the first solid
+        // tile -- "is there ground below the player to land on?". floor_tile = the
+        // dy (tiles below) to that ground (-1 = none within 12); floor_empty =
+        // frames with NO ground in reach (isolates window/layout-absent from a
+        // collision-not-catching bug).
+        int32 gdy = -1;
+        for (int32 d = 0; d <= 12; ++d) {
+            if ((int32)(unsigned)SaturnLayout_GetTile(0, txp, typ + d) != 0xFFFF) {
+                gdy = d;
+                break;
+            }
+        }
+        p6_w_ghz2_floor_tile = gdy;
+        if (gdy < 0) ++p6_w_ghz2_floor_empty;
         ++p6_w_ghz2_play_frames;
         if ((int32)sceneInfo.listPos != p6_w_ghz2_listpos)
             p6_w_ghz2_exit_lp = (int32)sceneInfo.listPos;
