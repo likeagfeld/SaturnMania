@@ -319,12 +319,16 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_objsec_loop1 -u _p6_w_objsec_loop2 -u _p6_w_objsec_loop3 \
     -u _p6_w_lay_slot_refills \
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \
+    -u _SaturnLayout_SlotLayer \
     -u _p6_w_transitions -u _p6_w_xtile_lo -u _p6_w_xtile_hi \
     -u _p6_w_ghz2_loaded -u _p6_w_ghz2_xtile_lo -u _p6_w_ghz2_xtile_hi \
     -u _p6_w_ghz2_entcount -u _p6_w_ghz2_plrx -u _p6_w_ghz2_plry \
     -u _p6_w_ghz2_listpos -u _p6_w_ghz2_play_frames -u _p6_w_ghz2_max_plry \
-    -u _p6_w_ghz2_floor_tile -u _p6_w_ghz2_floor_empty -u _p6_w_ghz2_exit_lp \
-    -u _p6_w_ghz2_g90scan \
+    -u _p6_w_ghz2_exit_lp \
+    -u _p6_w_ghz2_collplane -u _p6_w_ghz2_colllayers -u _p6_w_ghz2_tilecoll \
+    -u _p6_w_ghz2_floorlayer -u _p6_w_ghz2_fghigh_idx -u _p6_w_ghz2_fglow_tile \
+    -u _p6_w_ghz2_fghigh_tile -u _p6_w_ghz2_feetty -u _p6_w_ghz2_vely -u _p6_w_ghz2_tcoff \
+    -u _p6_w_ghz2_slot1layer \
     -u _p6_w_warp_plrx -u _p6_w_warp_signactive \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \

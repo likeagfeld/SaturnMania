@@ -278,3 +278,14 @@ extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty)
     uint16 w = W->win[(uint32)(ty - W->wy) * SATURNLAYOUT_WIN_COLS + (tx - W->wx)];
     return (uint16)((w >> 8) | (w << 8));
 }
+
+// #237 DIAGNOSTIC (cheap): which layer is a slot CURRENTLY bound to? The GHZ2
+// fall-through root cause is that the VDP2 present rebinds the SHARED slot 1 to
+// a hardcoded layer index; this lets the gate MEASURE (not assume) that slot 1
+// is bound to FG-High (the per-zone index) and not FG-Low.
+extern "C" int32 SaturnLayout_SlotLayer(int32 slot)
+{
+    if (slot < 0 || slot >= SATURNLAYOUT_SLOTS)
+        return -2;
+    return s_slots[slot].layer;
+}

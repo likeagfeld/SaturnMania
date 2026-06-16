@@ -1672,11 +1672,37 @@ extern int32 p6_w_ghz2_loaded;
 extern int32 p6_w_ghz2_listpos;
 extern int32 p6_w_ghz2_play_frames;
 extern int32 p6_w_ghz2_max_plry;
-extern int32 p6_w_ghz2_floor_tile;
-extern int32 p6_w_ghz2_floor_empty;
 extern int32 p6_w_ghz2_exit_lp;
+extern int32 p6_w_ghz2_collplane;
+extern int32 p6_w_ghz2_colllayers;
+extern int32 p6_w_ghz2_tilecoll;
+extern int32 p6_w_ghz2_floorlayer;
+extern int32 p6_w_ghz2_fghigh_idx;
+extern int32 p6_w_ghz2_fglow_tile;
+extern int32 p6_w_ghz2_fghigh_tile;
+extern int32 p6_w_ghz2_feetty;
+extern int32 p6_w_ghz2_vely;
+extern int32 p6_w_ghz2_tcoff;
 extern "C" unsigned short SaturnLayout_GetTile(int, int, int);
+extern "C" int SaturnLayout_SlotLayer(int);
+extern int32 p6_w_ghz2_slot1layer;
 #endif
+
+// #237/#180 FIX: the per-zone FG-Low tile-layer index -- the layer
+// LoadSceneFolder bound to SaturnLayout slot 0 (Scene.cpp:450-452). GHZ1=3,
+// GHZ2=4. The VDP2 present (p6_vdp2_present_ghz_camera) rebinds the SHARED
+// SaturnLayout slots 0/1 to (layer, layer+1); passing a hardcoded 3 bound slot 1
+// to GHZ2's layer 4 (FG-Low) instead of layer 5 (FG-High), clobbering the
+// player's FG-High floor reads -> the player tunnelled through the GHZ2 spawn
+// floor and died on repeat. Deriving the index from saturnSlot makes the present
+// rebind the SAME per-zone FG layers the collision uses (GHZ1 unchanged at 3).
+static int p6_fglow_layer_index(void)
+{
+    for (int l = 0; l < 8; ++l)
+        if (tileLayers[l].saturnSlot == 0)
+            return l;
+    return 3; // GHZ1 default if no slot-0 bind yet
+}
 
 static void p6_ghz_frame(void)
 {
@@ -1731,23 +1757,88 @@ static void p6_ghz_frame(void)
     if (p6_w_ghz2_loaded && p6_w_ghz2_exit_lp < 0) {
         EntityBase *plr = RSDK_ENTITY_AT(0);
         int32 yy  = (int32)(plr->position.y >> 16);
-        int32 txp = (int32)((plr->position.x >> 16) / 16);
-        int32 typ = yy / 16;
         if (yy > p6_w_ghz2_max_plry) p6_w_ghz2_max_plry = yy;
-        // Scan FG-Low DOWNWARD from the player's feet row for the first solid
-        // tile -- "is there ground below the player to land on?". floor_tile = the
-        // dy (tiles below) to that ground (-1 = none within 12); floor_empty =
-        // frames with NO ground in reach (isolates window/layout-absent from a
-        // collision-not-catching bug).
-        int32 gdy = -1;
-        for (int32 d = 0; d <= 12; ++d) {
-            if ((int32)(unsigned)SaturnLayout_GetTile(0, txp, typ + d) != 0xFFFF) {
-                gdy = d;
-                break;
+        p6_w_ghz2_collplane  = (int32)plr->collisionPlane;
+        p6_w_ghz2_colllayers = (int32)plr->collisionLayers;
+        p6_w_ghz2_tilecoll   = (int32)plr->tileCollisions;
+
+        // #237 DECISIVE: faithful FindFloorPosition replica (Collision.cpp:2162-
+        // 2230) at the player's FEET, EVERY tick. The old scan above conflated
+        // "a tile exists (!=0xFFFF)" with "a floor exists (tile & solid)" -- the
+        // GHZ2 spawn FG-Low tile 0x2001 is bit13 (ceiling-A) ONLY, NOT bit12
+        // (floor-A), so a falling player passes through it. The actual spawn
+        // floor is FG-High 0x7413 (bit12 set). This replica asks the engine's
+        // EXACT question: across every collisionLayer the player carries, with
+        // the player's plane+tileCollisions, is there a tile under the feet with
+        // the floor-solid bit set? floorlayer stays -1 across the whole descent
+        // == the engine never sees a floor == fall-through PROVEN (and the raw
+        // FG-Low/High tiles + solidmask + colllayers say WHY).
+        {
+            // solid mask: REV0U down(=1)->plane?bit14:bit12 ; up->plane?bit15:bit13
+            int32 plane = (int32)plr->collisionPlane;
+            int32 tc    = (int32)plr->tileCollisions;
+            int32 solid = (tc == 1) ? (plane ? 0x4000 : 0x1000)
+                                    : (plane ? 0x8000 : 0x2000);
+            // feet column; FG layer position is 0 so tile coords are absolute.
+            int32 fx  = (int32)(plr->position.x >> 16);
+            int32 fy  = (int32)(plr->position.y >> 16) + 19; // Sonic box bottom
+            int32 ftx = fx / 16;
+            int32 fty = fy / 16;
+            // Resolve the FG-High layer index once (saturnSlot 1 = the floor at
+            // the GHZ2 spawn); the reader checks it against collisionLayers.
+            if (p6_w_ghz2_fghigh_idx < 0) {
+                for (int32 l = 0; l < 8; ++l)
+                    if (tileLayers[l].saturnSlot == 1) p6_w_ghz2_fghigh_idx = l;
             }
+            // The engine's exact loop: for each collisionLayer, read the feet
+            // tile (and the two rows below, matching the 3-step cy sweep) and
+            // test floor-solidity. tc==0 == tileCollisions OFF == the engine
+            // never runs FindFloorPosition for this entity (it falls); count
+            // those ticks so "collision disabled" is distinguishable from
+            // "collision on but no floor under the feet".
+            int32 found = -1;
+            if (tc == 0) {
+                ++p6_w_ghz2_tcoff;
+            } else {
+                for (int32 l = 0; l < 8 && found < 0; ++l) {
+                    if (!((int32)plr->collisionLayers & (1 << l))) continue;
+                    int32 slot = tileLayers[l].saturnSlot;
+                    int32 lx   = ftx - (int32)(tileLayers[l].position.x / 16);
+                    int32 lyt  = fty - (int32)(tileLayers[l].position.y / 16);
+                    for (int32 d = -1; d <= 2 && found < 0; ++d) {
+                        uint16 tile;
+                        if (tileLayers[l].layout)
+                            tile = 0xFFFF; // small native layer (memset 0xFF) = empty
+                        else if (slot >= 0)
+                            tile = SaturnLayout_GetTile(slot, lx, lyt + d);
+                        else
+                            continue;
+                        if (tile != 0xFFFF && (tile & solid)) found = l;
+                    }
+                }
+                if (found >= 0) {
+                    if (p6_w_ghz2_floorlayer < 0) p6_w_ghz2_floorlayer = found;
+                } else if (p6_w_ghz2_floorlayer == -2) {
+                    p6_w_ghz2_floorlayer = -1; // collision ON, but no floor yet
+                }
+            }
+            // Snapshot the raw feet tiles + velocity ONCE, the first tick the
+            // feet enter the spawn floor band (ty 84..93) -- the moment a working
+            // collision WOULD catch him.
+            if (p6_w_ghz2_feetty < 0 && fty >= 84 && fty <= 93) {
+                p6_w_ghz2_feetty     = fty;
+                p6_w_ghz2_vely       = (int32)(plr->velocity.y >> 8);
+                p6_w_ghz2_fglow_tile = (int32)(unsigned)SaturnLayout_GetTile(0, ftx, fty);
+                p6_w_ghz2_fghigh_tile= (int32)(unsigned)SaturnLayout_GetTile(1, ftx, fty);
+            }
+            (void)found;
         }
-        p6_w_ghz2_floor_tile = gdy;
-        if (gdy < 0) ++p6_w_ghz2_floor_empty;
+
+        // #237: measure which layer slot 1 is CURRENTLY bound to (the present
+        // rebinds it). Should be the FG-High index (5 for GHZ2); if it reads 4
+        // (FG-Low) the present clobbered the collision binding -> fall-through.
+        p6_w_ghz2_slot1layer = (int32)SaturnLayout_SlotLayer(1);
+
         ++p6_w_ghz2_play_frames;
         if ((int32)sceneInfo.listPos != p6_w_ghz2_listpos)
             p6_w_ghz2_exit_lp = (int32)sceneInfo.listPos;
@@ -1763,7 +1854,7 @@ static void p6_ghz_frame(void)
     {
         unsigned int ph = 0;
         int nb = 0;
-        p6_vdp2_present_ghz_camera(3 /* FG Low */,
+        p6_vdp2_present_ghz_camera(p6_fglow_layer_index() /* per-zone FG Low */,
                                    screens[0].position.x,
                                    screens[0].position.y,
                                    (const unsigned short *)fullPalette[0],
@@ -2713,7 +2804,7 @@ extern "C" void p6_scene_run(void)
             {
                 unsigned int ph = 0;
                 int nb = 0;
-                p6_vdp2_present_ghz_camera(3 /* FG Low */,
+                p6_vdp2_present_ghz_camera(p6_fglow_layer_index() /* per-zone FG Low */,
                                            screens[0].position.x,
                                            screens[0].position.y,
                                            (const unsigned short *)fullPalette[0],
@@ -3173,15 +3264,24 @@ __attribute__((used)) int32 p6_w_ghz2_plry     = 0;  // SLOT_PLAYER1 spawn y at 
 __attribute__((used)) int32 p6_w_ghz2_listpos    = -1; // listPos of the loaded GHZ2 scene
 __attribute__((used)) int32 p6_w_ghz2_play_frames = 0; // frames GHZ2 was the live scene
 __attribute__((used)) int32 p6_w_ghz2_max_plry   = 0;  // MAX player y px during GHZ2 (fall depth; spawn=1358)
-__attribute__((used)) int32 p6_w_ghz2_floor_tile = -1; // last FG-Low tile under the player's feet (0xFFFF=empty)
-__attribute__((used)) int32 p6_w_ghz2_floor_empty = 0; // frames the floor under the player read EMPTY
 __attribute__((used)) int32 p6_w_ghz2_exit_lp    = -1; // listPos GHZ2 advanced TO (set once on exit)
-// #237 H1/H2: at GHZ2 LOAD, scan FG-Low downward (ty 80..120) for the first
-// solid tile at 6 x-columns across the level (tile 16/24/32/48/64/96). Each
-// entry = the ground ty found (-1 = NO ground in that column). Ground only near
-// the spawn (16) => H1 GHZ2LAYT.BIN content incomplete; ground across all x but
-// runtime-empty => H2 window streaming.
-__attribute__((used)) int32 p6_w_ghz2_g90scan[6] = { -2, -2, -2, -2, -2, -2 };
+__attribute__((used)) int32 p6_w_ghz2_collplane  = -1; // EntityBase.collisionPlane (0=A,1=B)
+__attribute__((used)) int32 p6_w_ghz2_colllayers = -1; // EntityBase.collisionLayers bitmask
+__attribute__((used)) int32 p6_w_ghz2_tilecoll   = -1; // EntityBase.tileCollisions (0=OFF,1=DOWN,2=UP)
+// #237 DECISIVE FindFloorPosition replica (see p6_ghz_frame). floorlayer is the
+// verdict: -2 replica never ran (collision OFF every tick -> see tcoff), -1 ran
+// but NO floor under the feet across the whole descent (== fall-through PROVEN),
+// >=0 the layer index whose tile had the floor-solid bit (collision SHOULD have
+// caught him -> bug is downstream). The reader derives the solid mask from
+// collplane+tilecoll; fghigh_idx is checked against colllayers.
+__attribute__((used)) int32 p6_w_ghz2_floorlayer = -2; // -2 none-run / -1 no-floor / >=0 layer
+__attribute__((used)) int32 p6_w_ghz2_fghigh_idx = -1; // tileLayers index w/ saturnSlot 1 (FG-High)
+__attribute__((used)) int32 p6_w_ghz2_fglow_tile = -1; // raw FG-Low tile at spawn-band feet
+__attribute__((used)) int32 p6_w_ghz2_fghigh_tile= -1; // raw FG-High tile at spawn-band feet
+__attribute__((used)) int32 p6_w_ghz2_feetty     = -1; // feet tile row at the snapshot
+__attribute__((used)) int32 p6_w_ghz2_vely       = 0;  // player velocity.y>>8 at snapshot
+__attribute__((used)) int32 p6_w_ghz2_tcoff      = 0;  // ticks tileCollisions was OFF (==falls)
+__attribute__((used)) int32 p6_w_ghz2_slot1layer = -9; // layer slot1 bound to (5=FG-High ok, 4=FG-Low bug)
 
 // P6.8 Step F.2 (Task #231): swap the windowed layout BAND STORE for the scene
 // currently selected by sceneInfo.listPos. The Saturn windowed layout (collision
@@ -3304,20 +3404,6 @@ static void p6_scene_load_and_arm(void)
         p6_w_ghz2_entcount = n;
         p6_w_ghz2_plrx     = RSDK_ENTITY_AT(0)->position.x;
         p6_w_ghz2_plry     = RSDK_ENTITY_AT(0)->position.y;
-        // #237 H1/H2: at load (window fresh, refills any x), scan 6 x-columns
-        // across the level for ground (first solid FG-Low in ty 80..120).
-        {
-            static const int32 cols[6] = { 16, 24, 32, 48, 64, 96 };
-            for (int32 c = 0; c < 6; ++c) {
-                int32 fnd = -1;
-                for (int32 ty = 80; ty <= 120; ++ty)
-                    if ((int32)(unsigned)SaturnLayout_GetTile(0, cols[c], ty) != 0xFFFF) {
-                        fnd = ty;
-                        break;
-                    }
-                p6_w_ghz2_g90scan[c] = fnd;
-            }
-        }
     }
 #endif
 }
