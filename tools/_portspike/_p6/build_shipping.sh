@@ -24,6 +24,17 @@ set -eu
 
 CC=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-gcc-8.2.0
 
+# #246 (MEASURED): the SHIPPING production frame SKIPS the diagnostic census +
+# hog-locator + ActClear/SignPost scans in p6_ghz_frame -- two full
+# ENTITY_COUNT(1216)-slot entity-table scans = a measured 5.08ms tail of
+# read-only diagnostics with ZERO render/gameplay effect. Cutting them flipped
+# GHZ fps 29.92 -> 48.91 in-motion (the diagnostic-tail experiment, commit
+# 3e57818, PROVED the 30fps was master compute-overrun, not VDP1). Default-ON for
+# shipping, overridable: build `-e P6_NOSCAN=` (empty) to profile the shipping
+# flavor WITH the in-range/hog/sign witnesses. The diag flavor (make P6SCENE=1)
+# always keeps them. set -u-safe: ${VAR-default} expands only when UNSET.
+export P6_NOSCAN="${P6_NOSCAN-1}"
+
 echo "[1/5] proof pack (engine TUs, ld -r gc-pack; -u p6_engine_boot_and_run root) ..."
 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
 
