@@ -77,7 +77,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # P6.8 F.2-followup: P6_WARP=1 instead builds the debug-warp variant (teleport the
 # player to the GHZ1 signpost). The two are MUTUALLY EXCLUSIVE (build_diag.sh sets
 # exactly one); shipping leaves both unset.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."

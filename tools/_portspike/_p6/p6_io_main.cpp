@@ -3244,7 +3244,7 @@ static void p6_ghz_reload(void)
     // identical across categories (folder/id == "GHZ"/"1" -> same Scene1.bin),
     // so this changes ONLY the act-advance target -- zero GHZ1-gameplay change.
     // Fallback to any GHZ1 (old behavior) if no adjacent GHZ1->GHZ2 pair exists.
-    int32 found = 0, fb_c = -1, fb_i = -1;
+    int32 found = 0, fb_c = -1, fb_i = -1, ghz2_pos = -1;
     for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
         SceneListInfo *cat = &sceneInfo.listCategory[c];
         for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
@@ -3257,6 +3257,7 @@ static void p6_ghz_reload(void)
                 && sceneInfo.listData[i + 1].id[0] == '2') {
                 sceneInfo.activeCategory = c;
                 sceneInfo.listPos        = i;
+                ghz2_pos                 = i + 1; // #237: the adjacent GHZ2 entry
                 found                    = 1;
                 break;
             }
@@ -3269,6 +3270,16 @@ static void p6_ghz_reload(void)
     }
     if (!found)
         return;
+#if defined(P6_GHZ2_BOOT)
+    // #237 GHZ2 play measurement: boot GHZ2 DIRECTLY as the continuous scene
+    // instead of GHZ1. p6_scene_load_and_arm + p6_layout_mount_for_scene are
+    // scene-generic (band store keyed on <folder><id>LAYT.BIN -> GHZ2LAYT.BIN),
+    // so this loads the IDENTICAL GHZ2 state the real signpost transition reaches
+    // (both route through p6_scene_load_and_arm with listPos -> GHZ2). Diag-only
+    // toggle (env P6_GHZ2_BOOT=1); default boots GHZ1.
+    if (ghz2_pos >= 0)
+        sceneInfo.listPos = ghz2_pos;
+#endif
     p6_scene_load_and_arm();
     p6_ghz_continuous_armed = 1;
 }
