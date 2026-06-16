@@ -482,3 +482,71 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
     p6_present_compute(layer, scroll_x, scroll_y, pal565, out_pndhash, out_nblank);
     p6_present_config(scroll_x, scroll_y);
 }
+
+/* ============================================================================
+ * A2 (dual-SH2 STEP A, #246): run p6_present_compute on the SLAVE SH-2, forked
+ * mid-frame (after ProcessObjects, parallel with the master's DrawLists). The
+ * pack calls p6_present_kick() right after ProcessObjects, then runs DrawLists,
+ * then p6_present_join_config(). The 4.6ms present hides under DrawLists' 10.2ms
+ * -> master frame 23.4 -> ~18.8ms (then STEP B's ~2ms cut crosses the cliff).
+ *
+ * Why mid-frame, not jo's frame-start auto fork-join: the present binds the
+ * SaturnLayout slots 0/1 SHARED with the collision path in ProcessObjects (the
+ * Task #237 GHZ2 fall-through). Forking at frame start would race collision on
+ * those slots. After ProcessObjects collision is done; the slave present owns the
+ * slots while master DrawLists (SaturnSheet, not SaturnLayout) runs in parallel,
+ * and the inflate scratch is free (sheets resident -> DrawLists never inflates).
+ *
+ * COHERENCY (ST-202: no bus snooping): args master->slave via a CACHE-THROUGH
+ * struct. Outputs: PND page = P6_FG_PAGE cache-through cart (DMA reads it); CRAM
+ * = uncached I/O; the SaturnLayout window is slave-internal (collision refills
+ * its OWN next frame). The master sees the slave's WRAM writes after
+ * jo_core_wait_for_slave's slCashPurge at join. p6_fg_dma_pending (slave-set,
+ * master-vblank-read) gets an explicit cache-through store at join time too.
+ * ============================================================================ */
+/* NB: 'pal' is an SGL.H macro (#define pal COL_32K) -- NEVER use it as an
+ * identifier in an SGL-including TU; use palptr. core.h's jo_core_wait_for_slave
+ * decl is not visible in this TU's include set, so prototype it explicitly. */
+extern void jo_core_wait_for_slave(void);
+extern void jo_core_exec_on_slave(void (*cb)(void));
+static volatile struct { int layer, sx, sy; const unsigned short *palptr; } s_present_args;
+extern int p6_w_slave_ticks; /* pack liveness witness */
+
+/* Runs on the SLAVE (via slSlaveFunc). Reads args cache-through, runs compute,
+ * then MIRRORS the master-visible outputs cache-through. The slave reads each
+ * value back from its OWN cache (correct -- it just wrote it) and stores it
+ * through the |0x20000000 alias so it reaches WRAM regardless of the SH-2 cache
+ * write mode (write-back would otherwise leave the slave's stores in slave cache,
+ * invisible to the master vblank + the savestate). Game-critical: p6_fg_dma_pending
+ * (master vblank fires the FG DMA on it). Gate-critical: p6_w_fg_visok (the
+ * FG-correctness witness). The present's persistent state (s_last_ctx etc.) is
+ * slave-internal -- re-read by the slave next frame -- so it needs no mirror. */
+static void p6_present_slave_entry(void)
+{
+    volatile int *a = (volatile int *)((unsigned int)&s_present_args | 0x20000000u);
+    int layer = a[0], sx = a[1], sy = a[2];
+    const unsigned short *palptr = (const unsigned short *)a[3];
+    unsigned int hash; int nbl;
+    p6_present_compute(layer, sx, sy, palptr, &hash, &nbl);
+    *(volatile int *)((unsigned int)&p6_fg_dma_pending | 0x20000000u) = p6_fg_dma_pending;
+    *(volatile int *)((unsigned int)&p6_w_fg_visok     | 0x20000000u) = p6_w_fg_visok;
+    *(volatile int *)((unsigned int)&p6_w_fg_crosses   | 0x20000000u) = p6_w_fg_crosses;
+    { volatile int *t = (volatile int *)((unsigned int)&p6_w_slave_ticks | 0x20000000u);
+      *t = *t + 1; } /* liveness */
+}
+
+/* Pack-facing: publish args cache-through + fork the compute onto the slave. */
+void p6_present_kick(int layer, int sx, int sy, const unsigned short *palptr)
+{
+    volatile int *a = (volatile int *)((unsigned int)&s_present_args | 0x20000000u);
+    a[0] = layer; a[1] = sx; a[2] = sy; a[3] = (int)palptr;
+    jo_core_exec_on_slave(p6_present_slave_entry);
+}
+
+/* Pack-facing: join the slave (slCashPurge -> master sees its WRAM writes), then
+ * run the master-only NBG1 register config. Call AFTER the master's DrawLists. */
+void p6_present_join_config(int sx, int sy)
+{
+    jo_core_wait_for_slave();
+    p6_present_config(sx, sy);
+}

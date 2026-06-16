@@ -423,6 +423,12 @@ void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
 void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                                 const unsigned short *pal565,
                                 unsigned int *out_pndhash, int *out_nblank);
+// A2 (dual-SH2 STEP A, #246): the FG present split across the master frame --
+// p6_present_kick() forks p6_present_compute onto the SLAVE (after ProcessObjects),
+// the master runs DrawLists in parallel, then p6_present_join_config() joins the
+// slave (slCashPurge) + runs the master-only NBG1 register config.
+void p6_present_kick(int layer, int sx, int sy, const unsigned short *pal);
+void p6_present_join_config(int sx, int sy);
 // Boot/load cover: blank all VDP2 scroll+sprite display during the load phase so
 // the slow synchronous load shows a clean back-color, not NBG1's half-written VRAM
 // (the red/green static). The first GHZ present re-arms NBG1ON|SPRON.
@@ -1866,22 +1872,25 @@ static void p6_ghz_frame(void)
             p6_w_ghz2_exit_lp = (int32)sceneInfo.listPos;
     }
 #endif
+    // A2 (dual-SH2): fork the FG present-compute onto the SLAVE now -- after
+    // ProcessObjects (collision done -> SaturnLayout slots free) and BEFORE
+    // DrawLists, so the slave's ~4.6ms present runs in parallel with the master's
+    // ~10.2ms DrawLists (hiding under it) -> master frame 23.4 -> ~18.8ms. Camera
+    // is current (ProcessObjects already moved it this frame).
+    p6_present_kick(p6_fglow_layer_index() /* per-zone FG Low */,
+                    screens[0].position.x, screens[0].position.y,
+                    (const unsigned short *)fullPalette[0]);
+
     vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjectDrawLists();
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
     p6_w_perf_cyc_draw = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_draw = (int32)(vb1 - vb0);
 
-    // W16 camera-anchored FG present (FG Low, layer 3), tracking the live
-    // camera-driven screens[0].position.
+    // A2: join the slave present (slCashPurge -> master sees its WRAM writes) +
+    // run the master-only NBG1 register config. The present FRT now measures only
+    // the join wait (~0 -- the slave's 4.6ms finished under DrawLists' 10.2ms) +
+    // the register tail; the 4.6ms is OFF the master critical path.
     vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get();
-    {
-        unsigned int ph = 0;
-        int nb = 0;
-        p6_vdp2_present_ghz_camera(p6_fglow_layer_index() /* per-zone FG Low */,
-                                   screens[0].position.x,
-                                   screens[0].position.y,
-                                   (const unsigned short *)fullPalette[0],
-                                   &ph, &nb);
-    }
+    p6_present_join_config(screens[0].position.x, screens[0].position.y);
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
     p6_w_perf_cyc_present = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_present = (int32)(vb1 - vb0);
     p6_w_perf_cyc_total   = p6_w_perf_cyc_input + p6_w_perf_cyc_obj

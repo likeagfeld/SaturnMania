@@ -1274,15 +1274,14 @@ void jo_main(void)
                                          * in vblank (tear-free) + slScrPosNbg1. */
         jo_core_add_vblank_callback(p6_fg_vblank);
     }
-    /* Dual-SH2 STEP 1 (#246/#243): slave-CPU liveness probe. jo forks the slave
-     * (core.c:615 slSlaveFunc) before the master callback p6_scene_tick and joins
-     * after (core.c:628 jo_core_wait_for_slave -> slCashPurge). This trivial probe
-     * proves the slave runs + the coherency handoff works BEFORE the FG present is
-     * offloaded onto it (STEP A). Gate: tools/_portspike/qa_p6_slave.py. */
-    {
-        extern void p6_slave_probe(void); /* p6_perf.c: ++p6_w_slave_ticks cache-through */
-        jo_core_add_slave_callback(p6_slave_probe);
-    }
+    /* Dual-SH2 STEP A2 (#246/#243): the FG present runs on the slave, but dispatched
+     * MANUALLY mid-frame (p6_present_kick after ProcessObjects, p6_present_join_config
+     * after DrawLists) -- NOT via jo's frame-start auto fork-join. So we do NOT
+     * register a jo slave callback here: __slave_callbacks.count stays 0, jo's loop
+     * skips its auto kick/join (core.c:615/628), and the slave is free for our
+     * mid-frame slSlaveFunc. (Step 1's p6_slave_probe liveness proof, commit 56b6405,
+     * is retired now that the real present exercises the slave path + qa_p6_slave
+     * still confirms liveness via p6_w_slave_ticks bumped in p6_present_slave_entry.) */
     jo_core_add_callback(p6_scene_tick);
     jo_core_run();
     return;
