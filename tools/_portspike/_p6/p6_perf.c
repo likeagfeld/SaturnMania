@@ -70,3 +70,35 @@ int p6_perf_frt_cks(void)
 {
     return (int)((*P6_TCR) & P6_TCR_CKS);
 }
+
+/* ---------------------------------------------------------------------------
+ * Phase 1b (#243): VDP1 draw-completion peek -- the 2-VBLANK-LOCK discriminator.
+ * The 30fps is MEASURED to be a 2-vblank structural lock (a 4ms CPU cut moved
+ * fps 29.91->29.91, zero frames flipped to 1 vbl), so the frame is NOT CPU-
+ * throughput-bound. The remaining unknown is WHY slSynch's swap spans a second
+ * vblank: is VDP1 still rasterizing the prior frame's sprite command list when
+ * the CPU finishes (DRAW-BOUND -> slSynch waits on VDP1), or is VDP1 already
+ * idle and the swap is merely waiting on the vblank boundary (SWAP CADENCE)?
+ *
+ * VDP1 status registers (ST-013-R3 VDP1 user manual; vdp1-reference.md:20-22,
+ * 151-153). Base 0x05D00000:
+ *   0x10 EDSR (R) -- transfer end status. bit1 CEF "current frame End Flag" =1
+ *        when VDP1 has reached the End command / finished drawing the current
+ *        frame; bit0 BEF = previous frame. "Drawing must complete before V-blank
+ *        for tear-free display" -- CEF=0 at compute-done == VDP1 overrun.
+ *   0x12 LOPR (R) -- last operation command address (the command-list END).
+ *   0x14 COPR (R) -- current operation command address (how far VDP1 has reached;
+ *        COPR<LOPR => still drawing). COPR/LOPR sizes the overrun severity.
+ * These A-Bus I/O registers are NOT cached -- a plain volatile read is coherent
+ * (no 0x20000000 alias). READ-ONLY: we never write VDP1 state. The pack TU
+ * (p6_io_main.cpp) calls these extern "C" at the end of p6_ghz_frame, the latest
+ * point before the implicit slSynch, and accumulates CEF done/busy counters into
+ * WRAM-H witnesses (the registers are live state, not serialized into the
+ * savestate). */
+#define P6_VDP1_EDSR ((volatile unsigned short *)0x05d00010u)
+#define P6_VDP1_LOPR ((volatile unsigned short *)0x05d00012u)
+#define P6_VDP1_COPR ((volatile unsigned short *)0x05d00014u)
+
+unsigned short p6_perf_vdp1_edsr(void) { return *P6_VDP1_EDSR; }
+unsigned short p6_perf_vdp1_lopr(void) { return *P6_VDP1_LOPR; }
+unsigned short p6_perf_vdp1_copr(void) { return *P6_VDP1_COPR; }

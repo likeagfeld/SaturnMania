@@ -697,6 +697,17 @@ __attribute__((used)) int32 p6_w_perf_cks         = -1; // FRT divider select (0
 __attribute__((used)) int32 p6_w_perf_vbl_frame   = 0;  // vblanks consumed inside p6_ghz_frame
 __attribute__((used)) int32 p6_w_perf_vbl_jo      = 0;  // vblanks in the jo loop body (~slSynch)
 __attribute__((used)) int32 p6_w_perf_vbl_jo_max  = 0;  // worst jo-loop (slSynch) slip
+// Phase 1b (#243): VDP1 draw-completion at compute-done -- the 2-VBLANK-LOCK
+// discriminator. A 4ms CPU cut moved fps 29.91->29.91 (0 frames -> 1 vbl) so the
+// 30fps is NOT CPU-bound. EDSR.CEF (bit1) read at the END of p6_ghz_frame (the
+// latest point before the implicit slSynch) tells whether VDP1 still draws the
+// prior sprite list: CEF=0 busy => DRAW-BOUND (slSynch waits on VDP1); CEF=1 done
+// => the 2nd vbl is swap cadence. COPR/LOPR (when busy) size the overrun.
+__attribute__((used)) int32 p6_w_perf_v1_done = 0;  // frames VDP1 done (CEF=1) at compute-done
+__attribute__((used)) int32 p6_w_perf_v1_busy = 0;  // frames VDP1 still drawing (CEF=0)
+__attribute__((used)) int32 p6_w_perf_v1_copr = 0;  // last COPR when busy (cmd-list progress)
+__attribute__((used)) int32 p6_w_perf_v1_lopr = 0;  // last LOPR when busy (cmd-list end)
+__attribute__((used)) int32 p6_w_perf_v1_edsr = 0;  // last raw EDSR (sanity)
 // Phase 2b: per-section VBLANK deltas (overflow-immune). The FRT /32 wraps at
 // 78 ms, so the FRC per-section deltas UNDERCOUNT any section that exceeds that
 // (multi-wrap); the vbl_frame=77 vs cyc-sum=7 reconciliation proved one section
@@ -1323,6 +1334,9 @@ extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous s
 extern "C" unsigned short p6_perf_frt_get(void);  // coherent 16-bit FRC read
 extern "C" int            p6_perf_frt_cks(void);  // FRT divider (TCR CKS bits)
 extern volatile unsigned int p6_perf_vbl_count;   // ++ at hardware 60 Hz
+extern "C" unsigned short p6_perf_vdp1_edsr(void); // VDP1 EDSR (CEF bit1 = draw done)
+extern "C" unsigned short p6_perf_vdp1_lopr(void); // VDP1 cmd-list END address
+extern "C" unsigned short p6_perf_vdp1_copr(void); // VDP1 current cmd address
 // P6.7 W7: game-side input-pointer witness (p6_wave1_reg.c) + the Saturn
 // SMPC device backend (platform/Saturn/InputDevice_Saturn.cpp). The settle
 // busy-wait MUST run before p6_load_phase_enter (it waits on SGL's
@@ -2014,6 +2028,26 @@ static void p6_ghz_frame(void)
             p6_w_perf_vbl_max = slip;
         if (p6_w_perf_cks < 0)
             p6_w_perf_cks = p6_perf_frt_cks();
+    }
+
+    // Phase 1b (#243): VDP1 draw-completion at compute-done -- the 2-VBLANK-LOCK
+    // discriminator. This is the LATEST point before the implicit slSynch (the jo
+    // loop calls slSynch immediately after this callback returns, core.c:632).
+    // EDSR.CEF (bit1) reports whether VDP1 has finished rasterizing the PRIOR
+    // frame's sprite command list (kicked by the previous slSynch's PTMR):
+    // CEF=0 => still drawing => slSynch's swap waits on VDP1 (DRAW-BOUND); CEF=1
+    // => VDP1 idle => the 2nd vblank is swap cadence. COPR/LOPR (when busy) size
+    // the overrun. Read-only VDP1 register peek (vdp1-reference.md:20-22,151-153).
+    {
+        unsigned short edsr = p6_perf_vdp1_edsr();
+        p6_w_perf_v1_edsr = (int32)edsr;
+        if (edsr & 0x0002u) {            // CEF set => VDP1 finished the prior frame
+            ++p6_w_perf_v1_done;
+        } else {                         // CEF clear => VDP1 still drawing at slSynch
+            ++p6_w_perf_v1_busy;
+            p6_w_perf_v1_copr = (int32)p6_perf_vdp1_copr();
+            p6_w_perf_v1_lopr = (int32)p6_perf_vdp1_lopr();
+        }
     }
 
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID

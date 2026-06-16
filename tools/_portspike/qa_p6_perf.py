@@ -61,7 +61,13 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         "_p6_w_obj_classcnt",
         "_p6_w_objupd_topclass", "_p6_w_objupd_topvbl", "_p6_w_objupd_topn",
         "_p6_w_objupd_topus", "_p6_w_objupd_us", "_p6_w_objupd_n",
-        "_p6_w_hog_cid", "_p6_w_hog_x", "_p6_w_hog_y", "_p6_w_obj_refills"]
+        "_p6_w_hog_cid", "_p6_w_hog_x", "_p6_w_hog_y", "_p6_w_obj_refills",
+        # Phase 1b (#243): VDP1 draw-completion at compute-done -- the 2-vblank
+        # discriminator. EDSR.CEF (bit1) sampled at end of p6_ghz_frame (just
+        # before slSynch): CEF=0 => VDP1 still rasterizing the prior sprite list
+        # => DRAW-BOUND; CEF=1 => VDP1 kept up => the 2nd vbl is swap cadence.
+        "_p6_w_perf_v1_done", "_p6_w_perf_v1_busy",
+        "_p6_w_perf_v1_copr", "_p6_w_perf_v1_lopr", "_p6_w_perf_v1_edsr"]
 
 
 def main(argv):
@@ -134,6 +140,12 @@ def main(argv):
     # once the N-way window cache lets the two positions co-reside and SWAP.
     objr = v.get("_p6_w_obj_refills")
     m5 = (objr is not None and objr == 0)
+    # M6 (Phase 1b #243): VDP1 draw-completion sampled. RED while uninstrumented
+    # (witnesses absent); GREEN once done+busy frames were counted. This is the
+    # measurement that localizes the 2-vblank lock (draw-bound vs swap cadence).
+    v1d = v.get("_p6_w_perf_v1_done")
+    v1b = v.get("_p6_w_perf_v1_busy")
+    m6 = (v1d is not None and v1b is not None and (v1d + v1b) > 0)
 
     checks = [
         ("M2 instrumentation measuring (frames>0, vblanks>0, cyc_total>0)", m2,
@@ -144,6 +156,8 @@ def main(argv):
          "present_refills=%s present=%s vbl/frame" % (prf, pvp)),
         ("M5 collision window CACHED (0 ProcessObjects inflates/frame)", m5,
          "obj_refills=%s" % (objr,)),
+        ("M6 VDP1 draw-completion sampled (done+busy>0)", m6,
+         "v1_done=%s v1_busy=%s" % (v1d, v1b)),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:
@@ -304,6 +318,61 @@ def main(argv):
             print("    -> %.0f%% of ProcessObjects = the two full entity-table "
                   "scans, NOT game logic (%.2f ms)."
                   % (100.0 * (l1 - upd + l3) / tot, us(upd) / 1000.0))
+        # Phase 1b (#243): the 2-VBLANK-LOCK discriminator. A 4ms CPU cut moved
+        # fps 29.91->29.91 (zero frames flipped to 1 vbl) -> the 30fps is NOT CPU-
+        # bound. EDSR.CEF at compute-done (just before slSynch) decides WHY the
+        # frame holds 2 vblanks: VDP1 still drawing the prior sprite list (draw-
+        # bound -> cull/dirty-rect lever) vs VDP1 idle (swap cadence -> reorder).
+        v1d2 = v.get("_p6_w_perf_v1_done"); v1b2 = v.get("_p6_w_perf_v1_busy")
+        v1co = v.get("_p6_w_perf_v1_copr"); v1lo = v.get("_p6_w_perf_v1_lopr")
+        v1ed = v.get("_p6_w_perf_v1_edsr")
+        if v1d2 is not None and v1b2 is not None and (v1d2 + v1b2) > 0:
+            tot_s = v1d2 + v1b2
+            busy_pct = 100.0 * v1b2 / tot_s
+            print("  --- VDP1 DRAW-COMPLETION at compute-done (2-VBLANK-LOCK key) -")
+            print("    EDSR.CEF sampled at end of p6_ghz_frame, just before slSynch")
+            print("    (CEF=1 VDP1 finished prior sprite list; CEF=0 still drawing):")
+            print("      VDP1 DONE  (CEF=1, kept up) : %5d / %d frames (%.0f%%)"
+                  % (v1d2, tot_s, 100.0 - busy_pct))
+            print("      VDP1 BUSY  (CEF=0, drawing) : %5d / %d frames (%.0f%%)"
+                  % (v1b2, tot_s, busy_pct))
+            if v1lo:
+                print("      last-busy COPR/LOPR        : %d / %d  (~%.0f%% through "
+                      "the cmd list when CPU finished)"
+                      % ((v1co or 0), v1lo, 100.0 * (v1co or 0) / v1lo if v1lo else 0))
+            print("      last raw EDSR              : 0x%04X"
+                  % ((v1ed or 0) & 0xFFFF))
+            print("    VERDICT (the lever, MEASURED -- not guessed):")
+            if busy_pct >= 50.0:
+                print("      >> VDP1-DRAW-BOUND. VDP1 has NOT finished the prior")
+                print("         frame's sprite draw when the CPU is done; slSynch's")
+                print("         swap then waits on VDP1 -> the frame spans 2 vblanks.")
+                print("         LEVER = DRAW REDUCTION (sprite cull / dirty-rect /")
+                print("         fewer+larger VDP1 cmds), NOT CPU cuts, NOT swap reorder.")
+            else:
+                compute_ms = us(ct) / 1000.0
+                overrun = compute_ms - VBL_MS
+                print("      >> VDP1 KEEPS UP (idle at compute-done) -- NOT draw-bound.")
+                if overrun > 0.0:
+                    print("         COMPUTE-OVERRUN CLIFF: CPU compute (%.1f ms FRT-sum)"
+                          % compute_ms)
+                    print("         exceeds the %.1f ms vblank by %.1f ms, so slSynch swaps"
+                          % (VBL_MS, overrun))
+                    print("         a vblank LATE -> 2 vbl/frame = 30fps. This is a CLIFF:")
+                    print("         a cut < %.1f ms does NOTHING (frame stays 2 vbl -- why"
+                          % overrun)
+                    print("         the earlier 4ms cut showed 0 fps change); a cut >= %.1f"
+                          % overrun)
+                    print("         ms (target ProcessObjectDrawLists %dms + the bare entity"
+                          % round(us(cd) / 1000.0))
+                    print("         scan ~5.8ms) drops the frame to 1 vbl = 60fps.")
+                    print("         LEVER = CPU compute reduction (~%.1f ms), NOT draw cull"
+                          % overrun)
+                    print("         (VDP1 idle), NOT swap reorder.")
+                else:
+                    print("         compute is UNDER budget yet the swap lands late ->")
+                    print("         genuine SWAP CADENCE/PHASE: reorder so compute finishes")
+                    print("         before the target vblank. (Not CPU volume, not draw.)")
         print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
               % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
     else:
