@@ -1665,6 +1665,19 @@ static void p6_ghz_arm_env(void)
 // p6_perf_frt_get() guarantees each endpoint read is itself coherent.
 #define P6_FRT_DELTA(a, b) ((int32)(uint16)((unsigned)(b) - (unsigned)(a)))
 
+#if defined(P6_GHZ2_BOOT)
+// #237: GHZ2 play-probe witnesses (defined below near the GHZ2 load latch) --
+// forward-declared so the per-frame probe in p6_ghz_frame can reach them.
+extern int32 p6_w_ghz2_loaded;
+extern int32 p6_w_ghz2_listpos;
+extern int32 p6_w_ghz2_play_frames;
+extern int32 p6_w_ghz2_max_plry;
+extern int32 p6_w_ghz2_floor_tile;
+extern int32 p6_w_ghz2_floor_empty;
+extern int32 p6_w_ghz2_exit_lp;
+extern "C" unsigned short SaturnLayout_GetTile(int, int, int);
+#endif
+
 static void p6_ghz_frame(void)
 {
     unsigned short t0, t1;
@@ -1710,6 +1723,25 @@ static void p6_ghz_frame(void)
         p6_w_obj_refills = p6_w_lay_refills - _r0;
     }
     p6_w_perf_cyc_obj = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_obj = (int32)(vb1 - vb0);
+#if defined(P6_GHZ2_BOOT)
+    // #237: while GHZ2 is the live scene, does the player run on solid ground or
+    // fall into empty? ProcessObjects just moved the player + refilled the
+    // collision windows at its position, so sample the FG-Low tile under its feet
+    // (typ+1), track the fall depth, and latch the scene GHZ2 advances to.
+    if (p6_w_ghz2_loaded && p6_w_ghz2_exit_lp < 0) {
+        EntityBase *plr = RSDK_ENTITY_AT(0);
+        int32 yy  = (int32)(plr->position.y >> 16);
+        int32 txp = (int32)((plr->position.x >> 16) / 16);
+        int32 typ = yy / 16;
+        if (yy > p6_w_ghz2_max_plry) p6_w_ghz2_max_plry = yy;
+        int32 floor = (int32)(unsigned)SaturnLayout_GetTile(0, txp, typ + 1);
+        p6_w_ghz2_floor_tile = floor;
+        if (floor == 0xFFFF) ++p6_w_ghz2_floor_empty;
+        ++p6_w_ghz2_play_frames;
+        if ((int32)sceneInfo.listPos != p6_w_ghz2_listpos)
+            p6_w_ghz2_exit_lp = (int32)sceneInfo.listPos;
+    }
+#endif
     vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjectDrawLists();
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
     p6_w_perf_cyc_draw = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_draw = (int32)(vb1 - vb0);
@@ -3124,6 +3156,15 @@ __attribute__((used)) int32 p6_w_ghz2_xtile_hi = -1; // GHZ2 FG High @(16,86): 0
 __attribute__((used)) int32 p6_w_ghz2_entcount = -1; // GHZ2 scene entities with classID after InitObjects
 __attribute__((used)) int32 p6_w_ghz2_plrx     = 0;  // SLOT_PLAYER1 spawn x at GHZ2 load (fixed)
 __attribute__((used)) int32 p6_w_ghz2_plry     = 0;  // SLOT_PLAYER1 spawn y at GHZ2 load (fixed)
+// #237 GHZ2 continuous-PLAY probe (per-frame while GHZ2 is the loaded scene):
+// does the player run on solid ground (floor tile under its feet) or into empty
+// (-> falls -> dies -> game over -> Menu, the observed transition-away)?
+__attribute__((used)) int32 p6_w_ghz2_listpos    = -1; // listPos of the loaded GHZ2 scene
+__attribute__((used)) int32 p6_w_ghz2_play_frames = 0; // frames GHZ2 was the live scene
+__attribute__((used)) int32 p6_w_ghz2_max_plry   = 0;  // MAX player y px during GHZ2 (fall depth; spawn=1358)
+__attribute__((used)) int32 p6_w_ghz2_floor_tile = -1; // last FG-Low tile under the player's feet (0xFFFF=empty)
+__attribute__((used)) int32 p6_w_ghz2_floor_empty = 0; // frames the floor under the player read EMPTY
+__attribute__((used)) int32 p6_w_ghz2_exit_lp    = -1; // listPos GHZ2 advanced TO (set once on exit)
 
 // P6.8 Step F.2 (Task #231): swap the windowed layout BAND STORE for the scene
 // currently selected by sceneInfo.listPos. The Saturn windowed layout (collision
@@ -3236,6 +3277,7 @@ static void p6_scene_load_and_arm(void)
         && !strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "GHZ")
         && sceneInfo.listData[sceneInfo.listPos].id[0] == '2') {
         p6_w_ghz2_loaded   = 1;
+        p6_w_ghz2_listpos  = (int32)sceneInfo.listPos;
         p6_w_ghz2_xtile_lo = p6_w_xtile_lo;
         p6_w_ghz2_xtile_hi = p6_w_xtile_hi;
         int32 n = 0;
