@@ -3114,6 +3114,16 @@ __attribute__((used)) int32 p6_w_transitions = 0;
 // (empty) -- the discriminator for "player falls through GHZ2".
 __attribute__((used)) int32 p6_w_xtile_lo = -1; // GetTile(slot0 FG Low, 16, 90)
 __attribute__((used)) int32 p6_w_xtile_hi = -1; // GetTile(slot1 FG High,16, 86)
+// #237: STICKY latch of the GHZ2 LOAD state (set ONCE at the first GHZ2 load).
+// The non-sticky probes above get overwritten when the player drop+autoruns off
+// GHZ2 and the engine loads the next scene; these survive for a clean read of
+// "did GHZ2 load with solid collision + entities + the right spawn?".
+__attribute__((used)) int32 p6_w_ghz2_loaded   = 0;  // 1 == a GHZ2 load was latched
+__attribute__((used)) int32 p6_w_ghz2_xtile_lo = -1; // GHZ2 FG Low @(16,90): 0x2001 solid / 0xFFFF empty
+__attribute__((used)) int32 p6_w_ghz2_xtile_hi = -1; // GHZ2 FG High @(16,86): 0x7413 / 0xFFFF empty
+__attribute__((used)) int32 p6_w_ghz2_entcount = -1; // GHZ2 scene entities with classID after InitObjects
+__attribute__((used)) int32 p6_w_ghz2_plrx     = 0;  // SLOT_PLAYER1 spawn x at GHZ2 load (fixed)
+__attribute__((used)) int32 p6_w_ghz2_plry     = 0;  // SLOT_PLAYER1 spawn y at GHZ2 load (fixed)
 
 // P6.8 Step F.2 (Task #231): swap the windowed layout BAND STORE for the scene
 // currently selected by sceneInfo.listPos. The Saturn windowed layout (collision
@@ -3218,6 +3228,25 @@ static void p6_scene_load_and_arm(void)
         p6_w_xtile_lo = (int32)SaturnLayout_GetTile(0, 16, 90);
         p6_w_xtile_hi = (int32)SaturnLayout_GetTile(1, 16, 86);
     }
+#if defined(P6_GHZ2_BOOT)
+    // #237: latch THIS load's state ONCE if it is GHZ2 (folder/id == GHZ/2), so
+    // it survives the player's subsequent drop+autorun + scene transition. Entity
+    // census + spawn read after InitObjects (the same point W11b reads GHZ1).
+    if (!p6_w_ghz2_loaded
+        && !strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "GHZ")
+        && sceneInfo.listData[sceneInfo.listPos].id[0] == '2') {
+        p6_w_ghz2_loaded   = 1;
+        p6_w_ghz2_xtile_lo = p6_w_xtile_lo;
+        p6_w_ghz2_xtile_hi = p6_w_xtile_hi;
+        int32 n = 0;
+        for (int32 s = 0; s < SCENEENTITY_COUNT; ++s)
+            if (RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + s)->classID)
+                ++n;
+        p6_w_ghz2_entcount = n;
+        p6_w_ghz2_plrx     = RSDK_ENTITY_AT(0)->position.x;
+        p6_w_ghz2_plry     = RSDK_ENTITY_AT(0)->position.y;
+    }
+#endif
 }
 
 // P6.8 Step A (Task #211): p6_ghz_reload -- RE-LOAD GHZ as the FINAL live
