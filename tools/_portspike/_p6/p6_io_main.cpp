@@ -746,6 +746,15 @@ __attribute__((used)) int32 p6_w_perf_full_max  = 0; // worst-case compute-full
 __attribute__((used)) int32 p6_w_perf_head_frt  = 0; // entry -> ProcessInput (setup overhead)
 __attribute__((used)) int32 p6_w_perf_kick_frt  = 0; // p6_present_kick (slave fork dispatch)
 __attribute__((used)) int32 p6_w_perf_tail_frt  = 0; // present-end -> exit (census/EDSR/witness)
+// #243 band-crossing stall (user-felt: "fps gets really slow as I move forward /
+// as it renders the next part"). A crossing = obj_refills>0 (the SaturnLayout FG +
+// collision band store synchronously re-inflates for the new section, blocking the
+// frame). These isolate the crossing cost from the one-time boot frame so a gate
+// fires RED on ANY forward-progression run. Target: the resident-cart-layout fix
+// drives xing_max_frt to ~steady (no per-crossing inflate).
+__attribute__((used)) int32 p6_w_xing_count   = 0;  // frames with a band crossing (obj_refills>0)
+__attribute__((used)) int32 p6_w_xing_max_frt = 0;  // worst compute-full FRT on a crossing frame
+__attribute__((used)) int32 p6_w_xing_present_max = 0; // worst present-join FRT (FG band inflate wait)
 // Phase 2b: per-section VBLANK deltas (overflow-immune). The FRT /32 wraps at
 // 78 ms, so the FRC per-section deltas UNDERCOUNT any section that exceeds that
 // (multi-wrap); the vbl_frame=77 vs cyc-sum=7 reconciliation proved one section
@@ -1299,6 +1308,17 @@ __attribute__((used)) int32 p6_w_col_packedhash = 0;  // djb2 over the 65,536 B 
 __attribute__((used)) int32 p6_w_col_infohash   = 0;  // djb2 over the 10,240 B tileInfo window
 __attribute__((used)) int32 p6_w_col_probes     = -1; // accessor probes matched (exp 128)
 __attribute__((used)) int32 p6_w_col_firstbad   = -1; // first mismatching probe index
+// #249/#250 collision-geometry corruption PIN (qa_p6_collgeom RED). The lean boot
+// skips the diag block's step-9 hash, so these are the ONLY 0x060E0000 witnesses
+// in the shipping path. t1 = djb2 of packedCollisionMasks RIGHT AFTER the gameplay
+// LoadSceneFolder->LoadTileConfig (the pack); nowhash = the live djb2 at the latest
+// frame; badframe = the FIRST continuous frame the live hash diverges from the
+// GROUNDED golden 0x643A3A5D. t1 != golden => packed wrong at load (resident
+// pre-inflate disturbs the pack). t1 == golden && badframe >= 0 => packed RIGHT,
+// overwritten at frame `badframe` (a per-frame loop writer, not the packer).
+__attribute__((used)) int32 p6_w_col_t1hash   = 0;   // 0x060E0000 djb2 after gameplay LoadTileConfig
+__attribute__((used)) int32 p6_w_col_nowhash  = 0;   // 0x060E0000 djb2 at the latest frame
+__attribute__((used)) int32 p6_w_col_badframe = -1;  // first frame live hash != golden (-1 = never)
 // P6.7 W11a layout band store (qa_p6_layout.py).
 __attribute__((used)) int32 p6_w_lay_bytes    = -1;  // GFS bytes of cd/GHZ1LAYT.BIN
 __attribute__((used)) int32 p6_w_lay_hash     = 0;   // djb2 over the loaded band store
@@ -1948,6 +1968,10 @@ static void p6_ghz_frame(void)
     p6_present_join_config(screens[0].position.x, screens[0].position.y);
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
     p6_w_perf_cyc_present = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_present = (int32)(vb1 - vb0);
+    // #243 band-crossing: the present-join waits on the SLAVE's FG band inflate; it
+    // is ~0 normally but spikes on a section crossing -> the worst-join witness.
+    if (p6_w_cont_frames > 2 && p6_w_perf_cyc_present > p6_w_xing_present_max)
+        p6_w_xing_present_max = p6_w_perf_cyc_present;
     p6_w_perf_cyc_total   = p6_w_perf_cyc_input + p6_w_perf_cyc_obj
                           + p6_w_perf_cyc_draw + p6_w_perf_cyc_present;
 
@@ -2143,7 +2167,22 @@ static void p6_ghz_frame(void)
         if (p6_w_perf_full_frt > p6_w_perf_full_max)
             p6_w_perf_full_max = p6_w_perf_full_frt;
         p6_w_perf_tail_frt = P6_FRT_DELTA(t1, frame_t1);
+        // #243 band-crossing stall: a crossing = obj_refills>0 (SaturnLayout FG +
+        // collision band re-inflate). Track count + worst compute-full on crossing
+        // frames (excl. boot) -- the user-felt "slow as I move forward" target.
+        if (p6_w_cont_frames > 2 && p6_w_obj_refills > 0) {
+            ++p6_w_xing_count;
+            if (p6_w_perf_full_frt > p6_w_xing_max_frt)
+                p6_w_xing_max_frt = p6_w_perf_full_frt;
+        }
     }
+
+    // #249/#250: the per-frame packed-collision PIN hash (a 64 KB djb2 over
+    // 0x060E0000 every frame until divergence) is REMOVED -- it cost ~10.7 ms/frame
+    // (16.86 fps measured) and only existed to localize WHEN the corruption hit.
+    // ROOT CAUSE is fixed (resident pre-inflate deferred AFTER LoadTileConfig);
+    // don't-regress is the zero-runtime-cost qa_p6_collgeom capture gate + the
+    // one-time load-phase p6_w_col_t1hash. No per-frame collision hashing ships.
 }
 
 // Task #238: 4MB Extended RAM Cart probe. Write distinct sentinels to bank0/bank1
@@ -2264,8 +2303,11 @@ extern "C" void p6_scene_run(void)
             extern int32 SaturnLayout_Mount(const void *blob);
             extern void SaturnLayout_SetScratch(void **bufp, uint32 cap);
             static void *p6_layScratch = (void *)P6_LW_LAYSCRATCH;
-            SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS);
+            // #249: SetScratch BEFORE Mount so Mount's resident pre-inflate (the
+            // band-crossing fix) HAS the inflate scratch; otherwise every layer
+            // stays band-inflate (s_layer_res=0) and the per-crossing stall persists.
             SaturnLayout_SetScratch(&p6_layScratch, 0x8000);
+            SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS);
         }
     }
 
@@ -2329,19 +2371,24 @@ extern "C" void p6_scene_run(void)
         // SaturnSheet.cpp @0x227A0000), so TAILS1 stages ALONGSIDE the full
         // 6-sheet set -- SHIELDS is back (no trade). 7 sheets = 264,865 B inside
         // the 384 KB cart store. SATURNSHEET_SLOTS=8 holds 7.
-        static const char *shtFiles[7] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
+        // #247: GLOBJ.SHT (Global/Objects.gif) is the 8th sheet -- fills the last
+        // free SATURNSHEET_SLOTS slot (8). It is the shared sheet for the GHZ
+        // content GLOBAL objects (Spikes 2 frames, Spring, ...). Banded 12,605 B;
+        // total banded store now 277,470 B inside the 384 KB cart (fits).
+        static const char *shtFiles[8] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
                                            "ITEMS.SHT", "DISPLAY.SHT", "SHIELDS.SHT",
-                                           "TAILS1.SHT" };
+                                           "TAILS1.SHT", "GLOBJ.SHT" };
         // Engine PATH hashes (W12b): LoadSpriteSheet hashes the .bin-relative
         // sprite path -- these are what Player_StageLoad will resolve.
-        static const char *shtPaths[7] = { "Players/Sonic1.gif",
+        static const char *shtPaths[8] = { "Players/Sonic1.gif",
                                            "Players/Sonic2.gif",
                                            "Players/Sonic3.gif",
                                            "Global/Items.gif",
                                            "Global/Display.gif",
                                            "Global/Shields.gif",
-                                           "Players/Tails1.gif" };
-        for (int32 i = 0; i < 7; ++i) {
+                                           "Players/Tails1.gif",
+                                           "Global/Objects.gif" };
+        for (int32 i = 0; i < 8; ++i) {
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
                                                 (void *)P6_LW_ENTITYLIST, 0x10000);
             if (sn > 0) {
@@ -3425,6 +3472,7 @@ __attribute__((used)) int32 p6_w_ghz2_slot1layer = -9; // layer slot1 bound to (
 static char s_layout_tag[12] = "GHZ1"; // tag of the mounted store (boot mounts GHZ1)
 extern "C" int32 SaturnLayout_Mount(const void *blob); // file-scope (matches the C symbol)
 extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty); // F.2 diag probe
+extern "C" void SaturnLayout_PreInflateResident(void); // #249/#250 deferred resident pre-inflate
 
 static void p6_layout_mount_for_scene(void)
 {
@@ -3485,6 +3533,19 @@ static void p6_scene_load_and_arm(void)
     // zone reload (tag match); swaps GHZ1<->GHZ2 on a cross-zone act advance.
     p6_layout_mount_for_scene();
     LoadSceneFolder();
+    // #249/#250: pin the packed-collision geometry RIGHT AFTER the gameplay
+    // LoadTileConfig (nested in LoadSceneFolder, Scene.cpp:163-164). The lean boot
+    // skips the diag step-9 hash, so this is the ONLY witness of 0x060E0000 in the
+    // shipping pack path. t1hash != golden 0x643A3A5D => the resident pre-inflate
+    // (p6_layout_mount_for_scene -> SaturnLayout_Mount, run BEFORE this) corrupted
+    // the pack; == golden => packed RIGHT, any later corruption is a loop writer.
+    {
+        uint32 h = 5381u;
+        const uint8 *pb = (const uint8 *)P6_HW_PACKEDCOL;
+        for (int32 i = 0; i < 0x10000; ++i)
+            h = ((h << 5) + h) ^ pb[i];
+        p6_w_col_t1hash = (int32)h;
+    }
     // Stage the GHZ tile CELLS to NBG1 NOW (tilesetPixels is the W11b
     // load-phase transient aliasing the entityList window -- valid only
     // between LoadSceneFolder's GIF decode and LoadSceneAssets' memset).
@@ -3506,6 +3567,15 @@ static void p6_scene_load_and_arm(void)
     sceneInfo.entity          = RSDK_ENTITY_AT(0);
     InitObjects();
     p6_ghz_arm_env();
+    // #249/#250: run the resident layout pre-inflate (the band-crossing stall fix)
+    // NOW -- AFTER LoadTileConfig packed 0x060E0000 + LoadSceneFolder/Assets/Init-
+    // Objects finished every cart/heap allocation. MEASURED ROOT CAUSE: running it
+    // at boot (inside Mount, BEFORE LoadTileConfig) corrupted the packed collision
+    // (t1hash 0xFC30CD79 != golden, every real cell mis-encoded -> fall-through).
+    // Deferring it here finalizes the pack first; the pre-inflate then fills the
+    // cart resident store before the first p6_ghz_frame Refill. No-op when the
+    // resident path is disabled or scratch is unarmed. (Declared file-scope above.)
+    SaturnLayout_PreInflateResident();
     // F.2 diag: probe the windowed store at the spawn column right after the
     // mount+bind+InitObjects, to witness whether collision reads serve the
     // newly-loaded zone (GHZ2 FG Low ty=90 solid / FG High ty=86) or empty.

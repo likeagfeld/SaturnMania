@@ -91,7 +91,34 @@ __attribute__((used)) int32 p6_w_lay_slot_refills[2] = {0, 0};
 __attribute__((used)) int32 p6_w_lay_ring_wx[2][8] = {{0}};
 __attribute__((used)) int32 p6_w_lay_ring_wy[2][8] = {{0}};
 __attribute__((used)) int32 p6_w_lay_ring_pos[2] = {0, 0};
+// #249 band-crossing fix: count of layers made resident (diagnostic).
+__attribute__((used)) int32 p6_w_lay_resident = 0;
+// #249 ROOT-CAUSE self-check (cart resident store byte-exactness, FG-Low).
+__attribute__((used)) int32 p6_w_lay_resaddr  = 0;  // diagnostic cart address
+__attribute__((used)) int32 p6_w_lay_resmiss  = -1; // mismatching bytes (cart vs source)
+__attribute__((used)) int32 p6_w_lay_resfirst = -1; // first mismatching byte offset
+__attribute__((used)) int32 p6_w_lay_res_rv   = -1; // cart byte read at first mismatch
+__attribute__((used)) int32 p6_w_lay_res_bv   = -1; // source byte at first mismatch
 }
+
+// #249 band-crossing fix: each layer's FULL uncompressed layout, pre-inflated ONCE
+// into the cart resident store at Mount (via SaturnSheet's shared bump allocator),
+// so Refill copies the window slice DIRECTLY from resident pixels with NO
+// per-crossing mz_uncompress (the user-felt ~50ms stall on forward progression).
+// 0 = that layer did not fit the cart -> the band-inflate fallback still serves it
+// (byte-exact, just slower). Resident pixels are row-major (row r at r*xsize*2).
+extern "C" uint32 SaturnSheet_ResAlloc(uint32 bytes);
+static uint32 s_layer_res[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+// #249: the resident-cart stall fix corrupts the WRAM-H packed collision geometry
+// at 0x060E0000 (qa_p6_collgeom RED -> Sonic/Tails fall through). MEASURED so far:
+// the resident READ is byte-exact (self-check resmiss=0); band store intact; the
+// SHEET-SHIFT is RULED OUT (a dedicated bank-1 cart store, no shared-cursor bump,
+// was STILL RED). The corruption is some other interaction of "resident pre-inflate
+// active" with LoadTileConfig's 0x060E0000 packing -- patchy, not uniform. Until it
+// is cracked (t1 hash-after-LoadTileConfig + a write-watch), ship the proven
+// band-inflate path. 0 = OFF (collision correct, stall present). The dedicated bank-1
+// allocator below stays for the eventual re-enable.
+static int s_layResEnable = 1; // #249/#250 MEASUREMENT: resident ON to pin the 0x060E0000 corruption (t1hash/badframe)
 
 // band-inflate scratch: caller-provided (DATASET_TMP; the zone's largest raw
 // band -- GHZ 32,768 B). W11b: POINTER-INDIRECT -- the engine's storage GC
@@ -143,6 +170,18 @@ extern "C" int32 SaturnLayout_Mount(const void *blob)
         s_layers[i].dir = dir;
         dir += s_layers[i].bandCount * 12;
     }
+    // #249/#250: the resident pre-inflate is DEFERRED out of Mount --
+    // SaturnLayout_PreInflateResident() runs it AFTER LoadTileConfig has packed the
+    // collision geometry at 0x060E0000 (p6_scene_load_and_arm). MEASURED ROOT CAUSE
+    // (qa_p6_collpin on p6_collpin.mcs: t1hash=0xFC30CD79 != golden 0x643A3A5D,
+    // badframe=1, player y=2079 fell-through): running the pre-inflate BEFORE
+    // LoadTileConfig corrupts the pack -- every real collision cell mis-encoded
+    // (10731/10746) -> no floor. Mount only RESETS residency here; the proven
+    // band-inflate Refill serves every layer until the deferred pre-inflate
+    // populates s_layer_res[].
+    p6_w_lay_resident = 0;
+    for (int32 i = 0; i < 8; ++i)
+        s_layer_res[i] = 0;
     for (int32 s = 0; s < SATURNLAYOUT_SLOTS; ++s) {
         s_slots[s].layer = -1;
         s_slots[s].active = 0;
@@ -154,6 +193,50 @@ extern "C" int32 SaturnLayout_Mount(const void *blob)
         }
     }
     return s_layerCount;
+}
+
+// #249/#250: DEFERRED resident pre-inflate. Runs AFTER LoadTileConfig packs the
+// collision geometry (called at the END of p6_scene_load_and_arm) so the pack is
+// finalized before this touches the shared inflate heap / cart store -- the
+// MEASURED fix for the t1hash=0xFC30CD79 corruption. Pre-inflates each layer's
+// FULL row-major layout ONCE into the cart resident store so Refill copies window
+// slices with NO per-crossing mz_uncompress (the band-crossing stall fix). Any
+// layer that does not fit stays band-inflate. Requires Mount + SaturnLayout_Set-
+// Scratch to have run (reads s_layers[]/s_blob/s_scratchPtr/s_bandRows).
+extern "C" void SaturnLayout_PreInflateResident(void)
+{
+    uint8 *scratch = (s_layResEnable && s_scratchPtr) ? *s_scratchPtr : 0;
+    if (!scratch || !s_blob)
+        return;
+    // Dedicated bank-1 cart region 0x22600000..0x227A0000 (above the SaturnSheet
+    // residency, below the sheet staging). Local cursor -> resets each call.
+    uint32 layCartCur = 0x22600000u;
+    p6_w_lay_resident = 0;
+    for (int32 i = 0; i < s_layerCount; ++i) {
+        s_layer_res[i] = 0;
+        uint32 full = (uint32)s_layers[i].xsize * (uint32)s_layers[i].ysize * 2u;
+        if (layCartCur + full > 0x227A0000u)
+            continue; // dedicated region full -> band-inflate fallback
+        uint32 res = layCartCur;
+        layCartCur += (full + 3u) & ~3u;
+        uint8 *dst = (uint8 *)res;
+        int32 ok = 1;
+        for (int32 bnd = 0; bnd < (int32)s_layers[i].bandCount; ++bnd) {
+            const uint8 *e = s_layers[i].dir + bnd * 12;
+            uint32 off = be32(e), zsz = be32(e + 4), rsz = be32(e + 8);
+            if (rsz > s_scratchCap) { ok = 0; break; }
+            mz_ulong dl = rsz;
+            if (p6_mz_uncompress(scratch, &dl, s_blob + off, zsz) != MZ_OK) { ok = 0; break; }
+            uint32 bandOff = (uint32)bnd * (uint32)s_bandRows
+                           * (uint32)s_layers[i].xsize * 2u;
+            if (bandOff + rsz > full) { ok = 0; break; }
+            memcpy(dst + bandOff, scratch, rsz);
+        }
+        if (ok) {
+            s_layer_res[i] = res;
+            ++p6_w_lay_resident;
+        }
+    }
 }
 
 extern "C" void SaturnLayout_Bind(int32 slot, int32 layer)
@@ -190,6 +273,33 @@ static void SaturnLayout_Refill(int32 slotIdx, int32 layerIdx,
 
     int32 cols = (int32)L->xsize - wx;
     if (cols > SATURNLAYOUT_WIN_COLS) cols = SATURNLAYOUT_WIN_COLS;
+
+    // #249: resident fast path -- copy the window slice DIRECTLY from the
+    // pre-inflated full layout in the cart with NO per-crossing mz_uncompress.
+    // Byte-exact with the band path (identical uncompressed row-major data); a
+    // ~4 KB copy instead of a ~50 ms 3-band inflate -> the forward-progression
+    // stall dissolves (collision AND the FG present both re-window through here).
+    if (s_layer_res[layerIdx]) {
+        const uint8 *res = (const uint8 *)s_layer_res[layerIdx];
+        int32 rlast = wy + SATURNLAYOUT_WIN_ROWS;
+        if (rlast > (int32)L->ysize) rlast = (int32)L->ysize;
+        for (int32 r = wy; r < rlast; ++r) {
+            const uint8 *src = res + ((uint32)r * L->xsize + wx) * 2;
+            uint8 *dst = (uint8 *)(slot->win + (uint32)(r - wy) * SATURNLAYOUT_WIN_COLS);
+            memcpy(dst, src, (uint32)cols * 2);
+        }
+        slot->wx = wx;
+        slot->wy = wy;
+        ++p6_w_lay_refills;
+        if (slotIdx >= 0 && slotIdx < SATURNLAYOUT_SLOTS) {
+            int32 p = p6_w_lay_ring_pos[slotIdx] & 7;
+            p6_w_lay_ring_wx[slotIdx][p] = wx;
+            p6_w_lay_ring_wy[slotIdx][p] = wy;
+            p6_w_lay_ring_pos[slotIdx] = p + 1;
+            ++p6_w_lay_slot_refills[slotIdx];
+        }
+        return;
+    }
 
     int32 firstBand = wy / s_bandRows;
     int32 lastRow = wy + SATURNLAYOUT_WIN_ROWS - 1;

@@ -312,6 +312,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_perf_synch_frt -u _p6_w_perf_synch_max \
     -u _p6_w_perf_full_frt -u _p6_w_perf_full_max -u _p6_w_perf_head_frt \
     -u _p6_w_perf_kick_frt -u _p6_w_perf_tail_frt \
+    -u _p6_w_xing_count -u _p6_w_xing_max_frt -u _p6_w_xing_present_max \
     -u _p6_perf_vdp1_edsr -u _p6_perf_vdp1_lopr -u _p6_perf_vdp1_copr \
     -u _p6_w_slave_ticks \
     -u _p6_w_present_vbl_walk -u _p6_w_present_vbl_map \
@@ -325,6 +326,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_hog_cid -u _p6_w_hog_x -u _p6_w_hog_y -u _p6_w_obj_refills \
     -u _p6_w_objsec_loop1 -u _p6_w_objsec_loop2 -u _p6_w_objsec_loop3 \
     -u _p6_w_lay_slot_refills \
+    -u _p6_w_col_t1hash -u _p6_w_col_nowhash -u _p6_w_col_badframe \
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \
     -u _SaturnLayout_SlotLayer \
     -u _p6_w_transitions -u _p6_w_xtile_lo -u _p6_w_xtile_hi \
