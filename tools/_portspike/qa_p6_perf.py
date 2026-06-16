@@ -67,7 +67,15 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         # before slSynch): CEF=0 => VDP1 still rasterizing the prior sprite list
         # => DRAW-BOUND; CEF=1 => VDP1 kept up => the 2nd vbl is swap cadence.
         "_p6_w_perf_v1_done", "_p6_w_perf_v1_busy",
-        "_p6_w_perf_v1_copr", "_p6_w_perf_v1_lopr", "_p6_w_perf_v1_edsr"]
+        "_p6_w_perf_v1_copr", "_p6_w_perf_v1_lopr", "_p6_w_perf_v1_edsr",
+        # Phase 2c (#246): the DIRECT compute-full bracket (entry->exit), the
+        # jo-body/slSynch cross-frame measure, and the sub-attribution of the
+        # previously-unbracketed ~8ms gap (head/kick/tail). These REPLACE deriving
+        # compute-full (= frame - synch) with a measurement. The 5 new full/head/
+        # kick/tail symbols are absent on the pre-2c map -> M1 fires RED there.
+        "_p6_w_perf_synch_frt", "_p6_w_perf_synch_max",
+        "_p6_w_perf_full_frt", "_p6_w_perf_full_max",
+        "_p6_w_perf_head_frt", "_p6_w_perf_kick_frt", "_p6_w_perf_tail_frt"]
 
 
 def main(argv):
@@ -146,6 +154,18 @@ def main(argv):
     v1d = v.get("_p6_w_perf_v1_done")
     v1b = v.get("_p6_w_perf_v1_busy")
     m6 = (v1d is not None and v1b is not None and (v1d + v1b) > 0)
+    # M7 (Phase 2c #246): the DIRECT compute-full bracket is measuring. full_frt
+    # MUST be > 0 and >= the 4-section sum (the full entry->exit bracket strictly
+    # CONTAINS head + the 4 sections + kick + tail), and head/kick/tail >= 0. RED
+    # while uninstrumented (the 5 symbols are absent -> caught by M1). This is the
+    # measurement that retires the derivation -- master compute is now read, not
+    # computed from frame-minus-synch.
+    ff = v.get("_p6_w_perf_full_frt")
+    hd = v.get("_p6_w_perf_head_frt")
+    kk = v.get("_p6_w_perf_kick_frt")
+    tl = v.get("_p6_w_perf_tail_frt")
+    m7 = (ff is not None and ff > 0 and ct is not None and ff >= ct
+          and all(x is not None and x >= 0 for x in (hd, kk, tl)))
 
     checks = [
         ("M2 instrumentation measuring (frames>0, vblanks>0, cyc_total>0)", m2,
@@ -158,6 +178,8 @@ def main(argv):
          "obj_refills=%s" % (objr,)),
         ("M6 VDP1 draw-completion sampled (done+busy>0)", m6,
          "v1_done=%s v1_busy=%s" % (v1d, v1b)),
+        ("M7 compute-full MEASURED (full>0, full>=section-sum, head/kick/tail>=0)", m7,
+         "full=%s sectsum=%s head=%s kick=%s tail=%s" % (ff, ct, hd, kk, tl)),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:
@@ -350,12 +372,17 @@ def main(argv):
                 print("         LEVER = DRAW REDUCTION (sprite cull / dirty-rect /")
                 print("         fewer+larger VDP1 cmds), NOT CPU cuts, NOT swap reorder.")
             else:
-                compute_ms = us(ct) / 1000.0
+                # Phase 2c (#246): prefer the DIRECT compute-full bracket over the
+                # 4-section FRT-sum (the sum UNDERCOUNTS by the unbracketed head+
+                # kick+tail ~8ms gap). MEASURED, not derived.
+                ff_ = v.get("_p6_w_perf_full_frt")
+                use_full = bool(ff_ and ff_ > 0)
+                compute_ms = us(ff_) / 1000.0 if use_full else us(ct) / 1000.0
                 overrun = compute_ms - VBL_MS
                 print("      >> VDP1 KEEPS UP (idle at compute-done) -- NOT draw-bound.")
                 if overrun > 0.0:
-                    print("         COMPUTE-OVERRUN CLIFF: CPU compute (%.1f ms FRT-sum)"
-                          % compute_ms)
+                    print("         COMPUTE-OVERRUN CLIFF: CPU compute (%.1f ms %s)"
+                          % (compute_ms, "MEASURED full" if use_full else "FRT-sum"))
                     print("         exceeds the %.1f ms vblank by %.1f ms, so slSynch swaps"
                           % (VBL_MS, overrun))
                     print("         a vblank LATE -> 2 vbl/frame = 30fps. This is a CLIFF:")
@@ -373,6 +400,62 @@ def main(argv):
                     print("         compute is UNDER budget yet the swap lands late ->")
                     print("         genuine SWAP CADENCE/PHASE: reorder so compute finishes")
                     print("         before the target vblank. (Not CPU volume, not draw.)")
+        # Phase 2c (#246): the DIRECT, no-deriving master per-frame model. The four
+        # section brackets sum to cyc_total but UNDERCOUNT the frame (head + the
+        # slave-kick + the census/EDSR/witness tail were unbracketed = the ~8ms gap).
+        # compute-FULL (entry->exit) MEASURES the in-frame master cost; head/kick/tail
+        # sub-attribute the gap; master_total = full + synch (the jo-body/slSynch
+        # cross-frame delta) RECONCILES with the fps-derived steady frame -- an
+        # end-to-end cross-check that the model is now complete (nothing derived).
+        ff2 = v.get("_p6_w_perf_full_frt"); ffm = v.get("_p6_w_perf_full_max")
+        hd2 = v.get("_p6_w_perf_head_frt"); kk2 = v.get("_p6_w_perf_kick_frt")
+        tl2 = v.get("_p6_w_perf_tail_frt"); sy2 = v.get("_p6_w_perf_synch_frt")
+        if ff2 is not None and ff2 > 0:
+            full_ms = us(ff2) / 1000.0
+            synch_ms = us(sy2) / 1000.0 if sy2 is not None else 0.0
+            head_ms = us(hd2) / 1000.0 if hd2 is not None else 0.0
+            kick_ms = us(kk2) / 1000.0 if kk2 is not None else 0.0
+            tail_ms = us(tl2) / 1000.0 if tl2 is not None else 0.0
+            gap_ms = us(ff2 - ct) / 1000.0
+            resid = ff2 - ((hd2 or 0) + ci + co + (kk2 or 0) + cd + cp + (tl2 or 0))
+            master_ms = full_ms + synch_ms
+            print("  --- MASTER PER-FRAME, DIRECTLY MEASURED (#246; no deriving) ---")
+            print("    compute-FULL (entry->exit)   : %7.2f ms   (worst %.2f ms)"
+                  % (full_ms, us(ffm) / 1000.0 if ffm else 0.0))
+            print("      4 sections (sum)           : %7.2f ms" % (us(ct) / 1000.0))
+            print("      + gap (head+kick+tail+res) : %7.2f ms" % gap_ms)
+            print("          head (entry->Input)    : %7.2f ms" % head_ms)
+            print("          kick (slave fork)      : %7.2f ms" % kick_ms)
+            print("          tail (census/EDSR/wit) : %7.2f ms" % tail_ms)
+            print("          residual (unbracketed) : %7.2f ms" % (us(resid) / 1000.0))
+            print("    jo-body/slSynch (measured)   : %7.2f ms" % synch_ms)
+            print("    MASTER TOTAL = full + synch  : %7.2f ms" % master_ms)
+            print("                fps-derived frame: %7.2f ms  (cross-check)"
+                  % frame_ms_steady)
+            print("    VERDICT (#246, MEASURED not derived):")
+            if full_ms > VBL_MS:
+                over = full_ms - VBL_MS
+                print("      >> COMPUTE-bound. The master's IN-FRAME compute alone "
+                      "(%.2f ms)" % full_ms)
+                print("         exceeds the %.2f ms vblank by %.2f ms -- slSynch can NOT"
+                      % (VBL_MS, over))
+                print("         start the swap on time no matter what VDP1 does. 60fps")
+                print("         REQUIRES cutting compute-full below %.2f ms (need -%.1f ms)."
+                      % (VBL_MS, over))
+                chunks = [("DrawLists", us(cd) / 1000.0),
+                          ("ProcessObjects", us(co) / 1000.0),
+                          ("tail", tail_ms), ("present-join", us(cp) / 1000.0),
+                          ("head", head_ms), ("kick", kick_ms),
+                          ("Input", us(ci) / 1000.0)]
+                chunks.sort(key=lambda kv: kv[1], reverse=True)
+                print("         biggest in-frame chunks: " + ", ".join(
+                    "%s %.1f" % (n, m) for n, m in chunks[:4]) + " ms")
+            else:
+                print("      >> compute-full (%.2f ms) is UNDER the %.2f ms vblank; the"
+                      % (full_ms, VBL_MS))
+                print("         remaining over-budget is jo-body/slSynch (%.2f ms) ->"
+                      % synch_ms)
+                print("         VDP1 draw / swap cadence is the lever (VDP1 verdict above).")
         print("  60fps budget = %.2f ms/frame; steady frame is %.0fx over budget."
               % (VBL_MS, frame_ms_steady / VBL_MS if VBL_MS > 0 else 0))
     else:

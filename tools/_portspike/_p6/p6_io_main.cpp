@@ -733,6 +733,19 @@ __attribute__((used)) int32 p6_w_slave_ticks = 0;   // ++ by the slave each fram
 // cause (master work over one vblank), MEASURED -- not the slCashPurge guess.
 __attribute__((used)) int32 p6_w_perf_synch_frt = 0; // jo-body/slSynch FRT ticks
 __attribute__((used)) int32 p6_w_perf_synch_max = 0; // worst jo-body slSynch ticks
+// Phase 2c (#246, DATA-DRIVEN -- stop DERIVING the compute-full). The per-section
+// FRT-sum (input+obj+draw+present) measured ~14ms, but the master compute-FULL was
+// only DERIVED (= frame 33.3ms - synch 11.3ms = ~22ms); the ~8ms gap is UNBRACKETED
+// master work -- the slave-kick dispatch, the head setup, the census/EDSR/witness
+// tail. MEASURE the full frame directly (entry->exit FRT) and SUB-ATTRIBUTE that gap
+// into head/kick/tail so the 60fps cut targets the REDUCIBLE master work, not a
+// derivation. INVARIANT: full_frt + synch_frt = the master's true per-frame time; if
+// that sum exceeds the 16.7ms vblank the frame is locked to 2 vbl (MEASURED cause).
+__attribute__((used)) int32 p6_w_perf_full_frt  = 0; // p6_ghz_frame entry->exit (compute FULL)
+__attribute__((used)) int32 p6_w_perf_full_max  = 0; // worst-case compute-full
+__attribute__((used)) int32 p6_w_perf_head_frt  = 0; // entry -> ProcessInput (setup overhead)
+__attribute__((used)) int32 p6_w_perf_kick_frt  = 0; // p6_present_kick (slave fork dispatch)
+__attribute__((used)) int32 p6_w_perf_tail_frt  = 0; // present-end -> exit (census/EDSR/witness)
 // Phase 2b: per-section VBLANK deltas (overflow-immune). The FRT /32 wraps at
 // 78 ms, so the FRC per-section deltas UNDERCOUNT any section that exceeds that
 // (multi-wrap); the vbl_frame=77 vs cyc-sum=7 reconciliation proved one section
@@ -1747,6 +1760,11 @@ static int p6_fglow_layer_index(void)
 static void p6_ghz_frame(void)
 {
     unsigned short t0, t1;
+    // Phase 2c (#246): compute-FULL bracket START -- FRT at function entry, paired
+    // with the exit read at the bottom into p6_w_perf_full_frt. MUST be the first
+    // read so the head setup (synch measure, perf_reset, drawgroup, Ring) is inside
+    // the bracket. Replaces the DERIVATION (frame - synch) with a direct measure.
+    unsigned short frame_t0 = p6_perf_frt_get();
     // Phase 2a: vblanks consumed in the jo loop body since the last frame ended
     // (slSynch + the loop's buffer_reset/unitmatrix) -- read BEFORE any work.
     unsigned int vbl_frame_start = p6_perf_vbl_count;
@@ -1786,7 +1804,11 @@ static void p6_ghz_frame(void)
     // Per-section attribution: FRT (sub-78ms precision) + VBLANK (overflow-immune
     // for >78ms sections -- the real discriminator). vb0/vb1 = true-60Hz tally.
     unsigned int vb0, vb1;
-    vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessInput();
+    vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get();
+    // Phase 2c (#246): head = entry -> ProcessInput start (the per-frame setup:
+    // synch+vbl bookkeeping, p6_vdp1_perf_reset, drawGroupVisible, Ring rewire).
+    p6_w_perf_head_frt = P6_FRT_DELTA(frame_t0, t0);
+    ProcessInput();
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
     p6_w_perf_cyc_input = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_input = (int32)(vb1 - vb0);
     // Phase 2d: reset the per-classID Update timing accumulators before the loop
@@ -1903,9 +1925,16 @@ static void p6_ghz_frame(void)
     // DrawLists, so the slave's ~4.6ms present runs in parallel with the master's
     // ~10.2ms DrawLists (hiding under it) -> master frame 23.4 -> ~18.8ms. Camera
     // is current (ProcessObjects already moved it this frame).
-    p6_present_kick(p6_fglow_layer_index() /* per-zone FG Low */,
-                    screens[0].position.x, screens[0].position.y,
-                    (const unsigned short *)fullPalette[0]);
+    {
+        // Phase 2c (#246): bracket the slave fork dispatch (slSlaveFunc kick) --
+        // unbracketed before, a prime suspect for the ~8ms gap (the SGL slave-CPU
+        // start cost is paid on the MASTER critical path here, before DrawLists).
+        unsigned short _k0 = p6_perf_frt_get();
+        p6_present_kick(p6_fglow_layer_index() /* per-zone FG Low */,
+                        screens[0].position.x, screens[0].position.y,
+                        (const unsigned short *)fullPalette[0]);
+        p6_w_perf_kick_frt = P6_FRT_DELTA(_k0, p6_perf_frt_get());
+    }
 
     vb0 = p6_perf_vbl_count; t0 = p6_perf_frt_get(); ProcessObjectDrawLists();
     t1 = p6_perf_frt_get(); vb1 = p6_perf_vbl_count;
@@ -2094,7 +2123,19 @@ static void p6_ghz_frame(void)
     }
 
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
-    p6_perf_frt_prev_end = p6_perf_frt_get(); // swap-cadence: FRT at this frame's END
+    {
+        // Phase 2c (#246): compute-FULL bracket END + tail sub-attribution. frame_t1
+        // is the exit FRT (also the swap-cadence prev_end). full = entry->exit = the
+        // MEASURED master compute (replaces the derivation). tail = present-end -> exit
+        // (t1 still holds p6_present_join_config's end FRT): the census + ActClear
+        // latch + hog scan + fps tally + EDSR peek + p6_cont_witness.
+        unsigned short frame_t1 = p6_perf_frt_get();
+        p6_perf_frt_prev_end = frame_t1; // swap-cadence: FRT at this frame's END
+        p6_w_perf_full_frt = P6_FRT_DELTA(frame_t0, frame_t1);
+        if (p6_w_perf_full_frt > p6_w_perf_full_max)
+            p6_w_perf_full_max = p6_w_perf_full_frt;
+        p6_w_perf_tail_frt = P6_FRT_DELTA(t1, frame_t1);
+    }
 }
 
 // Task #238: 4MB Extended RAM Cart probe. Write distinct sentinels to bank0/bank1
