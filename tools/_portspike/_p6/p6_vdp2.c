@@ -307,9 +307,15 @@ static unsigned long p6_pnd_for(unsigned short e, int blank)
          | ((unsigned long)(e & 0x3FF) * 8u);
 }
 
-void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
-                                const unsigned short *pal565,
-                                unsigned int *out_pndhash, int *out_nblank)
+/* A1 (dual-SH2 STEP A, #246): split the FG present into the slave-MOVABLE
+ * compute (PND-page rebuild + CRAM + self-check -- VRAM/CRAM DATA writes only,
+ * no VDP register control) and the master-ONLY SGL register config. The compute
+ * is what A2 forks to the slave; for A1 both still run on the master via
+ * p6_vdp2_present_ghz_camera below (behavior-identical -- isolates the refactor
+ * from the slave move so a gate regression is unambiguous). */
+static void p6_present_compute(int layer, int scroll_x, int scroll_y,
+                               const unsigned short *pal565,
+                               unsigned int *out_pndhash, int *out_nblank)
 {
     volatile Uint16 *cel  = (volatile Uint16 *)P6_VDP2_CEL;
     volatile Uint16 *map  = (volatile Uint16 *)P6_FG_PAGE; /* Task #242: build the
@@ -438,7 +444,13 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
         unsigned short b5 = v & 0x1F;
         cram[c] = (Uint16)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
     }
+}
 
+/* Master-ONLY (ST-202 / dual-cpu-reference.md:142-148: only the master controls
+ * VDP registers). NBG1 config + camera publish + display enable; runs on the
+ * master after the slave present-compute joins (A2). */
+static void p6_present_config(int scroll_x, int scroll_y)
+{
     /* 5) NBG1 config + camera-anchored scroll + display (same SGL sequence
      *    as the proven Title present part 4). */
     slCharNbg1(COL_TYPE_256, CHAR_SIZE_2x2);
@@ -457,4 +469,16 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
                         * layering needs a behind/front FG split -- a later refinement. */
     slBack1ColSet((void *)P6_VDP2_BAK, 0x8000);
     slScrAutoDisp(NBG1ON | SPRON);
+}
+
+/* Public entry (the pack calls this extern "C"). A1: compute + config both on the
+ * master, behavior-identical to the pre-split single function. A2 will fork
+ * p6_present_compute to the slave between ProcessObjects and DrawLists, then call
+ * p6_present_config here after the join (the register tail stays master-only). */
+void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
+                                const unsigned short *pal565,
+                                unsigned int *out_pndhash, int *out_nblank)
+{
+    p6_present_compute(layer, scroll_x, scroll_y, pal565, out_pndhash, out_nblank);
+    p6_present_config(scroll_x, scroll_y);
 }
