@@ -429,6 +429,8 @@ void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
 // slave (slCashPurge) + runs the master-only NBG1 register config.
 void p6_present_kick(int layer, int sx, int sy, const unsigned short *pal);
 void p6_present_join_config(int sx, int sy);
+// STEP B (#246): zero the per-frame VDP1 workload accumulators (p6_vdp1.c).
+void p6_vdp1_perf_reset(void);
 // Boot/load cover: blank all VDP2 scroll+sprite display during the load phase so
 // the slow synchronous load shows a clean back-color, not NBG1's half-written VRAM
 // (the red/green static). The first GHZ present re-arms NBG1ON|SPRON.
@@ -1744,6 +1746,10 @@ static void p6_ghz_frame(void)
         if (jo_gap > p6_w_perf_vbl_jo_max)
             p6_w_perf_vbl_jo_max = jo_gap;
     }
+    // STEP B (#246): zero the per-frame VDP1 workload accumulators before
+    // DrawLists emits this frame's sprite commands (the capture then holds this
+    // frame's box-area vs content-area -> the 64x64-overdraw factor).
+    p6_vdp1_perf_reset();
     currentScreen = &screens[0];
     for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
         engine.drawGroupVisible[g] = true;

@@ -71,6 +71,27 @@ __attribute__((used)) int p6_w_vdp1_landed       = 0;
  * identifies whether the drop was unbound vs slot-cache exhaustion). */
 __attribute__((used)) int p6_w_vdp1_lastdrop_h   = -2;
 
+/* STEP B (#246/#243): per-frame VDP1 workload, to localise the VDP1-draw
+ * bottleneck (A2 showed VDP1 74% BUSY at compute-done). VDP1 rasterises every
+ * pixel of a sprite's bbox (transparent texels are READ then skipped), so the
+ * cost ~ total drawn pixel area. EVERY sprite is staged into a FIXED 64x64 box
+ * (p6_vdp1.c:241 img.width/height = P6_SPR_MAXW/H) -> a 16x16 ring rasterises
+ * 4096 px (16x overdraw). These accumulate in the blit arms + reset each frame
+ * (p6_vdp1_perf_reset from p6_ghz_frame) so the capture holds the last frame's
+ * totals. boxpx = the VDP1 fill workload AS DRAWN; contentpx = the ideal if
+ * sprites were drawn at content size -> contentpx/boxpx = the overdraw waste. */
+__attribute__((used)) int p6_w_vdp1_cmds      = 0; /* landed sprite cmds this frame */
+__attribute__((used)) int p6_w_vdp1_boxpx     = 0; /* sum of 64x64 per cmd (as drawn) */
+__attribute__((used)) int p6_w_vdp1_contentpx = 0; /* sum of w*h per cmd (ideal) */
+__attribute__((used)) int p6_w_vdp1_maxw      = 0; /* widest single sprite this frame */
+__attribute__((used)) int p6_w_vdp1_maxh      = 0; /* tallest single sprite this frame */
+
+__attribute__((used)) void p6_vdp1_perf_reset(void) /* called at p6_ghz_frame top */
+{
+    p6_w_vdp1_cmds = 0; p6_w_vdp1_boxpx = 0; p6_w_vdp1_contentpx = 0;
+    p6_w_vdp1_maxw = 0; p6_w_vdp1_maxh = 0;
+}
+
 /* W12b: MULTI-SHEET bind table. A handle indexes this table; resident
  * sheets carry their engine surface pixels, banded sheets carry the
  * SaturnSheet store slot (pixels fetched per cache miss). */
@@ -300,6 +321,11 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
         return;
 
     ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
+    /* STEP B: per-frame VDP1 workload (box-as-drawn vs content-ideal). */
+    ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += P6_SPR_MAXW * P6_SPR_MAXH;
+    p6_w_vdp1_contentpx += w * h;
+    if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
+    if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
     jo_sprite_set_palette(1);
     /* Task #241: the slot is a fixed P6_SPR_MAXW x P6_SPR_MAXH box with content
      * in the top-left corner; the box CENTER sits at content-top-left + 32, so
@@ -336,6 +362,10 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
         return;
 
     ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
+    ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += P6_SPR_MAXW * P6_SPR_MAXH;
+    p6_w_vdp1_contentpx += w * h;
+    if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
+    if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
     jo_sprite_set_palette(1);
     if (flipX)
         jo_sprite_enable_horizontal_flip();
