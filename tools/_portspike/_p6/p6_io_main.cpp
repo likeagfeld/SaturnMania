@@ -3176,6 +3176,12 @@ __attribute__((used)) int32 p6_w_ghz2_max_plry   = 0;  // MAX player y px during
 __attribute__((used)) int32 p6_w_ghz2_floor_tile = -1; // last FG-Low tile under the player's feet (0xFFFF=empty)
 __attribute__((used)) int32 p6_w_ghz2_floor_empty = 0; // frames the floor under the player read EMPTY
 __attribute__((used)) int32 p6_w_ghz2_exit_lp    = -1; // listPos GHZ2 advanced TO (set once on exit)
+// #237 H1/H2: at GHZ2 LOAD, scan FG-Low downward (ty 80..120) for the first
+// solid tile at 6 x-columns across the level (tile 16/24/32/48/64/96). Each
+// entry = the ground ty found (-1 = NO ground in that column). Ground only near
+// the spawn (16) => H1 GHZ2LAYT.BIN content incomplete; ground across all x but
+// runtime-empty => H2 window streaming.
+__attribute__((used)) int32 p6_w_ghz2_g90scan[6] = { -2, -2, -2, -2, -2, -2 };
 
 // P6.8 Step F.2 (Task #231): swap the windowed layout BAND STORE for the scene
 // currently selected by sceneInfo.listPos. The Saturn windowed layout (collision
@@ -3298,6 +3304,20 @@ static void p6_scene_load_and_arm(void)
         p6_w_ghz2_entcount = n;
         p6_w_ghz2_plrx     = RSDK_ENTITY_AT(0)->position.x;
         p6_w_ghz2_plry     = RSDK_ENTITY_AT(0)->position.y;
+        // #237 H1/H2: at load (window fresh, refills any x), scan 6 x-columns
+        // across the level for ground (first solid FG-Low in ty 80..120).
+        {
+            static const int32 cols[6] = { 16, 24, 32, 48, 64, 96 };
+            for (int32 c = 0; c < 6; ++c) {
+                int32 fnd = -1;
+                for (int32 ty = 80; ty <= 120; ++ty)
+                    if ((int32)(unsigned)SaturnLayout_GetTile(0, cols[c], ty) != 0xFFFF) {
+                        fnd = ty;
+                        break;
+                    }
+                p6_w_ghz2_g90scan[c] = fnd;
+            }
+        }
     }
 #endif
 }

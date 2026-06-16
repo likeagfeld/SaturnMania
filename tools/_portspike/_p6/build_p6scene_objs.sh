@@ -324,6 +324,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_ghz2_entcount -u _p6_w_ghz2_plrx -u _p6_w_ghz2_plry \
     -u _p6_w_ghz2_listpos -u _p6_w_ghz2_play_frames -u _p6_w_ghz2_max_plry \
     -u _p6_w_ghz2_floor_tile -u _p6_w_ghz2_floor_empty -u _p6_w_ghz2_exit_lp \
+    -u _p6_w_ghz2_g90scan \
     -u _p6_w_warp_plrx -u _p6_w_warp_signactive \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
