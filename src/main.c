@@ -1274,6 +1274,15 @@ void jo_main(void)
                                          * in vblank (tear-free) + slScrPosNbg1. */
         jo_core_add_vblank_callback(p6_fg_vblank);
     }
+    /* Dual-SH2 STEP 1 (#246/#243): slave-CPU liveness probe. jo forks the slave
+     * (core.c:615 slSlaveFunc) before the master callback p6_scene_tick and joins
+     * after (core.c:628 jo_core_wait_for_slave -> slCashPurge). This trivial probe
+     * proves the slave runs + the coherency handoff works BEFORE the FG present is
+     * offloaded onto it (STEP A). Gate: tools/_portspike/qa_p6_slave.py. */
+    {
+        extern void p6_slave_probe(void); /* p6_perf.c: ++p6_w_slave_ticks cache-through */
+        jo_core_add_slave_callback(p6_slave_probe);
+    }
     jo_core_add_callback(p6_scene_tick);
     jo_core_run();
     return;

@@ -708,6 +708,14 @@ __attribute__((used)) int32 p6_w_perf_v1_busy = 0;  // frames VDP1 still drawing
 __attribute__((used)) int32 p6_w_perf_v1_copr = 0;  // last COPR when busy (cmd-list progress)
 __attribute__((used)) int32 p6_w_perf_v1_lopr = 0;  // last LOPR when busy (cmd-list end)
 __attribute__((used)) int32 p6_w_perf_v1_edsr = 0;  // last raw EDSR (sanity)
+// Dual-SH2 phase STEP 1 (#246/#243): slave-CPU liveness witness. The jo-side
+// slave callback p6_slave_probe() increments this via the CACHE-THROUGH alias
+// (addr | 0x20000000) each frame, so the slave's write reaches WRAM (a cached
+// slave write would be invisible to the master + savestate). ticks>0 proves the
+// slave SH-2 ran the callback AND the coherency handoff works -- the prerequisite
+// for offloading the FG present onto the slave. Master/savestate read it cached
+// after jo_core_wait_for_slave's slCashPurge.
+__attribute__((used)) int32 p6_w_slave_ticks = 0;   // ++ by the slave each frame
 // Phase 2b: per-section VBLANK deltas (overflow-immune). The FRT /32 wraps at
 // 78 ms, so the FRC per-section deltas UNDERCOUNT any section that exceeds that
 // (multi-wrap); the vbl_frame=77 vs cyc-sum=7 reconciliation proved one section

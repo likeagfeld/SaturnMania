@@ -102,3 +102,27 @@ int p6_perf_frt_cks(void)
 unsigned short p6_perf_vdp1_edsr(void) { return *P6_VDP1_EDSR; }
 unsigned short p6_perf_vdp1_lopr(void) { return *P6_VDP1_LOPR; }
 unsigned short p6_perf_vdp1_copr(void) { return *P6_VDP1_COPR; }
+
+/* ---------------------------------------------------------------------------
+ * Dual-SH2 phase STEP 1 (#246/#243): slave-CPU liveness probe.
+ * Registered via jo_core_add_slave_callback (main.c). The jo loop kicks this on
+ * the SLAVE SH-2 (core.c:615 slSlaveFunc) in parallel with the master's
+ * p6_ghz_frame, then joins (core.c:628 jo_core_wait_for_slave -> slCashPurge).
+ * This trivial probe increments the WRAM-H witness p6_w_slave_ticks so we can
+ * verify, from the savestate, that the slave actually executed AND that the
+ * cross-CPU coherency handoff works -- BEFORE moving the real FG present here.
+ *
+ * COHERENCY: the SH-2s have no bus snooping (ST-202 / dual-cpu-reference.md:63).
+ * A cached slave write would sit in the slave's cache, invisible to WRAM/master.
+ * So we write through the CACHE-THROUGH alias (addr | 0x20000000) -> the store
+ * reaches WRAM immediately; the master reads p6_w_slave_ticks cached AFTER
+ * jo_core_wait_for_slave's slCashPurge(), and the savestate reads WRAM directly.
+ * Only the slave writes this address, so the read-modify-write has no race. */
+extern int p6_w_slave_ticks; /* pack witness (p6_io_main.cpp), int32 == int */
+
+void p6_slave_probe(void)
+{
+    volatile unsigned int *ct =
+        (volatile unsigned int *)((unsigned int)&p6_w_slave_ticks | 0x20000000u);
+    *ct = *ct + 1u;
+}

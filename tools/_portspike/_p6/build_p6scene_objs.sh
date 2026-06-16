@@ -310,6 +310,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_perf_v1_done -u _p6_w_perf_v1_busy -u _p6_w_perf_v1_copr \
     -u _p6_w_perf_v1_lopr -u _p6_w_perf_v1_edsr \
     -u _p6_perf_vdp1_edsr -u _p6_perf_vdp1_lopr -u _p6_perf_vdp1_copr \
+    -u _p6_w_slave_ticks \
     -u _p6_w_present_vbl_walk -u _p6_w_present_vbl_map \
     -u _p6_w_present_vbl_hash -u _p6_w_present_refills \
     -u _p6_fg_vblank -u _p6_w_fg_dma -u _p6_w_fg_highfill \
