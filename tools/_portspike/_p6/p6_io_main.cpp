@@ -724,6 +724,15 @@ __attribute__((used)) int32 p6_w_perf_v1_edsr = 0;  // last raw EDSR (sanity)
 // for offloading the FG present onto the slave. Master/savestate read it cached
 // after jo_core_wait_for_slave's slCashPurge.
 __attribute__((used)) int32 p6_w_slave_ticks = 0;   // ++ by the slave each frame
+// STEP B / swap-cadence (#246): MEASURE the jo-loop body / slSynch FRT directly
+// (was only inferred). p6_ghz_frame runs as a jo callback; the jo loop body
+// AROUND it (jo_vdp1_buffer_reset + slUnitMatrix + slSynch -- core.c:591-641) is
+// NOT bracketed by the per-section FRT. This cross-frame delta = (this frame's
+// start FRT) - (previous frame's end FRT) = the slSynch+body cost. If
+// compute-FRT-sum (15ms) + synch_frt EXCEED the 16.7ms vblank, THAT is the 2-vbl
+// cause (master work over one vblank), MEASURED -- not the slCashPurge guess.
+__attribute__((used)) int32 p6_w_perf_synch_frt = 0; // jo-body/slSynch FRT ticks
+__attribute__((used)) int32 p6_w_perf_synch_max = 0; // worst jo-body slSynch ticks
 // Phase 2b: per-section VBLANK deltas (overflow-immune). The FRT /32 wraps at
 // 78 ms, so the FRC per-section deltas UNDERCOUNT any section that exceeds that
 // (multi-wrap); the vbl_frame=77 vs cyc-sum=7 reconciliation proved one section
@@ -770,6 +779,7 @@ __attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
 __attribute__((used)) int32 p6_w_hog_x   = 0;   // a hog entity's world x (fixed)
 __attribute__((used)) int32 p6_w_hog_y   = 0;   // a hog entity's world y (fixed)
 static unsigned int p6_perf_vbl_prev = 0;               // vblank tally at the previous frame END
+static unsigned short p6_perf_frt_prev_end = 0;         // FRT at the previous frame END (slSynch measure)
 // W14b camera-chain witnesses (Task #227): TICK-TIME snapshots only -- the
 // post-hoc capture lands after the later Title pass, whose STG dataset clear
 // NULLs every tracked staticVars pointer (MEASURED p6_f8: Player/Zone/Camera
@@ -1746,6 +1756,16 @@ static void p6_ghz_frame(void)
         if (jo_gap > p6_w_perf_vbl_jo_max)
             p6_w_perf_vbl_jo_max = jo_gap;
     }
+    // swap-cadence MEASURE (#246): FRT elapsed in the jo loop body (slSynch +
+    // jo_vdp1_buffer_reset + slUnitMatrix) since the PREVIOUS frame's end. < 1 vbl
+    // so single-wrap-safe. compute-FRT-sum + this = the master's per-frame work;
+    // if it exceeds 16.7ms the frame is 2 vbl (MEASURED cause, not a guess).
+    {
+        unsigned short _fs = p6_perf_frt_get();
+        int32 _sf = P6_FRT_DELTA(p6_perf_frt_prev_end, _fs);
+        p6_w_perf_synch_frt = _sf;
+        if (_sf > p6_w_perf_synch_max) p6_w_perf_synch_max = _sf;
+    }
     // STEP B (#246): zero the per-frame VDP1 workload accumulators before
     // DrawLists emits this frame's sprite commands (the capture then holds this
     // frame's box-area vs content-area -> the 64x64-overdraw factor).
@@ -2074,6 +2094,7 @@ static void p6_ghz_frame(void)
     }
 
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
+    p6_perf_frt_prev_end = p6_perf_frt_get(); // swap-cadence: FRT at this frame's END
 }
 
 // Task #238: 4MB Extended RAM Cart probe. Write distinct sentinels to bank0/bank1
