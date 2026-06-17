@@ -95,6 +95,22 @@ bool32 RSDK::InitStorage()
     // 92+10+32+12+80 = 226 KB + the ~44 KB heap inflate_state = 270 KB
     // inside the 274,432 B heap window (4.4 KB slack).
     dataStorage[DATASET_STG].storageLimit = 92 * 1024;  //  92 KB (W13 ledger v3)
+#if defined(P6_CART_TMP)
+    // #254 anim-pool funding (2026-06-17): the shipping STG pool peaked at 90.8 KB
+    // of 92 KB (W13 ledger), so adding ANY GHZ object's LoadSpriteAnimation (which
+    // AllocateStorage's into DATASET_STG -- Bridge/PlaneSwitch/Spring/...) overflowed
+    // it and silently starved the bridge anim (qa_p6_ghz_regression R2 brg_frames=0).
+    // FUND it by relocating DATASET_TMP's 80 KB backing into the 4MB cart (the clean
+    // 0x22730000 region -- above the GFS read window 0x22700000..0x22720000, far above
+    // the GHZ resident-sheet high-water ~0x22687000, 376 KB below the VDP1 sheet store
+    // 0x227A0000), which frees 80 KB of WRAM-L heap; spend 58 KB of it on STG. This is
+    // TMP-ONLY -- it does NOT enable the P6_CART STG-in-cart 3 MB branch, which would
+    // collide with SaturnSheet's hardcoded-P6_CART resident sheets (#243 perf lever)
+    // at 0x22400000. Shipping-only define (build_shipping.sh) -> the diag flavor is
+    // byte-identical (no re-validation). See memory/whole-level-regression-gate-every-
+    // object-add (the regression this funds away).
+    dataStorage[DATASET_STG].storageLimit = 150 * 1024; // 150 KB (TMP->cart funded)
+#endif
     // MUS MEASURED: 8,208 B used (the F32 mix buffer; music streams ride
     // CD-DA, never MUS).
     dataStorage[DATASET_MUS].storageLimit = 10 * 1024;  //  10 KB (measured 8,208 B used)
@@ -187,6 +203,18 @@ bool32 RSDK::InitStorage()
             dataStorage[s].memoryTable = (uint32 *)0x22400000u;
         else if (s == DATASET_TMP)
             dataStorage[s].memoryTable = (uint32 *)0x22700000u;
+        else
+            dataStorage[s].memoryTable = (uint32 *)malloc(dataStorage[s].storageLimit);
+#elif RETRO_PLATFORM == RETRO_SATURN && defined(P6_CART_TMP)
+        // #254 anim-pool funding: DATASET_TMP's 80 KB backing -> the 4MB cart at
+        // 0x22730000 (cache-through; above the 2x64 KB GFS read windows ending
+        // 0x22720000, far above the GHZ resident-sheet high-water ~0x22687000, and
+        // 376 KB below the VDP1 sheet store 0x227A0000 -- MEASURED-disjoint from every
+        // cart tenant). TileConfig's 77,824 B inflate now lands in wait-stated cart
+        // (transient, load-phase only). STG + the rest keep the WRAM-L heap, which the
+        // freed 80 KB lets grow to 150 KB (above). NOT the P6_CART STG-in-cart branch.
+        if (s == DATASET_TMP)
+            dataStorage[s].memoryTable = (uint32 *)0x22730000u;
         else
             dataStorage[s].memoryTable = (uint32 *)malloc(dataStorage[s].storageLimit);
 #else

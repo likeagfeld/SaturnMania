@@ -39,7 +39,7 @@ TMP_MCS   = os.path.join(HERE, "_p6_ghzreg.mcs")
 
 NAMES = ["_p6_w_cont_frames", "_p6_w_brg_classid", "_p6_w_brg_frames",
          "_p6_w_loop_pscount", "_p6_w_plr_live_rings", "_p6_w_plr_live_shield",
-         "_p6_w_time_enabled"]
+         "_p6_w_time_enabled", "_p6_w_spring_classid", "_p6_w_spring_frames"]
 
 
 def capture(out):
@@ -77,6 +77,10 @@ def main(argv):
         ("R4 spawn rings==0",                    v["_p6_w_plr_live_rings"], lambda x: x == 0),
         ("R5 spawn shield==0",                   v["_p6_w_plr_live_shield"],lambda x: x == 0),
         ("R6 timer enabled==1",                  v["_p6_w_time_enabled"],   lambda x: x == 1),
+        # #254 anim-pool funding: Spring is the first swept object; once it loads it
+        # JOINS the confirmed-feature union so the NEXT object-add can't starve it.
+        ("R7 Spring registered (classid>0)",     v["_p6_w_spring_classid"], lambda x: x and x > 0),
+        ("R8 Spring.bin LOADED (frames>0)",      v["_p6_w_spring_frames"],  lambda x: x and x > 0),
     ]
     print("=" * 64)
     print("GHZ1 WHOLE-LEVEL REGRESSION GATE")

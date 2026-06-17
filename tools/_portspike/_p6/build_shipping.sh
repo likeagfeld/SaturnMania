@@ -43,6 +43,13 @@ CC=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-gcc-8.2.0
 # flavor WITH the in-range/hog/sign witnesses. The diag flavor (make P6SCENE=1)
 # always keeps them. set -u-safe: ${VAR-default} expands only when UNSET.
 export P6_NOSCAN="${P6_NOSCAN-1}"
+# #254 anim-pool funding (shipping-only): relocate DATASET_TMP's 80 KB backing to the
+# 4MB cart (0x22730000, MEASURED-disjoint from the resident sheets / GFS windows /
+# sheet store) so the freed WRAM-L grows DATASET_STG 92->150 KB -- ending the STG
+# anim-pool overflow that vanished the bridges when objects were added (Storage.cpp
+# P6_CART_TMP arm; gated by qa_p6_animpool.py). The diag flavor (build_diag.sh) does
+# NOT set this, so it stays byte-identical (no re-validation of its gate sweep).
+export P6_CART_TMP="${P6_CART_TMP-1}"
 
 echo "[1/5] proof pack (engine TUs, ld -r gc-pack; -u p6_engine_boot_and_run root) ..."
 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null

@@ -622,6 +622,14 @@ __attribute__((used)) int32 p6_w_brg_posx       = 0;  // first bridge position.x
 __attribute__((used)) int32 p6_w_brg_posy       = 0;  // first bridge position.y (16.16 fixed)
 __attribute__((used)) int32 p6_w_brg_onscreen   = -1; // first bridge onScreen flag
 __attribute__((used)) int32 p6_w_brg_frames     = -1; // first bridge animator.frames ptr (sprite loaded?)
+// #254 anim-pool funding (qa_p6_animpool.py): stg_limit = live DATASET_STG
+// storageLimit (92 KB unfunded -> 150 KB with P6_CART_TMP, set in Storage.cpp
+// InitStorage). spring_classid/frames = the SPRING canary (mirror p6_brg_witness):
+// proves the FIRST object registered after funding loads its anim (frames>0) AND
+// the bridge still loads (R2) -- the whole-level RED->GREEN for the funding.
+__attribute__((used)) int32 p6_w_stg_limit      = 0;  // DATASET_STG storageLimit bytes
+__attribute__((used)) int32 p6_w_spring_classid = 0;  // Spring->classID (0 == not registered)
+__attribute__((used)) int32 p6_w_spring_frames  = -1; // first Spring animator.frames (0 == STG starved == regression)
 // #P0 GHZ1-parity spawn-state witnesses. newgame_pre_* = Player->rings/powerups
 // captured RIGHT AFTER LoadSceneAssets, BEFORE the reset = the uninitialized static
 // the lean boot inherits (THE BUG: 100 rings / fire shield). live_* = the
@@ -1435,6 +1443,7 @@ extern "C" void p6_player_witness_tick(void);
 extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
 extern "C" void p6_brg_witness(void);  // #181: GHZ Bridge class/count/pos snapshot (game-side)
 extern "C" void p6_loop_witness(void); // #254: GHZ loop classes regmask + PlaneSwitch count (game-side)
+extern "C" void p6_spring_witness(void); // #254: Spring canary class/frames (anim-pool funding proof, game-side)
 extern "C" void p6_player_newgame_reset(void); // #P0: zero Player->rings/powerups before InitObjects (game-side)
 extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash); // #181 diag: banded-slot lookup by path hash
 // Perf Phase 1 (Task #211): jo-side timing primitives (p6_perf.c). The true-60Hz
@@ -1944,6 +1953,10 @@ static void p6_ghz_frame(void)
     ProcessSceneTimer();
     p6_w_time_enabled = (int32)sceneInfo.timeEnabled;
     p6_w_timer        = (int32)(sceneInfo.seconds * 100 + sceneInfo.milliseconds);
+    // #254 anim-pool funding witness: the live DATASET_STG ceiling (92 KB unfunded ->
+    // 150 KB with P6_CART_TMP). dataStorage is in scope here (same as sceneInfo); no
+    // cross-TU/namespace write (Storage.cpp is namespace RSDK -> would mis-bind).
+    p6_w_stg_limit    = (int32)dataStorage[DATASET_STG].storageLimit;
 #if defined(P6_GHZ2_BOOT)
     // #237: while GHZ2 is the live scene, does the player run on solid ground or
     // fall into empty? ProcessObjects just moved the player + refilled the
@@ -2256,6 +2269,7 @@ static void p6_ghz_frame(void)
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
     p6_brg_witness();  // #181: Bridge class/count/pos (one-shot latch; per-frame in warp)
     p6_loop_witness(); // #254: loop classes registered + PlaneSwitch instantiated (one-shot latch)
+    p6_spring_witness(); // #254: Spring canary (anim-pool funding proof; one-shot latch)
     {
         // Phase 2c (#246): compute-FULL bracket END + tail sub-attribution. frame_t1
         // is the exit FRT (also the swap-cadence prev_end). full = entry->exit = the
