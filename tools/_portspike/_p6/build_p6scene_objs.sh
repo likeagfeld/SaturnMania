@@ -283,6 +283,18 @@ done
     -I"$NEWLIB" \
     -c -o "$P6/p6_vsprintf.o" "$P6/p6_vsprintf.c"
 
+# O1 (Task #254): GHZ zone-overlay ENTRY TU (multi-class). Compiled -x c with the
+# census Game.h tree (for Spring's verbatim globals/callbacks). WITH
+# -ffunction-sections so ovl_ring.ld can place .text.p6_overlay_entry FIRST at the
+# window base (this TU has 2 functions, unlike the single-function Ring entry, so
+# source order alone did NOT keep the entry at offset 0 -- MEASURED: entry landed
+# +0x68). NOT a pack member -- links into cd/OVLRING.BIN (build_shipping.sh [3b])
+# alongside p6_ring2.o + Game_Spring.o, vs game.elf (-R). GAME_DEFS/GINC in scope.
+echo "[7l2] p6_ovl_ghz.o (O1 GHZ overlay entry -- Ring + Spring multi-class) ..."
+$CC -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
+    $GAME_DEFS -I"$GINC" -I"$P6" -I"$NEWLIB" \
+    -c -o "$P6/p6_ovl_ghz.o" "$P6/p6_ovl_ghz.c"
+
 echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding windows; miniz inflate decoder) ..."
 $CC $CXXFLAGS $MINIZ_DEFS -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnLayout.o" "$PLAT/SaturnLayout.cpp"
@@ -366,6 +378,10 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_brg_surfscope -u _p6_w_brg_surfh0 \
     -u _p6_w_loop_regmask -u _p6_w_loop_pscount \
     -u _p6_w_stg_limit -u _p6_w_spring_classid -u _p6_w_spring_frames \
+    -u _Player_CheckCollisionBox -u _Player_CheckCollisionPlatform \
+    -u _Player_CheckCollisionTouch -u _Player_State_Air -u _Player_State_Ground \
+    -u _Player_State_Roll -u _Player_State_TubeAirRoll -u _Player_State_TubeRoll \
+    -u _Ice_PlayerState_Frozen \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
     -u _p6_w_ac_laststate -u _p6_w_listpos_max \
@@ -403,7 +419,6 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Game_SignPost.o" "$P6/Game_BGSwitch.o" "$P6/Game_GHZSetup.o" \
     "$P6/Game_Bridge.o" \
     "$P6/Game_PlaneSwitch.o" \
-    "$P6/Game_Spring.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
     "$P6/Input_Input.o" "$P6/InputDevice_Saturn.o" "$P6/CppRuntime_Saturn.o" \

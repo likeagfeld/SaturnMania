@@ -7,10 +7,16 @@
  * .text+.data; the loader zeroes the window tail (.bss). */
 OUTPUT_ARCH(sh)
 SECTIONS {
-    . = 0x060C9000; /* W17: P6_OVL_BASE slid UP by the WRAM-H re-budget
-                      * (p6_ovl_api.h; ANIMPAK floor now 0x060B8000) */
+    . = 0x060C8800; /* O1 (Task #254): P6_OVL_BASE slid DOWN 0x800 (ANIMPAK floor
+                      * now 0x060B7800) so the 6KB window holds Ring + Spring;
+                      * GLOBALS at 0x060CA000 unchanged. Keep in lockstep with
+                      * p6_ovl_api.h P6_OVL_BASE + Animation.hpp P6_HW_ANIMPAK. */
     .text : {
-        p6_ovl_ring.o(.text*)
+        p6_ovl_ghz.o(.text.p6_overlay_entry)  /* O1: the entry EXACTLY at the window
+                                  * base (built -ffunction-sections so its section is
+                                  * named + placeable; the call site is the constant
+                                  * P6_OVL_BASE). */
+        p6_ovl_ghz.o(.text*)                   /* rest of the GHZ entry TU */
         *(.text*)
         *(.rodata*)
     }

@@ -77,8 +77,12 @@ LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
 OBJCOPY=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-objcopy
 P6=/work/tools/_portspike/_p6
 cd "$P6"   # ovl_ring.ld names input objects by basename (the build_diag rule)
+# O1 (Task #254): GHZ multi-class overlay -- p6_ovl_ghz.o (entry, FIRST = window
+# base) + p6_ring2.o (Ring harness) + Game_Spring.o (Spring, moved out of the pack).
+# Spring's internal refs resolve among these; RSDK table/Player/Zone import from
+# game.elf via -R. p6_ovl_ring.o is RETIRED (its single-class entry superseded).
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
-    p6_ovl_ring.o p6_ring2.o \
+    p6_ovl_ghz.o p6_ring2.o Game_Spring.o \
     -b coff-sh -R /work/game.elf -o ovl_ring.elf
 $OBJCOPY -O binary "$P6/ovl_ring.elf" /work/cd/OVLRING.BIN
 ls -l /work/cd/OVLRING.BIN

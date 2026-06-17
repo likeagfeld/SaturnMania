@@ -187,14 +187,12 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     // pushed _end 1,564 B past the ANIMPAK floor (their ~9.9 KB of .text + the SGL
     // work-area COMMON), so the corkscrew batch needs a code-budget lever first.
     RSDK_REGISTER_OBJECT(PlaneSwitch);
-    // #254 anim-pool funding (2026-06-17): Spring is the CANARY for the DATASET_STG
-    // 92->150 KB funding (TMP relocated to cart, Storage.cpp P6_CART_TMP). Spring's
-    // LoadSpriteAnimation overflowed the 92 KB pool and starved Bridge.bin's anim
-    // (qa_p6_ghz_regression R2 brg_frames=0 -> bridges vanished); with the funded
-    // 150 KB pool BOTH Spring (p6_w_spring_frames>0) and Bridge (R2 brg_frames>0)
-    // load. Validated whole-level before the rest of the clean batch (Spikes/ItemBox/
-    // Platform/...) lands -- per memory/whole-level-regression-gate-every-object-add.
-    RSDK_REGISTER_OBJECT(Spring);       // Game.c (GHZ1: spring pads)
+    // O1 (Task #254, 2026-06-17): Spring MOVED to the GHZ zone overlay (p6_ovl_ghz.c,
+    // cd/OVLRING.BIN) -- registered there via the api full-callback thunk, NOT here.
+    // Frees ~3 KB of pack _end (funds the overlay-window growth) and proves the
+    // multi-class overlay path. Bridge/PlaneSwitch stay resident + untouched (cannot
+    // regress). Bridge/PlaneSwitch follow into the overlay in O1 step 2 once GREEN.
+    // See memory/ghz-zone-overlay-o1-design.
     RSDK_REGISTER_OBJECT(Zone);         // Game.c:854
 }
 
@@ -474,33 +472,7 @@ void p6_loop_witness(void)
     }
 }
 
-// =============================================================================
-// p6_spring_witness -- #254 anim-pool funding canary. Spring is the FIRST object
-// registered after the DATASET_STG 92->150 KB funding (TMP->cart). One-shot latch:
-//   p6_w_spring_classid -- Spring->classID (0 == not registered)
-//   p6_w_spring_frames  -- first Spring's animator.frames (0 == STG STILL starved
-//                          == regression; >0 == anim LOADED == funding worked).
-// Paired with the bridge witness (R2 brg_frames) it proves BOTH coexist in the
-// funded pool -- the whole-level proof the funding didn't just move the overflow.
-// =============================================================================
-extern int32 p6_w_spring_classid;
-extern int32 p6_w_spring_frames;
-void p6_spring_witness(void)
-{
-    if (!Spring || !Spring->classID)
-        return;
-    p6_w_spring_classid = (int32)Spring->classID;
-
-    static int32 s_latched = 0;
-    if (s_latched)
-        return;
-    EntitySpring *first = NULL;
-    foreach_all(Spring, sp) {
-        first = sp;
-        break;
-    }
-    if (first) {
-        p6_w_spring_frames = (int32)(size_t)first->animator.frames;
-        s_latched          = 1;
-    }
-}
+// O1 (Task #254): p6_spring_witness MOVED to the GHZ overlay (p6_ovl_ghz.c) along
+// with Spring itself -- the resident pack no longer names the Spring global (flat-TU
+// rule). The overlay's combined witness writes p6_w_spring_classid/frames via the
+// ld -R import, called per-tick through s_ovl.witness_fn.

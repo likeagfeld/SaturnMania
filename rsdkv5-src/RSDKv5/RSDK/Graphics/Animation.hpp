@@ -43,7 +43,16 @@ namespace RSDK
 // address, so moving its base breaks the seed remap. A correct re-budget must
 // re-seed globals at the new base (or find 4KB WITHOUT moving GLOBALS). Floor
 // restored to the verified-GREEN 0x060B8000.
-#define P6_HW_ANIMPAK     0x060B8000u
+// O1 (Task #254, 2026-06-17): slid DOWN 0x800 -> 0x060B7800 so the overlay window
+// can grow 0x800 to hold Spring while GLOBALS (0x060CA000) + collision + SGL stay
+// BYTE-IDENTICAL (the F.4 GLOBALS-seed trap above is AVOIDED -- GLOBALS not moved).
+// SAFE for ANIMPAK specifically because the anim pack is OFFSET-based, NOT baked
+// absolute pointers: Animation.cpp computes `(SpriteFrame *)(P6_HW_ANIMPAK + off)`
+// at runtime (build_anim_pack.py emits frames_off/anims_off), so a new base just
+// changes `pak`. ANIMPAK still ends contiguously at the new OVL base 0x060C8800
+// (0x060B7800 + 0x11000). _end (after Spring left the pack) must stay < 0x060B7800
+// -- gate qa_p6_ghz_regression R0 (frozen boot if over).
+#define P6_HW_ANIMPAK     0x060B7800u
 #define P6_HW_ANIMPAK_CAP 0x00011000u // 69,632 B (build_anim_pack.py asserts)
 #else
 #define FRAMEHITBOX_COUNT (0x8)

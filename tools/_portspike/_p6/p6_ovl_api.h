@@ -29,8 +29,18 @@
 // derives to base+window = 0x060CA000; it ends at 0x060D7B74, 1,164 B below
 // the relocated GROUPWIN (p6_io_main.cpp 0x060D8000). The P6.8 zone-window
 // re-budget (124 KB SPZ contract) supersedes this.
-#define P6_OVL_BASE   0x060C9000u
-#define P6_OVL_WINDOW 0x1000u
+// O1 (Task #254, 2026-06-17): the SAFE re-budget. Spring (3,006 B) moves OUT of
+// the resident pack INTO this overlay, freeing ~3 KB of `_end`. The window must
+// grow to hold Ring (501) + Spring (3,006) + the multi-class entry, so it goes
+// 4 KB -> 6 KB. To keep GLOBALS (= OVL_BASE + OVL_WINDOW = 0x060CA000) and every
+// region above it (GROUPWIN/PACKEDCOL collision/LAYOUT/SGL) BYTE-IDENTICAL --
+// avoiding the #249 collision-move risk -- ANIMPAK + OVL_BASE slide DOWN by the
+// same 0x800 the window grew (Animation.hpp P6_HW_ANIMPAK 0x060B7800; ANIMPAK
+// still ends contiguously at OVL_BASE). The freed `_end` space absorbs the slide
+// (margin measured after the build; gate qa_p6_ghz_regression R0 catches a
+// frozen boot). GLOBALS check: 0x060C8800 + 0x1800 = 0x060CA000 (unchanged).
+#define P6_OVL_BASE   0x060C8800u
+#define P6_OVL_WINDOW 0x1800u
 
 typedef struct {
     /* ---- filled by MAIN before calling the entry ------------------------ */
@@ -43,6 +53,19 @@ typedef struct {
                             unsigned entityClassSize,
                             unsigned staticClassSize,
                             void (*update)(void), void (*draw)(void));
+
+    /* O1 (Task #254): FULL-callback registration for verbatim objects that need
+     * Create/StageLoad (Spring_Create spawns the pad, Spring_StageLoad loads the
+     * sprite -- the simple register_object above NULLs them). Mirrors the
+     * resident RSDK_REGISTER_OBJECT REV02/non-REV0U arm (GameLink.h:1799): the
+     * thunk fills NULL editorLoad/editorDraw + the trailing NULL. */
+    void (*register_object_full)(void **staticVars, const char *name,
+                                 unsigned entityClassSize,
+                                 unsigned staticClassSize,
+                                 void (*update)(void), void (*lateUpdate)(void),
+                                 void (*staticUpdate)(void), void (*draw)(void),
+                                 void (*create)(void *), void (*stageLoad)(void),
+                                 void (*serialize)(void));
 
     /* ---- filled by the OVERLAY entry ------------------------------------ */
     void *staticvars_slot;            /* Object** RegisterObject stored      */

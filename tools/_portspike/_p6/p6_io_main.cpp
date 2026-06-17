@@ -1399,6 +1399,22 @@ extern "C" void p6_ovl_register_object(void **staticVars, const char *name,
                          NULL, NULL, NULL, NULL, NULL);
 }
 
+// O1 (Task #254): FULL-callback overlay registration thunk for verbatim objects
+// that need Create/StageLoad (Spring). Mirrors the resident RSDK_REGISTER_OBJECT
+// REV02/non-REV0U arm (GameLink.h:1799): NULL editorLoad/editorDraw, NULL trailing.
+extern "C" void p6_ovl_register_object_full(void **staticVars, const char *name,
+                                            unsigned entityClassSize,
+                                            unsigned staticClassSize,
+                                            void (*update)(void), void (*lateUpdate)(void),
+                                            void (*staticUpdate)(void), void (*draw)(void),
+                                            void (*create)(void *), void (*stageLoad)(void),
+                                            void (*serialize)(void))
+{
+    RSDK::RegisterObject((RSDK::Object **)staticVars, name, entityClassSize,
+                         staticClassSize, update, lateUpdate, staticUpdate, draw,
+                         create, stageLoad, NULL, NULL, serialize);
+}
+
 // =============================================================================
 // P6.7 wave-1 (Task #210): the GAME GLOBALS window + RegisterGlobalVariables
 // SEAM. The game's InitGameLogic registers GlobalVariables through the
@@ -1443,7 +1459,8 @@ extern "C" void p6_player_witness_tick(void);
 extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
 extern "C" void p6_brg_witness(void);  // #181: GHZ Bridge class/count/pos snapshot (game-side)
 extern "C" void p6_loop_witness(void); // #254: GHZ loop classes regmask + PlaneSwitch count (game-side)
-extern "C" void p6_spring_witness(void); // #254: Spring canary class/frames (anim-pool funding proof, game-side)
+// O1: p6_spring_witness MOVED into the overlay (p6_ovl_ghz.c) -- the resident pack
+// no longer names Spring (flat-TU rule); the overlay writes p6_w_spring_* via -R.
 extern "C" void p6_player_newgame_reset(void); // #P0: zero Player->rings/powerups before InitObjects (game-side)
 extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash); // #181 diag: banded-slot lookup by path hash
 // Perf Phase 1 (Task #211): jo-side timing primitives (p6_perf.c). The true-60Hz
@@ -2269,7 +2286,13 @@ static void p6_ghz_frame(void)
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
     p6_brg_witness();  // #181: Bridge class/count/pos (one-shot latch; per-frame in warp)
     p6_loop_witness(); // #254: loop classes registered + PlaneSwitch instantiated (one-shot latch)
-    p6_spring_witness(); // #254: Spring canary (anim-pool funding proof; one-shot latch)
+    // O1 (#254): the overlay's combined witness (p6_ghz_ovl_witness: Ring residency +
+    // Spring canary) MUST run in the SHIPPING per-frame loop here -- the other
+    // s_ovl.witness_fn call site is in the diag-proof function, which the shipping
+    // continuous GHZ loop never enters (MEASURED: spring_classid stayed 0 though
+    // Spring registered + worked). The Ring-slot arg is read-safe (classID 0 if empty).
+    if (s_ovl.witness_fn)
+        s_ovl.witness_fn(RSDK_ENTITY_AT(P6_OBJ_RING_SLOT));
     {
         // Phase 2c (#246): compute-FULL bracket END + tail sub-attribution. frame_t1
         // is the exit FRT (also the swap-cadence prev_end). full = entry->exit = the
@@ -2597,7 +2620,8 @@ extern "C" void p6_scene_run(void)
     // calls back through the registration thunk (the per-zone pack shape).
     // Verbatim same RegisterObject arguments, same ordering, classID 2.
     if (p6_w_ovl_bytes > 0) {
-        s_ovl.register_object = p6_ovl_register_object;
+        s_ovl.register_object      = p6_ovl_register_object;
+        s_ovl.register_object_full = p6_ovl_register_object_full; // O1: Spring's Create/StageLoad
         ((p6_ovl_entry_t)P6_OVL_BASE)(&s_ovl);
         p6_w_ovl_classes  = objectClassCount;
         p6_w_ovl_updatefn = (int32)(uint32)s_ovl.update_fn;
