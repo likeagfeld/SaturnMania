@@ -1,60 +1,126 @@
-# Sonic Mania — Sega Saturn (native reimplementation)
+# SaturnMania — Sonic Mania, true RSDKv5 engine port for the Sega Saturn
 
-A Saturn-native reimplementation of Sonic Mania's engine, built on **Jo Engine**
-(C, `sh-elf-gcc`). This is **not** a recompile of the RSDKv5 C++ decompilation —
-that is provably impossible on Saturn hardware (see "Why not a direct port"
-below). Instead we reproduce Mania's gameplay/physics on Saturn hardware and feed
-it level/art data **converted offline** from the assets you legally own.
+A **native port of the RSDKv5 engine and the Sonic Mania decompilation to the
+Sega Saturn's SH-2** — the verbatim decomp runs on hardware, ingesting the
+**retail `Data.rsdk` at runtime**. North star: frame-for-frame parity with the
+PC Steam build.
 
-## Why not a direct port (the hard numbers)
+> This repo previously described a hand-rolled Jo-Engine reimplementation under
+> the premise that recompiling RSDKv5 on Saturn was "provably impossible." That
+> premise was wrong. The current build (phase **P6**) compiles the byte-for-byte
+> decompilation to SH-2 and runs the engine's own scene/object pipeline on
+> hardware. The hand-port survives only as a reversible fallback (`make` default).
 
-| Constraint | Mania / RSDKv5U | Saturn | Verdict |
+## How it actually works
+
+The Saturn boots straight into a **continuous Green Hill Zone Act 1** running the
+engine's verbatim loop: `LoadGameConfig` → `LoadSceneFolder` → `LoadSceneAssets`
+→ `InitObjects` → `ProcessObjects` / `ProcessObjectDrawLists`. The decomp objects
+(`Player`, `Ring`, `Bridge`, …) execute unmodified; a thin Saturn backend
+translates the RSDK API surface to the hardware.
+
+```
+src/mania/Objects/<Cat>/<Obj>.c  +  tools/_decomp_raw/  (verbatim decomp)
+        |   compiled to SH-2 in the engine pack (p6_scene_pack.o)
+        v
+src/rsdk/  +  platform/Saturn/   ENGINE COMPAT LAYER
+        |   RSDK.DrawSprite -> VDP1 sprite slot cache
+        |   tile layers      -> VDP2 NBG (camera-windowed)
+        |   LoadSfx/PlayStream-> SCSP PCM + CD-DA (Red Book audio tracks)
+        |   file I/O          -> GFS windowed reads over the real Data.rsdk pack
+        v
+jo-engine/ + SGL                 Saturn HAL (VDP1/VDP2, SCSP, CD block, SH-2)
+```
+
+## The constraints that "made it impossible" — and how they're solved
+
+| Constraint | Mania / RSDKv5U | Saturn | Resolution |
 |---|---|---|---|
-| Engine language | RSDKv5 engine is 96.1% C++ | SGL/Jo are C, no C++ runtime | can't recompile |
-| Static memory pool | engine reserves **74 MB** at startup (`Storage.cpp::InitStorage`: 24+32+8+8+2 MB) | **2 MB** main RAM | 37x over budget |
-| Framebuffer | linear `uint16` RGB565, 424x240, CPU software-blit | VDP1 sprites + VDP2 tile BGs, 4 KB CRAM | incompatible model |
-| Min. proven HW | ~1 GHz ARM, 256 MB+ (mobile/Switch) | 2x SH-2 @ 28.6 MHz, 2 MB | ~35x CPU / ~100x RAM deficit |
+| Engine language | C++ | SGL/Jo are C | `sh-none-elf` g++ 8.2 compiles the decomp to SH-2; pack linked beside the C HAL |
+| Static pool | ~74 MB reserved | 2 MB main RAM | Saturn-retargeted pools + a **4 MB extended-RAM cart** + **windowed residency** (camera-local sliding windows over band-compressed layouts/sheets) |
+| Entity table | flat PC arrays (321 KB+) | tight RAM | group lists written only on the in-range branch; 344 B entity slot; per-class Saturn shrink |
+| Framebuffer | linear RGB565 software-blit | VDP1 sprites + VDP2 tiles | DrawSprite → rect-keyed VDP1 upload cache; tile layers → VDP2 NBG streamed in VBLANK |
+| Full content | ~180 MB data | 650 MB CD | streaming problem, not a fit problem — windowed GFS over the on-disc pack |
 
-The data file (~180 MB) fits on a CD (~650 MB), so **full content is a streaming
-problem, not a fit problem** — which Saturn does well (cf. Sonic Jam, Sonic 3D).
+## Authoritative sources of truth
+
+- **Game logic** — the Sonic Mania decompilation (RSDKModding), cached selectively
+  in `tools/_decomp_raw/` (all 544 object TUs present).
+- **Engine behavior** — the RSDKv5 decompilation in `rsdkv5-src/` (the contract
+  the `src/rsdk/` + `platform/Saturn/` backend implements).
+- **Assets** — your own retail `Data.rsdk` (~174 MB, 1677 files). Nothing
+  copyrighted is committed; the build reads the pack you provide.
+- **Hardware** — the Sega DTS technical docs (VDP1/VDP2/SCSP/SCU/SMPC manuals)
+  bound every register-level decision.
+
+`CLAUDE.md` is the binding operating manual; `BIBLE.md` is the phase plan.
+
+## The drop-in census (port-planning toolchain)
+
+The whole decomp corpus is pre-measured so any object/zone is "drop-in ready"
+without re-reading the decomp per object. Re-runnable, deterministic:
+
+- `tools/build_object_census.py` — every object's draw-kind, StageLoad residency
+  (anim `.bin` → sheet resolved), dependency closure, RSDK-APIs-used vs the
+  Saturn draw-stub set.
+- `tools/build_scene_census.py` — a real `Scene.bin` entity parser → per-act
+  PLACED objects + counts + coords (the authority for "what's in Act N").
+- `tools/build_dropin_census.py` — fuses all dimensions + the 344 B entity-slot
+  wall + the 384 KB sheet store into a per-scene drop-in verdict.
 
 ## Prerequisites
 
-1. **Docker** (verified building with Docker 29.x on Windows 11).
-2. **Jo Engine** — cloned into `jo-engine/` (its bundled `sh-none-elf` GCC 8.2.0
-   toolchain is used inside the container; nothing to install on the host).
-3. **`joengine-saturn` Docker image** — built once from the included `Dockerfile`:
-   ```
-   docker build -t joengine-saturn:latest .
-   ```
-4. **Sonic Mania assets you own** — `Data.rsdk` (present here, ~174 MB, verified
-   RSDKv5 datapack: 1677 files). The Phase 0 converter reads it; nothing
-   copyrighted ships in this repo.
-5. **An emulator** (Mednafen or Kronos) or real hardware / ODE to test the ISO.
+1. **Docker** (Jo Engine's bundled `sh-none-elf` GCC 8.2 toolchain runs inside).
+2. **Jo Engine** in `jo-engine/`.
+3. The build image: `docker build -t joengine-saturn:latest .`
+4. **Your own `Data.rsdk`** (retail Sonic Mania, RSDKv5 datapack).
+5. **Mednafen** (Saturn core, real BIOS) to test — see `tools/qa_*.ps1`.
 
-## Build (verified working)
+## Build
 
+**Engine-shipping build (the real target — continuous GHZ):**
 ```
-build.bat            # Windows wrapper, or:
-docker run --rm -v "%cd%":/work -w /work joengine-saturn:latest make
+MSYS_NO_PATHCONV=1 docker run --rm -v "%cd%":/work -w /work \
+    joengine-saturn:latest bash tools/_portspike/_p6/build_shipping.sh
+# CD-DA music is a host post-step (the build's CUE is data-only):
+python tools/build_cdda.py cd_audio/track02.wav cd_audio/track03.wav \
+    --cue-out game.cue --iso game.iso
 ```
+**Hand-port fallback** (reversible default): `build.bat` / `docker ... make`.
 
-Produces `game.iso` + `game.cue`. Run in Mednafen/Kronos, or copy to a Satiator
-SD card. Last verified build: game.iso 495,616 bytes, clean (0 warnings/errors).
+Produces `game.iso` + `game.cue`. The engine GHZ load is compute-bound (~50 s of
+blue/magenta load screens in the emulator before GHZ1 renders — that is the scene
+load, not a hang).
 
-## Roadmap (each phase is independently testable)
+## Current status (measured, honest)
 
-- **Phase 0** — `tools/` offline RSDK->Saturn asset converter (Python).
-- **Phase 1** — engine core + VDP2 multi-layer parallax zone renderer.   <- this build boots
-- **Phase 2** — Sonic physics + VDP1 player sprite + per-character variants.  <- physics core landed
-- **Phase 3** — TileConfig collision + entity engine (rings, springs, badniks).
-- **Phase 4** — CD streaming + SCSP audio + re-authored music/cutscenes.
-- **Phase 5** — game shell, special stages (VDP1 3D / VDP2 RBG0), bosses, and
-  full content integration (12 zones / ~32 acts / 5 characters) end-to-end.
+**Plays now (engine-shipping build):** boots continuously into GHZ Act 1 with the
+verbatim decomp `Player` (physics/animation byte-exact, spindash/peelout/drop-dash,
+slope physics), camera follow, the FG tile layer + tile collision, CD-DA stage
+music + SCSP SFX, the act signpost → GHZ2 advance, and rendered bridges. Spawn
+state correct (0 rings, no shield, ticking timer).
 
-## Current status
+**In progress / known gaps:** the GHZ object sweep (the census measures 26 GHZ1
+objects still to register — loops via `PlaneSwitch`, collapsing platforms,
+badniks); BG parallax / sky; realtime 60 fps (currently ~30–49 fps; a dual-SH2
+render split is underway); other zones and special stages.
 
-Phase 1 scaffold + Phase 2 physics core. Boots to a title screen; START enters a
-bootstrap flat-ground world running the full Sonic ground/air physics model. The
-flat world is real working collision, replaced by converted tile geometry in
-Phase 3. HUD prints live physics state for verification.
+This is multi-year work; progress is one measured, gated port at a time.
+
+## Layout
+
+| Path | Role |
+|---|---|
+| `tools/_decomp_raw/` | cached verbatim Sonic Mania decomp object TUs |
+| `rsdkv5-src/` | the RSDKv5 engine decompilation (Saturn-gated) |
+| `src/rsdk/`, `platform/Saturn/` | the RSDK-API → Saturn hardware backend |
+| `tools/_portspike/_p6/` | the engine pack build + I/O glue + QA gates |
+| `jo-engine/` | Saturn HAL (do not modify except documented extensions) |
+| `tools/build_*_census.py` | the drop-in census toolchain |
+| `tools/qa_*.ps1`, `tools/qa_p6_*.py` | Mednafen QA harness + per-phase gates |
+
+## Legal
+
+This repo contains **no copyrighted Sonic Mania content**. You must supply your
+own legally-obtained `Data.rsdk`. The decompilation is community-authored; the
+Saturn port code here is original work.
