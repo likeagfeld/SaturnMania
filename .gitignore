@@ -90,3 +90,8 @@
 *.tmp.txt
 *.bak
 /probe_result.txt
+
+# Generated census manifests (re-runnable via tools/build_*_census.py;
+# scene_census.json embeds retail Scene.bin entity coords -> keep out of git)
+docs/object_census.json
+docs/scene_census.json
