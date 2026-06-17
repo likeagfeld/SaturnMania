@@ -58,11 +58,31 @@ extern int p6_w_io_nopen_hw; // high-water of p6_w_io_nopen
 #define P6_GFS_OPEN_MAX  2                 // max simultaneously-open GFS handles (nested .bin+GIF opens need 2)
 #define P6_GFS_MAX_DIR   16                // root-dir entries the dirtbl can hold (disc has ~7)
 #define P6_GFS_SECTOR    2048              // CD-ROM Mode 1 user-data bytes per sector
-#define P6_GFS_WIN_SECTS 2                 // sliding-window size in sectors. 4 -> 2
-                                           // (P6.5b1): frees 4 KB of pack BSS to pay
-                                           // for the VDP2 present code against the
-                                           // WRAM-H floor; loads are boot-time only.
-#define P6_GFS_WIN_BYTES (P6_GFS_SECTOR * P6_GFS_WIN_SECTS) // 4 KB window
+// #251 load-time: 32 sectors = 64 KB read-ahead window (was 2 = 4 KB). MEASURED
+// root cause -- the emulated CD charges ~135 ms of access latency PER GFS_Fread
+// CALL (the 4 KB transfer is trivial), and the engine's field-walk / registry /
+// ReadCompressed parses refilled the 4 KB window ~145 times => ~15-20 s of the
+// ~52 s load was the SH-2 spinning on the CD (io_vbl=10.3 s phase-2 alone). A
+// 64 KB window cuts the GFS_Fread calls ~16x -> the per-call latency collapses.
+#define P6_GFS_WIN_SECTS 32
+#define P6_GFS_WIN_BYTES (P6_GFS_SECTOR * P6_GFS_WIN_SECTS) // 64 KB window (max)
+// ADAPTIVE read-ahead: a fill that CONTINUES sequentially reads up to 64 KB (the
+// engine is streaming a file -> amortize the per-call CD latency); a fill at a
+// SEEK reads only P6_GFS_SEEK_SECTS (a new/scattered file -- a 64 KB read there is
+// mostly wasted, and the masked load opens ~50 tiny SFX/config files: a fixed
+// 64 KB there read 16x the bytes = MEASURED masked load 8s->21s regression).
+#define P6_GFS_SEEK_SECTS 2 // 4 KB on a seek (don't over-read a new region)
+// The two 64 KB windows live in the 4MB cart (cache-through), NOT inline in the
+// pack .bss (WRAM-H margin is only ~3.6 KB; 2x64 KB would overflow it). Placed at
+// 0x22700000-0x22720000: above GHZ's resident sheet+layout high-water (~0x22687000,
+// SaturnLayout caps layout at 0x227A0000) and below the FG page (0x227F0000) /
+// sheet store (0x227A0000). SAFE for GHZ because the layout resident pre-inflate
+// writes 0x22600000.. only at the END of the scene-load (AFTER all GFS reads), so
+// this region is free DURING the reads. (Moving the windows OUT of the struct also
+// frees 8 KB of WRAM-H .bss.) GHZ-scoped: a zone whose layout exceeds 0x22700000
+// would need the guard -- the only shipping zone is GHZ. Cache-through so the
+// GFS_TMODE_CPU write + the engine read are coherent without a cache purge.
+#define P6_CART_GFSWIN_BASE 0x22700000u
 // P6.4 (Task #225): the whole-file-in-RAM model (64 KB -> 4 KB s_filebuf) is
 // REPLACED by a sector-aligned sliding window so the engine can mount the
 // 182,962,115-byte DATA.RSDK pack and serve LoadDataPack's registry walk +
@@ -110,7 +130,8 @@ struct Saturn_FileIO {
     GfsHn gfs;     // the SHARED underlying GFS handle (s_pack_gfs)
     int   win_off; // file offset of window start (sector-aligned); -1 = invalid
     int   win_len; // valid bytes in this handle's window
-    unsigned char win[P6_GFS_WIN_BYTES];
+    unsigned char *win; // #251: per-handle 64 KB window in the cart (set at fOpen),
+                        // NOT inline -- keeps the struct tiny + WRAM-H .bss low.
 };
 typedef struct Saturn_FileIO Saturn_FileIO;
 
@@ -121,6 +142,13 @@ static GfsHn  s_pack_gfs  = (GfsHn)0;
 static Sint32 s_pack_fid  = -1;
 static int    s_pack_refs = 0;
 static int    s_pack_size = -1; // byte size of the underlying file (cached)
+// #251 load-time: the SHARED underlying GFS access-pointer sector. GFS_Fread
+// auto-advances it by nsct on success (GFS_CDB.C:411 GFCB_RtnPk ->
+// GFCB_Seek(...,GFS_SEEK_CUR)), so a fill that continues sequentially is ALREADY
+// positioned and the GFS_Seek is redundant -- skipping it avoids a CD re-seek
+// (MEASURED ~100-178 ms/4 KB fill; 145 fills dominated the ~40 s engine load).
+// -1 = unknown (force a seek): set on open/close/error.
+static Sint32 s_pack_gfs_pos = -1;
 
 // ---- CD/GFS bring-up (called once from p6_io_proof, AFTER p6_sgl_boot) -------
 // Standard order: CDC_CdInit then GFS_Init (jo audio.c:110 -> fs.c:115). slInitSystem
@@ -245,6 +273,7 @@ Saturn_FileIO *Saturn_fOpen(const char *path, const char *mode)
         s_pack_fid  = fid;
         s_pack_size = size;
         s_pack_refs = 1;
+        s_pack_gfs_pos = -1; // #251: fresh GFS_Open -> pointer unknown, force a seek
     }
 
     // Slot is a VIRTUAL handle: own cursor + window over the shared GFS open.
@@ -254,6 +283,10 @@ Saturn_FileIO *Saturn_fOpen(const char *path, const char *mode)
     slot->gfs     = s_pack_gfs;
     slot->win_off = -1; // window invalid until the first read
     slot->win_len = 0;
+    // #251: point this handle's 64 KB read-ahead window at its dedicated cart slot
+    // (s_handles[0] -> 0x22700000, s_handles[1] -> 0x22710000).
+    slot->win = (unsigned char *)(P6_CART_GFSWIN_BASE
+                                  + (unsigned long)(slot - s_handles) * P6_GFS_WIN_BYTES);
     ++p6_w_io_nopen;
     if (p6_w_io_nopen > p6_w_io_nopen_hw)
         p6_w_io_nopen_hw = p6_w_io_nopen;
@@ -272,6 +305,7 @@ int Saturn_fClose(Saturn_FileIO *file)
             s_pack_fid  = -1;
             s_pack_size = -1;
             s_pack_refs = 0;
+            s_pack_gfs_pos = -1; // #251: handle closed -> pointer state gone
         }
     }
     return 0;
@@ -290,26 +324,59 @@ int p6_w_gfs_lastsect = -1;
 int p6_w_gfs_lastseek = -2;
 int p6_w_gfs_lastfread = -2;
 
+// #251 load-time: seeks_real counts the fills that STILL needed a real GFS_Seek
+// (a genuine back-seek or a switch between the 2 virtual handles' files);
+// seeks_real << fills proves the sequential pack reads went seek-free. The
+// s_pack_gfs_pos tracker it keys off is declared up with the shared-handle
+// statics (it is used by Saturn_fOpen/fClose, which precede this point).
+int p6_w_gfs_seeks_real = 0;
+// #251 IO-vs-CPU split: accumulate the vblanks (true 60 Hz, p6_perf.c) elapsed
+// INSIDE the GFS_Seek+GFS_Fread of every fill. Vblanks only advance when
+// interrupts are unmasked, so this measures the PHASE-2 reload IO (LoadSceneFolder
+// /Assets/InitObjects) -- the masked load core (LoadGameConfig) contributes 0
+// (frozen). io_vbl/60 = seconds the SH-2 spent spinning on the CD; compare to the
+// ~17 s phase-2 wall time: io_vbl ~ 1020 => emulated-CD-bound, io_vbl << that =>
+// SH-2 CPU (decode/parse) bound. Picks the fix (reduce GFS calls vs pre-decode).
+extern volatile unsigned int p6_perf_vbl_count;
+int p6_w_gfs_io_vbl = 0;
+
 static int p6_window_fill(Saturn_FileIO *file, int offset)
 {
     Sint32 sector      = offset / P6_GFS_SECTOR;
     Sint32 file_sects  = (file->size + P6_GFS_SECTOR - 1) / P6_GFS_SECTOR;
-    Sint32 nsct        = file_sects - sector;
-    if (nsct <= 0)
+    Sint32 avail_sects = file_sects - sector;
+    if (avail_sects <= 0)
         return 0;
-    if (nsct > P6_GFS_WIN_SECTS)
-        nsct = P6_GFS_WIN_SECTS;
+    // #251 ADAPTIVE: stream 64 KB on a sequential continuation, but read only
+    // 4 KB on a seek (new/scattered file -- avoid the read-waste regression).
+    // Decided BEFORE the seek-skip check below, off the SAME s_pack_gfs_pos.
+    Sint32 nsct = (sector == s_pack_gfs_pos) ? P6_GFS_WIN_SECTS : P6_GFS_SEEK_SECTS;
+    if (nsct > avail_sects)
+        nsct = avail_sects;
 
     ++p6_w_gfs_fills;
     p6_w_gfs_lastsect = (int)sector;
     p6_w_gfs_lastseek = 0x7FFFFFFF;
     p6_w_gfs_lastfread = 0x7FFFFFFF;
-    p6_w_gfs_lastseek = (int)GFS_Seek(file->gfs, sector, GFS_SEEK_SET);
-    if (p6_w_gfs_lastseek < 0)
-        return 0;
+    unsigned int io_v0 = p6_perf_vbl_count; // #251 IO-time bracket (phase-2 only)
+    // Only seek when the shared access pointer is NOT already at this sector.
+    if (sector != s_pack_gfs_pos) {
+        ++p6_w_gfs_seeks_real;
+        p6_w_gfs_lastseek = (int)GFS_Seek(file->gfs, sector, GFS_SEEK_SET);
+        if (p6_w_gfs_lastseek < 0) {
+            s_pack_gfs_pos = -1; // desynced -> force a seek next time
+            return 0;
+        }
+    } else {
+        p6_w_gfs_lastseek = 0; // sequential continuation: no seek issued
+    }
     p6_w_gfs_lastfread = (int)GFS_Fread(file->gfs, nsct, file->win, nsct * P6_GFS_SECTOR);
-    if (p6_w_gfs_lastfread <= 0)
+    if (p6_w_gfs_lastfread <= 0) {
+        s_pack_gfs_pos = -1; // read failed -> pointer state unknown
         return 0;
+    }
+    s_pack_gfs_pos = sector + nsct; // GFS_Fread advanced the pointer past nsct
+    p6_w_gfs_io_vbl += (int)(p6_perf_vbl_count - io_v0); // accumulate IO vblanks
 
     file->win_off = sector * P6_GFS_SECTOR;
     file->win_len = nsct * P6_GFS_SECTOR;

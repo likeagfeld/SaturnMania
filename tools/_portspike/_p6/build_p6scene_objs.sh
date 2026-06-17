@@ -330,6 +330,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \
     -u _SaturnLayout_SlotLayer \
     -u _p6_w_transitions -u _p6_w_xtile_lo -u _p6_w_xtile_hi \
+    -u _p6_w_load_step \
+    -u _p6_w_gfs_seeks_real -u _p6_w_gfs_io_vbl \
     -u _p6_w_ghz2_loaded -u _p6_w_ghz2_xtile_lo -u _p6_w_ghz2_xtile_hi \
     -u _p6_w_ghz2_entcount -u _p6_w_ghz2_plrx -u _p6_w_ghz2_plry \
     -u _p6_w_ghz2_listpos -u _p6_w_ghz2_play_frames -u _p6_w_ghz2_max_plry \

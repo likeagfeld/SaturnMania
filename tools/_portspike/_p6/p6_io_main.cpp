@@ -402,6 +402,15 @@ __attribute__((used)) int32 p6_w_scene_t3d_x       = 0;
 __attribute__((used)) int32 p6_w_scene_t3d_y       = 0;
 __attribute__((used)) int32 p6_w_scene_step        = 0;
 __attribute__((used)) int32 p6_w_scene_initstorage = 0;
+// Task #251 (load-time localization): fine load-phase breadcrumb. Set BEFORE
+// each load sub-step so a captured value names the op CURRENTLY executing. The
+// existing coarse witnesses (scene_step/pack_mounted/cfg_globalcount/cont_frames)
+// partition the load into BIOS/staged/pack/config/phase-2 buckets; this resolves
+// the two unresolved buckets internally: the masked-core staged residency loads
+// (10..18 = 8 sheets + probes) and phase-2 p6_scene_load_and_arm (30..37). A
+// wall-clock SaveFrame sweep reading this names the dominant sub-step. Single
+// int store = zero frame-budget cost (skill v2.6.0 lesson 2: no hashing in path).
+__attribute__((used)) int32 p6_w_load_step         = 0;
 // P6.4 (Task #225, qa_p6_pack.py): the original-Data.rsdk ingestion witnesses.
 __attribute__((used)) int32 p6_w_pack_mounted   = 0; // LoadDataPack("Data.rsdk") return
 __attribute__((used)) int32 p6_w_pack_filecount = 0; // dataPacks[0].fileCount (expect 1677)
@@ -2239,6 +2248,7 @@ extern "C" void p6_scene_run(void)
     memset((void *)P6_HW_GROUPWIN, 0, P6_HW_GROUPWIN_END - P6_HW_GROUPWIN);
 
     // 1) Engine storage pools (5 mallocs through OUR _sbrk -> WRAM-L heap).
+    p6_w_load_step = 1; // #251
     p6_w_scene_initstorage = (int32)InitStorage();
     if (!p6_w_scene_initstorage) {
         p6_load_phase_exit();
@@ -2263,6 +2273,7 @@ extern "C" void p6_scene_run(void)
     //      array mechanism; writes are write-through/no-allocate, so the
     //      loaded bytes themselves are already in RAM).]
     {
+        p6_w_load_step = 2; // #251 overlay
         int n = rsdk_storage_load_to_lwram("OVLRING.BIN",
                                            (void *)P6_OVL_BASE, P6_OVL_WINDOW);
         p6_w_ovl_bytes = n;
@@ -2288,6 +2299,7 @@ extern "C" void p6_scene_run(void)
     //      Saturn references read or write through it -- the macro seam +
     //      P6_CM arm cover every site, measured).
     {
+        p6_w_load_step = 3; // #251 layout band store + mount
         int n = rsdk_storage_load_to_lwram("GHZ1LAYT.BIN",
                                            (void *)P6_LW_LAYOUTBANDS, 0xC800);
         p6_w_lay_bytes = n;
@@ -2324,6 +2336,7 @@ extern "C" void p6_scene_run(void)
     //      LoadSpriteAnimation's Saturn arm resolves pack members by path
     //      hash with zero DATASET_STG cost (Animation.cpp).
     {
+        p6_w_load_step = 4; // #251 anim pack
         int n = rsdk_storage_load_to_lwram("GHZANIM.PAK",
                                            (void *)P6_HW_ANIMPAK, P6_HW_ANIMPAK_CAP);
         p6_w_apk_bytes = n;
@@ -2394,6 +2407,7 @@ extern "C" void p6_scene_run(void)
                                            "Players/Tails1.gif",
                                            "Global/Objects.gif" };
         for (int32 i = 0; i < 8; ++i) {
+            p6_w_load_step = 10 + i; // #251 per-sheet (10..17 = SONIC1/2/3,ITEMS,DISPLAY,SHIELDS,TAILS1,GLOBJ)
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
                                                 (void *)P6_LW_ENTITYLIST, 0x10000);
             if (sn > 0) {
@@ -2417,6 +2431,7 @@ extern "C" void p6_scene_run(void)
 #include "p6_sheet_probes.inc"
         // W12b: fixed-window scratch (P6_HW_GROUPWIN tail), was 4 KB .bss
         uint8 *p6_shtRect = (uint8 *)P6_HW_GROUPWIN_SHTRECT; // largest probe rect 64x64
+        p6_w_load_step = 18; // #251 sheet probes
         int32 good = 0;
         for (int32 i = 0; i < P6_SHEET_PROBE_COUNT; ++i) {
             uint32 hh = 5381u;
@@ -2531,6 +2546,7 @@ extern "C" void p6_scene_run(void)
     //      the pack (Reader.cpp:312-314 returns OpenDataFile unconditionally;
     //      there is no loose-file fallback, so the scene parse below is a
     //      pack-routed proof by construction).
+    p6_w_load_step      = 19; // #251 LoadDataPack
     p6_w_pack_mounted   = (int32)LoadDataPack("Data.rsdk", 0, false);
     p6_w_pack_filecount = (int32)dataPacks[0].fileCount;
     if (!p6_w_pack_mounted) {
@@ -2551,6 +2567,7 @@ extern "C" void p6_scene_run(void)
     //    PlaySfx channel allocator (Audio.cpp:441-507) arms channel 0. The
     //    SCSP-audible half keys off this canonical channels[] state in P6.6b.
     {
+        p6_w_load_step = 20; // #251 audio proofs (ScoreAdd + MenuBleep)
         AudioDevice::Init();
         p6_w_sfx_inited = (int32)AudioDeviceBase::initializedAudioChannels;
         p6_w_sfx_musbuf = (sfxList[SFX_COUNT - 1].buffer != NULL) ? 1 : 0;
@@ -2631,6 +2648,7 @@ extern "C" void p6_scene_run(void)
     //     the global palette (through the rgb32To16 tables filled in step
     //     2), the 52-entry global SFX list (alloc-guard skips what exceeds
     //     the pool), and the full 92-scene 8-category list into STG storage.
+    p6_w_load_step = 21; // #251 LoadGameConfig
     LoadGameConfig();
     {
         uint32 th = 5381u;
@@ -3548,7 +3566,9 @@ static void p6_scene_load_and_arm(void)
     // F.2: (re)mount the windowed band store for the zone being loaded BEFORE
     // LoadSceneFolder's SaturnLayout_Bind (Scene.cpp:439/444). No-op on a same-
     // zone reload (tag match); swaps GHZ1<->GHZ2 on a cross-zone act advance.
+    p6_w_load_step = 30; // #251 phase-2: layout mount-for-scene
     p6_layout_mount_for_scene();
+    p6_w_load_step = 31; // #251 phase-2: LoadSceneFolder (tileset GIF + TileConfig inflate)
     LoadSceneFolder();
     // #249/#250: pin the packed-collision geometry RIGHT AFTER the gameplay
     // LoadTileConfig (nested in LoadSceneFolder, Scene.cpp:163-164). The lean boot
@@ -3569,8 +3589,10 @@ static void p6_scene_load_and_arm(void)
     // #250: SKIP on a same-folder reload -- LoadSceneFolder early-returned without
     // re-decoding the tileset, so tilesetPixels is stale and the first load's cells
     // are still resident in NBG1 VRAM. Uploading here would garble the FG.
+    p6_w_load_step = 32; // #251 phase-2: VDP2 cell upload
     if (!p6_folderReload)
         p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+    p6_w_load_step = 33; // #251 phase-2: LoadSceneAssets (sprite sheets)
     LoadSceneAssets();
     // Screen env must exist BEFORE InitObjects (Camera_Create reads
     // ScreenInfo->center) -- arm it here, then arm the binds after.
@@ -3586,7 +3608,9 @@ static void p6_scene_load_and_arm(void)
     screens[0].clipBound_Y2   = SCREEN_YSIZE;
     currentScreen             = &screens[0];
     sceneInfo.entity          = RSDK_ENTITY_AT(0);
+    p6_w_load_step = 34; // #251 phase-2: InitObjects (entity Create/StageLoad)
     InitObjects();
+    p6_w_load_step = 35; // #251 phase-2: arm VDP1 sheet binds
     p6_ghz_arm_env();
     // #249/#250: run the resident layout pre-inflate (the band-crossing stall fix)
     // NOW -- AFTER LoadTileConfig packed 0x060E0000 + LoadSceneFolder/Assets/Init-
@@ -3596,7 +3620,9 @@ static void p6_scene_load_and_arm(void)
     // Deferring it here finalizes the pack first; the pre-inflate then fills the
     // cart resident store before the first p6_ghz_frame Refill. No-op when the
     // resident path is disabled or scratch is unarmed. (Declared file-scope above.)
+    p6_w_load_step = 36; // #251 phase-2: resident layout pre-inflate (538KB into cart)
     SaturnLayout_PreInflateResident();
+    p6_w_load_step = 37; // #251 phase-2: done (first p6_ghz_frame imminent)
     // F.2 diag: probe the windowed store at the spawn column right after the
     // mount+bind+InitObjects, to witness whether collision reads serve the
     // newly-loaded zone (GHZ2 FG Low ty=90 solid / FG High ty=86) or empty.
