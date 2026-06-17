@@ -187,6 +187,12 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     // pushed _end 1,564 B past the ANIMPAK floor (their ~9.9 KB of .text + the SGL
     // work-area COMMON), so the corkscrew batch needs a code-budget lever first.
     RSDK_REGISTER_OBJECT(PlaneSwitch);
+    // #254 sweep DEFERRED until residency is funded: Spring (and the rest) each
+    // LoadSpriteAnimation into the SHARED DATASET_STG anim pool, which is already
+    // near-full with Player + Bridge. Adding Spring overflowed it -> Bridge.bin's
+    // anim alloc FAILED -> the WORKING bridges vanished (regression caught by
+    // qa_p6_ghz_regression.py R2 brg_frames=0). The object sweep is blocked on a
+    // pool-funding step, NOT on registration. memory/whole-level-regression-gate.
     RSDK_REGISTER_OBJECT(Zone);         // Game.c:854
 }
 

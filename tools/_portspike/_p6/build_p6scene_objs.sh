@@ -263,8 +263,9 @@ done
 # dep (BurningLog) is NULL'd in p6_closure_edge.c, all other refs (Player/Zone/
 # RSDK.*) already pack-resident.
 # #254: GHZ1 loop fix -- PlaneSwitch (the collision-plane toggle for loops). The
-# corkscrew force-objects are DEFERRED (adding all 5 overran the ANIMPAK floor by
-# 1,564 B; the corkscrew batch needs a code-budget lever first).
+# corkscrew force-objects are DEFERRED (code-budget); Spring + the rest of the
+# sweep are DEFERRED on the DATASET_STG anim-pool budget (adding Spring overflowed
+# it -> Bridge.bin alloc-fail -> bridges regressed; qa_p6_ghz_regression.py).
 for w4 in Common_BGSwitch:Game_BGSwitch \
           GHZ_GHZSetup:Game_GHZSetup \
           GHZ_Bridge:Game_Bridge \
