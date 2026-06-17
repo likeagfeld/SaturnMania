@@ -401,29 +401,30 @@ void p6_brg_witness(void)
         return;
     p6_w_brg_classid = (int32)Bridge->classID;
 
+    // Latch count + first-bridge pos ONCE (stable -> the P6_WARP_BRIDGE pin holds a
+    // fixed target; the earlier per-frame update made it a moving pin). onScreen
+    // refreshes live in the warp diag as the camera settles onto the pinned bridge.
     static int32 s_latched = 0;
-#if defined(P6_WARP_BRIDGE_TEST)
-    int32 rescan = 1;          // warp diag: refresh onScreen every frame (perf N/A)
-#else
-    int32 rescan = !s_latched; // shipping: one-shot latch (perf-safe)
-#endif
-    if (!rescan)
+    if (!s_latched) {
+        int32 cnt = 0;
+        EntityBridge *first = NULL;
+        foreach_all(Bridge, b)
+        {
+            ++cnt;
+            if (!first)
+                first = b;
+        }
+        if (cnt > 0) {
+            p6_w_brg_count    = cnt;
+            p6_w_brg_posx     = first->position.x;
+            p6_w_brg_posy     = first->position.y;
+            p6_w_brg_onscreen = (int32)first->onScreen;
+            p6_w_brg_frames   = (int32)(size_t)first->animator.frames;
+            s_latched         = 1;
+        }
         return;
-
-    int32 cnt = 0;
-    EntityBridge *first = NULL;
-    foreach_all(Bridge, b)
-    {
-        ++cnt;
-        if (!first)
-            first = b;
     }
-    if (cnt > 0) {
-        p6_w_brg_count    = cnt;
-        p6_w_brg_posx     = first->position.x;
-        p6_w_brg_posy     = first->position.y;
-        p6_w_brg_onscreen = (int32)first->onScreen;
-        p6_w_brg_frames   = (int32)(size_t)first->animator.frames;
-        s_latched         = 1;
-    }
+#if defined(P6_WARP_BRIDGE_TEST)
+    foreach_all(Bridge, b) { p6_w_brg_onscreen = (int32)b->onScreen; break; }
+#endif
 }

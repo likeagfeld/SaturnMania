@@ -355,6 +355,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_plr_newgame_pre_rings -u _p6_w_plr_newgame_pre_pwr \
     -u _p6_w_plr_live_rings -u _p6_w_plr_live_shield \
     -u _p6_w_time_enabled -u _p6_w_timer \
+    -u _p6_w_ghzobj_slot -u _p6_w_ghzobj_h0 -u _p6_w_brg_surfslot \
+    -u _p6_w_brg_surfscope -u _p6_w_brg_surfh0 \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
     -u _p6_w_ac_laststate -u _p6_w_listpos_max \

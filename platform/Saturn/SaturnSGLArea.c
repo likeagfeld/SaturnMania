@@ -46,11 +46,17 @@
 #define MAX_VERTICES  384   /* >= 3x the polygon-emitter peak (~128 verts) */
 #define MAX_POLYGONS  144   /* ~2x the measured ~70 VDP1 commands/frame    */
 #define MAX_EVENTS    64    /* stock (jo/SGL event system)                 */
-#define MAX_WORKS     192   /* F.4: 256->192 frees ~4.35KB WRAM-H .bss (WorkBuf
+#define MAX_WORKS     152   /* F.4: 256->192 frees ~4.35KB WRAM-H .bss (WorkBuf
                              * below the ANIMPAK floor; sizeof(WORK)~68) to fund
                              * GHZSetup+BGSwitch WITHOUT moving any pool/globals;
                              * still > MAX_POLYGONS 144. MAX_WORKS=208 verified
-                             * GREEN (player gate) -- 192 is the same class. */
+                             * GREEN (player gate) -- 192 is the same class.
+                             * #247: 192->152 frees ~2.9KB more for the first GHZ
+                             * content entity (Spikes) code in the pack -- _end was
+                             * 0x060b86e4, +1764 over the 0x060B8000 ANIMPAK floor.
+                             * 152 > MAX_POLYGONS 144 AND >> the ~80 GHZ VDP1-sprite
+                             * peak (qa_p6_draw), so no sortlist-drop. The BATCH (more
+                             * entities) needs the ANIMPAK->cart move, not this. */
 
 #define WORK_AREA     0x060f4000            /* SGL Work Area (was 060C0000)*/
 
