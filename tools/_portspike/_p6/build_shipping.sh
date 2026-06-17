@@ -14,6 +14,15 @@
 #   MSYS_NO_PATHCONV=1 docker run --rm -v "D:/sonicmaniasaturn":/work -w /work \
 #       joengine-saturn:latest bash tools/_portspike/_p6/build_shipping.sh
 #
+# #182 BGM CD-DA (HOST post-step -- this Docker toolchain image has NO python):
+# the `make` CueMaker emits a DATA-ONLY single-track game.cue, so the GHZ stage
+# BGM (PlayStream("GreenHill1.ogg") -> HandleStreamLoad -> CUE audio track 2) has
+# no CD-DA track to play. After this build, run ON THE HOST (mirrors build.bat:16):
+#   python tools/build_cdda.py cd_audio/track02.wav cd_audio/track03.wav \
+#       --cue-out game.cue --iso game.iso
+# -> rewrites game.cue multi-track: TRACK 01 (game.iso) + TRACK 02 AUDIO
+#    (cd_audio/track02.bin = GreenHill1/GHZ) + TRACK 03 AUDIO (track03.bin = title).
+#
 # The do-not-touch COMMON SGL tree is untouched; the engine-sized SGL work area
 # (SaturnSGLArea.c) replaces stock SGLAREA.O via the make SYSOBJS override, same
 # as the diag (the engine pack does not use the 3D sortlist capacity the stock

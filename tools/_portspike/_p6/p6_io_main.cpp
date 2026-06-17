@@ -3623,6 +3623,27 @@ static void p6_scene_load_and_arm(void)
     p6_w_load_step = 36; // #251 phase-2: resident layout pre-inflate (538KB into cart)
     SaturnLayout_PreInflateResident();
     p6_w_load_step = 37; // #251 phase-2: done (first p6_ghz_frame imminent)
+    // #182: trigger the STAGE BGM now that the scene is live. The continuous-GHZ
+    // shipping boot never called PlayStream (p6_w_str_track stayed -1) -> the level
+    // was silent / the title CD-DA was never replaced. This mirrors the decomp's
+    // stage-load music: Music_PlayTrack(TRACK_STAGE) -> RSDK.PlayStream(stage music
+    // name, 0,0, loop, true) (Music.c:259-276). GreenHill1.ogg -> the Saturn
+    // AudioDevice::HandleStreamLoad maps it to CUE audio track 2 -> CD-DA. Runs
+    // HERE, AFTER every LoadSceneFolder/Assets pack read -- CD-DA and the GFS pack
+    // reads share the CD block, so an earlier play would be displaced (the 7c-moved
+    // ordering hazard, :3388). Play-once guard: a same-track reload must not restart
+    // the already-looping CD-DA.
+    if (!strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "GHZ")) {
+        static int32 s_ghzBgmArmed = 0;
+        if (!s_ghzBgmArmed) {
+            engine.streamsEnabled = true; // NO-CTORS TRAP (:1237): set explicitly
+            // FIXME #182: GHZ2 (act 2) should play GreenHill2.ogg -- needs its own
+            // CD-DA track; only GreenHill1 (track 2) is mastered today. Table-ize
+            // per zone/act when more zones ship (mirror Music_SetMusicTrack).
+            PlayStream("GreenHill1.ogg", 0, 0, 1, true);
+            s_ghzBgmArmed = 1;
+        }
+    }
     // F.2 diag: probe the windowed store at the spawn column right after the
     // mount+bind+InitObjects, to witness whether collision reads serve the
     // newly-loaded zone (GHZ2 FG Low ty=90 solid / FG High ty=86) or empty.
