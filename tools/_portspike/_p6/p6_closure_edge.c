@@ -55,6 +55,12 @@ ObjectAPICallback *APICallback   = NULL;
 // below -- all leaderboard/save/progress, none on the listPos-advance path.
 ObjectAnimals *Animals           = NULL;
 ObjectAnnouncer *Announcer       = NULL;
+// #181: Bridge (now a registered pack object) spawns BurningLog from Bridge_Burn,
+// which is reachable ONLY via SHIELD_FIRE on a burnable bridge. SHIELD_FIRE is
+// unobtainable until ItemBox is ported (also NULL below) -> Bridge_Burn is dead
+// code in this build, so the NULL is safe. Port BurningLog with its own gate
+// (GHZ/Fireball.bin residency) when ItemBox + the fire shield land.
+ObjectBurningLog *BurningLog     = NULL;
 ObjectCompetition *Competition   = NULL; // F.3: SignPost competition branch (DEAD in Mania mode)
 ObjectDecoration *Decoration     = NULL; // F.4: GHZSetup editor-only ref
 ObjectGHZ2Outro *GHZ2Outro       = NULL; // F.4: GHZSetup_StageFinish_EndAct2 (Act2-only) ref

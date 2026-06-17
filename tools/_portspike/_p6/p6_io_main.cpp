@@ -607,6 +607,29 @@ __attribute__((used)) int32 p6_w_cont_frames    = 0;  // ++ per p6_ghz_frame() c
 __attribute__((used)) int32 p6_w_cont_plr_x     = 0;  // SLOT_PLAYER1 position, continuous
 __attribute__((used)) int32 p6_w_cont_plr_y     = 0;
 __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.animationID
+// #181 GHZ Bridge witnesses (set by the game-side p6_brg_witness(),
+// p6_wave1_reg.c -- only that TU has the Bridge class type/global). classid>0 +
+// count>0 is the RED->GREEN gate (Bridge ported + registered + instantiated).
+// posx/posy feed the P6_WARP_BRIDGE pin; frames is the first bridge's
+// animator.frames (0/-1 == Bridge.bin alloc-failed the #247 residency budget).
+__attribute__((used)) int32 p6_w_brg_classid    = 0;  // Bridge->classID (0 == unregistered == the bug)
+__attribute__((used)) int32 p6_w_brg_count      = 0;  // # Bridge entities the scene instantiated
+__attribute__((used)) int32 p6_w_brg_posx       = 0;  // first bridge position.x (16.16 fixed)
+__attribute__((used)) int32 p6_w_brg_posy       = 0;  // first bridge position.y (16.16 fixed)
+__attribute__((used)) int32 p6_w_brg_onscreen   = -1; // first bridge onScreen flag
+__attribute__((used)) int32 p6_w_brg_frames     = -1; // first bridge animator.frames ptr (sprite loaded?)
+// #P0 GHZ1-parity spawn-state witnesses. newgame_pre_* = Player->rings/powerups
+// captured RIGHT AFTER LoadSceneAssets, BEFORE the reset = the uninitialized static
+// the lean boot inherits (THE BUG: 100 rings / fire shield). live_* = the
+// SLOT_PLAYER1 player's rings/shield post-spawn (THE FIX: 0 / SHIELD_NONE).
+// time_enabled + timer witness the scene clock (Zone_Create sets timeEnabled;
+// ProcessSceneTimer ticks it -- was never called in p6_ghz_frame -> frozen 0'00"00).
+__attribute__((used)) int32 p6_w_plr_newgame_pre_rings = -1;
+__attribute__((used)) int32 p6_w_plr_newgame_pre_pwr   = -1;
+__attribute__((used)) int32 p6_w_plr_live_rings        = -1;
+__attribute__((used)) int32 p6_w_plr_live_shield       = -1;
+__attribute__((used)) int32 p6_w_time_enabled          = -1;
+__attribute__((used)) int32 p6_w_timer                 = -1;
 // P6.8 F.2-followup debug WARP (declared early -- the signpost-active scan in
 // p6_ghz_frame's census reads it). p6_w_warp_plrx = the player x after the warp
 // past the GHZ1 signpost (x=15792px); p6_w_warp_signactive = the active field of
@@ -1396,6 +1419,8 @@ extern "C" void p6_player_witness_pre(int32 startSlot, int32 sceneCount);
 extern "C" void p6_player_witness_post(void);
 extern "C" void p6_player_witness_tick(void);
 extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
+extern "C" void p6_brg_witness(void);  // #181: GHZ Bridge class/count/pos snapshot (game-side)
+extern "C" void p6_player_newgame_reset(void); // #P0: zero Player->rings/powerups before InitObjects (game-side)
 // Perf Phase 1 (Task #211): jo-side timing primitives (p6_perf.c). The true-60Hz
 // vblank tally (registered via jo_core_add_vblank_callback in main.c) + the
 // interrupt-safe SH-2 FRT read for per-section cost attribution.
@@ -1826,6 +1851,27 @@ static void p6_ghz_frame(void)
     for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
         engine.drawGroupVisible[g] = true;
 
+#if defined(P6_WARP_BRIDGE_TEST)
+    // #181 debug WARP: pin SLOT_PLAYER1 onto the first GHZ1 bridge so its planks
+    // are centered on-screen for a rendered-plank screenshot. p6_brg_witness()
+    // (p6_wave1_reg.c) latches the first bridge's world pos into p6_w_brg_posx/posy
+    // by frame 1. Pin X EVERY frame (the camera then stays on the bridge despite
+    // the Mania drop-autorun); drop Y ONCE from 32px above so the player falls onto
+    // the planks -> Bridge_HandleCollisions stands him at the bridge center -> the
+    // bridge visibly depresses. Diag-only (P6_WARP_BRIDGE) -- the shipping build
+    // leaves the macro undefined and never warps. Runs before ProcessObjects so the
+    // camera + Bridge_Update see the pinned position THIS frame.
+    if (p6_w_brg_posx != 0) {
+        EntityBase *wplr = RSDK_ENTITY_AT(0);
+        wplr->position.x = p6_w_brg_posx;
+        static int32 s_brg_dropped = 0;
+        if (!s_brg_dropped) {
+            wplr->position.y = p6_w_brg_posy - 0x200000; // 32px above (16.16 fixed)
+            s_brg_dropped    = 1;
+        }
+    }
+#endif
+
     // P6.8 F.3 (Task #235): point the pack `Ring` global at the overlay's
     // registered Ring object so SignPost's sparkle CREATE_ENTITY(Ring,...) has a
     // valid classID (the pack Ring is otherwise NULL -- the P6.7 overlay seam).
@@ -1859,6 +1905,13 @@ static void p6_ghz_frame(void)
         p6_w_obj_refills = p6_w_lay_refills - _r0;
     }
     p6_w_perf_cyc_obj = P6_FRT_DELTA(t0, t1); p6_w_perf_vbl_obj = (int32)(vb1 - vb0);
+    // #P0 (GHZ1 parity): tick the scene clock. ProcessEngine calls ProcessSceneTimer
+    // each gameplay frame (RetroEngine.cpp:394,402,481); p6_ghz_frame replaces that
+    // loop and omitted it -> the HUD timer was frozen at 0'00"00. Gated internally by
+    // sceneInfo.timeEnabled (Zone_Create sets it true, Zone.c:820/857). Negligible cost.
+    ProcessSceneTimer();
+    p6_w_time_enabled = (int32)sceneInfo.timeEnabled;
+    p6_w_timer        = (int32)(sceneInfo.seconds * 100 + sceneInfo.milliseconds);
 #if defined(P6_GHZ2_BOOT)
     // #237: while GHZ2 is the live scene, does the player run on solid ground or
     // fall into empty? ProcessObjects just moved the player + refilled the
@@ -2169,6 +2222,7 @@ static void p6_ghz_frame(void)
     }
 
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
+    p6_brg_witness();  // #181: Bridge class/count/pos (one-shot latch; per-frame in warp)
     {
         // Phase 2c (#246): compute-FULL bracket END + tail sub-attribution. frame_t1
         // is the exit FRT (also the swap-cadence prev_end). full = entry->exit = the
@@ -3608,8 +3662,20 @@ static void p6_scene_load_and_arm(void)
     screens[0].clipBound_Y2   = SCREEN_YSIZE;
     currentScreen             = &screens[0];
     sceneInfo.entity          = RSDK_ENTITY_AT(0);
+    // #P0 (GHZ1 parity): establish the fresh-act carry-over state (Player->rings=0,
+    // powerups=0, ringExtraLife=100) BEFORE InitObjects runs Player_Create -- the lean
+    // engine boot skips the menu/new-game path that zeroes these statics, so the first
+    // GHZ player otherwise inherits uninitialized memory (100 rings + fire shield). The
+    // game-side reset (p6_wave1_reg.c) also witnesses the pre-reset garbage.
+    p6_player_newgame_reset();
     p6_w_load_step = 34; // #251 phase-2: InitObjects (entity Create/StageLoad)
     InitObjects();
+    // #P0 (GHZ1 parity): enable the level clock. The decomp enables it in
+    // Zone_State_FadeIn (Zone.c:820) -- the act-start fade-in state that the lean
+    // engine boot skips (it jumps straight to gameplay), so the timer stayed frozen.
+    // Establish the act-start state directly, same as the player carry-over reset.
+    // (Bosses set it false when they spawn -- ported in the P2 sweep.)
+    sceneInfo.timeEnabled = true;
     p6_w_load_step = 35; // #251 phase-2: arm VDP1 sheet binds
     p6_ghz_arm_env();
     // #249/#250: run the resident layout pre-inflate (the band-crossing stall fix)

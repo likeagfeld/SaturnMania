@@ -156,6 +156,7 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     RSDK_REGISTER_OBJECT(ActClear);     // Game.c:~160 (F.2: ActClear -> stageFinishCallback)
     RSDK_REGISTER_OBJECT(BGSwitch);     // Game.c:178 (F.4: GHZSetup BG switch; funded by MAX_WORKS reclaim)
     RSDK_REGISTER_OBJECT(BoundsMarker); // Game.c:188
+    RSDK_REGISTER_OBJECT(Bridge);       // Game.c:~195 (#181: GHZ planks; alpha order Bo<Br<Ca)
     RSDK_REGISTER_OBJECT(Camera);       // Game.c:212
     RSDK_REGISTER_OBJECT(DebugMode);    // Game.c:265
     RSDK_REGISTER_OBJECT(DrawHelpers);  // Game.c:277
@@ -334,6 +335,8 @@ void p6_player_witness_tick(void)
 extern int32 p6_w_cont_plr_x;
 extern int32 p6_w_cont_plr_y;
 extern int32 p6_w_cont_animid;
+extern int32 p6_w_plr_live_rings;   // #P0: SLOT_PLAYER1 self->rings (expect 0 at spawn)
+extern int32 p6_w_plr_live_shield;  // #P0: SLOT_PLAYER1 self->shield (expect SHIELD_NONE)
 void p6_cont_witness(void)
 {
     if (!Player)
@@ -342,4 +345,85 @@ void p6_cont_witness(void)
     p6_w_cont_plr_x  = p1->position.x;
     p6_w_cont_plr_y  = p1->position.y;
     p6_w_cont_animid = (int32)p1->animator.animationID;
+    p6_w_plr_live_rings  = (int32)p1->rings;   // #P0 spawn-state parity
+    p6_w_plr_live_shield = (int32)p1->shield;
+}
+
+// =============================================================================
+// p6_player_newgame_reset -- #P0 (GHZ1 parity). Called from p6_scene_load_and_arm
+// AFTER LoadSceneAssets (the ObjectPlayer static exists) and BEFORE InitObjects
+// (Player_Create reads these statics). Player_Create copies Player->rings into the
+// new player (Player.c:643) and applies Player->powerups as a shield (Player.c:
+// 654-656), THEN zeroes them (:645/:658). At a genuine new-game start those statics
+// are 0/0 (ringExtraLife 100); the lean engine boot skips the menu/new-game path
+// that establishes that, so the first GHZ player inherits uninitialized static
+// memory (MEASURED: 100 rings + a fire shield). Set the new-game values explicitly.
+// Witnesses the pre-reset garbage so the gate documents the bug it corrects.
+// =============================================================================
+extern int32 p6_w_plr_newgame_pre_rings;
+extern int32 p6_w_plr_newgame_pre_pwr;
+void p6_player_newgame_reset(void)
+{
+    if (!Player)
+        return;
+    p6_w_plr_newgame_pre_rings = (int32)Player->rings;
+    p6_w_plr_newgame_pre_pwr   = (int32)Player->powerups;
+    Player->rings         = 0;
+    Player->powerups      = 0;
+    Player->ringExtraLife = 100;
+}
+
+// =============================================================================
+// p6_brg_witness -- #181 ("bridges disappear in level"). The GHZ Bridge object
+// was never compiled/registered into the pack; now it is (RSDK_REGISTER_OBJECT
+// (Bridge) above, Game_Bridge.o). Only this game-side TU carries the Bridge
+// class type + global, so the engine-side p6_ghz_frame calls in here to snapshot
+// the gate witnesses (defined in p6_io_main.cpp):
+//   p6_w_brg_classid -- Bridge->classID (0 == unregistered == the bug; >0 == B1).
+//   p6_w_brg_count   -- # Bridge entities the scene instantiated (B2; GHZ1 = 3).
+//   posx/posy        -- first bridge world pos (feeds the P6_WARP_BRIDGE pin).
+//   onScreen/frames  -- first bridge onScreen + animator.frames (0/-1 frames ==
+//                       Bridge.bin alloc-failed the #247 sprite residency).
+// PERF: one-shot LATCH (scene-placed bridges exist from frame 1, count/pos are
+// fixed) so the shipping frame pays ONE foreach_all scan total, not per-frame
+// (the #246 full-table-scan cost rule). The P6_WARP_BRIDGE diag re-scans every
+// frame so onScreen tracks the camera settling onto the warped bridge.
+// =============================================================================
+extern int32 p6_w_brg_classid;
+extern int32 p6_w_brg_count;
+extern int32 p6_w_brg_posx;
+extern int32 p6_w_brg_posy;
+extern int32 p6_w_brg_onscreen;
+extern int32 p6_w_brg_frames;
+void p6_brg_witness(void)
+{
+    if (!Bridge || !Bridge->classID)
+        return;
+    p6_w_brg_classid = (int32)Bridge->classID;
+
+    static int32 s_latched = 0;
+#if defined(P6_WARP_BRIDGE_TEST)
+    int32 rescan = 1;          // warp diag: refresh onScreen every frame (perf N/A)
+#else
+    int32 rescan = !s_latched; // shipping: one-shot latch (perf-safe)
+#endif
+    if (!rescan)
+        return;
+
+    int32 cnt = 0;
+    EntityBridge *first = NULL;
+    foreach_all(Bridge, b)
+    {
+        ++cnt;
+        if (!first)
+            first = b;
+    }
+    if (cnt > 0) {
+        p6_w_brg_count    = cnt;
+        p6_w_brg_posx     = first->position.x;
+        p6_w_brg_posy     = first->position.y;
+        p6_w_brg_onscreen = (int32)first->onScreen;
+        p6_w_brg_frames   = (int32)(size_t)first->animator.frames;
+        s_latched         = 1;
+    }
 }

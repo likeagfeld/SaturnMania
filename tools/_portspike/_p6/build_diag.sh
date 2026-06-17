@@ -22,10 +22,14 @@ CC=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-gcc-8.2.0
 
 echo "[1/4] proof pack (engine TUs, ld -r gc-pack) ..."
 # P6.8 Step F.1: diag-only injected trigger. Default = the F.2 GHZ2 act-advance
-# (P6_XTEST). P6.8 F.2-followup: setting P6_WARP=1 in the environment builds the
-# debug-warp variant INSTEAD (mutually exclusive -- the warp needs GHZ1, not the
-# GHZ2 advance). Pass via `docker run -e P6_WARP=1 ...`.
-if [ -n "$P6_WARP" ]; then
+# (P6_XTEST). The three diag variants are MUTUALLY EXCLUSIVE (pick exactly one):
+#   P6_WARP_BRIDGE=1 -- #181: pin the player onto the first GHZ1 bridge (planks).
+#   P6_WARP=1        -- F.2-followup: warp past the GHZ1 signpost (act-clear chain).
+#   (neither)        -- F.2 GHZ2 act-advance inject (default).
+# Pass via `docker run -e P6_WARP_BRIDGE=1 ...`. ${VAR:-} keeps set -u happy.
+if [ -n "${P6_WARP_BRIDGE:-}" ]; then
+  P6_WARP_BRIDGE=1 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
+elif [ -n "${P6_WARP:-}" ]; then
   P6_WARP=1 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
 else
   P6_XTEST=1 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null

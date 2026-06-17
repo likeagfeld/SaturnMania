@@ -77,7 +77,10 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # P6.8 F.2-followup: P6_WARP=1 instead builds the debug-warp variant (teleport the
 # player to the GHZ1 signpost). The two are MUTUALLY EXCLUSIVE (build_diag.sh sets
 # exactly one); shipping leaves both unset.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} $CORE_INC \
+# #181: P6_WARP_BRIDGE builds the bridge-warp diag variant (pin the player onto
+# the first GHZ1 bridge for a rendered-plank screenshot). Mutually exclusive with
+# P6_WARP/P6_XTEST (build_diag.sh picks exactly one); shipping leaves all unset.
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -209,8 +212,10 @@ for w1 in Global_Localization:Game_Localization \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
         -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
 done
+# #181: the bridge-warp flag also gates p6_brg_witness's per-frame onScreen rescan
+# in this game-side TU (shipping keeps the one-shot latch -- perf-safe).
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} -I"$GINC" -I"$NEWLIB" \
     -c -o "$P6/p6_wave1_reg.o" "$P6/p6_wave1_reg.c"
 # Player-wave closure boundary (NULL class ptrs + witnessed inert stubs +
 # sprintf-over-vsprintf; rationale in-file).
@@ -254,8 +259,12 @@ done
 # F.4 (Task #235): GHZ1->GHZ2 ATL transition objects (BGSwitch + GHZSetup). Closures
 # fully satisfied (Zone_StoreEntities/ReloadStoredEntities already in Game_Zone.o);
 # funded by the +0x2000 WRAM-H re-budget (ANIMPAK floor 0x060BA000).
+# #181: GHZ Bridge (planks) joins here -- a GHZ-scene object; its only out-of-pack
+# dep (BurningLog) is NULL'd in p6_closure_edge.c, all other refs (Player/Zone/
+# RSDK.*) already pack-resident.
 for w4 in Common_BGSwitch:Game_BGSwitch \
-          GHZ_GHZSetup:Game_GHZSetup; do
+          GHZ_GHZSetup:Game_GHZSetup \
+          GHZ_Bridge:Game_Bridge; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
@@ -341,6 +350,11 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_ghz2_fghigh_tile -u _p6_w_ghz2_feetty -u _p6_w_ghz2_vely -u _p6_w_ghz2_tcoff \
     -u _p6_w_ghz2_slot1layer \
     -u _p6_w_warp_plrx -u _p6_w_warp_signactive \
+    -u _p6_w_brg_classid -u _p6_w_brg_count -u _p6_w_brg_posx \
+    -u _p6_w_brg_posy -u _p6_w_brg_onscreen -u _p6_w_brg_frames \
+    -u _p6_w_plr_newgame_pre_rings -u _p6_w_plr_newgame_pre_pwr \
+    -u _p6_w_plr_live_rings -u _p6_w_plr_live_shield \
+    -u _p6_w_time_enabled -u _p6_w_timer \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
     -u _p6_w_ac_laststate -u _p6_w_listpos_max \
@@ -376,6 +390,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Game_SaveGame.o" "$P6/Game_ScoreBonus.o" "$P6/Game_Shield.o" \
     "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" "$P6/Game_ActClear.o" \
     "$P6/Game_SignPost.o" "$P6/Game_BGSwitch.o" "$P6/Game_GHZSetup.o" \
+    "$P6/Game_Bridge.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
     "$P6/Input_Input.o" "$P6/InputDevice_Saturn.o" "$P6/CppRuntime_Saturn.o" \
