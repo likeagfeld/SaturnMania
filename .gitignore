@@ -95,3 +95,4 @@
 # scene_census.json embeds retail Scene.bin entity coords -> keep out of git)
 docs/object_census.json
 docs/scene_census.json
+docs/dropin_census.json
