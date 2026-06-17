@@ -156,7 +156,7 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     RSDK_REGISTER_OBJECT(ActClear);     // Game.c:~160 (F.2: ActClear -> stageFinishCallback)
     RSDK_REGISTER_OBJECT(BGSwitch);     // Game.c:178 (F.4: GHZSetup BG switch; funded by MAX_WORKS reclaim)
     RSDK_REGISTER_OBJECT(BoundsMarker); // Game.c:188
-    RSDK_REGISTER_OBJECT(Bridge);       // Game.c:~195 (#181: GHZ planks; alpha order Bo<Br<Ca)
+    // O1 step 2: Bridge MOVED to the GHZ overlay (p6_ovl_ghz.c) -- registered there.
     RSDK_REGISTER_OBJECT(Camera);       // Game.c:212
     RSDK_REGISTER_OBJECT(DebugMode);    // Game.c:265
     RSDK_REGISTER_OBJECT(DrawHelpers);  // Game.c:277
@@ -180,19 +180,12 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     RSDK_REGISTER_OBJECT(SignPost);     // Game.c:642 (F.3: spawns ActClear -> GHZ1->GHZ2)
     RSDK_REGISTER_OBJECT(SizeLaser);    // Game.c:644
     RSDK_REGISTER_OBJECT(Soundboard);   // Game.c:649
-    // #254 GHZ1 loop fix: PlaneSwitch = the collision-plane toggle (106 placed in
-    // GHZ1) that lets Sonic run the inside of a loop-de-loop. Census drop-in (fits
-    // the 344 B slot, no deps/sheets/stub-gates). The corkscrew force-objects
-    // (CorkscrewPath/ForceSpin/ForceUnstick/SpinBooster) are DEFERRED: adding all 5
-    // pushed _end 1,564 B past the ANIMPAK floor (their ~9.9 KB of .text + the SGL
-    // work-area COMMON), so the corkscrew batch needs a code-budget lever first.
-    RSDK_REGISTER_OBJECT(PlaneSwitch);
-    // O1 (Task #254, 2026-06-17): Spring MOVED to the GHZ zone overlay (p6_ovl_ghz.c,
-    // cd/OVLRING.BIN) -- registered there via the api full-callback thunk, NOT here.
-    // Frees ~3 KB of pack _end (funds the overlay-window growth) and proves the
-    // multi-class overlay path. Bridge/PlaneSwitch stay resident + untouched (cannot
-    // regress). Bridge/PlaneSwitch follow into the overlay in O1 step 2 once GREEN.
-    // See memory/ghz-zone-overlay-o1-design.
+    // O1 (Task #254): Ring + Spring + Bridge + PlaneSwitch all live in the chain-
+    // loaded GHZ zone overlay (p6_ovl_ghz.c, cd/OVLRING.BIN) -- registered there via
+    // the api full-callback thunk, NOT here. Moving them out of the resident pack
+    // frees _end so the overlay window can grow (the P6.8 way to scale objects past
+    // the code wall). The corkscrew force-objects + the rest of the sweep follow into
+    // the overlay (O3) after collision relocation (O2). memory/ghz-zone-overlay-o1-design.
     RSDK_REGISTER_OBJECT(Zone);         // Game.c:854
 }
 
@@ -386,93 +379,8 @@ void p6_player_newgame_reset(void)
     Player->ringExtraLife = 100;
 }
 
-// =============================================================================
-// p6_brg_witness -- #181 ("bridges disappear in level"). The GHZ Bridge object
-// was never compiled/registered into the pack; now it is (RSDK_REGISTER_OBJECT
-// (Bridge) above, Game_Bridge.o). Only this game-side TU carries the Bridge
-// class type + global, so the engine-side p6_ghz_frame calls in here to snapshot
-// the gate witnesses (defined in p6_io_main.cpp):
-//   p6_w_brg_classid -- Bridge->classID (0 == unregistered == the bug; >0 == B1).
-//   p6_w_brg_count   -- # Bridge entities the scene instantiated (B2; GHZ1 = 3).
-//   posx/posy        -- first bridge world pos (feeds the P6_WARP_BRIDGE pin).
-//   onScreen/frames  -- first bridge onScreen + animator.frames (0/-1 frames ==
-//                       Bridge.bin alloc-failed the #247 sprite residency).
-// PERF: one-shot LATCH (scene-placed bridges exist from frame 1, count/pos are
-// fixed) so the shipping frame pays ONE foreach_all scan total, not per-frame
-// (the #246 full-table-scan cost rule). The P6_WARP_BRIDGE diag re-scans every
-// frame so onScreen tracks the camera settling onto the warped bridge.
-// =============================================================================
-extern int32 p6_w_brg_classid;
-extern int32 p6_w_brg_count;
-extern int32 p6_w_brg_posx;
-extern int32 p6_w_brg_posy;
-extern int32 p6_w_brg_onscreen;
-extern int32 p6_w_brg_frames;
-void p6_brg_witness(void)
-{
-    if (!Bridge || !Bridge->classID)
-        return;
-    p6_w_brg_classid = (int32)Bridge->classID;
-
-    // Latch count + first-bridge pos ONCE (stable -> the P6_WARP_BRIDGE pin holds a
-    // fixed target; the earlier per-frame update made it a moving pin). onScreen
-    // refreshes live in the warp diag as the camera settles onto the pinned bridge.
-    static int32 s_latched = 0;
-    if (!s_latched) {
-        int32 cnt = 0;
-        EntityBridge *first = NULL;
-        foreach_all(Bridge, b)
-        {
-            ++cnt;
-            if (!first)
-                first = b;
-        }
-        if (cnt > 0) {
-            p6_w_brg_count    = cnt;
-            p6_w_brg_posx     = first->position.x;
-            p6_w_brg_posy     = first->position.y;
-            p6_w_brg_onscreen = (int32)first->onScreen;
-            p6_w_brg_frames   = (int32)(size_t)first->animator.frames;
-            s_latched         = 1;
-        }
-        return;
-    }
-#if defined(P6_WARP_BRIDGE_TEST)
-    foreach_all(Bridge, b) { p6_w_brg_onscreen = (int32)b->onScreen; break; }
-#endif
-}
-
-// =============================================================================
-// p6_loop_witness -- #254 GHZ1 loop closure. One-shot latch (like p6_brg_witness)
-// proving the 5 loop classes registered + the scene instantiated them:
-//   p6_w_loop_regmask -- bit i set if loop-class[i] has a live classID
-//                        (CorkscrewPath|ForceSpin|ForceUnstick|PlaneSwitch|
-//                        SpinBooster = bits 0..4; 0x1F == all registered).
-//   p6_w_loop_pscount -- # PlaneSwitch entities placed in GHZ1 (expect 106;
-//                        0 == the class resolved to a blank slot == still broken).
-// PlaneSwitch is the marquee: the collision-plane toggle that the loop needs.
-// =============================================================================
-extern int32 p6_w_loop_regmask;
-extern int32 p6_w_loop_pscount;
-void p6_loop_witness(void)
-{
-    static int32 s_latched = 0;
-    if (s_latched)
-        return;
-    // bit 3 = PlaneSwitch (the loop fix); the corkscrew force-objects are deferred.
-    p6_w_loop_regmask = (PlaneSwitch && PlaneSwitch->classID) ? 0x08 : 0;
-
-    if (PlaneSwitch && PlaneSwitch->classID) {
-        int32 cnt = 0;
-        foreach_all(PlaneSwitch, ps) { ++cnt; }
-        if (cnt > 0) {
-            p6_w_loop_pscount = cnt;
-            s_latched         = 1;
-        }
-    }
-}
-
-// O1 (Task #254): p6_spring_witness MOVED to the GHZ overlay (p6_ovl_ghz.c) along
-// with Spring itself -- the resident pack no longer names the Spring global (flat-TU
-// rule). The overlay's combined witness writes p6_w_spring_classid/frames via the
-// ld -R import, called per-tick through s_ovl.witness_fn.
+// O1 step 2 (Task #254): p6_brg_witness + p6_loop_witness MOVED to the GHZ overlay
+// (p6_ovl_ghz.c) WITH Bridge + PlaneSwitch -- the resident pack no longer names
+// those globals (flat-TU rule). The overlay's combined witness (p6_ghz_ovl_witness)
+// writes p6_w_brg_*/p6_w_loop_*/p6_w_spring_* via the ld -R import, called per-tick
+// through s_ovl.witness_fn in p6_ghz_frame. Spring witness moved in O1 step 1.

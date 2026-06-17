@@ -382,6 +382,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _Player_CheckCollisionTouch -u _Player_State_Air -u _Player_State_Ground \
     -u _Player_State_Roll -u _Player_State_TubeAirRoll -u _Player_State_TubeRoll \
     -u _Ice_PlayerState_Frozen \
+    -u _Player_GetHitbox -u _Player_State_KnuxLedgePullUp -u _Zone_RotateOnPivot \
+    -u _BurningLog \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
     -u _p6_w_ac_laststate -u _p6_w_listpos_max \
@@ -417,8 +419,6 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Game_SaveGame.o" "$P6/Game_ScoreBonus.o" "$P6/Game_Shield.o" \
     "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" "$P6/Game_ActClear.o" \
     "$P6/Game_SignPost.o" "$P6/Game_BGSwitch.o" "$P6/Game_GHZSetup.o" \
-    "$P6/Game_Bridge.o" \
-    "$P6/Game_PlaneSwitch.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
     "$P6/Input_Input.o" "$P6/InputDevice_Saturn.o" "$P6/CppRuntime_Saturn.o" \

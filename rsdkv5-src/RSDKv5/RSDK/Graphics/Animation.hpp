@@ -52,7 +52,8 @@ namespace RSDK
 // changes `pak`. ANIMPAK still ends contiguously at the new OVL base 0x060C8800
 // (0x060B7800 + 0x11000). _end (after Spring left the pack) must stay < 0x060B7800
 // -- gate qa_p6_ghz_regression R0 (frozen boot if over).
-#define P6_HW_ANIMPAK     0x060B7800u
+#define P6_HW_ANIMPAK     0x060B6600u // O1 step 2: slid to D=0x1A00 (Bridge+PlaneSwitch
+                                      // join the overlay); ends at OVL_BASE 0x060C7600
 #define P6_HW_ANIMPAK_CAP 0x00011000u // 69,632 B (build_anim_pack.py asserts)
 #else
 #define FRAMEHITBOX_COUNT (0x8)

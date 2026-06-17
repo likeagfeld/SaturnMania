@@ -7,10 +7,10 @@
  * .text+.data; the loader zeroes the window tail (.bss). */
 OUTPUT_ARCH(sh)
 SECTIONS {
-    . = 0x060C8800; /* O1 (Task #254): P6_OVL_BASE slid DOWN 0x800 (ANIMPAK floor
-                      * now 0x060B7800) so the 6KB window holds Ring + Spring;
-                      * GLOBALS at 0x060CA000 unchanged. Keep in lockstep with
-                      * p6_ovl_api.h P6_OVL_BASE + Animation.hpp P6_HW_ANIMPAK. */
+    . = 0x060C7600; /* O1 step 2 (Task #254): P6_OVL_BASE slid to D=0x1A00 (ANIMPAK
+                      * floor 0x060B6600) so the 0x2A00 window holds Ring+Spring+
+                      * Bridge+PlaneSwitch; GLOBALS at 0x060CA000 unchanged. Keep in
+                      * lockstep with p6_ovl_api.h + Animation.hpp P6_HW_ANIMPAK. */
     .text : {
         p6_ovl_ghz.o(.text.p6_overlay_entry)  /* O1: the entry EXACTLY at the window
                                   * base (built -ffunction-sections so its section is

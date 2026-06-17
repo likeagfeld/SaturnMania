@@ -39,8 +39,12 @@
 // still ends contiguously at OVL_BASE). The freed `_end` space absorbs the slide
 // (margin measured after the build; gate qa_p6_ghz_regression R0 catches a
 // frozen boot). GLOBALS check: 0x060C8800 + 0x1800 = 0x060CA000 (unchanged).
-#define P6_OVL_BASE   0x060C8800u
-#define P6_OVL_WINDOW 0x1800u
+// O1 step 2 (Task #254): + Bridge + PlaneSwitch (~4.8KB more) -> the overlay holds
+// Ring+Spring+Bridge+PlaneSwitch+entry+migrated-witnesses (~9.5KB), window 6KB->
+// 0x2A00 (10.75KB). D grew 0x800->0x1A00; ANIMPAK+OVL_BASE slide down 0x1A00 into
+// the _end space the 2 objects vacate, GLOBALS stays 0x060CA000 (=OVL_BASE+WINDOW).
+#define P6_OVL_BASE   0x060C7600u
+#define P6_OVL_WINDOW 0x2A00u
 
 typedef struct {
     /* ---- filled by MAIN before calling the entry ------------------------ */

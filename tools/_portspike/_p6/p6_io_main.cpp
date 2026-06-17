@@ -1457,9 +1457,10 @@ extern "C" void p6_player_witness_pre(int32 startSlot, int32 sceneCount);
 extern "C" void p6_player_witness_post(void);
 extern "C" void p6_player_witness_tick(void);
 extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
-extern "C" void p6_brg_witness(void);  // #181: GHZ Bridge class/count/pos snapshot (game-side)
-extern "C" void p6_loop_witness(void); // #254: GHZ loop classes regmask + PlaneSwitch count (game-side)
-// O1: p6_spring_witness MOVED into the overlay (p6_ovl_ghz.c) -- the resident pack
+// O1 step 2: p6_brg_witness + p6_loop_witness MOVED into the overlay (p6_ovl_ghz.c)
+// WITH Bridge/PlaneSwitch -- the resident pack no longer names those globals; the
+// overlay writes p6_w_brg_*/p6_w_loop_* via the ld -R import, through s_ovl.witness_fn.
+// O1 step 1: p6_spring_witness likewise MOVED into the overlay -- the resident pack
 // no longer names Spring (flat-TU rule); the overlay writes p6_w_spring_* via -R.
 extern "C" void p6_player_newgame_reset(void); // #P0: zero Player->rings/powerups before InitObjects (game-side)
 extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash); // #181 diag: banded-slot lookup by path hash
@@ -2284,13 +2285,12 @@ static void p6_ghz_frame(void)
     }
 
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
-    p6_brg_witness();  // #181: Bridge class/count/pos (one-shot latch; per-frame in warp)
-    p6_loop_witness(); // #254: loop classes registered + PlaneSwitch instantiated (one-shot latch)
-    // O1 (#254): the overlay's combined witness (p6_ghz_ovl_witness: Ring residency +
-    // Spring canary) MUST run in the SHIPPING per-frame loop here -- the other
-    // s_ovl.witness_fn call site is in the diag-proof function, which the shipping
-    // continuous GHZ loop never enters (MEASURED: spring_classid stayed 0 though
-    // Spring registered + worked). The Ring-slot arg is read-safe (classID 0 if empty).
+    // O1 (#254): the overlay's combined witness covers Ring + Spring + Bridge +
+    // PlaneSwitch -- their p6_brg/loop witnesses MIGRATED into the overlay WITH the
+    // objects (step 2), so the resident pack no longer names those globals. It MUST
+    // run in the SHIPPING per-frame loop here (the other s_ovl.witness_fn call site
+    // is the diag-proof function, which the continuous GHZ loop never enters --
+    // MEASURED in step 1). Ring-slot arg is read-safe (classID 0 if empty).
     if (s_ovl.witness_fn)
         s_ovl.witness_fn(RSDK_ENTITY_AT(P6_OBJ_RING_SLOT));
     {

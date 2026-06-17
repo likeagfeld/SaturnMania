@@ -1,22 +1,21 @@
 // =============================================================================
 // p6_ovl_ghz.c -- P6.8 O1 (Task #210/#254): the GHZ zone-overlay ENTRY TU.
 //
-// Extends the proven P6.7d.3 Ring overlay to a MULTI-CLASS entry. O1 step 1
-// moves ONE verbatim object (Spring) out of the resident pack into the
-// chain-loaded overlay alongside Ring -- proving the multi-class + full-callback
-// ABI + the witness migration WITHOUT touching Bridge/PlaneSwitch (they stay
-// resident, so they cannot regress). Bridge/PlaneSwitch follow in O1 step 2 once
-// this is GREEN.
+// Extends the proven P6.7d.3 Ring overlay to a MULTI-CLASS entry. O1 moves the
+// resident GHZ objects out of the pack INTO the chain-loaded overlay (so pack
+// _end stops being the code wall), registering them via the api thunks (flat-TU
+// rule: the overlay names no C++ engine symbols -- pointers only) and writing the
+// ld -R-imported main witnesses (the Ring p6_w_obj_* pattern).
+//   step 1 (db9dfe4): Ring + Spring.
+//   step 2 (this):     + Bridge + PlaneSwitch (their p6_brg/loop witnesses MIGRATE
+//                      here too -- the resident pack can no longer name the
+//                      Bridge/PlaneSwitch globals).
 //
-// Compiled -x c with the census Game.h/GameLink.h tree (like the w4 decomp
-// objects) so it names Spring's verbatim globals + callbacks directly, and
-// WITHOUT -ffunction-sections so p6_overlay_entry lands FIRST at P6_OVL_BASE
-// (the main calls it by that constant address). Registration routes through the
-// api thunks (flat-TU rule: the overlay names no C++ engine symbols -- pointers
-// only). Witnesses write the ld -R-imported main-image globals, the Ring
-// p6_w_obj_* pattern.
+// Compiled -x c with the census Game.h/GameLink.h tree (Spring/Bridge/PlaneSwitch
+// verbatim globals + callbacks) and WITH -ffunction-sections so ovl_ring.ld places
+// .text.p6_overlay_entry FIRST at the window base (the main calls that constant).
 // =============================================================================
-#include "Game.h"          /* ObjectSpring/EntitySpring + Spring + Spring_* + foreach_all */
+#include "Game.h"          /* Object*/Entity* + globals + X_* callbacks + foreach_all */
 #include "p6_ovl_api.h"
 
 /* Ring harness (sibling overlay TU p6_ring2.o) -- the P6.7d.3 surface. */
@@ -27,20 +26,20 @@ void Ring_Draw(void);
 void p6_ring2_arm(void *slot, void *frames);
 void p6_ring2_witness(const void *slot);
 
-/* Spring canary witnesses -- DEFINED in p6_io_main.cpp (main image; gates read
- * them from game.map); written here via the ld -R symbol import. */
-extern int32 p6_w_spring_classid;
-extern int32 p6_w_spring_frames;
+/* Witnesses -- DEFINED in p6_io_main.cpp (main image; gates read them from
+ * game.map); written here via the ld -R import. */
+extern int32 p6_w_spring_classid, p6_w_spring_frames;
+extern int32 p6_w_brg_classid, p6_w_brg_count, p6_w_brg_posx, p6_w_brg_posy,
+             p6_w_brg_onscreen, p6_w_brg_frames;
+extern int32 p6_w_loop_regmask, p6_w_loop_pscount;
 
-/* Forward decl so p6_overlay_entry can be defined FIRST (at the window base). */
+/* Forward decl so p6_overlay_entry is the FIRST function (window base). */
 static void p6_ghz_ovl_witness(const void *ringSlot);
 
 // =============================================================================
-// p6_overlay_entry -- MUST be the first function (window base). Registers the
-// overlay's classes through the api thunks; ordering is the caller's
-// (DefaultObject@0 + DevOutput@1 already registered -> Ring@2, Spring@3; the
-// engine LoadGameConfig hash loop matches each by md5(name), so classID
-// assignment is order-independent -- the P6.7d.3 guarantee).
+// p6_overlay_entry -- MUST be first (window base). Registers the overlay's
+// classes through the api thunks; the engine LoadGameConfig hash loop matches
+// each by md5(name), so classID assignment is order-independent (P6.7d.3).
 // =============================================================================
 int p6_overlay_entry(p6_ovl_api *api)
 {
@@ -48,18 +47,24 @@ int p6_overlay_entry(p6_ovl_api *api)
     api->register_object((void **)&p6_ring2_staticvars_slot, "Ring",
                          p6_ring2_entity_size, 20, Ring_Update, Ring_Draw);
 
-    /* Spring -- verbatim FULL-callback form. NULL editor callbacks match the
-     * resident RSDK_REGISTER_OBJECT arm active at REV02/non-REV0U (GameLink.h
-     * :1799 -- Bridge/Spring define no _EditorLoad/_EditorDraw). */
+    /* Spring / Bridge / PlaneSwitch -- verbatim FULL-callback form (NULL editor
+     * matches the resident RSDK_REGISTER_OBJECT REV02/non-REV0U arm, GameLink.h
+     * :1799: these objects define no _EditorLoad/_EditorDraw). */
     api->register_object_full((void **)&Spring, "Spring",
-                              (unsigned)sizeof(EntitySpring),
-                              (unsigned)sizeof(ObjectSpring),
+                              (unsigned)sizeof(EntitySpring), (unsigned)sizeof(ObjectSpring),
                               Spring_Update, Spring_LateUpdate, Spring_StaticUpdate,
-                              Spring_Draw, Spring_Create, Spring_StageLoad,
-                              Spring_Serialize);
+                              Spring_Draw, Spring_Create, Spring_StageLoad, Spring_Serialize);
+    api->register_object_full((void **)&Bridge, "Bridge",
+                              (unsigned)sizeof(EntityBridge), (unsigned)sizeof(ObjectBridge),
+                              Bridge_Update, Bridge_LateUpdate, Bridge_StaticUpdate,
+                              Bridge_Draw, Bridge_Create, Bridge_StageLoad, Bridge_Serialize);
+    api->register_object_full((void **)&PlaneSwitch, "PlaneSwitch",
+                              (unsigned)sizeof(EntityPlaneSwitch), (unsigned)sizeof(ObjectPlaneSwitch),
+                              PlaneSwitch_Update, PlaneSwitch_LateUpdate, PlaneSwitch_StaticUpdate,
+                              PlaneSwitch_Draw, PlaneSwitch_Create, PlaneSwitch_StageLoad,
+                              PlaneSwitch_Serialize);
 
-    /* Ring harness vtable (verbatim P6.7d.3). witness_fn is the COMBINED tick
-     * witness below (Ring residency + Spring canary latch). */
+    /* Ring harness vtable; witness_fn is the COMBINED tick witness below. */
     api->staticvars_slot = p6_ring2_staticvars_slot;
     api->entity_size     = p6_ring2_entity_size;
     api->arm_fn          = p6_ring2_arm;
@@ -68,23 +73,54 @@ int p6_overlay_entry(p6_ovl_api *api)
     return 0;
 }
 
-// Combined per-tick witness (api->witness_fn, called from p6_ghz_frame): Ring's
-// verbatim residency witness + the Spring canary latch (first Spring's
-// animator.frames -- 0 == STG starved, the #254 funding regression). The arg is
-// the Ring slot entity (Ring's witness uses it; the Spring latch uses foreach_all).
-static int32 s_spring_latched = 0;
+// =============================================================================
+// Combined per-tick witness (api->witness_fn, called from p6_ghz_frame's
+// shipping loop): Ring residency + the Spring/Bridge/PlaneSwitch latches (each
+// MIGRATED here from p6_wave1_reg.c -- the resident pack no longer names these
+// globals). One-shot latches; gates read p6_w_*.
+// =============================================================================
 static void p6_ghz_ovl_witness(const void *ringSlot)
 {
     p6_ring2_witness(ringSlot);
+
+    /* Spring canary (#254 funding): first Spring's animator.frames. */
+    static int32 s_spring_latched = 0;
     if (Spring && Spring->classID) {
         p6_w_spring_classid = (int32)Spring->classID;
         if (!s_spring_latched) {
-            EntitySpring *first = NULL;
-            foreach_all(Spring, sp) { first = sp; break; }
-            if (first) {
-                p6_w_spring_frames = (int32)(size_t)first->animator.frames;
-                s_spring_latched   = 1;
+            EntitySpring *sp = NULL;
+            foreach_all(Spring, e) { sp = e; break; }
+            if (sp) { p6_w_spring_frames = (int32)(size_t)sp->animator.frames; s_spring_latched = 1; }
+        }
+    }
+
+    /* Bridge (#181): classid live; count/pos/frames one-shot (planks exist from
+     * frame 1). brg_frames 0 == Bridge.bin alloc-failed; the regression sentinel. */
+    static int32 s_brg_latched = 0;
+    if (Bridge && Bridge->classID) {
+        p6_w_brg_classid = (int32)Bridge->classID;
+        if (!s_brg_latched) {
+            int32 cnt = 0; EntityBridge *first = NULL;
+            foreach_all(Bridge, b) { ++cnt; if (!first) first = b; }
+            if (cnt > 0) {
+                p6_w_brg_count    = cnt;
+                p6_w_brg_posx     = first->position.x;
+                p6_w_brg_posy     = first->position.y;
+                p6_w_brg_onscreen = (int32)first->onScreen;
+                p6_w_brg_frames   = (int32)(size_t)first->animator.frames;
+                s_brg_latched     = 1;
             }
+        }
+    }
+
+    /* PlaneSwitch (#254 loop): bit 3 = the loop fix; pscount = # placed (expect 106). */
+    static int32 s_loop_latched = 0;
+    if (!s_loop_latched) {
+        p6_w_loop_regmask = (PlaneSwitch && PlaneSwitch->classID) ? 0x08 : 0;
+        if (PlaneSwitch && PlaneSwitch->classID) {
+            int32 cnt = 0;
+            foreach_all(PlaneSwitch, ps) { ++cnt; }
+            if (cnt > 0) { p6_w_loop_pscount = cnt; s_loop_latched = 1; }
         }
     }
 }
