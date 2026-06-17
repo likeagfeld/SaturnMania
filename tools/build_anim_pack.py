@@ -65,6 +65,25 @@ BINS = [
     "Global/Dust.bin",
 ]
 
+# #254 residency lever (user-approved 2026-06-17): the COLD GHZ object anims go to
+# a SECOND resident pack in the CART (P6_HW_OBJANIMPAK, 0x22760000), NOT the slow
+# path into the full WRAM-L DATASET_STG pool. Object anims are read only when the
+# object is on-screen, so cart wait-states are harmless (unlike the hot Player
+# anims, which stay in WRAM-H GHZANIM.PAK). This frees their STG bytes AND removes
+# the slow windowed-read failure class (the SpikeLog -1). Add an object's .bin here
+# as it joins the GHZ sweep; the pre-flight P9/P5 then read it as resident.
+OBJ_BINS = [
+    "Global/Ring.bin",
+    "Global/Springs.bin",
+    "Global/Shields.bin",   # 188 frames -- the gate's R13 caught it still slow-pathing
+                            # into the full STG (allocfail) after the first 4 moved;
+                            # cold (only with a shield) -> cart-resident like the rest.
+    "GHZ/Bridge.bin",
+    "GHZ/SpikeLog.bin",
+]
+OBJ_OUT = os.path.join(ROOT, "cd", "GHZOBJ.PAK")
+OBJ_CAP = 0x40000  # 256 KB cart window (0x22760000..0x227A0000 has 320 KB clear)
+
 FRAMEHITBOX_COUNT = 2
 # SH-2 layout (static_asserted in Animation.cpp): GameSpriteFrameType base
 # = 17 B -> pads to 18 (align 2); hitboxCount u8 at 18; 1 pad; hitboxes at
@@ -146,10 +165,14 @@ def emit_anim(an):
     return out
 
 
-def main():
+def build_pack(bins, out_path, cap):
+    """Emit one ANM1 pack from `bins` to `out_path`; assert it fits `cap`.
+    Byte-for-byte identical layout to the original single-pack emitter -- the
+    SH-2 fast path (Animation.cpp) reads any ANM1 pack the same way regardless
+    of where it lives (WRAM-H or cart), since all offsets are pack-relative."""
     dirs = []
     payloads = []
-    for rel in BINS:
+    for rel in bins:
         p = os.path.join(SPRITES, rel.replace("/", os.sep))
         sheets, hbc, anims, frames = parse_bin(p)
         fdata = b"".join(emit_frame(f, hbc) for f in frames)
@@ -165,7 +188,7 @@ def main():
                  len(fdata) + len(adata) + len(ords)))
 
     # layout: header + directory (fixed part 16+4*5+4 = 40 B + names), then payloads
-    hdr = struct.pack(">4sHH", b"ANM1", len(BINS), 0)
+    hdr = struct.pack(">4sHH", b"ANM1", len(bins), 0)
     dir_sizes = [16 + 20 + 4 + len(d[5]) for d in dirs]
     base = len(hdr) + sum(dir_sizes)
     base = (base + 3) & ~3
@@ -188,12 +211,18 @@ def main():
         blob += adata + fdata + ords
         blob += b"\0" * ((-len(blob)) % 4)
 
-    # S3: window budget (P6_HW_ANIMPAK cap, Animation.hpp)
-    CAP = 0x11000  # W15: window base raised to 0x060AF000 (Animation.hpp)
-    assert len(blob) <= CAP, "GHZANIM.PAK %d B exceeds the 0x%X window" % (len(blob), CAP)
-    with open(OUT, "wb") as f:
+    assert len(blob) <= cap, "%s %d B exceeds the 0x%X window" % (out_path, len(blob), cap)
+    with open(out_path, "wb") as f:
         f.write(blob)
-    print("TOTAL %d B (cap %d) -> %s" % (len(blob), CAP, OUT))
+    print("TOTAL %d B (cap %d) -> %s" % (len(blob), cap, out_path))
+
+
+def main():
+    # Player pack -> WRAM-H (hot anims, read every frame).
+    build_pack(BINS, OUT, 0x11000)
+    # Object pack -> cart (cold anims, read only when on-screen). #254 lever.
+    print("--- object anim pack (cart-resident) ---")
+    build_pack(OBJ_BINS, OBJ_OUT, OBJ_CAP)
     return 0
 
 

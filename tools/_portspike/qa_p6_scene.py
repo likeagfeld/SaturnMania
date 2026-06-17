@@ -170,7 +170,11 @@ def map_symbol(map_text, name):
     """Address of a defined symbol from GNU ld -Map output, tolerating the
     sh-none-elf one-underscore strip on object symbols."""
     bare = name[1:] if name.startswith("_") else name
-    pat = re.compile(r"^\s+0x([0-9a-fA-F]+)\s+_?" + re.escape(bare) + r"(?:\s|=|$)",
+    # Tolerate a C++ namespace prefix (e.g. `RSDK::p6_saturn_anim_allocfail`): the
+    # anim-pool diagnostics live in `namespace RSDK`, so without this the gate reads
+    # None and false-REDs. A `::`-terminated prefix can't suffix-match a longer C
+    # symbol (those have no `::`), so plain witnesses still resolve unchanged.
+    pat = re.compile(r"^\s+0x([0-9a-fA-F]+)\s+(?:[\w]+::)?_?" + re.escape(bare) + r"(?:\s|=|$)",
                      re.M)
     m = pat.search(map_text)
     return (int(m.group(1), 16) & 0xFFFFFFFF) if m else None

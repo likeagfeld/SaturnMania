@@ -271,7 +271,8 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           GHZ_GHZSetup:Game_GHZSetup \
           GHZ_Bridge:Game_Bridge \
           Global_PlaneSwitch:Game_PlaneSwitch \
-          Global_Spring:Game_Spring; do
+          Global_Spring:Game_Spring \
+          GHZ_SpikeLog:Game_SpikeLog; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
@@ -384,6 +385,12 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _Ice_PlayerState_Frozen \
     -u _Player_GetHitbox -u _Player_State_KnuxLedgePullUp -u _Zone_RotateOnPivot \
     -u _BurningLog \
+    -u _Player_Hurt -u _APICallback_UnlockAchievement -u _achievementList \
+    -u _p6_w_spikelog_classid -u _p6_w_spikelog_frames \
+    -u _p6_w_spikelog_aniframes -u _p6_w_spring_aniframes -u _p6_w_brg_aniframes \
+    -u _p6_saturn_anim_allocfail -u _p6_w_anim_lastfail -u _p6_w_stg_at_fail \
+    -u _p6_w_anim_log -u _p6_w_anim_logn -u _p6_w_anim_step \
+    -u _p6_w_objapk_bytes \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
     -u _p6_w_ac_laststate -u _p6_w_listpos_max \

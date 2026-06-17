@@ -75,8 +75,19 @@ uint16 RSDK::LoadSpriteAnimation(const char *filePath, uint8 scope)
     // re-issue surface ids). Format: build_anim_pack.py header.
     {
         extern int32 p6_w_apk_bytes;
-        if (p6_w_apk_bytes > 0) {
-            const uint8 *pak = (const uint8 *)P6_HW_ANIMPAK;
+        extern int32 p6_w_objapk_bytes;
+        // #254 residency lever: TWO resident packs -- Player anims in WRAM-H
+        // (P6_HW_ANIMPAK, hot, read every frame) and the GHZ OBJECT anims in the
+        // CART (P6_HW_OBJANIMPAK, cold, read only on-screen). Both are ANM1 with
+        // pack-relative offsets, so resolution is byte-identical from either base.
+        // Resolving here means object anims NEVER hit the slow path / DATASET_STG
+        // (the SpikeLog overflow + windowed-read failure class is retired).
+        const uint8 *paks[2] = { (const uint8 *)P6_HW_ANIMPAK, (const uint8 *)P6_HW_OBJANIMPAK };
+        int32 pakBytes[2]    = { p6_w_apk_bytes, p6_w_objapk_bytes };
+        for (int32 pk = 0; pk < 2; ++pk) {
+            if (pakBytes[pk] <= 0)
+                continue;
+            const uint8 *pak = paks[pk];
             int32 binCount   = ((int32)pak[4] << 8) | pak[5];
             const uint8 *e   = pak + 8;
             for (int32 b = 0; b < binCount; ++b) {

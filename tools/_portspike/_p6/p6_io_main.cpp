@@ -630,6 +630,16 @@ __attribute__((used)) int32 p6_w_brg_frames     = -1; // first bridge animator.f
 __attribute__((used)) int32 p6_w_stg_limit      = 0;  // DATASET_STG storageLimit bytes
 __attribute__((used)) int32 p6_w_spring_classid = 0;  // Spring->classID (0 == not registered)
 __attribute__((used)) int32 p6_w_spring_frames  = -1; // first Spring animator.frames (0 == STG starved == regression)
+// O3 step 1: SpikeLog overlay-object witnesses (written by p6_ghz_ovl_witness via -R).
+__attribute__((used)) int32 p6_w_spikelog_classid = 0;  // SpikeLog->classID (0 == not registered)
+__attribute__((used)) int32 p6_w_spikelog_frames  = -1; // first SpikeLog animator.frames (anim loaded?)
+// RANGE-INDEPENDENT anim-load status: <Obj>->aniFrames = LoadSpriteAnimation() result
+// read straight off the Object struct (NOT a live in-range entity, which foreach_all
+// only sees near the camera). -1/0xFFFF == the StageLoad anim load FAILED. This is the
+// definitive per-object "did the anim load" witness -- the careless-proof gate signal.
+__attribute__((used)) int32 p6_w_spikelog_aniframes = -2; // SpikeLog->aniFrames (-1=load failed, >=0=slot)
+__attribute__((used)) int32 p6_w_spring_aniframes   = -2; // Spring->aniFrames
+__attribute__((used)) int32 p6_w_brg_aniframes      = -2; // Bridge->aniFrames
 // #P0 GHZ1-parity spawn-state witnesses. newgame_pre_* = Player->rings/powerups
 // captured RIGHT AFTER LoadSceneAssets, BEFORE the reset = the uninitialized static
 // the lean boot inherits (THE BUG: 100 rings / fire shield). live_* = the
@@ -958,6 +968,9 @@ __attribute__((used)) int32 p6_w_anim_log[48]  = { 0 }; // W13: {hash[0], (resul
 __attribute__((used)) int32 p6_w_anim_logn     = 0;
 __attribute__((used)) int32 p6_w_apk_bytes     = 0; // W13: GHZANIM.PAK GFS load size (>0 == mounted)
 __attribute__((used)) int32 p6_w_apk_hash      = 0; // djb2 over the loaded blob (gate vs cd file)
+// #254 residency lever: GHZOBJ.PAK = the CART-resident COLD object anim pack
+// (>0 == mounted). Object anims resolve fast-path from the cart -> zero DATASET_STG.
+__attribute__((used)) int32 p6_w_objapk_bytes  = 0;
 }
 
 // ---- (b1) Relocated engine globals: pointer form + WRAM-L backing ------------
@@ -2471,6 +2484,19 @@ extern "C" void p6_scene_run(void)
                 h = ((h << 5) + h) ^ (uint32)w[i];
             p6_w_apk_hash = (int32)h;
         }
+    }
+
+    // 1.6c) #254 residency lever (user-approved 2026-06-17): chain-load the COLD
+    //       GHZ OBJECT anim pack into the CART (P6_HW_OBJANIMPAK 0x22760000). The
+    //       Animation.cpp fast path checks this pack after the WRAM-H Player pack,
+    //       so Ring/Spring/Bridge/SpikeLog (and the rest of the sweep) resolve with
+    //       ZERO DATASET_STG cost -- retiring the STG overflow that failed SpikeLog
+    //       (qa_p6_ghz_regression R10-R13 + p6_saturn_anim_allocfail). Same loader
+    //       + pre-pack-mount GFS slot rule as GHZANIM.PAK.
+    {
+        int n = rsdk_storage_load_to_lwram("GHZOBJ.PAK",
+                                           (void *)P6_HW_OBJANIMPAK, P6_HW_OBJANIMPAK_CAP);
+        p6_w_objapk_bytes = n;
     }
 
     // 1.7) P6.7 W12 (Task #227, qa_p6_sheet.py): stage the Player sheet

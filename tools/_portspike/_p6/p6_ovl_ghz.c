@@ -32,6 +32,12 @@ extern int32 p6_w_spring_classid, p6_w_spring_frames;
 extern int32 p6_w_brg_classid, p6_w_brg_count, p6_w_brg_posx, p6_w_brg_posy,
              p6_w_brg_onscreen, p6_w_brg_frames;
 extern int32 p6_w_loop_regmask, p6_w_loop_pscount;
+extern int32 p6_w_spikelog_classid, p6_w_spikelog_frames;
+/* RANGE-INDEPENDENT anim-load status read straight off the Object struct
+ * (<Obj>->aniFrames = LoadSpriteAnimation() result; (int16)-cast so 0xFFFF
+ * reads as -1 == load FAILED). Definitive per-object gate signal -- does not
+ * depend on a live entity being near the camera. */
+extern int32 p6_w_spikelog_aniframes, p6_w_spring_aniframes, p6_w_brg_aniframes;
 
 /* Forward decl so p6_overlay_entry is the FIRST function (window base). */
 static void p6_ghz_ovl_witness(const void *ringSlot);
@@ -63,6 +69,12 @@ int p6_overlay_entry(p6_ovl_api *api)
                               PlaneSwitch_Update, PlaneSwitch_LateUpdate, PlaneSwitch_StaticUpdate,
                               PlaneSwitch_Draw, PlaneSwitch_Create, PlaneSwitch_StageLoad,
                               PlaneSwitch_Serialize);
+    /* O3 step 1: SpikeLog (the rolling GHZ spike log, 1023 B -- fits the existing
+     * window, no re-budget). Shares GHZ/Objects.gif (GHZOBJ.SHT, already staged). */
+    api->register_object_full((void **)&SpikeLog, "SpikeLog",
+                              (unsigned)sizeof(EntitySpikeLog), (unsigned)sizeof(ObjectSpikeLog),
+                              SpikeLog_Update, SpikeLog_LateUpdate, SpikeLog_StaticUpdate,
+                              SpikeLog_Draw, SpikeLog_Create, SpikeLog_StageLoad, SpikeLog_Serialize);
 
     /* Ring harness vtable; witness_fn is the COMBINED tick witness below. */
     api->staticvars_slot = p6_ring2_staticvars_slot;
@@ -82,6 +94,15 @@ int p6_overlay_entry(p6_ovl_api *api)
 static void p6_ghz_ovl_witness(const void *ringSlot)
 {
     p6_ring2_witness(ringSlot);
+
+    /* RANGE-INDEPENDENT anim-load status, every tick, straight off the Object
+     * struct -- the definitive "did StageLoad's LoadSpriteAnimation succeed"
+     * signal. (int16)-cast so a -1 (0xFFFF) load failure reads as -1, not 65535
+     * (which would falsely pass a >0 gate). This is what makes an unloaded anim
+     * impossible to miss regardless of where the camera/player is. */
+    if (Spring)   p6_w_spring_aniframes   = (int32)(int16)Spring->aniFrames;
+    if (Bridge)   p6_w_brg_aniframes      = (int32)(int16)Bridge->aniFrames;
+    if (SpikeLog) p6_w_spikelog_aniframes = (int32)(int16)SpikeLog->aniFrames;
 
     /* Spring canary (#254 funding): first Spring's animator.frames. */
     static int32 s_spring_latched = 0;
@@ -121,6 +142,18 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
             int32 cnt = 0;
             foreach_all(PlaneSwitch, ps) { ++cnt; }
             if (cnt > 0) { p6_w_loop_pscount = cnt; s_loop_latched = 1; }
+        }
+    }
+
+    /* SpikeLog (O3 step 1): classid live; first instance's animator.frames latched
+     * (0 == GHZ/SpikeLog.bin anim failed to load; >0 == the spike log is armed). */
+    static int32 s_sl_latched = 0;
+    if (SpikeLog && SpikeLog->classID) {
+        p6_w_spikelog_classid = (int32)SpikeLog->classID;
+        if (!s_sl_latched) {
+            EntitySpikeLog *sl = NULL;
+            foreach_all(SpikeLog, e) { sl = e; break; }
+            if (sl) { p6_w_spikelog_frames = (int32)(size_t)sl->animator.frames; s_sl_latched = 1; }
         }
     }
 }

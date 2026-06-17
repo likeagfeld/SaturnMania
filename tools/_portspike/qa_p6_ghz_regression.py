@@ -39,7 +39,15 @@ TMP_MCS   = os.path.join(HERE, "_p6_ghzreg.mcs")
 
 NAMES = ["_p6_w_cont_frames", "_p6_w_brg_classid", "_p6_w_brg_frames",
          "_p6_w_loop_pscount", "_p6_w_plr_live_rings", "_p6_w_plr_live_shield",
-         "_p6_w_time_enabled", "_p6_w_spring_classid", "_p6_w_spring_frames"]
+         "_p6_w_time_enabled", "_p6_w_spring_classid", "_p6_w_spring_frames",
+         "_p6_w_spikelog_classid", "_p6_w_spikelog_frames",
+         # Range-independent anim-load status (Object->aniFrames; -1==FAILED). This
+         # is the careless-proof per-object signal: it does NOT depend on a live
+         # entity being near the camera, unlike the *_frames witnesses above.
+         "_p6_w_spring_aniframes", "_p6_w_brg_aniframes", "_p6_w_spikelog_aniframes",
+         # Global anim-load diagnostics -- re-rooted into shipping so any -1 load
+         # is pinpointed on the FIRST capture (no forensic dig, no second build).
+         "_p6_saturn_anim_allocfail", "_p6_w_anim_lastfail", "_p6_w_stg_at_fail"]
 
 
 def capture(out):
@@ -81,7 +89,24 @@ def main(argv):
         # JOINS the confirmed-feature union so the NEXT object-add can't starve it.
         ("R7 Spring registered (classid>0)",     v["_p6_w_spring_classid"], lambda x: x and x > 0),
         ("R8 Spring.bin LOADED (frames>0)",      v["_p6_w_spring_frames"],  lambda x: x and x > 0),
+        # O3 step 1: SpikeLog joins the overlay + the confirmed-feature union.
+        ("R9 SpikeLog registered (classid>0)",   v["_p6_w_spikelog_classid"], lambda x: x and x > 0),
+        # R10-R12: range-independent anim-load status off <Obj>->aniFrames. A valid
+        # spriteAnimationList slot is in [0, 0x400); -1 (0xFFFF) == LoadSpriteAnimation
+        # FAILED -> the sprite has no frames -> it draws nothing (the SpikeLog bug).
+        # This is the careless-proof per-object gate: it fires RED even when no entity
+        # is near the camera (which the *_frames witnesses cannot detect).
+        ("R10 SpikeLog anim LOADED (aniFrames>=0)", v["_p6_w_spikelog_aniframes"], lambda x: x is not None and 0 <= x < 0x400),
+        ("R11 Spring anim LOADED (aniFrames>=0)",   v["_p6_w_spring_aniframes"],   lambda x: x is not None and 0 <= x < 0x400),
+        ("R12 Bridge anim LOADED (aniFrames>=0)",   v["_p6_w_brg_aniframes"],      lambda x: x is not None and 0 <= x < 0x400),
+        # R13: no STG-pool anim refusals anywhere in the scene load (the funding net).
+        ("R13 no anim alloc-fails (==0)",           v["_p6_saturn_anim_allocfail"],lambda x: x == 0),
     ]
+    # Surface the global anim-load diagnostics so a RED above is pinpointed inline
+    # (no forensic dig). lastfail = (sprfile_id<<16)|frameCount (bit15: animCount fail);
+    # stg_at_fail = DATASET_STG usedStorage at the refusal.
+    diag = ("anim_lastfail=0x%X  stg_at_fail=%s" %
+            ((v.get("_p6_w_anim_lastfail") or 0) & 0xFFFFFFFF, v.get("_p6_w_stg_at_fail")))
     print("=" * 64)
     print("GHZ1 WHOLE-LEVEL REGRESSION GATE")
     print("=" * 64)
@@ -93,7 +118,8 @@ def main(argv):
         except Exception:
             passed = False
         ok = ok and passed
-        print("  [%s] %-34s = %s" % ("GREEN" if passed else " RED ", label, Q._dv(val)))
+        print("  [%s] %-38s = %s" % ("GREEN" if passed else " RED ", label, Q._dv(val)))
+    print("  diag: " + diag)
     print("-" * 64)
     if ok:
         print("RESULT: GREEN -- all confirmed GHZ1 features intact")

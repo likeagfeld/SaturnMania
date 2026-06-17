@@ -80,7 +80,7 @@ cd "$P6"   # ovl_ring.ld names input objects by basename
 # ovl_ring.ld, which now expects p6_ovl_ghz.o first at the window base). Spring
 # moved out of the pack, so it MUST link here too or diag loses Spring.
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
-    p6_ovl_ghz.o p6_ring2.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o \
+    p6_ovl_ghz.o p6_ring2.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o \
     -b coff-sh -R /work/game.elf -o ovl_ring.elf
 $OBJCOPY -O binary "$P6/ovl_ring.elf" /work/cd/OVLRING.BIN
 ls -l /work/cd/OVLRING.BIN

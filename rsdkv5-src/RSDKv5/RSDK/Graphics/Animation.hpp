@@ -55,6 +55,13 @@ namespace RSDK
 #define P6_HW_ANIMPAK     0x060B6600u // O1 step 2: slid to D=0x1A00 (Bridge+PlaneSwitch
                                       // join the overlay); ends at OVL_BASE 0x060C7600
 #define P6_HW_ANIMPAK_CAP 0x00011000u // 69,632 B (build_anim_pack.py asserts)
+// #254 residency lever (2026-06-17): SECOND resident anim pack in the CART for the
+// COLD GHZ object anims (Animation.cpp reads it after the WRAM-H pack). Cache-through
+// A-Bus alias 0x22760000 -- MEASURED-disjoint from the shipping cart map (TMP ends
+// 0x22744000, VDP1 sheet store starts 0x227A0000 -> 0x22760000 has 320 KB clear).
+// Object anims never touch DATASET_STG, retiring the SpikeLog STG overflow.
+#define P6_HW_OBJANIMPAK     0x22760000u
+#define P6_HW_OBJANIMPAK_CAP 0x00040000u // 256 KB cart window (build_anim_pack.py OBJ_CAP)
 #else
 #define FRAMEHITBOX_COUNT (0x8)
 #endif
