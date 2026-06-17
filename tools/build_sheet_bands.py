@@ -60,6 +60,17 @@ SHEETS = [
     # wall: TAILS1 (sidekick body) stages ALONGSIDE the full 6-sheet set -- no
     # SHIELDS trade. 7 sheets = 264,865 B inside the 384 KB cart store.
     ("Players/Tails1.gif", "TAILS1.SHT"),
+    # Phase P6.7 GHZ content entities (#247): Global/Objects.gif is the shared
+    # sheet for Spikes (2 frames) + Spring + other Global objects -- stage it once
+    # to unlock the global-object batch. 256x256 = 65,536 B decoded; banded .SHT
+    # fits the 384 KB cart store + a free SaturnSheet slot (#248 budget).
+    ("Global/Objects.gif", "GLOBJ.SHT"),
+    # GHZ1 parity P2 (#247): GHZ/Objects.gif is the SHARED GHZ content-objects
+    # sheet (the bridge planks + GHZ springs/etc. all index it). 512x256 = 131,072 B
+    # decoded; banded .SHT ~25 KB fits the ~107 KB free in the 384 KB cart store.
+    # Staging it (slot 8) makes the registered GHZ Bridge actually blit (#181) and
+    # pre-binds the sheet for the rest of the GHZ object sweep.
+    ("GHZ/Objects.gif", "GHZOBJ.SHT"),
 ]
 
 

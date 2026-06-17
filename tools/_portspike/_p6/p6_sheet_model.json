@@ -231,6 +231,72 @@
           "hash": "0x66FE4884"
         }
       ]
+    },
+    {
+      "sheet": "Global/Objects.gif",
+      "file": "GLOBJ.SHT",
+      "width": 256,
+      "height": 256,
+      "band_rows": 16,
+      "bands": 16,
+      "bytes": 12605,
+      "file_hash": "0xF1E02875",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0xFAB8F098"
+        },
+        {
+          "sx": 192,
+          "sy": 120,
+          "w": 64,
+          "h": 64,
+          "hash": "0x2C3998A1"
+        },
+        {
+          "sx": 16,
+          "sy": 216,
+          "w": 48,
+          "h": 40,
+          "hash": "0xBA662830"
+        }
+      ]
+    },
+    {
+      "sheet": "GHZ/Objects.gif",
+      "file": "GHZOBJ.SHT",
+      "width": 512,
+      "height": 256,
+      "band_rows": 16,
+      "bands": 16,
+      "bytes": 27665,
+      "file_hash": "0x25BFEFB3",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x0A7283D2"
+        },
+        {
+          "sx": 448,
+          "sy": 120,
+          "w": 64,
+          "h": 64,
+          "hash": "0x9D0AB1E0"
+        },
+        {
+          "sx": 16,
+          "sy": 216,
+          "w": 48,
+          "h": 40,
+          "hash": "0x1190A41F"
+        }
+      ]
     }
   ]
 }

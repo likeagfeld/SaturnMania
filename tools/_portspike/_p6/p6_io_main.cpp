@@ -630,6 +630,16 @@ __attribute__((used)) int32 p6_w_plr_live_rings        = -1;
 __attribute__((used)) int32 p6_w_plr_live_shield       = -1;
 __attribute__((used)) int32 p6_w_time_enabled          = -1;
 __attribute__((used)) int32 p6_w_timer                 = -1;
+// #181 sheet-bind diag: ghzobj_slot = SaturnSheet_FindSlot(hash("GHZ/Objects.gif"))
+// (>=0 => GHZOBJ.SHT staged with the path hash the engine computes; -1 => stage/hash
+// failed). brg_surfslot/scope/h0 = gfxSurface[14] (the bridge's sheet surface) after
+// the arm bind loop. ghzobj_h0 = the path hash word0; brg_surfh0 = the surface's
+// stored hash word0 -- equal => the bridge resolved the SAME path the stage hashed.
+__attribute__((used)) int32 p6_w_ghzobj_slot   = -9;
+__attribute__((used)) int32 p6_w_ghzobj_h0     = 0;
+__attribute__((used)) int32 p6_w_brg_surfslot  = -9;
+__attribute__((used)) int32 p6_w_brg_surfscope = -9;
+__attribute__((used)) int32 p6_w_brg_surfh0    = 0;
 // P6.8 F.2-followup debug WARP (declared early -- the signpost-active scan in
 // p6_ghz_frame's census reads it). p6_w_warp_plrx = the player x after the warp
 // past the GHZ1 signpost (x=15792px); p6_w_warp_signactive = the active field of
@@ -1421,6 +1431,7 @@ extern "C" void p6_player_witness_tick(void);
 extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
 extern "C" void p6_brg_witness(void);  // #181: GHZ Bridge class/count/pos snapshot (game-side)
 extern "C" void p6_player_newgame_reset(void); // #P0: zero Player->rings/powerups before InitObjects (game-side)
+extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash); // #181 diag: banded-slot lookup by path hash
 // Perf Phase 1 (Task #211): jo-side timing primitives (p6_perf.c). The true-60Hz
 // vblank tally (registered via jo_core_add_vblank_callback in main.c) + the
 // interrupt-safe SH-2 FRT read for per-section cost attribution.
@@ -1760,6 +1771,22 @@ static void p6_ghz_arm_env(void)
         else
             continue;
         p6_vdp1HandleBySurface[i] = (int8)h;
+    }
+
+    // #181 sheet-bind diag: pinpoint why GHZ/Objects.gif (sheetID 14, the bridge's
+    // sheet) is still unbound after staging GHZOBJ.SHT. ghzobj_slot>=0 proves the
+    // stage + path-hash are right; brg_surfslot is the bridge surface's resolved
+    // banded slot; the h0 pair compares the stage path hash to the surface's hash.
+    {
+        RETRO_HASH_MD5(gh);
+        GEN_HASH_MD5("GHZ/Objects.gif", gh);
+        p6_w_ghzobj_h0   = (int32)gh[0];
+        p6_w_ghzobj_slot = SaturnSheet_FindSlot((const uint32 *)gh);
+        if (14 < SURFACE_COUNT) {
+            p6_w_brg_surfslot  = (int32)gfxSurface[14].saturnSheetSlot;
+            p6_w_brg_surfscope = (int32)gfxSurface[14].scope;
+            p6_w_brg_surfh0    = (int32)gfxSurface[14].hash[0];
+        }
     }
 }
 
@@ -2447,20 +2474,25 @@ extern "C" void p6_scene_run(void)
         // free SATURNSHEET_SLOTS slot (8). It is the shared sheet for the GHZ
         // content GLOBAL objects (Spikes 2 frames, Spring, ...). Banded 12,605 B;
         // total banded store now 277,470 B inside the 384 KB cart (fits).
-        static const char *shtFiles[8] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
+        // #181/#247: GHZOBJ.SHT (GHZ/Objects.gif, 27,665 B banded) is the 9th sheet
+        // -- the shared GHZ content-objects sheet the Bridge planks (and the rest of
+        // the GHZ object sweep) index. Total banded store 305,135 B inside the 384 KB
+        // cart. SATURNSHEET_SLOTS bumped 8->9 to hold it.
+        static const char *shtFiles[9] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
                                            "ITEMS.SHT", "DISPLAY.SHT", "SHIELDS.SHT",
-                                           "TAILS1.SHT", "GLOBJ.SHT" };
+                                           "TAILS1.SHT", "GLOBJ.SHT", "GHZOBJ.SHT" };
         // Engine PATH hashes (W12b): LoadSpriteSheet hashes the .bin-relative
         // sprite path -- these are what Player_StageLoad will resolve.
-        static const char *shtPaths[8] = { "Players/Sonic1.gif",
+        static const char *shtPaths[9] = { "Players/Sonic1.gif",
                                            "Players/Sonic2.gif",
                                            "Players/Sonic3.gif",
                                            "Global/Items.gif",
                                            "Global/Display.gif",
                                            "Global/Shields.gif",
                                            "Players/Tails1.gif",
-                                           "Global/Objects.gif" };
-        for (int32 i = 0; i < 8; ++i) {
+                                           "Global/Objects.gif",
+                                           "GHZ/Objects.gif" };
+        for (int32 i = 0; i < 9; ++i) {
             p6_w_load_step = 10 + i; // #251 per-sheet (10..17 = SONIC1/2/3,ITEMS,DISPLAY,SHIELDS,TAILS1,GLOBJ)
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
                                                 (void *)P6_LW_ENTITYLIST, 0x10000);

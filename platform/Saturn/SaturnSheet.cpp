@@ -50,7 +50,7 @@ typedef signed int int32;
 // the cart). Map: [[cart-4mb-extram-measured-map]]. The VDP2 0x25E44000 window
 // is the non-cart fallback (kept so a hypothetical non-P6_CART build still
 // links + boots; it stages only the 6 that fit).
-#define SATURNSHEET_SLOTS     8
+#define SATURNSHEET_SLOTS     9 // #247/#181: +GHZOBJ (GHZ/Objects.gif) = the GHZ content sheet
 #if defined(P6_CART)
 #define SATURNSHEET_VRAM_BASE 0x227A0000u // 4MB cart, after STG(3MB)+TMP(640KB)
 #define SATURNSHEET_VRAM_END  0x22800000u // top of the 4MB cart (384 KB store)
@@ -187,6 +187,23 @@ extern "C" int32 SaturnSheet_MakeResident(int32 slot)
     s_resCursor = resbase + sheetBytes;
     ++p6_w_sht_resident;
     return 0;
+}
+
+// #249 (band-crossing fix): shared resident-cart allocator. SaturnLayout reuses
+// the SAME bump cursor as the resident sheets so the FG layout co-resides in the
+// cart RES store with NO fixed split or collision (one cursor; whoever allocs
+// first gets the lower addresses). Returns a 4-aligned cart address, or 0 if the
+// RES store is full (caller falls back to the per-crossing inflate). The resident
+// sheets (~1 MB) + the GHZ layout (~551 KB) fit the 3.6 MB RES store with room.
+__attribute__((used)) int32 p6_w_sht_resbytes = 0; // resident-store bytes used (sheets+layout)
+extern "C" uint32 SaturnSheet_ResAlloc(uint32 bytes)
+{
+    uint32 a = (s_resCursor + 3u) & ~3u;
+    if (a + bytes > SATURNSHEET_RES_END)
+        return 0;
+    s_resCursor = a + bytes;
+    p6_w_sht_resbytes = (int32)(s_resCursor - SATURNSHEET_RES_BASE);
+    return a;
 }
 #endif
 

@@ -64,7 +64,17 @@ scroll (NBG2/RBG) + the `Water` surface.
 
 ## Status
 
-- [ ] P0 spawn-state init (IN PROGRESS)
-- [ ] P1 BG/water render
-- [ ] P2 object registration sweep
+- [x] P0 spawn-state init -- rings/powerups=0, timer ticks (a6af806, user-confirmed)
+- [x] Bridge visibility -- planks render (folds into P2). MEASURED root cause: the
+      Bridge class was registered and instantiating (collision "present"), but its
+      sprite sheet `GHZ/Objects.gif` (sheetID 14) was the 9th staged sheet and the
+      VDP1 bind table (`P6_VDP1_NSHEETS`) + the band-store slot count
+      (`SATURNSHEET_SLOTS`) were both capped at 8 -> the 9th bind returned -1 ->
+      every plank blit dropped silently (`dropbysheet[14]=251` -> "present but
+      invisible"). Fix: stage `GHZOBJ.SHT`, bump both caps 8->9. User-confirmed
+      planks render.
+- [ ] P1 BG/water render (the blank sky)
+- [ ] P2 object registration sweep -- the loop (CorkscrewPath+ForceSpin) and the
+      brittle/crumbling ground (CollapsingPlatform) are the highest-value missing
+      content objects; then badniks+deps, hazards, boss/cutscene.
 - [ ] P3 whole-level parity gate

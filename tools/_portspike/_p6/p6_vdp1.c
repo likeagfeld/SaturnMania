@@ -38,7 +38,15 @@
 #define P6_VDP1_NSLOTS  40 /* Ring 16 + Player working set; eviction = a
                             * declared later closer -- overflow DROPS and
                             * counts (p6_w_vdp1_drops), never overwrites */
-#define P6_VDP1_NSHEETS 8
+/* GHZ1 parity P2 (#181/#247): 9 staged sheets bind here -- SONIC1/2/3, ITEMS,
+ * DISPLAY, SHIELDS, TAILS1, GLOBJ, and GHZOBJ (GHZ/Objects.gif, the bridge
+ * planks + GHZ content objects). Must stay in lockstep with SaturnSheet.cpp
+ * SATURNSHEET_SLOTS (the band-store staging count): each staged .SHT that
+ * binds consumes exactly one VDP1 bind-table entry. MEASURED root cause of the
+ * bridge not drawing: at 8, the 9th bind (GHZOBJ) hit s_sheet_count>=NSHEETS
+ * and returned -1, leaving the surface handle -1 -> all plank blits dropped
+ * (p6_w_dropbysheet[14]=251, p6_io_main.cpp:473/1097). */
+#define P6_VDP1_NSHEETS 9
 
 /* qa_p6_draw.py D5 witness: number of distinct rects resident on VDP1.
  * __attribute__((used)) defeats LTO name-collapse so the gate can locate it
