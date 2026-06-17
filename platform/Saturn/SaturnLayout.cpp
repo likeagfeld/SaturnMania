@@ -208,6 +208,14 @@ extern "C" void SaturnLayout_PreInflateResident(void)
     uint8 *scratch = (s_layResEnable && s_scratchPtr) ? *s_scratchPtr : 0;
     if (!scratch || !s_blob)
         return;
+    // #250: SKIP on a SAME-ZONE reload. Mount tag-matches the live zone and does
+    // NOT reset s_layer_res, so the cart resident layout still holds the first
+    // load's pixels -- re-inflating here would re-write cart 0x22600000.. AFTER
+    // LoadSceneAssets re-staged the resident sheets into the SAME 4MB cart,
+    // conflicting -> garbled FG after a death reload. A cross-zone reload resets
+    // s_layer_res via Mount, so it correctly re-inflates the new zone's layout.
+    if (s_layer_res[0] != 0)
+        return;
     // Dedicated bank-1 cart region 0x22600000..0x227A0000 (above the SaturnSheet
     // residency, below the sheet staging). Local cursor -> resets each call.
     uint32 layCartCur = 0x22600000u;

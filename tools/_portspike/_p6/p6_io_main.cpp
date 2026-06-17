@@ -1652,6 +1652,7 @@ static void p6_load_phase_exit(void)
 }
 
 // =============================================================================
+
 // P6.8 Step A (Task #211): p6_ghz_arm_env -- factor the GHZ render-environment
 // arm out of the W14/W18/W19 burst preamble (p6_scene_run lines ~1889-1905
 // screen env + clip bounds, ~1955-2006 Items/Display/Shields SHEET-ONLY nudges
@@ -1707,6 +1708,10 @@ static void p6_ghz_arm_env(void)
             p6_w_shldsheet = (int32)gfxSurface[ssurf].saturnSheetSlot;
     }
 
+    // #250: bind only surfaces not already bound. On a same-folder reload the gfx
+    // surfaces PERSIST (LoadSceneFolder early-returns before ClearGfxSurfaces),
+    // so their VDP1 bindings are still valid -- skipping them here is correct;
+    // re-binding them (an earlier misdiagnosis) made the sprites invisible.
     for (int32 i = 0; i < SURFACE_COUNT; ++i) {
         GFXSurface *sf = &gfxSurface[i];
         if (sf->scope == SCOPE_NONE || p6_vdp1HandleBySurface[i] >= 0)
@@ -3528,6 +3533,18 @@ static void p6_layout_mount_for_scene(void)
 // new band store staged + re-mounted; that is F.2.
 static void p6_scene_load_and_arm(void)
 {
+    // #250: MEASURED root cause of the garbled FG after a DEATH reload. A same-
+    // FOLDER reload makes LoadSceneFolder early-return (Scene.cpp:71-91) WITHOUT
+    // re-decoding the tileset (LoadStageGIF never runs), so tilesetPixels is stale
+    // (the entityList window, just defrag-GC'd) -- uploading it as tile cells
+    // garbles NBG1. The VDP2 cells from the first load persist, so the upload must
+    // be SKIPPED on a same-folder reload. Mirror LoadSceneFolder's own condition
+    // (captured BEFORE the call, since the full path strcpy's currentSceneFolder).
+    // GHZ1<->GHZ2 share folder "GHZ", so both correctly keep the resident cells;
+    // only a real folder change (or forceHardReset) re-decodes + needs the upload.
+    int32 p6_folderReload =
+        (strcmp(currentSceneFolder, sceneInfo.listData[sceneInfo.listPos].folder) == 0
+         && !forceHardReset);
     // F.2: (re)mount the windowed band store for the zone being loaded BEFORE
     // LoadSceneFolder's SaturnLayout_Bind (Scene.cpp:439/444). No-op on a same-
     // zone reload (tag match); swaps GHZ1<->GHZ2 on a cross-zone act advance.
@@ -3549,7 +3566,11 @@ static void p6_scene_load_and_arm(void)
     // Stage the GHZ tile CELLS to NBG1 NOW (tilesetPixels is the W11b
     // load-phase transient aliasing the entityList window -- valid only
     // between LoadSceneFolder's GIF decode and LoadSceneAssets' memset).
-    p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+    // #250: SKIP on a same-folder reload -- LoadSceneFolder early-returned without
+    // re-decoding the tileset, so tilesetPixels is stale and the first load's cells
+    // are still resident in NBG1 VRAM. Uploading here would garble the FG.
+    if (!p6_folderReload)
+        p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
     LoadSceneAssets();
     // Screen env must exist BEFORE InitObjects (Camera_Create reads
     // ScreenInfo->center) -- arm it here, then arm the binds after.
