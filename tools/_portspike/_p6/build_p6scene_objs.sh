@@ -262,9 +262,13 @@ done
 # #181: GHZ Bridge (planks) joins here -- a GHZ-scene object; its only out-of-pack
 # dep (BurningLog) is NULL'd in p6_closure_edge.c, all other refs (Player/Zone/
 # RSDK.*) already pack-resident.
+# #254: GHZ1 loop fix -- PlaneSwitch (the collision-plane toggle for loops). The
+# corkscrew force-objects are DEFERRED (adding all 5 overran the ANIMPAK floor by
+# 1,564 B; the corkscrew batch needs a code-budget lever first).
 for w4 in Common_BGSwitch:Game_BGSwitch \
           GHZ_GHZSetup:Game_GHZSetup \
-          GHZ_Bridge:Game_Bridge; do
+          GHZ_Bridge:Game_Bridge \
+          Global_PlaneSwitch:Game_PlaneSwitch; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
@@ -357,6 +361,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_time_enabled -u _p6_w_timer \
     -u _p6_w_ghzobj_slot -u _p6_w_ghzobj_h0 -u _p6_w_brg_surfslot \
     -u _p6_w_brg_surfscope -u _p6_w_brg_surfh0 \
+    -u _p6_w_loop_regmask -u _p6_w_loop_pscount \
     -u _p6_w_ac_classid -u _p6_w_ac_state -u _p6_w_ac_timer -u _p6_w_ac_frames \
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
     -u _p6_w_ac_laststate -u _p6_w_listpos_max \
@@ -393,6 +398,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" "$P6/Game_ActClear.o" \
     "$P6/Game_SignPost.o" "$P6/Game_BGSwitch.o" "$P6/Game_GHZSetup.o" \
     "$P6/Game_Bridge.o" \
+    "$P6/Game_PlaneSwitch.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
     "$P6/SaturnSheet.o" \
     "$P6/Input_Input.o" "$P6/InputDevice_Saturn.o" "$P6/CppRuntime_Saturn.o" \

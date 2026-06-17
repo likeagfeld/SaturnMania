@@ -306,7 +306,13 @@ void RSDK::ProcessAnimation(Animator *animator)
     animator->timer += animator->speed;
 
     if (animator->frames == (SpriteFrame *)1) { // model anim
-        while (animator->timer > animator->frameDuration) {
+        // Saturn-safety (#254): a 0-duration frame makes `timer -= frameDuration`
+        // (timer -= 0) never terminate -> SH-2 hang in ProcessObjects auto-anim.
+        // PC never hits this (clean data); a Saturn anim that loads with an empty/
+        // 0-duration frame (e.g. PlaneSwitch.bin) does. Guarding frameDuration>0
+        // is a no-op for valid data (durations are always >=1) and breaks the loop
+        // both at entry and after the mid-loop frameDuration update below.
+        while (animator->frameDuration > 0 && animator->timer > animator->frameDuration) {
             ++animator->frameID;
 
             animator->timer -= animator->frameDuration;
@@ -315,7 +321,13 @@ void RSDK::ProcessAnimation(Animator *animator)
         }
     }
     else { // sprite anim
-        while (animator->timer > animator->frameDuration) {
+        // Saturn-safety (#254): a 0-duration frame makes `timer -= frameDuration`
+        // (timer -= 0) never terminate -> SH-2 hang in ProcessObjects auto-anim.
+        // PC never hits this (clean data); a Saturn anim that loads with an empty/
+        // 0-duration frame (e.g. PlaneSwitch.bin) does. Guarding frameDuration>0
+        // is a no-op for valid data (durations are always >=1) and breaks the loop
+        // both at entry and after the mid-loop frameDuration update below.
+        while (animator->frameDuration > 0 && animator->timer > animator->frameDuration) {
             ++animator->frameID;
 
             animator->timer -= animator->frameDuration;

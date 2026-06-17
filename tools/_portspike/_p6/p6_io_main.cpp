@@ -614,6 +614,10 @@ __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.a
 // animator.frames (0/-1 == Bridge.bin alloc-failed the #247 residency budget).
 __attribute__((used)) int32 p6_w_brg_classid    = 0;  // Bridge->classID (0 == unregistered == the bug)
 __attribute__((used)) int32 p6_w_brg_count      = 0;  // # Bridge entities the scene instantiated
+// #254 GHZ1 loop closure (qa_p6_loop.py): regmask 0x1F == all 5 loop classes
+// registered; pscount == # PlaneSwitch placed in GHZ1 (expect 106; 0 == broken).
+__attribute__((used)) int32 p6_w_loop_regmask   = 0;
+__attribute__((used)) int32 p6_w_loop_pscount   = 0;
 __attribute__((used)) int32 p6_w_brg_posx       = 0;  // first bridge position.x (16.16 fixed)
 __attribute__((used)) int32 p6_w_brg_posy       = 0;  // first bridge position.y (16.16 fixed)
 __attribute__((used)) int32 p6_w_brg_onscreen   = -1; // first bridge onScreen flag
@@ -1430,6 +1434,7 @@ extern "C" void p6_player_witness_post(void);
 extern "C" void p6_player_witness_tick(void);
 extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
 extern "C" void p6_brg_witness(void);  // #181: GHZ Bridge class/count/pos snapshot (game-side)
+extern "C" void p6_loop_witness(void); // #254: GHZ loop classes regmask + PlaneSwitch count (game-side)
 extern "C" void p6_player_newgame_reset(void); // #P0: zero Player->rings/powerups before InitObjects (game-side)
 extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash); // #181 diag: banded-slot lookup by path hash
 // Perf Phase 1 (Task #211): jo-side timing primitives (p6_perf.c). The true-60Hz
@@ -2250,6 +2255,7 @@ static void p6_ghz_frame(void)
 
     p6_cont_witness(); // SLOT_PLAYER1 pos + animator.animationID
     p6_brg_witness();  // #181: Bridge class/count/pos (one-shot latch; per-frame in warp)
+    p6_loop_witness(); // #254: loop classes registered + PlaneSwitch instantiated (one-shot latch)
     {
         // Phase 2c (#246): compute-FULL bracket END + tail sub-attribution. frame_t1
         // is the exit FRT (also the swap-cadence prev_end). full = entry->exit = the

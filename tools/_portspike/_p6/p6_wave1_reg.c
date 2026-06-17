@@ -180,6 +180,13 @@ void p6_wave1_link(void *functionTable, void *gameInfo, void *currentSKU,
     RSDK_REGISTER_OBJECT(SignPost);     // Game.c:642 (F.3: spawns ActClear -> GHZ1->GHZ2)
     RSDK_REGISTER_OBJECT(SizeLaser);    // Game.c:644
     RSDK_REGISTER_OBJECT(Soundboard);   // Game.c:649
+    // #254 GHZ1 loop fix: PlaneSwitch = the collision-plane toggle (106 placed in
+    // GHZ1) that lets Sonic run the inside of a loop-de-loop. Census drop-in (fits
+    // the 344 B slot, no deps/sheets/stub-gates). The corkscrew force-objects
+    // (CorkscrewPath/ForceSpin/ForceUnstick/SpinBooster) are DEFERRED: adding all 5
+    // pushed _end 1,564 B past the ANIMPAK floor (their ~9.9 KB of .text + the SGL
+    // work-area COMMON), so the corkscrew batch needs a code-budget lever first.
+    RSDK_REGISTER_OBJECT(PlaneSwitch);
     RSDK_REGISTER_OBJECT(Zone);         // Game.c:854
 }
 
@@ -427,4 +434,34 @@ void p6_brg_witness(void)
 #if defined(P6_WARP_BRIDGE_TEST)
     foreach_all(Bridge, b) { p6_w_brg_onscreen = (int32)b->onScreen; break; }
 #endif
+}
+
+// =============================================================================
+// p6_loop_witness -- #254 GHZ1 loop closure. One-shot latch (like p6_brg_witness)
+// proving the 5 loop classes registered + the scene instantiated them:
+//   p6_w_loop_regmask -- bit i set if loop-class[i] has a live classID
+//                        (CorkscrewPath|ForceSpin|ForceUnstick|PlaneSwitch|
+//                        SpinBooster = bits 0..4; 0x1F == all registered).
+//   p6_w_loop_pscount -- # PlaneSwitch entities placed in GHZ1 (expect 106;
+//                        0 == the class resolved to a blank slot == still broken).
+// PlaneSwitch is the marquee: the collision-plane toggle that the loop needs.
+// =============================================================================
+extern int32 p6_w_loop_regmask;
+extern int32 p6_w_loop_pscount;
+void p6_loop_witness(void)
+{
+    static int32 s_latched = 0;
+    if (s_latched)
+        return;
+    // bit 3 = PlaneSwitch (the loop fix); the corkscrew force-objects are deferred.
+    p6_w_loop_regmask = (PlaneSwitch && PlaneSwitch->classID) ? 0x08 : 0;
+
+    if (PlaneSwitch && PlaneSwitch->classID) {
+        int32 cnt = 0;
+        foreach_all(PlaneSwitch, ps) { ++cnt; }
+        if (cnt > 0) {
+            p6_w_loop_pscount = cnt;
+            s_latched         = 1;
+        }
+    }
 }
