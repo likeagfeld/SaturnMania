@@ -86,12 +86,58 @@ def find_decomp(obj):
     return None
 
 
+def strip_editor(src):
+    """Drop `#if GAME_INCLUDE_EDITOR ... #endif` blocks -- their LoadSpriteAnimation
+    (Editor/EditorIcons.bin, Global/TicMark.bin) is the EDITOR icon, NOT the gameplay
+    sprite, and reading it misreports readiness (Platform/BreakableWall/BGSwitch)."""
+    return re.sub(r'#if\s+GAME_INCLUDE_EDITOR\b.*?#endif', '', src, flags=re.S)
+
+
 def extract_assets(c_path):
-    """Pull LoadSpriteAnimation / LoadSpriteSheet string args from the source."""
-    src = open(c_path, "r", errors="ignore").read()
+    """Pull GAMEPLAY (non-editor) LoadSpriteAnimation / LoadSpriteSheet args."""
+    src = strip_editor(open(c_path, "r", errors="ignore").read())
     anims = re.findall(r'LoadSpriteAnimation\(\s*"([^"]+)"', src)
     sheets = re.findall(r'LoadSpriteSheet\(\s*"([^"]+)"', src)
     return sorted(set(anims)), sorted(set(sheets))
+
+
+def deps_row(c_path, obj):
+    """P12 dependency closure: the cross-object functions + CREATE_ENTITY targets the
+    object needs LINKED. A drop-in is only real if these resolve -- SpikeLog needed
+    Player_CheckCollisionTouch/Player_Hurt/BurningLog/achievementList -u-rooted. We
+    cross-check each against the live game.map (linked == available); anything absent
+    must be -u-rooted (function) or registered first (CREATE_ENTITY target)."""
+    src = strip_editor(open(c_path, "r", errors="ignore").read())
+    raw = set(re.findall(r'\b([A-Z][A-Za-z0-9]+_[A-Za-z0-9_]+)\s*\(', src))
+    creates = set(re.findall(r'CREATE_ENTITY\(\s*([A-Za-z0-9_]+)', src))
+    # FILTER non-linkable tokens so the closure shows REAL deps only:
+    #  - ALL-CAPS class-part = a macro (CREATE_ENTITY, INT_TO_VOID, RSDK_THIS,
+    #    RSDK_GET_ENTITY, RSDK_EDITABLE_VAR, DEBUGMODE_ADD_OBJ, ...)
+    #  - StateMachine_*/foreach_* = control macros, not symbols.
+    MACRO = {"StateMachine_Run", "StateMachine_RunCurrentState"}
+    def real(t):
+        head = t.split("_", 1)[0]
+        return not head.isupper() and t not in MACRO and not t.startswith("foreach")
+    calls = {c for c in raw if real(c)}
+    # the object's OWN functions are defined in its TU -- not external deps
+    own = {c for c in calls if c.startswith(obj + "_")}
+    ext = sorted((calls - own) | {c + "_<class>" for c in creates})
+    mapp = ""
+    try:
+        mapp = open(os.path.join(ROOT, "game.map"), "r", errors="ignore").read()
+    except OSError:
+        return (WARN, "P12 dep closure", "game.map absent -- build once to check")
+    missing = []
+    for d in (calls - own):
+        # RSDK.* and engine primitives resolve via the engine; only check object/game fns
+        if d in mapp or ("RSDK::" + d) in mapp:
+            continue
+        missing.append(d)
+    unreg_creates = sorted(c for c in creates if c not in mapp and ("_" + c) not in mapp)
+    tag = GREEN if not missing and not unreg_creates else WARN
+    detail = "%d ext deps; MISSING-linked=%s; CREATE=%s" % (
+        len(calls - own), missing[:6] or "none", sorted(creates) or "none")
+    return (tag, "P12 dep closure", detail)
 
 
 def main(argv):
@@ -208,6 +254,9 @@ def main(argv):
 
     # ---- P11 draw-order / Z-layering (Audit-1) ----
     rows.append(draworder_row(c_path, obj))
+
+    # ---- P12 dependency closure (cross-object fns + CREATE_ENTITY targets) ----
+    rows.append(deps_row(c_path, obj))
 
     # ---- P10 witness wiring ----
     bld = open(BUILD_OBJS, "r", errors="ignore").read()
