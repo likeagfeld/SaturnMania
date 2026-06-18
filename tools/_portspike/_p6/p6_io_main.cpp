@@ -579,6 +579,40 @@ void p6_purge_scene_players(void)
         }
     }
 }
+// P6.8 I2 (camera-local pool) self-check witness: 1 iff EVERY slot in
+// [0,ENTITY_COUNT) resolves through the new SaturnSlotToPoolSlot indirection
+// (RSDK_ENTITY_AT) to the SAME address as the pre-I2 direct dual-stride formula
+// (p6_i2_direct below). Proves the I2 refactor is byte-identical (gate
+// tools/_portspike/qa_p6_i2.py). I3 keeps this witness to re-gate the remap table.
+__attribute__((used)) int32 p6_w_i2_resolve_ok = 0;
+// P6.8 I2 verification oracle: an INDEPENDENT reimplementation (this TU) of the
+// pre-I2 dual-stride mapping using the RAW slot (NO indirection). Mirrors
+// SaturnEntityAt's three regions verbatim via the same #define strides + the same
+// objectEntityList base -> if SaturnEntityAt(slot) diverges from this for any slot,
+// the routing changed the address. Uses macro NAMES (not literals) so the active
+// Saturn strides (RESERVE 0x40, SCENEENTITY 0x440, WIDE 556) flow through.
+static EntityBase *p6_i2_direct(int32 slot)
+{
+    uint8 *base = (uint8 *)objectEntityList;
+    if (slot < RESERVE_ENTITY_COUNT)
+        return (EntityBase *)(base + (uint32)slot * ENTITY_WIDE_SIZE);
+    if (slot < TEMPENTITY_START)
+        return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE
+                              + (uint32)(slot - RESERVE_ENTITY_COUNT) * sizeof(EntityBase));
+    return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase)
+                          + (uint32)(slot - TEMPENTITY_START) * ENTITY_WIDE_SIZE);
+}
+// P6.8 I2 load-time self-check: walk every slot once (1216 slots, NOT per-frame --
+// negligible cost) and latch resolve_ok=1 iff the routed SaturnEntityAt matches the
+// direct oracle for ALL slots. Called post-InitObjects beside p6_purge_scene_players.
+void p6_i2_selfcheck(void)
+{
+    int32 ok = 1;
+    for (int32 s = 0; s < ENTITY_COUNT; ++s) {
+        if ((void *)RSDK_ENTITY_AT(s) != (void *)p6_i2_direct(s)) { ok = 0; break; }
+    }
+    p6_w_i2_resolve_ok = ok;
+}
 __attribute__((used)) int32 p6_w_plr_state      = 0;  // state fn ptr (nonzero == state machine live)
 __attribute__((used)) int32 p6_w_plr_onground   = -1;
 __attribute__((used)) int32 p6_w_plr_animframes = 0;  // animator.frames (expect inside P6_HW_ANIMPAK)
@@ -3825,6 +3859,7 @@ static void p6_scene_load_and_arm(void)
     // the first tick) so the phantom never executes an Update -> shared buffers stay
     // clean. ResetEntity(.,0,.) == destroyEntity (memset + classID=TYPE_BLANK=0).
     p6_purge_scene_players();
+    p6_i2_selfcheck(); // P6.8 I2: assert slot->pool indirection is 1:1 (byte-identical)
     // #P0 (GHZ1 parity): enable the level clock. The decomp enables it in
     // Zone_State_FadeIn (Zone.c:820) -- the act-start fade-in state that the lean
     // engine boot skips (it jumps straight to gameplay), so the timer stayed frozen.

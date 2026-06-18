@@ -426,16 +426,26 @@ uint16 FindObject(const char *name);
 // P6.7 Player wave step B: dual-stride slot <-> pointer mapping (regions per
 // the pool comment at ENTITY_WIDE_SIZE above). Every objectEntityList[slot]
 // site routes through these.
+// P6.8 I2 (camera-local pool): the slot -> pool-slot INDIRECTION point. IDENTITY in
+// I2 -> byte-identical to the pre-I2 direct mapping (the load-time self-check
+// p6_i2_selfcheck asserts every slot in [0,ENTITY_COUNT) still resolves to its
+// original address, latching p6_w_i2_resolve_ok). I3 replaces this body with a
+// table lookup (table placed in the pool-shrink-freed home) that remaps far scene
+// slots to dormant records -- routing SaturnEntityAt through this ONE function is
+// what lets I3 do that WITHOUT touching the 211 RSDK_GET_ENTITY call sites. ZERO
+// new allocation in I2.
+inline int32 SaturnSlotToPoolSlot(int32 slot) { return slot; }
 inline EntityBase *SaturnEntityAt(int32 slot)
 {
+    int32 ps    = SaturnSlotToPoolSlot(slot); // I2 indirection (identity now; I3 -> table)
     uint8 *base = (uint8 *)objectEntityList;
-    if (slot < RESERVE_ENTITY_COUNT)
-        return (EntityBase *)(base + (uint32)slot * ENTITY_WIDE_SIZE);
-    if (slot < TEMPENTITY_START)
+    if (ps < RESERVE_ENTITY_COUNT)
+        return (EntityBase *)(base + (uint32)ps * ENTITY_WIDE_SIZE);
+    if (ps < TEMPENTITY_START)
         return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE
-                              + (uint32)(slot - RESERVE_ENTITY_COUNT) * sizeof(EntityBase));
+                              + (uint32)(ps - RESERVE_ENTITY_COUNT) * sizeof(EntityBase));
     return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase)
-                          + (uint32)(slot - TEMPENTITY_START) * ENTITY_WIDE_SIZE);
+                          + (uint32)(ps - TEMPENTITY_START) * ENTITY_WIDE_SIZE);
 }
 inline int32 SaturnEntitySlot(EntityBase *entity)
 {

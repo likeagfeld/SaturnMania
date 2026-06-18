@@ -399,8 +399,28 @@ entity-streaming item, now the #1 execution increment). Roadmap:
        -u _p6_w_manifest_maxslot -u _p6_w_manifest_csum` beside the existing `-u _p6_w_*` roots (~:344).
     Build (build_shipping.sh ~10min) -> capture frame 130 -> `qa_p6_manifest` asserts n==1041,
     maxslot==1040, csum!=0 -> GREEN; then commit + the diag sweep stays byte-identical.
-  - **I2 INDIRECTION pass-through**: route SaturnEntityAt through a slotID->record map that maps 1:1
-    to the existing pool (behaviour-identical). Gate: all slots resolve; GHZ byte-identical.
+  - **I2 INDIRECTION pass-through -- LANDED + GREEN.** qa_p6_i2 resolve_ok==1 (all 1216 slots resolve
+    through SaturnSlotToPoolSlot to the byte-identical pre-I2 address); qa_p6_manifest (csum byte-
+    identical) + qa_p6_phantom + qa_p6_layout L3 110/110 regression-GREEN; both flavors build clean
+    (_end shipping 0x060b5984 / diag 0x060b6004, under the W17 floor). RESOLVED DESIGN
+    (the I1 "stored side-table waits for I3" tension is dissolved by making the indirection a FUNCTION,
+    not a stored table, in I2 -> ZERO new allocation, no BSS-overflow risk):
+    1. `Object.hpp` (RETRO_SATURN block, just before `SaturnEntityAt` ~:429): add
+       `inline int32 SaturnSlotToPoolSlot(int32 slot) { return slot; } // I2 identity; I3 -> table lookup`.
+    2. `Object.hpp` `SaturnEntityAt(slot)`: compute the SAME dual-stride offset but for
+       `SaturnSlotToPoolSlot(slot)` instead of raw `slot` (identity in I2 -> byte-identical). Keep
+       `SaturnEntitySlot` as-is (entity ptr -> POOL slot; the inverse map lands with the I3 table).
+    3. `p6_io_main.cpp` (extern "C" witness block): `__attribute__((used)) int32 p6_w_i2_resolve_ok=0;`
+       + a ONE-SHOT load-time self-check (run it in `p6_scene_load_and_arm` after InitObjects, beside
+       `p6_purge_scene_players`): walk `slot` in `[0,ENTITY_COUNT)`, compare `RSDK_ENTITY_AT(slot)` to
+       the pre-I2 direct offset (inline the old 3-branch formula as `i2_direct(slot)`); set
+       `p6_w_i2_resolve_ok = 1` iff every slot matches, else 0.
+    4. `build_p6scene_objs.sh` (+ `build_shipping.sh`): `-u _p6_w_i2_resolve_ok`.
+    Build -> capture f130 -> `qa_p6_i2` GREEN (resolve_ok==1) AND `qa_p6_manifest` still n==1041 AND
+    `qa_p6_layout` still 110/110 -> the byte-identical proof. The stored remap table is I3's job (placed
+    in the pool-shrink-freed ~24KB home), at which point `SaturnSlotToPoolSlot` becomes the lookup and
+    the SAME self-check re-gates it. Behaviour-identical; touches only the ONE indirection point, not
+    the 211 call sites. Gate: all slots resolve 1:1; GHZ byte-identical.
   - **I3 SHRINK + RESIDENT-PIN**: pool -> ~256 tiered slots; pin always-active classes
     (qa_active_census RESIDENT set) at load; materialize the near-set from the manifest; far slots ->
     dormant {classID,pos,flags} record. Gate: resident + near entities present; GHZ play unchanged.
