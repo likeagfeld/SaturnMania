@@ -35,11 +35,20 @@
 // ---- witness -----------------------------------------------------------------
 int32 p6_w_edge_calls = 0; // total boundary crossings (gate expects 0)
 int32 p6_w_edge_last  = 0; // ordinal of the last stub hit (1-based, file order)
+// PER-ORDINAL HISTOGRAM (the "map EVERYTHING" upgrade): every P6_EDGE(n) bumps
+// p6_w_edge_hits[n], so a SINGLE broad-gameplay capture reveals EVERY shadowed
+// boundary function that fired (and how often) -- not just the last one. The
+// audit gate (qa_p6_edge_audit.py) maps each nonzero ordinal -> its decomp fn
+// and classifies dead-cosmetic vs broken-gameplay. SIZE must exceed the highest
+// P6_EDGE ordinal used below (currently <80).
+#define P6_EDGE_MAX 96
+__attribute__((used)) int32 p6_w_edge_hits[P6_EDGE_MAX] = {0};
 
 #define P6_EDGE(n)                                                             \
     do {                                                                       \
         ++p6_w_edge_calls;                                                     \
         p6_w_edge_last = (n);                                                  \
+        if ((unsigned)(n) < P6_EDGE_MAX) ++p6_w_edge_hits[(n)];               \
     } while (0)
 
 // ---- 1. out-of-set CLASS POINTERS (NULL == unregistered) ---------------------
@@ -71,6 +80,7 @@ ObjectChaosEmerald *ChaosEmerald = NULL;
 // has none (all rings are RING_MOVE_FIXED -> Ring_State_Normal -> Ring_Collect only),
 // so the path is GHZ1-DEAD. NULL == unregistered (matches Spikes/etc. below).
 ObjectPlatform *Platform         = NULL;
+ObjectPress *Press               = NULL; // Spikes_Update NULL-guards it (PGZ press hazard, GHZ1-dead)
 ObjectCrate *Crate               = NULL;
 ObjectIce *Ice                   = NULL;
 ObjectBigSqueeze *BigSqueeze     = NULL;
@@ -238,13 +248,28 @@ void PhantomRuby_PlaySfx(uint8 sfxID)
     P6_EDGE(27);
 }
 void Ring_Draw_Normal(void) { P6_EDGE(28); }
+// #258b: forward the pack-side Player's hurt-ring calls to the OVERLAY's REAL
+// Ring_LoseRings/LoseHyperRings (set by p6_io_main after the overlay entry runs).
+// Without this the pack binds to these stubs and lost rings never scatter --
+// the exact bug the user hit (collect worked because the overlay's Ring_Create
+// wires the FIXED-ring draw inside the overlay, but loss crosses pack->overlay).
+extern void *p6_ovl_loserings_raw;
+extern void *p6_ovl_losehyperrings_raw;
 void Ring_LoseHyperRings(EntityPlayer *player, int32 rings, uint8 cPlane)
 {
+    if (p6_ovl_losehyperrings_raw) {
+        ((void (*)(EntityPlayer *, int32, uint8))p6_ovl_losehyperrings_raw)(player, rings, cPlane);
+        return;
+    }
     (void)player; (void)rings; (void)cPlane;
     P6_EDGE(29);
 }
 void Ring_LoseRings(EntityPlayer *player, int32 rings, uint8 cPlane)
 {
+    if (p6_ovl_loserings_raw) {
+        ((void (*)(EntityPlayer *, int32, uint8))p6_ovl_loserings_raw)(player, rings, cPlane);
+        return;
+    }
     (void)player; (void)rings; (void)cPlane;
     P6_EDGE(30);
 }

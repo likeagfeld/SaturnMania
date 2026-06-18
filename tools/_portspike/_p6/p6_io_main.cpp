@@ -672,6 +672,13 @@ __attribute__((used)) int32 p6_w_ringsarmed     = 0;
 // ring_classid live == Ring registered + instantiated. Written by p6_ghz_ovl_witness.
 __attribute__((used)) int32 p6_w_ring_aniframes = -2; // Ring->aniFrames (-1=load failed, >=0=armed)
 __attribute__((used)) int32 p6_w_ring_classid   = 0;  // Ring->classID (live)
+__attribute__((used)) int32 p6_w_spikes_aniframes = -2; // Spikes->aniFrames (-1=load failed, >=0=armed)
+// #258b: pack->overlay forward pointers for the hurt-ring-scatter path. The
+// verbatim pack-side Player calls Ring_LoseRings on hurt -> binds to the pack
+// STUB; the closure-edge forward routes it here to the overlay's REAL impl
+// (set after the overlay entry runs). 0 until then (stub no-ops, as before).
+extern "C" void *p6_ovl_loserings_raw = 0;
+extern "C" void *p6_ovl_losehyperrings_raw = 0;
 __attribute__((used)) int32 p6_w_plr_sheetid_t  = -1; // Player frame's sheetID after the ticks (GetFrame, stride-safe)
 __attribute__((used)) int32 p6_w_plr_handle     = -2; // p6_vdp1HandleBySurface[that sheetID]
 // P6.8 Step A (Task #211): CONTINUOUS-tick witnesses. The burst is a fixed
@@ -2742,6 +2749,8 @@ extern "C" void p6_scene_run(void)
         ((p6_ovl_entry_t)P6_OVL_BASE)(&s_ovl);
         p6_w_ovl_classes  = objectClassCount;
         p6_w_ovl_updatefn = (int32)(uint32)s_ovl.update_fn;
+        p6_ovl_loserings_raw      = s_ovl.loserings_fn;      // #258b hurt-ring-scatter forward
+        p6_ovl_losehyperrings_raw = s_ovl.losehyperrings_fn;
     }
 
     globalObjectIDs[0] = TYPE_DEFAULTOBJECT; // RetroEngine.cpp:1230

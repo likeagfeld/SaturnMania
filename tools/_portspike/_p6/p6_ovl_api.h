@@ -98,6 +98,12 @@ typedef struct {
     void (*witness_fn)(const void *); /* p6_ring2_witness (per-tick copy)    */
     void *update_fn;                  /* Ring_Update -- the V3 residency     */
                                       /* witness (must lie in the window)    */
+    void *loserings_fn;               /* #258b: the overlay's REAL Ring_LoseRings.   */
+    void *losehyperrings_fn;          /* The verbatim Player lives in the PACK and   */
+                                      /* calls Ring_LoseRings on hurt -> binds to    */
+                                      /* the pack STUB. The closure-edge forward      */
+                                      /* routes that call here (pack->overlay) so     */
+                                      /* lost rings actually scatter + re-collect.   */
 } p6_ovl_api;
 
 /* The entry signature at P6_OVL_BASE: registers the overlay's classes via

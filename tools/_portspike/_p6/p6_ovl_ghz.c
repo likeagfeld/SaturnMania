@@ -35,6 +35,7 @@ extern int32 p6_w_spikelog_classid, p6_w_spikelog_frames;
  * reads as -1 == load FAILED). Definitive per-object gate signal -- does not
  * depend on a live entity being near the camera. */
 extern int32 p6_w_spikelog_aniframes, p6_w_spring_aniframes, p6_w_brg_aniframes;
+extern int32 p6_w_spikes_aniframes;
 
 /* Forward decl so p6_overlay_entry is the FIRST function (window base). */
 static void p6_ghz_ovl_witness(const void *ringSlot);
@@ -76,6 +77,14 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntitySpikeLog), (unsigned)sizeof(ObjectSpikeLog),
                               SpikeLog_Update, SpikeLog_LateUpdate, SpikeLog_StaticUpdate,
                               SpikeLog_Draw, SpikeLog_Create, SpikeLog_StageLoad, SpikeLog_Serialize);
+    /* Spikes (Global hazard, 41 GHZ1 placements): verbatim Game_Spikes. Closure
+     * fully resolved -- Ice/Shield/MathHelpers/Player are ported TUs; Press is the
+     * lone GHZ1-dead NULL (p6_closure_edge.c). Loads Global/Spikes.bin + the Global
+     * Spikes sheet (census = staged). No editor callbacks (GAME_INCLUDE_EDITOR off). */
+    api->register_object_full((void **)&Spikes, "Spikes",
+                              (unsigned)sizeof(EntitySpikes), (unsigned)sizeof(ObjectSpikes),
+                              Spikes_Update, Spikes_LateUpdate, Spikes_StaticUpdate,
+                              Spikes_Draw, Spikes_Create, Spikes_StageLoad, Spikes_Serialize);
 
     /* Ring vtable; witness_fn is the COMBINED tick witness below. staticvars_slot
      * feeds the F.3 main-image Ring-global rewire (p6_io_main: Ring = *staticvars_slot
@@ -86,6 +95,11 @@ int p6_overlay_entry(p6_ovl_api *api)
     api->arm_fn          = 0;
     api->witness_fn      = (void (*)(const void *))p6_ghz_ovl_witness;
     api->update_fn       = (void *)Ring_Update;
+    /* #258b: export the overlay's REAL hurt-ring-scatter entry points so the
+     * pack-side Player (which calls Ring_LoseRings on hurt) reaches them via the
+     * p6_closure_edge forward instead of the pack stub. */
+    api->loserings_fn      = (void *)Ring_LoseRings;
+    api->losehyperrings_fn = (void *)Ring_LoseHyperRings;
     return 0;
 }
 
@@ -104,6 +118,7 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * (int16)-cast so a -1 (0xFFFF) load failure reads as -1, not 65535. */
     if (Ring) p6_w_ring_aniframes = (int32)(int16)Ring->aniFrames;
     if (Ring && Ring->classID) p6_w_ring_classid = (int32)Ring->classID;
+    if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;
 
     /* RANGE-INDEPENDENT anim-load status, every tick, straight off the Object
      * struct -- the definitive "did StageLoad's LoadSpriteAnimation succeed"
