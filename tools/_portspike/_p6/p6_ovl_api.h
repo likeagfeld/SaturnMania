@@ -64,7 +64,10 @@
 // p6_io_main.cpp) so it -- and every region above it -- stays put when OVL leaves
 // WRAM-H (zero #249 risk; the freed 0x2A00 WRAM-H window is left as _end slack).
 #define P6_OVL_BASE   0x02690000u   /* CACHED cart alias (exec); cache-through twin 0x22690000 (load) */
-#define P6_OVL_WINDOW 0x8000u       /* 32 KB cart window (overlay ~17.5 KB; ends 0x22698000 < GFS 0x22700000) */
+#define P6_OVL_WINDOW 0x10000u      /* 64 KB cart window. Mass-port grows the overlay (Ring+Spring+Bridge+
+                                     * PlaneSwitch+SpikeLog+Spikes+Batch1...); ends 0x226A0000, still far
+                                     * below the GFS windows (0x22700000) -- the gap above the GHZ1 layout
+                                     * high-water 0x22686900 is ~485 KB, so this is amply clear. */
 
 typedef struct {
     /* ---- filled by MAIN before calling the entry ------------------------ */

@@ -274,7 +274,10 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           Global_Spring:Game_Spring \
           Global_Ring:Game_Ring \
           GHZ_SpikeLog:Game_SpikeLog \
-          Global_Spikes:Game_Spikes; do
+          Global_Spikes:Game_Spikes \
+          Common_Decoration:Game_Decoration \
+          Common_ForceSpin:Game_ForceSpin \
+          Common_SpinBooster:Game_SpinBooster; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
@@ -392,7 +395,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _Player_Hurt -u _APICallback_UnlockAchievement -u _achievementList \
     -u _p6_w_spikelog_classid -u _p6_w_spikelog_frames \
     -u _p6_w_spikelog_aniframes -u _p6_w_spring_aniframes -u _p6_w_brg_aniframes \
-    -u _p6_w_ring_aniframes -u _p6_w_ring_classid -u _p6_w_spikes_aniframes \
+    -u _p6_w_ring_aniframes -u _p6_w_ring_classid -u _p6_w_spikes_aniframes -u _p6_w_b1_registered \
     -u _Platform -u _Press -u _Crate -u _Ice -u _BigSqueeze -u _SpikeCorridor \
     -u _Platform_State_Falling2 -u _Platform_State_Hold \
     -u _p6_saturn_anim_allocfail -u _p6_w_anim_lastfail -u _p6_w_stg_at_fail \

@@ -36,6 +36,14 @@ extern int32 p6_w_spikelog_classid, p6_w_spikelog_frames;
  * depend on a live entity being near the camera. */
 extern int32 p6_w_spikelog_aniframes, p6_w_spring_aniframes, p6_w_brg_aniframes;
 extern int32 p6_w_spikes_aniframes;
+extern int32 p6_w_b1_registered; /* mass-port Batch 1: count of the 4 clean objects with classID>0 */
+extern ObjectDecoration *Decoration;
+extern ObjectForceSpin *ForceSpin;
+extern ObjectSpinBooster *SpinBooster;
+/* ForceUnstick deferred to Batch 3 -- its StageLoad loads the 69-frame
+ * Global/ItemBox.bin which overflows DATASET_STG by ~1.3KB here (MEASURED:
+ * pool 153600, at_fail 152376). It shares ItemBox's anim, so it ports for free
+ * alongside the Monitor. */
 
 /* Forward decl so p6_overlay_entry is the FIRST function (window base). */
 static void p6_ghz_ovl_witness(const void *ringSlot);
@@ -85,6 +93,22 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntitySpikes), (unsigned)sizeof(ObjectSpikes),
                               Spikes_Update, Spikes_LateUpdate, Spikes_StaticUpdate,
                               Spikes_Draw, Spikes_Create, Spikes_StageLoad, Spikes_Serialize);
+    /* MASS-PORT BATCH 1 (verified-CLEAN drop-ins; closure self-confirmed: only
+     * Zone/Player/SceneInfo/DebugMode/Zone_RotateOnPivot, all ported). Decoration =
+     * GHZ scenery; ForceSpin/ForceUnstick/SpinBooster = player-state trigger regions
+     * (reuse PlaneSwitch/ItemBox anims, already staged). */
+    api->register_object_full((void **)&Decoration, "Decoration",
+                              (unsigned)sizeof(EntityDecoration), (unsigned)sizeof(ObjectDecoration),
+                              Decoration_Update, Decoration_LateUpdate, Decoration_StaticUpdate,
+                              Decoration_Draw, Decoration_Create, Decoration_StageLoad, Decoration_Serialize);
+    api->register_object_full((void **)&ForceSpin, "ForceSpin",
+                              (unsigned)sizeof(EntityForceSpin), (unsigned)sizeof(ObjectForceSpin),
+                              ForceSpin_Update, ForceSpin_LateUpdate, ForceSpin_StaticUpdate,
+                              ForceSpin_Draw, ForceSpin_Create, ForceSpin_StageLoad, ForceSpin_Serialize);
+    api->register_object_full((void **)&SpinBooster, "SpinBooster",
+                              (unsigned)sizeof(EntitySpinBooster), (unsigned)sizeof(ObjectSpinBooster),
+                              SpinBooster_Update, SpinBooster_LateUpdate, SpinBooster_StaticUpdate,
+                              SpinBooster_Draw, SpinBooster_Create, SpinBooster_StageLoad, SpinBooster_Serialize);
 
     /* Ring vtable; witness_fn is the COMBINED tick witness below. staticvars_slot
      * feeds the F.3 main-image Ring-global rewire (p6_io_main: Ring = *staticvars_slot
@@ -119,6 +143,13 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     if (Ring) p6_w_ring_aniframes = (int32)(int16)Ring->aniFrames;
     if (Ring && Ring->classID) p6_w_ring_classid = (int32)Ring->classID;
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;
+    {   /* Batch 1: count how many of the 4 clean objects registered (classID>0). */
+        int32 b1 = 0;
+        if (Decoration && Decoration->classID) ++b1;
+        if (ForceSpin && ForceSpin->classID) ++b1;
+        if (SpinBooster && SpinBooster->classID) ++b1;
+        p6_w_b1_registered = b1;
+    }
 
     /* RANGE-INDEPENDENT anim-load status, every tick, straight off the Object
      * struct -- the definitive "did StageLoad's LoadSpriteAnimation succeed"

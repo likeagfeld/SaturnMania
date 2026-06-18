@@ -83,6 +83,7 @@ cd "$P6"   # ovl_ring.ld names input objects by basename (the build_diag rule)
 # game.elf via -R. p6_ovl_ring.o is RETIRED (its single-class entry superseded).
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
+    Game_Decoration.o Game_ForceSpin.o Game_SpinBooster.o \
     -b coff-sh -R /work/game.elf -o ovl_ring.elf
 $OBJCOPY -O binary "$P6/ovl_ring.elf" /work/cd/OVLRING.BIN
 ls -l /work/cd/OVLRING.BIN

@@ -673,6 +673,7 @@ __attribute__((used)) int32 p6_w_ringsarmed     = 0;
 __attribute__((used)) int32 p6_w_ring_aniframes = -2; // Ring->aniFrames (-1=load failed, >=0=armed)
 __attribute__((used)) int32 p6_w_ring_classid   = 0;  // Ring->classID (live)
 __attribute__((used)) int32 p6_w_spikes_aniframes = -2; // Spikes->aniFrames (-1=load failed, >=0=armed)
+__attribute__((used)) int32 p6_w_b1_registered = 0; // mass-port Batch 1: count of 3 clean objs with classID>0 (target 3; ForceUnstick deferred->Batch3 w/ ItemBox)
 // #258b: pack->overlay forward pointers for the hurt-ring-scatter path. The
 // verbatim pack-side Player calls Ring_LoseRings on hurt -> binds to the pack
 // STUB; the closure-edge forward routes it here to the overlay's REAL impl
