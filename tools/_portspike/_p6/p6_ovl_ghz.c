@@ -45,6 +45,30 @@ extern ObjectSpinBooster *SpinBooster;
  * pool 153600, at_fail 152376). It shares ItemBox's anim, so it ports for free
  * alongside the Monitor. */
 
+/* MASS-PORT BATCH 2 (badnik break chain, 2026-06-18). The 9 objects: the 3 CHAIN
+ * TUs (Explosion/Animals registered for live classIDs -- BadnikHelpers_BadnikBreak-
+ * Unseeded derefs Explosion->sfxDestroy + Animals->animalTypes[]; BadnikHelpers
+ * itself is a registered no-op helper class, matching the decomp object list) and
+ * the 6 GHZ1 BADNIKs. ALL 9 are OVERLAY-resident (this link): Animals references the
+ * overlay's Bridge_HandleCollisions so it cannot live in the pack. The pack->overlay
+ * edge (Game_Player.o calls BadnikHelpers_BadnikBreakUnseeded) is bridged by a
+ * p6_closure_edge forward stub routed through api->badnikbreak_unseeded_fn below. */
+/* All 9 are defined by their overlay-resident TUs (Game_BadnikHelpers/Explosion/
+ * Animals/<6 badniks>.o, in this overlay link); Game.h declares the externs. */
+extern ObjectBadnikHelpers *BadnikHelpers;
+extern ObjectExplosion *Explosion;
+extern ObjectAnimals *Animals;
+extern ObjectNewtron *Newtron;
+extern ObjectCrabmeat *Crabmeat;
+extern ObjectBuzzBomber *BuzzBomber;
+extern ObjectChopper *Chopper;
+extern ObjectMotobug *Motobug;
+extern ObjectBatbrain *Batbrain;
+extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
+extern int32 p6_w_explosion_aniframes; /* Explosion->aniFrames (load-status latch) */
+extern int32 p6_w_animals_aniframes;   /* Animals->aniFrames */
+extern int32 p6_w_newtron_aniframes;   /* Newtron->aniFrames */
+
 /* Forward decl so p6_overlay_entry is the FIRST function (window base). */
 static void p6_ghz_ovl_witness(const void *ringSlot);
 
@@ -110,6 +134,55 @@ int p6_overlay_entry(p6_ovl_api *api)
                               SpinBooster_Update, SpinBooster_LateUpdate, SpinBooster_StaticUpdate,
                               SpinBooster_Draw, SpinBooster_Create, SpinBooster_StageLoad, SpinBooster_Serialize);
 
+    /* MASS-PORT BATCH 2 -- the badnik break CHAIN. Register order is irrelevant
+     * (engine matches by md5(name)). CHAIN TUs first: BadnikHelpers (no-op helper
+     * class), Explosion (StageLoad loads Global/Explosions.bin + the Destroy.wav
+     * sfxDestroy -- needs a live classID for the CREATE_ENTITY in the break path),
+     * Animals (StageLoad loads Global/Animals.bin -- needs a live classID for the
+     * spawnAnimals=TRUE CREATE_ENTITY + animalTypes[] deref). Then the 6 GHZ1
+     * badniks. ALL closures verified (adversarial harvest): Player_CheckBadnikTouch
+     * + Player_CheckBadnikBreak + Player_ProjectileHurt (pack, -u rooted),
+     * Zone/DebugMode/SceneInfo (ported), APICallback_TrackEnemyDefeat (inert stub
+     * added), Water/Platform/Press (GHZ1-dead NULLs), Bridge_HandleCollisions
+     * (Game_Bridge.o, overlay-internal). Anims slow-path into DATASET_STG
+     * (+9.8 KB MEASURED; pool grown 150 to 166 KB). */
+    api->register_object_full((void **)&BadnikHelpers, "BadnikHelpers",
+                              (unsigned)sizeof(EntityBadnikHelpers), (unsigned)sizeof(ObjectBadnikHelpers),
+                              BadnikHelpers_Update, BadnikHelpers_LateUpdate, BadnikHelpers_StaticUpdate,
+                              BadnikHelpers_Draw, BadnikHelpers_Create, BadnikHelpers_StageLoad, BadnikHelpers_Serialize);
+    api->register_object_full((void **)&Explosion, "Explosion",
+                              (unsigned)sizeof(EntityExplosion), (unsigned)sizeof(ObjectExplosion),
+                              Explosion_Update, Explosion_LateUpdate, Explosion_StaticUpdate,
+                              Explosion_Draw, Explosion_Create, Explosion_StageLoad, Explosion_Serialize);
+    api->register_object_full((void **)&Animals, "Animals",
+                              (unsigned)sizeof(EntityAnimals), (unsigned)sizeof(ObjectAnimals),
+                              Animals_Update, Animals_LateUpdate, Animals_StaticUpdate,
+                              Animals_Draw, Animals_Create, Animals_StageLoad, Animals_Serialize);
+    api->register_object_full((void **)&Newtron, "Newtron",
+                              (unsigned)sizeof(EntityNewtron), (unsigned)sizeof(ObjectNewtron),
+                              Newtron_Update, Newtron_LateUpdate, Newtron_StaticUpdate,
+                              Newtron_Draw, Newtron_Create, Newtron_StageLoad, Newtron_Serialize);
+    api->register_object_full((void **)&Crabmeat, "Crabmeat",
+                              (unsigned)sizeof(EntityCrabmeat), (unsigned)sizeof(ObjectCrabmeat),
+                              Crabmeat_Update, Crabmeat_LateUpdate, Crabmeat_StaticUpdate,
+                              Crabmeat_Draw, Crabmeat_Create, Crabmeat_StageLoad, Crabmeat_Serialize);
+    api->register_object_full((void **)&BuzzBomber, "BuzzBomber",
+                              (unsigned)sizeof(EntityBuzzBomber), (unsigned)sizeof(ObjectBuzzBomber),
+                              BuzzBomber_Update, BuzzBomber_LateUpdate, BuzzBomber_StaticUpdate,
+                              BuzzBomber_Draw, BuzzBomber_Create, BuzzBomber_StageLoad, BuzzBomber_Serialize);
+    api->register_object_full((void **)&Chopper, "Chopper",
+                              (unsigned)sizeof(EntityChopper), (unsigned)sizeof(ObjectChopper),
+                              Chopper_Update, Chopper_LateUpdate, Chopper_StaticUpdate,
+                              Chopper_Draw, Chopper_Create, Chopper_StageLoad, Chopper_Serialize);
+    api->register_object_full((void **)&Motobug, "Motobug",
+                              (unsigned)sizeof(EntityMotobug), (unsigned)sizeof(ObjectMotobug),
+                              Motobug_Update, Motobug_LateUpdate, Motobug_StaticUpdate,
+                              Motobug_Draw, Motobug_Create, Motobug_StageLoad, Motobug_Serialize);
+    api->register_object_full((void **)&Batbrain, "Batbrain",
+                              (unsigned)sizeof(EntityBatbrain), (unsigned)sizeof(ObjectBatbrain),
+                              Batbrain_Update, Batbrain_LateUpdate, Batbrain_StaticUpdate,
+                              Batbrain_Draw, Batbrain_Create, Batbrain_StageLoad, Batbrain_Serialize);
+
     /* Ring vtable; witness_fn is the COMBINED tick witness below. staticvars_slot
      * feeds the F.3 main-image Ring-global rewire (p6_io_main: Ring = *staticvars_slot
      * so SignPost's CREATE_ENTITY(Ring) resolves). arm_fn=0: the real Ring_Create arms
@@ -124,6 +197,16 @@ int p6_overlay_entry(p6_ovl_api *api)
      * p6_closure_edge forward instead of the pack stub. */
     api->loserings_fn      = (void *)Ring_LoseRings;
     api->losehyperrings_fn = (void *)Ring_LoseHyperRings;
+    /* BATCH 2: export the overlay's REAL BadnikHelpers break fns. Game_Player.o
+     * (PACK) calls BadnikHelpers_BadnikBreakUnseeded on every badnik kill; the
+     * p6_closure_edge stub forwards pack->overlay to these (the chain TUs are
+     * overlay-resident because Animals refs the overlay's Bridge_HandleCollisions). */
+    api->badnikbreak_unseeded_fn = (void *)BadnikHelpers_BadnikBreakUnseeded;
+    api->badnikbreak_fn          = (void *)BadnikHelpers_BadnikBreak;
+    /* BATCH 2: expose &Animals (the overlay's registered Animals object**) so the
+     * pack's NULL Animals placeholder (ActClear.c:903 foreach_active) gets rewired
+     * to the live object each frame (p6_io_main, the #235 Ring-seam). */
+    api->animals_slot = (void *)&Animals;
     return 0;
 }
 
@@ -150,6 +233,27 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         if (SpinBooster && SpinBooster->classID) ++b1;
         p6_w_b1_registered = b1;
     }
+    {   /* Batch 2: count how many of the 9 chain+badnik objects registered (classID>0),
+         * and latch each one's classID for the per-object diagnostic. */
+        extern int32 p6_w_b2_cids[9];
+        int32 b2 = 0;
+        p6_w_b2_cids[0] = (BadnikHelpers) ? (int32)BadnikHelpers->classID : -1;
+        p6_w_b2_cids[1] = (Explosion)     ? (int32)Explosion->classID     : -1;
+        p6_w_b2_cids[2] = (Animals)       ? (int32)Animals->classID       : -1;
+        p6_w_b2_cids[3] = (Newtron)       ? (int32)Newtron->classID       : -1;
+        p6_w_b2_cids[4] = (Crabmeat)      ? (int32)Crabmeat->classID      : -1;
+        p6_w_b2_cids[5] = (BuzzBomber)    ? (int32)BuzzBomber->classID    : -1;
+        p6_w_b2_cids[6] = (Chopper)       ? (int32)Chopper->classID       : -1;
+        p6_w_b2_cids[7] = (Motobug)       ? (int32)Motobug->classID       : -1;
+        p6_w_b2_cids[8] = (Batbrain)      ? (int32)Batbrain->classID      : -1;
+        for (int i = 0; i < 9; ++i) if (p6_w_b2_cids[i] > 0) ++b2;
+        p6_w_b2_registered = b2;
+    }
+    /* Batch 2 anim-load latches (range-independent; -1 == LoadSpriteAnimation failed,
+     * which on STG-overflow is the R13 sentinel for these slow-path anims). */
+    if (Explosion) p6_w_explosion_aniframes = (int32)(int16)Explosion->aniFrames;
+    if (Animals)   p6_w_animals_aniframes   = (int32)(int16)Animals->aniFrames;
+    if (Newtron)   p6_w_newtron_aniframes   = (int32)(int16)Newtron->aniFrames;
 
     /* RANGE-INDEPENDENT anim-load status, every tick, straight off the Object
      * struct -- the definitive "did StageLoad's LoadSpriteAnimation succeed"

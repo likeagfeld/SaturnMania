@@ -674,12 +674,27 @@ __attribute__((used)) int32 p6_w_ring_aniframes = -2; // Ring->aniFrames (-1=loa
 __attribute__((used)) int32 p6_w_ring_classid   = 0;  // Ring->classID (live)
 __attribute__((used)) int32 p6_w_spikes_aniframes = -2; // Spikes->aniFrames (-1=load failed, >=0=armed)
 __attribute__((used)) int32 p6_w_b1_registered = 0; // mass-port Batch 1: count of 3 clean objs with classID>0 (target 3; ForceUnstick deferred->Batch3 w/ ItemBox)
+__attribute__((used)) int32 p6_w_b2_registered = 0; // mass-port Batch 2 (badnik break chain): count of the 9 chain+badnik objs with classID>0 (target 9)
+// Per-object classID latch (diagnostic for the b2 count): index order =
+// {BadnikHelpers,Explosion,Animals,Newtron,Crabmeat,BuzzBomber,Chopper,Motobug,Batbrain}.
+__attribute__((used)) int32 p6_w_b2_cids[9] = {0,0,0,0,0,0,0,0,0};
+__attribute__((used)) int32 p6_w_explosion_aniframes = -2; // Explosion->aniFrames (-1=load failed, >=0=armed; chain TU)
+__attribute__((used)) int32 p6_w_animals_aniframes   = -2; // Animals->aniFrames   (-1=load failed, >=0=armed; chain TU)
+__attribute__((used)) int32 p6_w_newtron_aniframes   = -2; // Newtron->aniFrames   (per-badnik load-status latch)
 // #258b: pack->overlay forward pointers for the hurt-ring-scatter path. The
 // verbatim pack-side Player calls Ring_LoseRings on hurt -> binds to the pack
 // STUB; the closure-edge forward routes it here to the overlay's REAL impl
 // (set after the overlay entry runs). 0 until then (stub no-ops, as before).
 extern "C" void *p6_ovl_loserings_raw = 0;
 extern "C" void *p6_ovl_losehyperrings_raw = 0;
+// BATCH 2 (badnik break chain): pack->overlay forward pointers for the badnik-break
+// path. Game_Player.o's Player_CheckBadnikBreak calls BadnikHelpers_BadnikBreak-
+// Unseeded -> binds to the p6_closure_edge STUB, which forwards here to the overlay's
+// REAL impl (BadnikHelpers/Explosion/Animals are overlay-resident -- Animals refs the
+// overlay's Bridge_HandleCollisions). 0 until the overlay entry runs (then the break
+// path is reachable only during gameplay, well after, so the stub never no-ops live).
+extern "C" void *p6_ovl_badnikbreak_unseeded_raw = 0;
+extern "C" void *p6_ovl_badnikbreak_raw = 0;
 __attribute__((used)) int32 p6_w_plr_sheetid_t  = -1; // Player frame's sheetID after the ticks (GetFrame, stride-safe)
 __attribute__((used)) int32 p6_w_plr_handle     = -2; // p6_vdp1HandleBySurface[that sheetID]
 // P6.8 Step A (Task #211): CONTINUOUS-tick witnesses. The burst is a fixed
@@ -815,6 +830,11 @@ extern void *ActClear;
 // F.3: the pack's Ring object pointer (NULL by default; wired to the overlay
 // Ring object in p6_ghz_frame so SignPost's sparkle CREATE_ENTITY is safe).
 extern void *Ring;
+// Batch 2: the pack's Animals object pointer (NULL placeholder in p6_closure_edge;
+// rewired to the overlay's registered Animals in p6_ghz_frame so ActClear.c:903's
+// foreach_active(Animals,...) -- a PACK ref reached on act-clear -- sees the live
+// classID rather than NULL-derefing. Same Ring-seam pattern as `Ring` above.).
+extern void *Animals;
 // F.5: the verbatim SignPost TU defines `ObjectSignPost *SignPost;` (C linkage).
 // Its first field is the registered classID (uint16 @ off 0); entities of that
 // class carry the same classID -> a drift-proof entity locator.
@@ -2042,6 +2062,12 @@ static void p6_ghz_frame(void)
         Ring = *(void **)s_ovl.staticvars_slot;
         p6_w_ring_cid = (int32)*(uint16 *)Ring;
     }
+    // Batch 2: same seam for Animals -- point the pack `Animals` global at the
+    // overlay's registered Animals object so ActClear.c:903's foreach_active sees a
+    // live classID (the pack Animals is otherwise a NULL placeholder).
+    if (s_ovl.animals_slot && *(void **)s_ovl.animals_slot) {
+        Animals = *(void **)s_ovl.animals_slot;
+    }
 
     // Per-section attribution: FRT (sub-78ms precision) + VBLANK (overflow-immune
     // for >78ms sections -- the real discriminator). vb0/vb1 = true-60Hz tally.
@@ -2752,6 +2778,8 @@ extern "C" void p6_scene_run(void)
         p6_w_ovl_updatefn = (int32)(uint32)s_ovl.update_fn;
         p6_ovl_loserings_raw      = s_ovl.loserings_fn;      // #258b hurt-ring-scatter forward
         p6_ovl_losehyperrings_raw = s_ovl.losehyperrings_fn;
+        p6_ovl_badnikbreak_unseeded_raw = s_ovl.badnikbreak_unseeded_fn; // Batch 2 badnik-break forward
+        p6_ovl_badnikbreak_raw          = s_ovl.badnikbreak_fn;
     }
 
     globalObjectIDs[0] = TYPE_DEFAULTOBJECT; // RetroEngine.cpp:1230

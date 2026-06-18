@@ -81,9 +81,21 @@ cd "$P6"   # ovl_ring.ld names input objects by basename (the build_diag rule)
 # base) + p6_ring2.o (Ring harness) + Game_Spring.o (Spring, moved out of the pack).
 # Spring's internal refs resolve among these; RSDK table/Player/Zone import from
 # game.elf via -R. p6_ovl_ring.o is RETIRED (its single-class entry superseded).
+# BATCH 2 (badnik break chain): the 3 CHAIN TUs (BadnikHelpers/Explosion/Animals)
+# AND the 6 GHZ1 badniks ALL join the overlay. This is the NEEDS_FORWARD resolution
+# (merged harvest verdict): Animals_CheckGroundCollision references Bridge_Handle-
+# Collisions (Game_Bridge.o, overlay) so Animals MUST be overlay-resident to resolve
+# it intra-overlay -- it cannot live in the pack. The pack->overlay edge (Game_Player.o
+# Player_CheckBadnikBreak calls BadnikHelpers_BadnikBreakUnseeded) is bridged by a
+# forward stub in p6_closure_edge.c that routes pack->overlay via a runtime fn pointer
+# (set after the overlay entry runs), the #258b Ring_LoseRings pattern verbatim. The
+# badniks' Player_CheckBadnik*/ProjectileHurt refs import from game.elf via -R (pack,
+# -u rooted). Explosion/Animals register from the overlay entry (overlay-resident).
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
     Game_Decoration.o Game_ForceSpin.o Game_SpinBooster.o \
+    Game_BadnikHelpers.o Game_Explosion.o Game_Animals.o \
+    Game_Newtron.o Game_Crabmeat.o Game_BuzzBomber.o Game_Chopper.o Game_Motobug.o Game_Batbrain.o \
     -b coff-sh -R /work/game.elf -o ovl_ring.elf
 $OBJCOPY -O binary "$P6/ovl_ring.elf" /work/cd/OVLRING.BIN
 ls -l /work/cd/OVLRING.BIN

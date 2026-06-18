@@ -109,7 +109,14 @@ bool32 RSDK::InitStorage()
     // at 0x22400000. Shipping-only define (build_shipping.sh) -> the diag flavor is
     // byte-identical (no re-validation). See memory/whole-level-regression-gate-every-
     // object-add (the regression this funds away).
-    dataStorage[DATASET_STG].storageLimit = 150 * 1024; // 150 KB (TMP->cart funded)
+    // BATCH 2 (badnik break chain, 2026-06-18): the 8 NON-resident chain/badnik
+    // anims (Newtron/Crabmeat/BuzzBomber/Chopper/Motobug/Batbrain + Explosions +
+    // Animals) slow-path into DATASET_STG (they are NOT in the cart-resident
+    // GHZOBJ.PAK). MEASURED footprint (decrypt+parse from DATA.RSDK, frames*36 +
+    // anims*28): 10,080 B total. Grow 150->166 KB (+16 KB, ~6 KB over the 9.8 KB
+    // need) -- funded by the ~22 KB WRAM-L headroom the TMP->cart relocation left.
+    // R13 (qa_p6_ghz_regression no-anim-alloc-fail == 0) is the overflow gate.
+    dataStorage[DATASET_STG].storageLimit = 166 * 1024; // 166 KB (Batch 2 badnik anims)
 #endif
     // MUS MEASURED: 8,208 B used (the F32 mix buffer; music streams ride
     // CD-DA, never MUS).

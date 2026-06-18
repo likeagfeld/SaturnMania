@@ -64,10 +64,13 @@
 // p6_io_main.cpp) so it -- and every region above it -- stays put when OVL leaves
 // WRAM-H (zero #249 risk; the freed 0x2A00 WRAM-H window is left as _end slack).
 #define P6_OVL_BASE   0x02690000u   /* CACHED cart alias (exec); cache-through twin 0x22690000 (load) */
-#define P6_OVL_WINDOW 0x10000u      /* 64 KB cart window. Mass-port grows the overlay (Ring+Spring+Bridge+
-                                     * PlaneSwitch+SpikeLog+Spikes+Batch1...); ends 0x226A0000, still far
-                                     * below the GFS windows (0x22700000) -- the gap above the GHZ1 layout
-                                     * high-water 0x22686900 is ~485 KB, so this is amply clear. */
+#define P6_OVL_WINDOW 0x20000u      /* 128 KB cart window. Mass-port Batch 2 adds the 6 badnik TUs
+                                     * (Newtron/Crabmeat/BuzzBomber/Chopper/Motobug/Batbrain, ~40 KB of
+                                     * code) on top of Ring+Spring+Bridge+PlaneSwitch+SpikeLog+Spikes+
+                                     * Batch1; ends 0x226B0000, still below the GFS windows (0x22700000)
+                                     * -- the gap above the GHZ1 layout high-water 0x22686900 is ~485 KB,
+                                     * so this is amply clear. (Chain TUs BadnikHelpers/Explosion/Animals
+                                     * live in the PACK, not here -- Game_Player.o references them.) */
 
 typedef struct {
     /* ---- filled by MAIN before calling the entry ------------------------ */
@@ -107,6 +110,19 @@ typedef struct {
                                       /* the pack STUB. The closure-edge forward      */
                                       /* routes that call here (pack->overlay) so     */
                                       /* lost rings actually scatter + re-collect.   */
+    void *badnikbreak_unseeded_fn;    /* Batch 2: the overlay's REAL BadnikHelpers_  */
+    void *badnikbreak_fn;             /* BadnikBreakUnseeded / BadnikBreak. Game_    */
+                                      /* Player.o (PACK) calls _BadnikBreakUnseeded  */
+                                      /* on every badnik kill; BadnikHelpers lives in */
+                                      /* the overlay (it derefs Animals/Explosion +   */
+                                      /* Animals refs Bridge_HandleCollisions, both   */
+                                      /* overlay). The closure-edge forward routes    */
+                                      /* the pack call here (same #258b pattern).    */
+    void *animals_slot;               /* Batch 2: &Animals (overlay's registered     */
+                                      /* Animals object**). ActClear.c:903 (PACK) does */
+                                      /* foreach_active(Animals,...) -> the pack's    */
+                                      /* NULL Animals is rewired to *animals_slot     */
+                                      /* every frame (the #235 Ring-seam pattern).   */
 } p6_ovl_api;
 
 /* The entry signature at P6_OVL_BASE: registers the overlay's classes via

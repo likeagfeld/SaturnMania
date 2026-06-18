@@ -62,7 +62,16 @@ ObjectAPICallback *APICallback   = NULL;
 // F.2 act-clear: ActClear.c:782 ++listPos is the GHZ1->GHZ2 advance. Its closure
 // edge (Animals/TimeAttackData/StarPost/GameProgress/APICallback_Track*) stubs
 // below -- all leaderboard/save/progress, none on the listPos-advance path.
-ObjectAnimals *Animals           = NULL;
+// BATCH 2 (badnik break chain, 2026-06-18): `Animals` STAYS a PACK NULL placeholder
+// because ActClear.c:903 (a PACK TU, reached on act-clear) does
+// foreach_active(Animals, ...) -> derefs Animals->classID. The REAL registered
+// Animals lives in the OVERLAY (Game_Animals.o -- it had to, because
+// Animals_CheckGroundCollision refs the overlay's Bridge_HandleCollisions). This NULL
+// is REWIRED to the overlay's registered Animals every frame (p6_io_main, the #235
+// Ring-seam pattern) so the pack's foreach_active sees the live classID. The badnik
+// break path itself never touches THIS pointer -- it runs inside the overlay's
+// BadnikHelpers (reached via the closure-edge forward), where `Animals` is the real one.
+ObjectAnimals *Animals           = NULL; // PACK placeholder; rewired to the overlay's (p6_io_main)
 ObjectAnnouncer *Announcer       = NULL;
 // #181: Bridge (now a registered pack object) spawns BurningLog from Bridge_Burn,
 // which is reachable ONLY via SHIELD_FIRE on a burnable bridge. SHIELD_FIRE is
@@ -184,6 +193,17 @@ void APICallback_TrackActClear(uint8 z, uint8 a, uint8 p, int32 t, int32 ri, int
 {
     (void)z; (void)a; (void)p; (void)t; (void)ri; (void)sc; P6_EDGE(58);
 }
+// BATCH 2 (badnik break chain, 2026-06-18): Player_CheckBadnikBreak (Player.c:2539,
+// the #else / non-PLUS branch -- ACTIVE because MANIA_USE_PLUS=(GAME_VERSION>=5)=
+// (3>=5)=FALSE) calls APICallback_TrackEnemyDefeat on every badnik kill. The sibling
+// TrackTAClear/TrackActClear are stubbed above but TrackEnemyDefeat was NOT (it has
+// NO definition anywhere in the pack -- a hard undefined-ref the instant the break
+// path links). Inert no-op on Saturn (the real impl is the removed-at-REV02
+// RSDK.GetAPIFunction surface). Signature is byte-for-byte APICallback.h:201.
+void APICallback_TrackEnemyDefeat(uint8 zoneID, uint8 actID, uint8 playerID, int32 x, int32 y)
+{
+    (void)zoneID; (void)actID; (void)playerID; (void)x; (void)y; P6_EDGE(65);
+}
 void ChaosEmerald_State_Rotate(void) { P6_EDGE(1); }
 void CompetitionSession_DeriveWinner(int32 playerID, int32 finishType)
 {
@@ -274,6 +294,34 @@ void Ring_LoseRings(EntityPlayer *player, int32 rings, uint8 cPlane)
     P6_EDGE(30);
 }
 void Ring_State_Lost(void) { P6_EDGE(31); }
+// BATCH 2 (badnik break chain): the pack-side Player (Player_CheckBadnikBreak,
+// Player.c:2514) calls BadnikHelpers_BadnikBreakUnseeded on every badnik kill. The
+// real BadnikHelpers (+ Explosion/Animals it derefs, + the overlay's Bridge_Handle-
+// Collisions Animals refs) is OVERLAY-resident, so the pack binds to these stubs
+// which forward pack->overlay via the runtime pointers (set by p6_io_main once the
+// overlay entry runs). Identical to the #258b Ring_LoseRings forward. Until the
+// overlay loads the pointer is 0 and the call no-ops (the break path is gameplay-
+// only -- never reached before the overlay is live). Signatures = BadnikHelpers.h.
+extern void *p6_ovl_badnikbreak_unseeded_raw;
+extern void *p6_ovl_badnikbreak_raw;
+void BadnikHelpers_BadnikBreakUnseeded(void *badnik, bool32 destroy, bool32 spawnAnimals)
+{
+    if (p6_ovl_badnikbreak_unseeded_raw) {
+        ((void (*)(void *, bool32, bool32))p6_ovl_badnikbreak_unseeded_raw)(badnik, destroy, spawnAnimals);
+        return;
+    }
+    (void)badnik; (void)destroy; (void)spawnAnimals;
+    P6_EDGE(66);
+}
+void BadnikHelpers_BadnikBreak(void *badnik, bool32 destroy, bool32 spawnAnimals)
+{
+    if (p6_ovl_badnikbreak_raw) {
+        ((void (*)(void *, bool32, bool32))p6_ovl_badnikbreak_raw)(badnik, destroy, spawnAnimals);
+        return;
+    }
+    (void)badnik; (void)destroy; (void)spawnAnimals;
+    P6_EDGE(67);
+}
 // P6.8 F.3 (Task #235): SignPost closure. The sparkle Ring entities SignPost
 // creates use these state/draw fns -- no-op (cosmetic; the act-clear chain
 // does NOT depend on the sparkles rendering). The pack `Ring` pointer is wired

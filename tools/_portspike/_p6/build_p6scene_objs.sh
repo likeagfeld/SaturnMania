@@ -267,6 +267,17 @@ done
 # the sweep, UNBLOCKED by the anim-pool funding (DATASET_STG 92->150 KB via TMP->cart,
 # Storage.cpp P6_CART_TMP); the regression that deferred it (Spring overflow ->
 # Bridge.bin alloc-fail) is now gated by qa_p6_animpool.py + qa_p6_ghz_regression.py.
+# BATCH 2 (badnik break chain, 2026-06-18): the 3 CHAIN TUs (BadnikHelpers/
+# Explosion/Animals) + the 6 GHZ1 BADNIKs. ALL 9 are compiled here (the w4 loop
+# emits Game_<Obj>.o with -ffunction/-fdata-sections). PLACEMENT then SPLITS:
+#  - the 3 chain TUs join the PACK object list below (Game_Player.o, a PACK TU,
+#    references BadnikHelpers_BadnikBreakUnseeded/Explosion/Animals -- and the
+#    pack->overlay dependency is one-way: the overlay imports from game.elf via
+#    -R, never the reverse, so a chain TU in the overlay would leave the FINAL
+#    jo link with BadnikHelpers_BadnikBreakUnseeded UNDEFINED);
+#  - the 6 badniks join the OVERLAY link (build_shipping.sh [3b]); they reference
+#    Player_CheckBadnikBreak/ProjectileHurt (pack) via -R game.elf, kept by the
+#    -u roots added below.
 for w4 in Common_BGSwitch:Game_BGSwitch \
           GHZ_GHZSetup:Game_GHZSetup \
           GHZ_Bridge:Game_Bridge \
@@ -277,7 +288,16 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           Global_Spikes:Game_Spikes \
           Common_Decoration:Game_Decoration \
           Common_ForceSpin:Game_ForceSpin \
-          Common_SpinBooster:Game_SpinBooster; do
+          Common_SpinBooster:Game_SpinBooster \
+          Helpers_BadnikHelpers:Game_BadnikHelpers \
+          Global_Explosion:Game_Explosion \
+          Global_Animals:Game_Animals \
+          GHZ_Newtron:Game_Newtron \
+          GHZ_Crabmeat:Game_Crabmeat \
+          GHZ_BuzzBomber:Game_BuzzBomber \
+          GHZ_Chopper:Game_Chopper \
+          GHZ_Motobug:Game_Motobug \
+          GHZ_Batbrain:Game_Batbrain; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
@@ -396,6 +416,10 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_spikelog_classid -u _p6_w_spikelog_frames \
     -u _p6_w_spikelog_aniframes -u _p6_w_spring_aniframes -u _p6_w_brg_aniframes \
     -u _p6_w_ring_aniframes -u _p6_w_ring_classid -u _p6_w_spikes_aniframes -u _p6_w_b1_registered \
+    -u _p6_w_b2_registered -u _p6_w_b2_cids -u _p6_w_explosion_aniframes -u _p6_w_animals_aniframes -u _p6_w_newtron_aniframes \
+    -u _Player_CheckBadnikBreak -u _Player_ProjectileHurt -u _Player_CheckBadnikTouch \
+    -u _p6_ovl_badnikbreak_unseeded_raw -u _p6_ovl_badnikbreak_raw \
+    -u _DrawHelpers_DrawHitboxOutline \
     -u _Platform -u _Press -u _Crate -u _Ice -u _BigSqueeze -u _SpikeCorridor \
     -u _Platform_State_Falling2 -u _Platform_State_Hold \
     -u _p6_saturn_anim_allocfail -u _p6_w_anim_lastfail -u _p6_w_stg_at_fail \

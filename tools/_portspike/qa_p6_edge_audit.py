@@ -74,6 +74,10 @@ ORD = {
     60: ("Ring_Draw_Sparkle", "Ring"), 61: ("Announcer_AnnounceGoal", "Announcer"),
     62: ("APICallback_UnlockAchievement", "APICallback"), 63: ("Platform_State_Falling2", "Platform"),
     64: ("Platform_State_Hold", "Platform"),
+    # Batch 2 (badnik break chain): Player_CheckBadnikBreak's non-PLUS achievement-
+    # tracking call. APICallback is backlog plumbing (NULL'd, not a registered object),
+    # so a hit here is non-gameplay (a no-op on Saturn), NOT a shadowed ported object.
+    65: ("APICallback_TrackEnemyDefeat", "APICallback"),
 }
 
 # Objects whose REAL code is ported (overlay or pack). A stub hit for ANY of these
