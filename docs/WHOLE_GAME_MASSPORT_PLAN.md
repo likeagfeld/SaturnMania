@@ -378,9 +378,27 @@ entity-streaming item, now the #1 execution increment). Roadmap:
   so each step is additive/reversible and GHZ stays GREEN throughout). Change sites: `Object.hpp:56-67`
   (pool tiers), `Object.cpp` RETRO_SATURN `SaturnEntityAt`/`SaturnEntitySlot` (the single indirection
   point), `Scene.cpp:620-646` (LoadScene entity loop), `p6_io_main.cpp` (pool home + witnesses).
-  - **I1 MANIFEST**: at LoadScene build a compact side-table of every placed entity (classID, slotID,
-    pos, + editable-var bytes or a retained-scene-buffer offset). Additive; does NOT touch the pool or
-    SaturnEntityAt. Gate: witness `manifest_n == placed count`; full diag sweep byte-identical.
+  - **I1 MANIFEST-ENUMERATION** (gate `tools/_portspike/qa_p6_manifest.py` WRITTEN + RED-confirmed;
+    source edits TURNKEY below). De-risked scope: prove the enumerate-every-placed-entity path via 3
+    count/checksum witnesses, ZERO new allocation (the stored side-table waits for I3 when the
+    pool-shrink frees a verified ~24KB home -- placing it today is a guess the BSS-overflow history
+    forbids). Additive; touches neither SaturnEntityAt nor the pool -> GHZ byte-identical. THE EXACT
+    EDITS (linkage resolved = pattern A, extern "C", so the map symbol is `_p6_w_manifest_*` like the
+    other gate witnesses):
+    1. `p6_io_main.cpp` -- inside the existing `extern "C" {` block (after `p6_w_io_gfsinit`, ~:65):
+       `__attribute__((used)) int32 p6_w_manifest_n=0, p6_w_manifest_maxslot=0, p6_w_manifest_csum=0;`
+    2. `Scene.cpp` -- a NAMESPACE-scope decl before `LoadSceneAssets` (block-scope `extern "C"` is
+       illegal): `extern "C" { extern int32 p6_w_manifest_n, p6_w_manifest_maxslot, p6_w_manifest_csum; }`
+    3. `Scene.cpp` -- RESET before the object loop (after the tempEntityList alloc / `#endif #endif`,
+       ~:558, RETRO_SATURN-guarded): zero the 3 witnesses.
+    4. `Scene.cpp` -- FOLD in the per-entity loop right after `entity->position.y = ...` (:653,
+       RETRO_SATURN): `++n; if(slotID>maxslot)maxslot=slotID; csum = csum*33 + classID; csum=csum*33+slotID;
+       csum=csum*33+(entity->position.x>>16); csum=csum*33+(entity->position.y>>16);` (counts ALL placed,
+       incl. the slotID>=1152 drops -- the set the manifest must eventually stream).
+    5. `build_p6scene_objs.sh` (+ verify `build_shipping.sh`) -- add `-u _p6_w_manifest_n
+       -u _p6_w_manifest_maxslot -u _p6_w_manifest_csum` beside the existing `-u _p6_w_*` roots (~:344).
+    Build (build_shipping.sh ~10min) -> capture frame 130 -> `qa_p6_manifest` asserts n==1041,
+    maxslot==1040, csum!=0 -> GREEN; then commit + the diag sweep stays byte-identical.
   - **I2 INDIRECTION pass-through**: route SaturnEntityAt through a slotID->record map that maps 1:1
     to the existing pool (behaviour-identical). Gate: all slots resolve; GHZ byte-identical.
   - **I3 SHRINK + RESIDENT-PIN**: pool -> ~256 tiered slots; pin always-active classes
