@@ -317,3 +317,41 @@ reconciliation of the two independent syntheses — which is stronger than a sin
 have been, because it caught a measured error (the 1280 misread) that a from-scratch lens would
 not have had the second synthesis to diff against. A further independent pass should be run
 **serially (one agent), never as the parallel fan-out.** It is not a blocker to starting S1.
+
+### 7.5 S1 + 7.3 UNIFIED: camera-local entity pool (design decision, 2026-06-17)
+
+S1 (entity-stride) and 7.3 (dense-act DROP wall) are the SAME problem -- the size and seating
+of the scene-entity region -- and are solved by ONE mechanism (user decision: unify). Measured
+basis:
+- **S1 wall (gate `qa_stride_tiers.py`, RED):** 53 over-344 classes, biggest **1056**
+  (UICreditsText); zero exceed 1088. Tiers NARROW 344 / WIDE 576 / **X-WIDE 1088** cover the
+  whole game. **All 17 over-556 classes are SCENE-PLACED** (CollapsingPlatform 656 x203,
+  TitleCard 864 x30, TilePlatform, LRZRockPile, ChemicalPool, FarPlane, ...; `qa_stride_tiers`
+  + a scene_census cross-ref). So widening only reserve/temp does NOT solve S1 -- the oversize
+  objects live in the NARROW 1088-slot scene region; a uniform x-wide scene region is DEAD
+  (1088 x 1088 = 1.18 MB > WRAM-L 1 MB).
+- **Camera-local sizing (gate `qa_camera_local_pool.py`):** sliding the RSDKv5 camera-active box
+  over every scene's real entity positions, the PEAK simultaneously-near population is only
+  **~101 total / ~26 WIDE+ / ~11 X-WIDE** (default 680x496 proxy; ~121/43/13 at a generous
+  960x640) -- vs the resident **1216-slot** table that holds ALL placed entities.
+
+**The unified design:** instantiate only camera-NEAR entities into a tiered pool of **~256 total
+slots** (2x headroom over 121) with **~32 X-WIDE(1088B)** + ~64 WIDE(576) + ~160 NARROW(344) =
+**~127 KB**, streaming entities in/out as the camera moves. This single change: (a) admits the 17
+oversize classes -> **S1 GREEN**; (b) bounds the live population to the near-set -> the DROP wall
+**7.3 GREEN** for all 15 dense acts; (c) **FREES ~318 KB WRAM-L** (127 KB pool vs 445 KB resident
+table) -- it pays for itself.
+
+**Implementation = a real engine sub-project** (not a data tweak; ~the plan's ~6-cycle
+entity-streaming item, now the #1 execution increment). Roadmap:
+- D1 SIZING -- DONE (the two gates above).
+- D2 SLOT-REFERENCE STABILITY (offline, next): RSDKv5 objects reference each other by slotID
+  (`RSDK_GET_ENTITY(slot)`); streaming must keep those valid. Audit which classes hold cross-entity
+  slot refs and whether referee+referent are spatially co-located (stream together). Decides the
+  slot-handle scheme (likely: a full lightweight slotID->handle table, materialize the heavy
+  EntityBase only for the near-set).
+- D3 design the manifest (compact per-entity record: class, slotID, pos, editable vars) + the
+  near-set instantiate/destroy machinery + the tiered pool + RegisterObject threshold -> 1088.
+- I1..In implement (multi-build): gates `qa_stride_tiers` GREEN + `qa_entity_slots` GREEN (all 15
+  dense acts) + whole-game regression union + fps no-regress + on-screen parity SSIM.
+This sub-project lands BEFORE SPZ (order 3) and is the gate for every dense zone.
