@@ -272,6 +272,7 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           GHZ_Bridge:Game_Bridge \
           Global_PlaneSwitch:Game_PlaneSwitch \
           Global_Spring:Game_Spring \
+          Global_Ring:Game_Ring \
           GHZ_SpikeLog:Game_SpikeLog; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
@@ -390,6 +391,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _Player_Hurt -u _APICallback_UnlockAchievement -u _achievementList \
     -u _p6_w_spikelog_classid -u _p6_w_spikelog_frames \
     -u _p6_w_spikelog_aniframes -u _p6_w_spring_aniframes -u _p6_w_brg_aniframes \
+    -u _p6_w_ring_aniframes -u _p6_w_ring_classid \
+    -u _Platform -u _Crate -u _Ice -u _BigSqueeze -u _SpikeCorridor \
+    -u _Platform_State_Falling2 -u _Platform_State_Hold \
     -u _p6_saturn_anim_allocfail -u _p6_w_anim_lastfail -u _p6_w_stg_at_fail \
     -u _p6_w_anim_log -u _p6_w_anim_logn -u _p6_w_anim_step \
     -u _p6_w_objapk_bytes \

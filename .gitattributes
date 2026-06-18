@@ -1,0 +1,7 @@
+# Shell scripts MUST stay LF in the working copy. The Docker bash toolchain
+# (tools/_portspike/_p6/build_*.sh) breaks on CRLF line-continuation
+# (`\<CR><LF>` -> "syntax error near unexpected token"). With core.autocrlf=true
+# git was re-mangling these to CRLF on every checkout/stash, so they had to be
+# hand-renormalized after each git op. This rule pins them LF permanently and
+# retires that recurring trap.
+*.sh text eol=lf

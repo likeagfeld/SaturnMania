@@ -66,6 +66,15 @@ ObjectDecoration *Decoration     = NULL; // F.4: GHZSetup editor-only ref
 ObjectGHZ2Outro *GHZ2Outro       = NULL; // F.4: GHZSetup_StageFinish_EndAct2 (Act2-only) ref
 ObjectCPZSetup *CPZSetup         = NULL;
 ObjectChaosEmerald *ChaosEmerald = NULL;
+// #W18 ring-arm: Ring_CheckObjectCollisions (Ring.c:430) foreach_active's these
+// platform-class objects -- reached ONLY from the Track/Big/Path ring states; GHZ1
+// has none (all rings are RING_MOVE_FIXED -> Ring_State_Normal -> Ring_Collect only),
+// so the path is GHZ1-DEAD. NULL == unregistered (matches Spikes/etc. below).
+ObjectPlatform *Platform         = NULL;
+ObjectCrate *Crate               = NULL;
+ObjectIce *Ice                   = NULL;
+ObjectBigSqueeze *BigSqueeze     = NULL;
+ObjectSpikeCorridor *SpikeCorridor = NULL;
 ObjectDebris *Debris             = NULL;
 ObjectERZOutro *ERZOutro         = NULL;
 ObjectFXFade *FXFade             = NULL;
@@ -247,6 +256,11 @@ void Ring_State_Lost(void) { P6_EDGE(31); }
 // is safe (p6_io_main p6_scene_load_and_arm).
 void Ring_State_Sparkle(void) { P6_EDGE(59); }
 void Ring_Draw_Sparkle(void)  { P6_EDGE(60); }
+// #W18 ring-arm: Ring_CheckPlatformCollisions (Ring.c:381) references these Platform
+// states for the carry-direction adjust -- GHZ1-DEAD (Track/Big/Path-ring path only;
+// see the Platform NULL above). Inert stubs, header signatures void(void).
+void Platform_State_Falling2(void) { P6_EDGE(63); }
+void Platform_State_Hold(void) { P6_EDGE(64); }
 // SignPost competition + achievement edges (competition branches are DEAD in
 // Mania mode -- never reached at runtime; the achievement unlock fires on a
 // signpost pass but the API call is a no-op on Saturn).

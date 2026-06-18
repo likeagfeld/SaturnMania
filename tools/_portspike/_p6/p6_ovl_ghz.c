@@ -18,16 +18,13 @@
 #include "Game.h"          /* Object*/Entity* + globals + X_* callbacks + foreach_all */
 #include "p6_ovl_api.h"
 
-/* Ring harness (sibling overlay TU p6_ring2.o) -- the P6.7d.3 surface. */
-extern void *p6_ring2_staticvars_slot;
-extern unsigned p6_ring2_entity_size;
-void Ring_Update(void);
-void Ring_Draw(void);
-void p6_ring2_arm(void *slot, void *frames);
-void p6_ring2_witness(const void *slot);
+/* Ring is now the VERBATIM Game_Ring (Global/Ring.c) compiled into the overlay --
+ * ObjectRing *Ring + Ring_Create/StageLoad/State_Normal/Draw arrive via Game.h
+ * (same as Spring/Bridge). The flat p6_ring2 harness is RETIRED (#W18 ring-arm). */
 
 /* Witnesses -- DEFINED in p6_io_main.cpp (main image; gates read them from
  * game.map); written here via the ld -R import. */
+extern int32 p6_w_ring_aniframes, p6_w_ring_classid;
 extern int32 p6_w_spring_classid, p6_w_spring_frames;
 extern int32 p6_w_brg_classid, p6_w_brg_count, p6_w_brg_posx, p6_w_brg_posy,
              p6_w_brg_onscreen, p6_w_brg_frames;
@@ -49,9 +46,13 @@ static void p6_ghz_ovl_witness(const void *ringSlot);
 // =============================================================================
 int p6_overlay_entry(p6_ovl_api *api)
 {
-    /* Ring -- verbatim P6.7d.3 simple form (Update+Draw via the harness). */
-    api->register_object((void **)&p6_ring2_staticvars_slot, "Ring",
-                         p6_ring2_entity_size, 20, Ring_Update, Ring_Draw);
+    /* Ring -- verbatim FULL-callback form (the real Game_Ring): Ring_StageLoad loads
+     * Global/Ring.bin into DATASET_STG + Ring_Create arms each placed ring's animator
+     * (ACTIVE_BOUNDS, Ring_State_Normal) so rings RENDER (#W18 ring-arm gap). */
+    api->register_object_full((void **)&Ring, "Ring",
+                              (unsigned)sizeof(EntityRing), (unsigned)sizeof(ObjectRing),
+                              Ring_Update, Ring_LateUpdate, Ring_StaticUpdate,
+                              Ring_Draw, Ring_Create, Ring_StageLoad, Ring_Serialize);
 
     /* Spring / Bridge / PlaneSwitch -- verbatim FULL-callback form (NULL editor
      * matches the resident RSDK_REGISTER_OBJECT REV02/non-REV0U arm, GameLink.h
@@ -76,10 +77,13 @@ int p6_overlay_entry(p6_ovl_api *api)
                               SpikeLog_Update, SpikeLog_LateUpdate, SpikeLog_StaticUpdate,
                               SpikeLog_Draw, SpikeLog_Create, SpikeLog_StageLoad, SpikeLog_Serialize);
 
-    /* Ring harness vtable; witness_fn is the COMBINED tick witness below. */
-    api->staticvars_slot = p6_ring2_staticvars_slot;
-    api->entity_size     = p6_ring2_entity_size;
-    api->arm_fn          = p6_ring2_arm;
+    /* Ring vtable; witness_fn is the COMBINED tick witness below. staticvars_slot
+     * feeds the F.3 main-image Ring-global rewire (p6_io_main: Ring = *staticvars_slot
+     * so SignPost's CREATE_ENTITY(Ring) resolves). arm_fn=0: the real Ring_Create arms
+     * placed rings now (the p6_io_main:1767 manual-proof guard skips on NULL). */
+    api->staticvars_slot = (void *)&Ring;
+    api->entity_size     = (unsigned)sizeof(EntityRing);
+    api->arm_fn          = 0;
     api->witness_fn      = (void (*)(const void *))p6_ghz_ovl_witness;
     api->update_fn       = (void *)Ring_Update;
     return 0;
@@ -93,7 +97,13 @@ int p6_overlay_entry(p6_ovl_api *api)
 // =============================================================================
 static void p6_ghz_ovl_witness(const void *ringSlot)
 {
-    p6_ring2_witness(ringSlot);
+    (void)ringSlot; /* p6_ring2 harness retired; Ring witnesses are aniFrames-based now */
+
+    /* Ring (#W18 ring-arm): aniFrames>=0 == Ring_StageLoad's LoadSpriteAnimation
+     * succeeded (rings can arm + render); classid live == registered + instantiated.
+     * (int16)-cast so a -1 (0xFFFF) load failure reads as -1, not 65535. */
+    if (Ring) p6_w_ring_aniframes = (int32)(int16)Ring->aniFrames;
+    if (Ring && Ring->classID) p6_w_ring_classid = (int32)Ring->classID;
 
     /* RANGE-INDEPENDENT anim-load status, every tick, straight off the Object
      * struct -- the definitive "did StageLoad's LoadSpriteAnimation succeed"

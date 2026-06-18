@@ -16,7 +16,11 @@
 #   R2  brg_frames    > 0    -- Bridge.bin anim LOADED (0 == pool starved == the
 #                              regression that vanished the planks)
 #   R3  loop_pscount  > 0    -- PlaneSwitch instantiated (loop)
-#   R4  live_rings   == 0    -- P0 spawn (no carry-over 100 rings)
+#   R4  0<=rings<100         -- sane ring count. WAS ==0 (valid only while GHZ
+#                              rings never rendered, so Sonic couldn't collect any);
+#                              #258 armed collectible rings -> the autorun collects
+#                              some by frame 130, so ==0 is now stale. The bound
+#                              still guards the debug 100-ring carry-over it protected.
 #   R5  live_shield  == 0    -- P0 spawn (no fire shield)
 #   R6  time_enabled == 1    -- P0 timer ticking
 #
@@ -82,7 +86,7 @@ def main(argv):
         ("R1 Bridge registered (classid>0)",     v["_p6_w_brg_classid"],   lambda x: x and x > 0),
         ("R2 Bridge.bin LOADED (frames>0)",      v["_p6_w_brg_frames"],    lambda x: x and x > 0),
         ("R3 PlaneSwitch live (pscount>0)",      v["_p6_w_loop_pscount"],  lambda x: x and x > 0),
-        ("R4 spawn rings==0",                    v["_p6_w_plr_live_rings"], lambda x: x == 0),
+        ("R4 ring count sane (0<=rings<100; #258 collectible)", v["_p6_w_plr_live_rings"], lambda x: x is not None and 0 <= x < 100),
         ("R5 spawn shield==0",                   v["_p6_w_plr_live_shield"],lambda x: x == 0),
         ("R6 timer enabled==1",                  v["_p6_w_time_enabled"],   lambda x: x == 1),
         # #254 anim-pool funding: Spring is the first swept object; once it loads it

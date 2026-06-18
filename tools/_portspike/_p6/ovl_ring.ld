@@ -7,10 +7,15 @@
  * .text+.data; the loader zeroes the window tail (.bss). */
 OUTPUT_ARCH(sh)
 SECTIONS {
-    . = 0x060C7600; /* O1 step 2 (Task #254): P6_OVL_BASE slid to D=0x1A00 (ANIMPAK
-                      * floor 0x060B6600) so the 0x2A00 window holds Ring+Spring+
-                      * Bridge+PlaneSwitch; GLOBALS at 0x060CA000 unchanged. Keep in
-                      * lockstep with p6_ovl_api.h + Animation.hpp P6_HW_ANIMPAK. */
+    . = 0x02690000; /* #258 CART RELOCATION: P6_OVL_BASE moved to the 4MB Extended-RAM
+                      * CART (cached alias 0x02690000; cache-through twin 0x22690000 for
+                      * the loader write). The full verbatim Game_Ring port overflowed the
+                      * WRAM-H GLOBALS wall by 6,744 B with no fundable reclaim -> cart.
+                      * Placement PROVEN free: GHZ1 resident layout ends 0x22686900,
+                      * sheets < 0x22600000, GFS windows >= 0x22700000 (the 32 KB window
+                      * 0x22690000..0x22698000 sits in the 38.6 KB gap). Keep in lockstep
+                      * with p6_ovl_api.h P6_OVL_BASE/P6_OVL_WINDOW. GLOBALS decoupled to
+                      * its fixed WRAM-H 0x060CA000 (p6_io_main.cpp). */
     .text : {
         p6_ovl_ghz.o(.text.p6_overlay_entry)  /* O1: the entry EXACTLY at the window
                                   * base (built -ffunction-sections so its section is

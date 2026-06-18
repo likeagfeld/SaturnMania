@@ -667,6 +667,11 @@ __attribute__((used)) int32 p6_w_ringspr        = -1;
 __attribute__((used)) int32 p6_w_ringsheet      = -1;
 __attribute__((used)) int32 p6_w_ringsheethandle = -2;
 __attribute__((used)) int32 p6_w_ringsarmed     = 0;
+// #W18 ring-arm (Game_Ring overlay): aniFrames>=0 == Ring_StageLoad's
+// LoadSpriteAnimation("Global/Ring.bin") succeeded -> placed rings can arm + render;
+// ring_classid live == Ring registered + instantiated. Written by p6_ghz_ovl_witness.
+__attribute__((used)) int32 p6_w_ring_aniframes = -2; // Ring->aniFrames (-1=load failed, >=0=armed)
+__attribute__((used)) int32 p6_w_ring_classid   = 0;  // Ring->classID (live)
 __attribute__((used)) int32 p6_w_plr_sheetid_t  = -1; // Player frame's sheetID after the ticks (GetFrame, stride-safe)
 __attribute__((used)) int32 p6_w_plr_handle     = -2; // p6_vdp1HandleBySurface[that sheetID]
 // P6.8 Step A (Task #211): CONTINUOUS-tick witnesses. The burst is a fixed
@@ -1520,7 +1525,12 @@ extern "C" void p6_ovl_register_object_full(void **staticVars, const char *name,
 // writes through the RETRO_SATURN offset-remap arm (RetroEngine.cpp +
 // generated SaturnGlobalsMap.inc).
 // =============================================================================
-#define P6_GLOBALS_WINDOW (P6_OVL_BASE + P6_OVL_WINDOW) /* W17: 0x060CA000 */
+// #258: GLOBALS is DECOUPLED from P6_OVL_BASE. The overlay relocated to the CART
+// (P6_OVL_BASE = 0x02690000, p6_ovl_api.h) but the engine globals MUST stay in
+// fast WRAM-H -- so this is now the fixed address the OVL+WINDOW math used to yield
+// (0x060C7600 + 0x2A00 = 0x060CA000), hardcoded. Every region above it
+// (GROUPWIN/PACKEDCOL/LAYOUT/SGL) is unchanged -> zero #249 collision-move risk.
+#define P6_GLOBALS_WINDOW 0x060CA000u /* W17/#258: fixed WRAM-H (was P6_OVL_BASE+P6_OVL_WINDOW) */
 extern "C" void p6_register_global_variables_saturn(void **globals, int32 size)
 {
     p6_w_glb_size = size;
@@ -2479,17 +2489,26 @@ extern "C" void p6_scene_run(void)
     //      fetches go through the cache and any stale READ line would execute
     //      garbage (SH7604: writing a 16-bit 0 to address|0x40000000
     //      invalidates that 16-byte line -- the documented cache address
-    //      array mechanism; writes are write-through/no-allocate, so the
-    //      loaded bytes themselves are already in RAM).]
+    //      array mechanism).
+    //      #258 CART RELOCATION: P6_OVL_BASE is now the CACHED cart alias
+    //      0x02690000 (the engine executes the entry through it). The blob
+    //      bytes + the .bss zero-fill + the verification hash all go through
+    //      the CACHE-THROUGH twin (P6_OVL_BASE | 0x20000000u = 0x22690000) so
+    //      they land in cart RAM bypassing the SH-2 cache (cart-4mb-extram-
+    //      measured-map cache rule). The associative-purge loop below then
+    //      clears any stale CACHED lines for 0x02690000 before the entry runs;
+    //      the first exec is an I-cache miss that reads the freshly written
+    //      cart RAM. Placement 0x22690000..0x22698000 is PROVEN free (layout
+    //      high-water 0x22686900, sheets < 0x22600000, GFS >= 0x22700000).]
     {
         p6_w_load_step = 2; // #251 overlay
+        unsigned char *w = (unsigned char *)(P6_OVL_BASE | 0x20000000u); // cache-through cart
         int n = rsdk_storage_load_to_lwram("OVLRING.BIN",
-                                           (void *)P6_OVL_BASE, P6_OVL_WINDOW);
+                                           (void *)w, P6_OVL_WINDOW);
         p6_w_ovl_bytes = n;
         if (n > 0) {
-            unsigned char *w = (unsigned char *)P6_OVL_BASE;
             for (uint32 i = (uint32)n; i < P6_OVL_WINDOW; ++i)
-                w[i] = 0;                       // overlay .bss
+                w[i] = 0;                       // overlay .bss (cart RAM)
             uint32 h = 5381u;
             for (int32 i = 0; i < n; ++i)
                 h = ((h << 5) + h) ^ (uint32)w[i];
@@ -3465,7 +3484,11 @@ extern "C" void p6_scene_run(void)
                 }
 
                 SetSpriteAnimation(sprID, 0, &p6_ringAnimator, true, 0);
-                p6_objRingFrames = &spr->frames[spr->animations[0].frameListOffset]; // P6.7a
+                // #W18 ring-arm: the manual proof-ring (slot P6_OBJ_RING_SLOT) is
+                // RETIRED -- the real Game_Ring Ring_Create now arms every placed GHZ
+                // ring. Leaving p6_objRingFrames NULL skips all `if (p6_objRingFrames)`
+                // proof blocks (spawn + witness). (was &spr->frames[spr->animations[0].frameListOffset])
+                p6_objRingFrames = NULL;
 
                 // P6.5b3: DrawSprite environment. Drawing.cpp:2683 translates
                 // through currentScreen->position; :2676/:2687 dereference

@@ -43,8 +43,28 @@
 // Ring+Spring+Bridge+PlaneSwitch+entry+migrated-witnesses (~9.5KB), window 6KB->
 // 0x2A00 (10.75KB). D grew 0x800->0x1A00; ANIMPAK+OVL_BASE slide down 0x1A00 into
 // the _end space the 2 objects vacate, GLOBALS stays 0x060CA000 (=OVL_BASE+WINDOW).
-#define P6_OVL_BASE   0x060C7600u
-#define P6_OVL_WINDOW 0x2A00u
+//
+// #258 RING ARMAMENT (2026-06-18): the FULL verbatim Game_Ring port grows the
+// overlay to ~17.5 KB -- 6,744 B over the WRAM-H GLOBALS wall with no fundable
+// WRAM-H reclaim (MEASURED ~3.6 KB short even at the maximal ANIMPAK slide). USER
+// DECISION: relocate the overlay to the 4MB Extended-RAM CART (code-from-cart
+// VERIFIED to execute, p6_cart_code_proof). P6_OVL_BASE moves to the CACHED cart
+// alias 0x02690000 (the engine calls + executes the entry via the cached alias;
+// cold I-cache reads cart RAM, no purge needed first exec). The loader WRITES the
+// blob via the cache-through twin 0x22690000 so bytes land in cart RAM bypassing
+// the SH-2 cache (cart-4mb-extram-measured-map cache rule). PLACEMENT PROVEN FREE
+// (data-driven, NOT the prior session's incomplete gap): the GHZ1 resident LAYOUT
+// store ends at 0x22686900 (=0x22600000 + 5 layers x551,168 B, parsed offline from
+// GHZ1LAYT.BIN); resident SHEETS bump from 0x22400000 and end < 0x22600000 (proven
+// by the working build -- crossing 0x22600000 would overwrite the live layout ->
+// FG/collision corruption, which the shipping default does NOT show); the GFS read
+// windows start at 0x22700000. So 0x22690000..0x22698000 (32 KB) sits in a 38.6 KB
+// gap above the layout high-water and 32 KB below the GFS windows -- both neighbors
+// proven on the far side. GLOBALS DECOUPLES to its fixed WRAM-H 0x060CA000 (Edit 2,
+// p6_io_main.cpp) so it -- and every region above it -- stays put when OVL leaves
+// WRAM-H (zero #249 risk; the freed 0x2A00 WRAM-H window is left as _end slack).
+#define P6_OVL_BASE   0x02690000u   /* CACHED cart alias (exec); cache-through twin 0x22690000 (load) */
+#define P6_OVL_WINDOW 0x8000u       /* 32 KB cart window (overlay ~17.5 KB; ends 0x22698000 < GFS 0x22700000) */
 
 typedef struct {
     /* ---- filled by MAIN before calling the entry ------------------------ */
