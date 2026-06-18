@@ -345,13 +345,25 @@ table) -- it pays for itself.
 **Implementation = a real engine sub-project** (not a data tweak; ~the plan's ~6-cycle
 entity-streaming item, now the #1 execution increment). Roadmap:
 - D1 SIZING -- DONE (the two gates above).
-- D2 SLOT-REFERENCE STABILITY (offline, next): RSDKv5 objects reference each other by slotID
-  (`RSDK_GET_ENTITY(slot)`); streaming must keep those valid. Audit which classes hold cross-entity
-  slot refs and whether referee+referent are spatially co-located (stream together). Decides the
-  slot-handle scheme (likely: a full lightweight slotID->handle table, materialize the heavy
-  EntityBase only for the near-set).
-- D3 design the manifest (compact per-entity record: class, slotID, pos, editable vars) + the
-  near-set instantiate/destroy machinery + the tiered pool + RegisterObject threshold -> 1088.
+- D2 SLOT-REFERENCE STABILITY -- DONE (measured): FEASIBLE. (1) Native RSDKv5 NEVER destroys
+  out-of-bounds entities -- ProcessObjects only sets `entity->inRange` (`Object.cpp:499-555`), slots
+  stay resident -- so streaming IS a semantic change, handled by a SLOT-STABLE scheme (slotID stays
+  1:1 for every placed entity; never reused). (2) ALL slot access already routes through ONE accessor
+  `SaturnEntityAt(slot)` / `SaturnEntitySlot(e)` (`Object.hpp:453-454`, def in `Object.cpp`) -- the
+  indirection has a SINGLE implementation point, not the 211 `RSDK_GET_ENTITY` call sites. (3) Cross-
+  refs are predominantly CONTIGUOUS/ADJACENT slots (`PlatformControl` loops children at
+  `platformSlot += platform->childCount + 1`; `GetEntitySlot(self) - 1`) -> referrer+referent are
+  co-located -> stream together; reads are shallow (`state`/`speed`/`childCount`/`position`/`classID`),
+  satisfiable by a dormant per-slot record. (4) Fixed reserved-slot refs (Player/Zone/HUD, slots
+  <0x40) are always resident -> safe.
+  RESIDUAL -> D3: manager objects run setup while ACTIVE_NORMAL then drop to ACTIVE_BOUNDS
+  (`PlatformControl` Create `active=ACTIVE_NORMAL` -> `ACTIVE_BOUNDS`). Keep always-active managers
+  + their contiguous children RESIDENT and stream the bulk ACTIVE_BOUNDS objects (HYBRID). Sizing the
+  resident set = an active-type census (parse Create bodies for `active = ACTIVE_*`), feeding D3.
+- D3 (next) design the manifest (compact per-entity record: class, slotID, pos, editable vars) + the
+  hybrid resident-manager/streamed-bulk split (from the active-type census) + the slot-stable
+  `SaturnEntityAt` indirection (near=pool EntityBase, far=dormant record) + the tiered pool +
+  RegisterObject threshold -> 1088.
 - I1..In implement (multi-build): gates `qa_stride_tiers` GREEN + `qa_entity_slots` GREEN (all 15
   dense acts) + whole-game regression union + fps no-regress + on-screen parity SSIM.
 This sub-project lands BEFORE SPZ (order 3) and is the gate for every dense zone.
