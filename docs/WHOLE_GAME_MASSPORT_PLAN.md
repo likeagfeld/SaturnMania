@@ -373,8 +373,24 @@ entity-streaming item, now the #1 execution increment). Roadmap:
   full-scene for small UI scenes), the rest stream the camera-near set; slot-stable `SaturnEntityAt`
   indirection (near=pool EntityBase, far=dormant {classID,pos,flags} record); RegisterObject
   threshold -> 1088. Frees ~318 KB WRAM-L. DESIGN COMPLETE.
-- I1..In implement (multi-build, NEXT PHASE): the manifest (compact per-entity record: class, slotID,
-  pos, editable vars) + resident-pin + near-set instantiate/destroy + tiered pool + the indirection.
-  Gates `qa_stride_tiers` GREEN + `qa_entity_slots` GREEN (all 15 dense acts) + whole-game regression
-  union + fps no-regress + on-screen parity SSIM.
+- I1..I6 implement (multi-build, NEXT PHASE -- each is one RED-gated build; the entity pool is the
+  project's highest-risk subsystem [dual-stride bisects, BSS-overflow class, #249/#250 corruption],
+  so each step is additive/reversible and GHZ stays GREEN throughout). Change sites: `Object.hpp:56-67`
+  (pool tiers), `Object.cpp` RETRO_SATURN `SaturnEntityAt`/`SaturnEntitySlot` (the single indirection
+  point), `Scene.cpp:620-646` (LoadScene entity loop), `p6_io_main.cpp` (pool home + witnesses).
+  - **I1 MANIFEST**: at LoadScene build a compact side-table of every placed entity (classID, slotID,
+    pos, + editable-var bytes or a retained-scene-buffer offset). Additive; does NOT touch the pool or
+    SaturnEntityAt. Gate: witness `manifest_n == placed count`; full diag sweep byte-identical.
+  - **I2 INDIRECTION pass-through**: route SaturnEntityAt through a slotID->record map that maps 1:1
+    to the existing pool (behaviour-identical). Gate: all slots resolve; GHZ byte-identical.
+  - **I3 SHRINK + RESIDENT-PIN**: pool -> ~256 tiered slots; pin always-active classes
+    (qa_active_census RESIDENT set) at load; materialize the near-set from the manifest; far slots ->
+    dormant {classID,pos,flags} record. Gate: resident + near entities present; GHZ play unchanged.
+  - **I4 STREAMING**: instantiate manifest entities entering the near-window (run Create), dormant-ize
+    those leaving. Gate: spawn-on-approach witness; GHZ play unchanged.
+  - **I5 X-WIDE TIER**: ENTITY_WIDE_SIZE/x-wide -> 1088 + RegisterObject threshold -> 1088. Gate:
+    `qa_stride_tiers` GREEN.
+  - **I6 OVERSIZE REGISTER**: register the scene-placed oversize classes (CollapsingPlatform first) +
+    verify on a dense scene. Gate: `qa_entity_slots` GREEN for that act + whole-game regression union
+    + fps no-regress + on-screen parity SSIM.
 This sub-project lands BEFORE SPZ (order 3) and is the gate for every dense zone.
