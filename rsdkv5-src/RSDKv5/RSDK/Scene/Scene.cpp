@@ -284,6 +284,15 @@ void RSDK::LoadSceneFolder()
     }
 #endif
 }
+// P6.8 I1 (camera-local pool): the manifest-enumeration witnesses, defined
+// extern "C" in p6_io_main.cpp (so the map symbol is _p6_w_manifest_*, like the
+// other gate witnesses). Block-scope extern "C" is illegal, so declare them at
+// namespace scope here; LoadSceneAssets resets + folds them below.
+extern "C" {
+extern int32 p6_w_manifest_n;
+extern int32 p6_w_manifest_maxslot;
+extern int32 p6_w_manifest_csum;
+}
 void RSDK::LoadSceneAssets()
 {
 #if RETRO_PLATFORM == RETRO_ANDROID
@@ -556,6 +565,15 @@ void RSDK::LoadSceneAssets()
 #endif
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN
+        // P6.8 I1 (camera-local pool): reset the manifest-enumeration witnesses for
+        // this scene load -> they re-count from 0 on every LoadScene (act advance,
+        // death-reload). Additive instrumentation; touches no engine state.
+        p6_w_manifest_n       = 0;
+        p6_w_manifest_maxslot = 0;
+        p6_w_manifest_csum    = 0;
+#endif
+
         for (int32 i = 0; i < objectCount; ++i) {
             RETRO_HASH_MD5(objHash);
             objHash[0] = ReadInt32(&info, false);
@@ -651,6 +669,20 @@ void RSDK::LoadSceneAssets()
 #endif
                 entity->position.x = ReadInt32(&info, false);
                 entity->position.y = ReadInt32(&info, false);
+
+#if RETRO_PLATFORM == RETRO_SATURN
+                // P6.8 I1 (camera-local pool): fold every placed entity (incl. the
+                // slotID>=1152 drops -- the set the manifest must eventually stream)
+                // into the enumeration witnesses. classID/slotID/position are final
+                // here (vars below don't touch them). Additive; no engine change.
+                ++p6_w_manifest_n;
+                if ((int32)slotID > p6_w_manifest_maxslot)
+                    p6_w_manifest_maxslot = (int32)slotID;
+                p6_w_manifest_csum = p6_w_manifest_csum * 33 + classID;
+                p6_w_manifest_csum = p6_w_manifest_csum * 33 + (int32)slotID;
+                p6_w_manifest_csum = p6_w_manifest_csum * 33 + (entity->position.x >> 16);
+                p6_w_manifest_csum = p6_w_manifest_csum * 33 + (entity->position.y >> 16);
+#endif
 
                 uint8 *entityBuffer = (uint8 *)entity;
 

@@ -63,6 +63,15 @@ __attribute__((used)) int32 p6_w_io_loaded     = 0;
 __attribute__((used)) int32 p6_w_io_filesize   = 0;
 __attribute__((used)) int32 p6_w_io_firstbytes = 0;
 __attribute__((used)) int32 p6_w_io_gfsinit    = 0;
+// P6.8 I1 (S1+7.3 camera-local pool): manifest-enumeration witnesses. The engine
+// LoadScene per-entity loop (Scene.cpp) folds EVERY placed scene entity -- incl.
+// the ones currently DROPPED at slotID>=1152 -- into these, proving the
+// "enumerate every placed entity with correct class/slot/pos" path the I3 STORED
+// manifest builds on, with ZERO new allocation. Reset at the top of each
+// LoadScene; gate qa_p6_manifest asserts n/maxslot vs the census (GHZ1 1041/1040).
+__attribute__((used)) int32 p6_w_manifest_n       = 0;
+__attribute__((used)) int32 p6_w_manifest_maxslot = 0;
+__attribute__((used)) int32 p6_w_manifest_csum    = 0;
 __attribute__((used)) int32 p6_w_io_fid        = 0;
 __attribute__((used)) int32 p6_w_io_step       = 0;
 // P6.5b2 nested-open diagnostics (written by p6_gfs.c):
@@ -541,6 +550,35 @@ __attribute__((used)) int32 p6_w_plr_ticks      = 0;  // engine tick pairs run a
 __attribute__((used)) int32 p6_w_plr_slotdelta  = -1; // NEW VDP1 slot-cache rects during the ticks
 __attribute__((used)) int32 p6_w_plr_tick_x     = 0;  // SLOT_PLAYER1 position after the ticks
 __attribute__((used)) int32 p6_w_plr_tick_y     = 0;
+// #256 FIX witness: count of phantom scene-placed Player entities purged post-load
+// (a 2nd GHZ1 Player marker survives Player_LoadSprites' consumption as a stray
+// sidekick at a scene slot -> double-runs Player_Input_P2_Delay -> corrupts the
+// shared follow buffers -> Tails can't settle). >0 == the bug existed + was fixed.
+__attribute__((used)) int32 p6_w_phantom_purged = 0;
+// #256 FIX helper (called post-InitObjects from every gameplay scene load): complete
+// Player_LoadSprites' scene-marker consumption. Real Mania's foreach_all(Player) in
+// Player_LoadSprites (Player.c:779) CopyEntity(clearSrc)'s the chosen spawn marker
+// into SLOT_PLAYER1 and destroyEntity's the rest -> exactly 2 live Players. A 2nd
+// GHZ1 marker survives on Saturn as a stray sidekick at a scene slot (slot!=0 ->
+// Player_Create sets sidekick + Player_Input_P2_AI), double-running
+// Player_Input_P2_Delay -> clobbers the SHARED follow buffers -> Tails can't settle
+// (#181). Players belong ONLY at reserve SLOT_PLAYER1/2; classID=0 marks the stray
+// slot empty (ProcessObjects' `if (classID)` skips it; loop2 excludes it from
+// typeGroups) with NO class-size memset (no narrow-slot overrun). Idempotent.
+void p6_purge_scene_players(void)
+{
+    int32 pcls = (int32)RSDK_ENTITY_AT(0)->classID; // SLOT_PLAYER1 (==0); live Player classID
+    if (pcls <= 0)
+        return;
+    for (int32 s = RESERVE_ENTITY_COUNT; s < ENTITY_COUNT; ++s) {
+        EntityBase *pe = RSDK_ENTITY_AT(s);
+        if ((int32)pe->classID == pcls) {
+            pe->classID     = 0;     // empty slot -> skipped by ProcessObjects + typeGroups
+            pe->interaction = false;
+            ++p6_w_phantom_purged;
+        }
+    }
+}
 __attribute__((used)) int32 p6_w_plr_state      = 0;  // state fn ptr (nonzero == state machine live)
 __attribute__((used)) int32 p6_w_plr_onground   = -1;
 __attribute__((used)) int32 p6_w_plr_animframes = 0;  // animator.frames (expect inside P6_HW_ANIMPAK)
@@ -2943,6 +2981,7 @@ extern "C" void p6_scene_run(void)
 
             p6_player_witness_pre(RESERVE_ENTITY_COUNT, SCENEENTITY_COUNT);
             InitObjects();
+            p6_purge_scene_players(); // #256: destroy stray scene-placed Player sidekicks
             p6_player_witness_post();
 
             // W14 (Task #227): FIRST ENGINE GAMEPLAY TICKS at GHZ scale --
@@ -3772,6 +3811,20 @@ static void p6_scene_load_and_arm(void)
     p6_player_newgame_reset();
     p6_w_load_step = 34; // #251 phase-2: InitObjects (entity Create/StageLoad)
     InitObjects();
+    // #256 FIX: real Mania's Player_LoadSprites (Player.c:779 foreach_all(Player))
+    // consumes EVERY scene-placed Player marker -- CopyEntity(clearSrc=true) the
+    // chosen-character one into SLOT_PLAYER1, destroyEntity the rest; both zero
+    // classID. On Saturn GHZ1's 2nd marker (scene slotID 888 -> runtime slot 952 via
+    // Scene.cpp:646 slotID+RESERVE) survives as a STRAY SIDEKICK (slot!=0 ->
+    // Player_Create sets sidekick + stateInput=Player_Input_P2_AI). It then double-
+    // runs Player_Input_P2_Delay every frame, clobbering the SHARED Player->
+    // leaderPositionBuffer + input shift-registers -> the real Tails (SLOT_PLAYER2)
+    // can't settle and falls through bridges (#181). Players belong ONLY at the
+    // reserve SLOT_PLAYER1/2; complete the consumption by destroying any Player-
+    // classID entity at a scene/temp slot. Runs once here (post-InitObjects, before
+    // the first tick) so the phantom never executes an Update -> shared buffers stay
+    // clean. ResetEntity(.,0,.) == destroyEntity (memset + classID=TYPE_BLANK=0).
+    p6_purge_scene_players();
     // #P0 (GHZ1 parity): enable the level clock. The decomp enables it in
     // Zone_State_FadeIn (Zone.c:820) -- the act-start fade-in state that the lean
     // engine boot skips (it jumps straight to gameplay), so the timer stayed frozen.
