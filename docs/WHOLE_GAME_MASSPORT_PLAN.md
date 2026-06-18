@@ -360,10 +360,21 @@ entity-streaming item, now the #1 execution increment). Roadmap:
   (`PlatformControl` Create `active=ACTIVE_NORMAL` -> `ACTIVE_BOUNDS`). Keep always-active managers
   + their contiguous children RESIDENT and stream the bulk ACTIVE_BOUNDS objects (HYBRID). Sizing the
   resident set = an active-type census (parse Create bodies for `active = ACTIVE_*`), feeding D3.
-- D3 (next) design the manifest (compact per-entity record: class, slotID, pos, editable vars) + the
-  hybrid resident-manager/streamed-bulk split (from the active-type census) + the slot-stable
-  `SaturnEntityAt` indirection (near=pool EntityBase, far=dormant record) + the tiered pool +
-  RegisterObject threshold -> 1088.
-- I1..In implement (multi-build): gates `qa_stride_tiers` GREEN + `qa_entity_slots` GREEN (all 15
-  dense acts) + whole-game regression union + fps no-regress + on-screen parity SSIM.
+- D3 active-type census -- DONE (gate `tools/qa_active_census.py`): classified by CREATE-time
+  active (steady state; the transient ACTIVE_NORMAL most objects set when triggered lives in their
+  State_* fns, not Create -- so "has both" is NOT a manager). **125 RESIDENT classes** (always-active
+  Setup/HUD/Music/Zone/Camera/boss/UI singletons), 346 STREAMABLE, 60 NONE. Per-scene RESIDENT floor:
+  **gameplay <=51** (TMZ2; most zones <=33), UI scenes higher (DAGarden 117, LSelect 97, Title 75) but
+  tiny TOTAL (~76-119) so the whole scene fits. Worst materialized = resident_total + camera-near
+  streamable ~= **51 + ~100 = ~150** -> the **~256-slot pool (~32 x-wide) holds it with headroom**;
+  D1's sizing survives the floor.
+  POOL DESIGN (final, data-backed): ~256 tiered slots (NARROW 344 / WIDE 576 / X-WIDE 1088, ~32
+  x-wide) ~= 127 KB; a RESIDENT-pinned sub-region holds always-active entities (<=51 gameplay /
+  full-scene for small UI scenes), the rest stream the camera-near set; slot-stable `SaturnEntityAt`
+  indirection (near=pool EntityBase, far=dormant {classID,pos,flags} record); RegisterObject
+  threshold -> 1088. Frees ~318 KB WRAM-L. DESIGN COMPLETE.
+- I1..In implement (multi-build, NEXT PHASE): the manifest (compact per-entity record: class, slotID,
+  pos, editable vars) + resident-pin + near-set instantiate/destroy + tiered pool + the indirection.
+  Gates `qa_stride_tiers` GREEN + `qa_entity_slots` GREEN (all 15 dense acts) + whole-game regression
+  union + fps no-regress + on-screen parity SSIM.
 This sub-project lands BEFORE SPZ (order 3) and is the gate for every dense zone.
