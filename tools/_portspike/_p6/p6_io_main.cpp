@@ -565,6 +565,7 @@ __attribute__((used)) int32 p6_w_phantom_purged = 0;
 // (#181). Players belong ONLY at reserve SLOT_PLAYER1/2; classID=0 marks the stray
 // slot empty (ProcessObjects' `if (classID)` skips it; loop2 excludes it from
 // typeGroups) with NO class-size memset (no narrow-slot overrun). Idempotent.
+extern "C" void p6_scan_index_build(void); // P6.8 I3c: defined near the boot, called from the scene-load setup below
 void p6_purge_scene_players(void)
 {
     int32 pcls = (int32)RSDK_ENTITY_AT(0)->classID; // SLOT_PLAYER1 (==0); live Player classID
@@ -4062,6 +4063,7 @@ static void p6_scene_load_and_arm(void)
     // clean. ResetEntity(.,0,.) == destroyEntity (memset + classID=TYPE_BLANK=0).
     p6_purge_scene_players();
     p6_i2_selfcheck(); // P6.8 I2: assert slot->pool indirection is 1:1 (byte-identical)
+    p6_scan_index_build(); // P6.8 I3c: sorted-by-x scene-entity index for the loop1 spatial cull
     // #P0 (GHZ1 parity): enable the level clock. The decomp enables it in
     // Zone_State_FadeIn (Zone.c:820) -- the act-start fade-in state that the lean
     // engine boot skips (it jumps straight to gameplay), so the timer stayed frozen.
@@ -4221,6 +4223,82 @@ extern "C" void p6_pool_remap_init(void)
     for (int32 i = 0; i < ENTITY_COUNT; ++i)
         if ((int32)RSDK::p6_pool_remap[i] != i) { ok = 0; break; }
     p6_w_remap_ok = ok;
+}
+// =============================================================================
+// P6.8 I3c (camera-local pool, the FPS WIN): SPATIAL-CULL loop1. The GHZ scan cost is
+// the ACTIVE_BOUNDS per-camera position READS (Object.cpp:589-615: ~757 entities read
+// position.x/y from slow WRAM-L EVERY frame). A sorted-by-x index of the populated SCENE
+// entities (built once per scene load) + a per-frame near-bitfield lets loop1 set
+// inRange=false for FAR scene entities WITHOUT the position read -- skipped via a fast
+// WRAM-H bit. PROVABLY CONSERVATIVE: a slot is culled only when |spawn_x - cam_x| > WINDOW
+// (768 px); the engine's full ACTIVE_BOUNDS/XBOUNDS check needs |cur_x - cam_x| <=
+// updateRange.x+offset (~576 px for GHZ), so the 768 window (+192 px mover-drift margin;
+// GHZ badniks patrol ~64) can NEVER exclude an entity the full check would keep. Reserve +
+// temp + ACTIVE_ALWAYS/NORMAL are always processed (only ACTIVE_BOUNDS/XBOUNDS scene
+// entities are culled -- the x-condition makes x-far => out-of-range). Parity-safe for GHZ1
+// per ghz-scan-split-parity-audit (no foreign mid-frame reposition; serial, same engine
+// order). Full backing + IDENTITY remap kept (SaturnEntityAt byte-identical, no dormant-
+// access). The WRAM-L-saving COMPACTION is the separate later step. Gate qa_p6_scancull.py.
+__attribute__((used)) unsigned char p6_scan_near[(ENTITY_COUNT + 7) / 8] = { 0 }; // WRAM-H bitfield
+static uint32 *p6_scan_sorted = (uint32 *)0x226B9000u; // cart, after the remap table (verified-free gap)
+__attribute__((used)) int32 p6_scan_n          = 0;
+__attribute__((used)) int32 p6_w_scancull_n    = 0; // index entries (witness)
+__attribute__((used)) int32 p6_w_scancull_near = 0; // near bits set on the last update (witness)
+#define P6_SCAN_WINDOW 1024 // world px each side of the camera. MUST be >= max(updateRange.x+offset)
+                            // + max mover drift, or a near entity is wrongly culled (it freezes).
+                            // 1024 covers updateRange.x up to ~700 + offset 320; far-majority still
+                            // culled in a ~10000px level. scancull_near witness measures the actual
+                            // near-set -> tune down later if it is too generous (less win).
+#define P6_SCAN_CAP    800  // GHZ1 ~765 scene-populated; bigger zones need a bigger cap + a faster sort
+// Built once per scene load (post-InitObjects). (spawn_x << 11)|slot for every populated
+// scene slot, sorted by x via insertion sort (n<=765, one-time -- ~64ms in the long GHZ load).
+extern "C" void p6_scan_index_build(void)
+{
+    int32 n = 0;
+    for (int32 e = RESERVE_ENTITY_COUNT; e < TEMPENTITY_START && n < P6_SCAN_CAP; ++e) {
+        EntityBase *ent = RSDK_ENTITY_AT(e);
+        if (!ent->classID)
+            continue;
+        int32 xw = (int32)(ent->position.x >> 16);
+        if (xw < 0)
+            xw = 0;
+        p6_scan_sorted[n++] = ((uint32)(xw & 0x1FFFFF) << 11) | (uint32)(e & 0x7FF);
+    }
+    for (int32 i = 1; i < n; ++i) {
+        uint32 key = p6_scan_sorted[i];
+        int32 j    = i - 1;
+        while (j >= 0 && p6_scan_sorted[j] > key) { p6_scan_sorted[j + 1] = p6_scan_sorted[j]; --j; }
+        p6_scan_sorted[j + 1] = key;
+    }
+    p6_scan_n       = n;
+    p6_w_scancull_n = n;
+}
+// Per-frame (ProcessObjects, AFTER the camera update, BEFORE loop1). Clear the bitfield,
+// then set the bit for every indexed slot whose spawn_x is within +-WINDOW of the camera x.
+extern "C" void p6_scan_update_near(int32 cam_x_world)
+{
+    for (int32 i = 0; i < (int32)sizeof(p6_scan_near); ++i)
+        p6_scan_near[i] = 0;
+    int32 n = p6_scan_n;
+    if (n <= 0)
+        return;
+    int32 lo = cam_x_world - P6_SCAN_WINDOW, hi = cam_x_world + P6_SCAN_WINDOW;
+    int32 a = 0, b = n; // binary-search the first entry with x >= lo
+    while (a < b) {
+        int32 m = (a + b) >> 1;
+        if ((int32)(p6_scan_sorted[m] >> 11) < lo) a = m + 1;
+        else b = m;
+    }
+    int32 cnt = 0;
+    for (int32 i = a; i < n; ++i) {
+        uint32 en = p6_scan_sorted[i];
+        if ((int32)(en >> 11) > hi)
+            break;
+        int32 slot = (int32)(en & 0x7FF);
+        p6_scan_near[slot >> 3] |= (unsigned char)(1 << (slot & 7));
+        ++cnt;
+    }
+    p6_w_scancull_near = cnt;
 }
 extern "C" void p6_engine_boot_and_run(void)
 {

@@ -457,6 +457,15 @@ static int16 s_p6_inrange_prev[SATURN_INRANGE_CAP];
 static int32 s_p6_inrange_prev_n = 0;
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// P6.8 I3c spatial-cull (defined in p6_io_main.cpp): p6_scan_update_near fills the WRAM-H
+// near-bitfield p6_scan_near from the camera x each frame; loop1's ACTIVE_BOUNDS/XBOUNDS
+// cases read the bit to skip FAR scene entities' slow WRAM-L position reads (the GHZ scan
+// cost). Conservative -- the 768 px window >= the full-check range, so no near entity is
+// excluded. See p6_io_main.cpp + ghz-scan-split-parity-audit.
+extern "C" void p6_scan_update_near(int32 cam_x_world);
+extern unsigned char p6_scan_near[];
+#endif
 void RSDK::ProcessObjects()
 {
     for (int32 i = 0; i < DRAWGROUP_COUNT; ++i) drawGroups[i].entityCount = 0;
@@ -492,6 +501,10 @@ void RSDK::ProcessObjects()
         }
     }
 
+#if RETRO_PLATFORM == RETRO_SATURN
+    // P6.8 I3c: fill the loop1 spatial-cull near-bitfield from the (just-updated) camera x.
+    p6_scan_update_near(cameraCount > 0 ? (int32)(cameras[0].position.x >> 16) : 0);
+#endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SHADOW_COMPARE)
     // SCAN-SPLIT PARITY PROOF (#243): classify ALL entities at frame-start (the
     // dual-SH2 scan-split model -- no Update has run; the camera is already updated
@@ -588,6 +601,14 @@ void RSDK::ProcessObjects()
 
                 case ACTIVE_BOUNDS:
                     sceneInfo.entity->inRange = false;
+#if RETRO_PLATFORM == RETRO_SATURN
+                    // I3c spatial cull: a FAR scene entity (x-window bit clear) is out-of-range
+                    // by the x-condition -> skip the slow WRAM-L position read. Reserve/temp +
+                    // near scene entities fall through to the exact check below.
+                    if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START
+                        && !(p6_scan_near[e >> 3] & (1 << (e & 7))))
+                        break;
+#endif
 
                     for (int32 s = 0; s < cameraCount; ++s) {
                         int32 sx = abs(sceneInfo.entity->position.x - cameras[s].position.x);
@@ -603,6 +624,11 @@ void RSDK::ProcessObjects()
 
                 case ACTIVE_XBOUNDS:
                     sceneInfo.entity->inRange = false;
+#if RETRO_PLATFORM == RETRO_SATURN
+                    if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START
+                        && !(p6_scan_near[e >> 3] & (1 << (e & 7))))
+                        break;
+#endif
 
                     for (int32 s = 0; s < cameraCount; ++s) {
                         int32 sx = abs(sceneInfo.entity->position.x - cameras[s].position.x);
@@ -920,6 +946,14 @@ void RSDK::ProcessFrozenObjects()
 
                 case ACTIVE_BOUNDS:
                     sceneInfo.entity->inRange = false;
+#if RETRO_PLATFORM == RETRO_SATURN
+                    // I3c spatial cull: a FAR scene entity (x-window bit clear) is out-of-range
+                    // by the x-condition -> skip the slow WRAM-L position read. Reserve/temp +
+                    // near scene entities fall through to the exact check below.
+                    if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START
+                        && !(p6_scan_near[e >> 3] & (1 << (e & 7))))
+                        break;
+#endif
 
                     for (int32 s = 0; s < cameraCount; ++s) {
                         int32 sx = abs(sceneInfo.entity->position.x - cameras[s].position.x);
@@ -935,6 +969,11 @@ void RSDK::ProcessFrozenObjects()
 
                 case ACTIVE_XBOUNDS:
                     sceneInfo.entity->inRange = false;
+#if RETRO_PLATFORM == RETRO_SATURN
+                    if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START
+                        && !(p6_scan_near[e >> 3] & (1 << (e & 7))))
+                        break;
+#endif
 
                     for (int32 s = 0; s < cameraCount; ++s) {
                         int32 sx = abs(sceneInfo.entity->position.x - cameras[s].position.x);
