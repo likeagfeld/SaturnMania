@@ -77,6 +77,8 @@ def main(argv):
     dc = json.load(open(os.path.join(ROOT, "docs/dropin_census.json")))
     sc = json.load(open(os.path.join(ROOT, "docs/scene_census.json")))
     STORE = dc.get("store_bytes")
+    acp = os.path.join(ROOT, "docs/audio_census.json")
+    ac = json.load(open(acp)) if os.path.isfile(acp) else None  # W5 (tools/build_audio_census.py)
     scenes_d = dc["scenes"]
     scenes_s = sc["scenes"]
     NSC = len(scenes_d)
@@ -142,24 +144,44 @@ def main(argv):
              ("0x%X" % end) if end else "??", ANIMPAK or 0,
              (ANIMPAK - end) if (end and ANIMPAK) else "?"))
 
+    # W5 AUDIO -- music (CD-DA) enforced disc fit + SFX Sound-RAM residency dashboard
+    w5bgm = True
+    if ac:
+        b, s = ac["bgm"], ac["sfx"]
+        w5bgm = bool(b.get("fits_one_74min_cd"))
+        print("  [%s] W5a AUDIO/BGM whole-game disc: %d tracks ~%.1f min -> %d/%d CD sectors (1 disc)"
+              % ("GREEN" if w5bgm else " RED ", b["track_count"], b["est_duration_min"],
+                 b["total_sectors"], ac["cd74_sectors"]))
+        print("         CD-DA %d + data %d sectors; headroom %d (~%.1f min). All-58-CD-DA FEASIBLE."
+              % (b["est_cdda_sectors"], b["data_sectors"], b["sector_headroom"],
+                 b["sector_headroom"] / 75.0 / 60.0))
+        print("  [DASH ] W5b AUDIO/SFX Sound-RAM(512KB): worst zone resident %.1f MB raw / %.1f MB ADPCM"
+              % (s["worst_resident_raw_bytes"] / 1e6, s["worst_resident_adpcm_est"] / 1e6))
+        print("            -> full per-zone bank does NOT fit -> resident set = per-SCENE registered")
+        print("               SFX subset. NEXT GATE: per-scene SFX manifest (qa_zone_sfx).")
+    else:
+        print("  [  ?  ] W5 AUDIO: docs/audio_census.json absent -- run tools/build_audio_census.py")
+
     # tracked-not-yet-static
     print("-" * 74)
     print("  TRACKED (no static census gate yet -- next research-gate work, plan s9):")
-    print("    * CRAM per-scanline palettes (Phase-Z Z3)   * AUDIO 58 BGM + SFX vs 512KB (S-AUDIO)")
+    print("    * CRAM per-scanline palettes (Phase-Z Z3)   * per-scene SFX manifest (qa_zone_sfx; W5b)")
     print("    * DATASET_STG anim pool                     * VDP1 fill-rate at density (S3)")
     print("-" * 74)
 
-    ok = w1 and w4
+    ok = w1 and w4 and w5bgm
     if ok:
         print("RESULT: GREEN -- foundation INVARIANTS hold whole-game (W1 cull covers all %d scenes,"
-              " W4 under #228). W2/W3 are the documented mass-port roadmap above (per-Zone waves),"
-              " not regressions. Consult this on every foundation change." % NSC)
+              " W4 under #228, W5a all-58-BGM fits one disc). W2/W3/W5b are the documented mass-port"
+              " roadmap above (per-Zone waves), not regressions. Consult on every foundation change." % NSC)
         return 0
     print("RESULT: RED -- a foundation invariant BROKE for the whole game:")
     if not w1:
         print("   W1: P6_SCAN_CAP < SCENEENTITY_COUNT -> high-slot entities un-indexed in dense scenes.")
     if not w4:
         print("   W4: _end >= ANIMPAK -> #228 boot trap. Reclaim WRAM-H before growing.")
+    if not w5bgm:
+        print("   W5a: BGM CD-DA + data pack > 74-min CD -> needs 2nd disc OR PCM-stream some BGM.")
     return 1
 
 
