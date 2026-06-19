@@ -4244,6 +4244,21 @@ static uint32 *p6_scan_sorted = (uint32 *)0x226B9000u; // cart, after the remap 
 __attribute__((used)) int32 p6_scan_n          = 0;
 __attribute__((used)) int32 p6_w_scancull_n    = 0; // index entries (witness)
 __attribute__((used)) int32 p6_w_scancull_near = 0; // near bits set on the last update (witness)
+// I3d (loop1 LIVE-ITERATION = the 60fps step): I3c iterated all 1216 slots and used the
+// near bit to skip only the FAR scene entities' POSITION read; the 1216-slot iteration
+// itself (classID/active touches of slow WRAM-L) still cost ~9.88ms -> compute-full
+// 19.66ms > the 16.67ms 1-vblank cliff -> 30fps. I3d SKIPS the far scene slots ENTIRELY
+// in loop1 (no WRAM-L touch). But the x-window only bounds ACTIVE_BOUNDS/XBOUNDS; ACTIVE_
+// NORMAL/ALWAYS/YBOUNDS/RBOUNDS (managers, vertically-tracked, triggered) are NOT x-cullable
+// and MUST always be iterated. p6_scan_always marks every populated scene slot whose active
+// is NOT BOUNDS/XBOUNDS -- seeded at load from the Create-time active (below) + maintained
+// per-frame in loop1 (Object.cpp) for runtime active-type changes -- and is OR'd into
+// p6_scan_near each frame so loop1 tests ONE WRAM-H bit. CART-resident (read once/frame in
+// the merge -> ZERO WRAM-H data). The skip-set is then IDENTICAL to I3c's proven {scene,
+// BOUNDS/XBOUNDS, x-far} cull set (qa_p6_scancull GREEN, R0-R16) -- parity-exact, just no
+// WRAM-L re-walk of the far majority. Monotonic always-set (never cleared; bounded ~managers).
+unsigned char *p6_scan_always = (unsigned char *)0x226BA000u; // cart, after the sorted index (free gap)
+__attribute__((used)) int32 p6_w_scan_always = 0; // always-iterate scene slots seeded at load (witness)
 #define P6_SCAN_WINDOW 1024 // world px each side of the camera. MUST be >= max(updateRange.x+offset)
                             // + max mover drift, or a near entity is wrongly culled (it freezes).
                             // 1024 covers updateRange.x up to ~700 + offset 320; far-majority still
@@ -4272,16 +4287,38 @@ extern "C" void p6_scan_index_build(void)
     }
     p6_scan_n       = n;
     p6_w_scancull_n = n;
+    // I3d: seed the always-iterate bitfield from the Create-time active. A populated scene
+    // slot whose active is NOT x-cullable (BOUNDS/XBOUNDS) is pinned always-iterate so the
+    // camera moving past its spawn-x can never wrongly skip it (it would stop updating).
+    for (int32 i = 0; i < (int32)((ENTITY_COUNT + 7) / 8); ++i)
+        p6_scan_always[i] = 0;
+    int32 alw = 0;
+    for (int32 e = RESERVE_ENTITY_COUNT; e < TEMPENTITY_START; ++e) {
+        EntityBase *ent = RSDK_ENTITY_AT(e);
+        if (!ent->classID)
+            continue;
+        uint8 av = (uint8)ent->active;
+        if (av != ACTIVE_BOUNDS && av != ACTIVE_XBOUNDS) {
+            p6_scan_always[e >> 3] |= (unsigned char)(1 << (e & 7));
+            ++alw;
+        }
+    }
+    p6_w_scan_always = alw;
 }
 // Per-frame (ProcessObjects, AFTER the camera update, BEFORE loop1). Clear the bitfield,
 // then set the bit for every indexed slot whose spawn_x is within +-WINDOW of the camera x.
 extern "C" void p6_scan_update_near(int32 cam_x_world)
 {
+    // I3d: seed near from the always-iterate set (non-x-cullable scene slots), THEN add the
+    // x-window near slots below. loop1 (Object.cpp) then tests ONE combined WRAM-H bit per
+    // scene slot -- a clear bit == FAR + x-cullable == safe to skip the slot entirely.
     for (int32 i = 0; i < (int32)sizeof(p6_scan_near); ++i)
-        p6_scan_near[i] = 0;
+        p6_scan_near[i] = p6_scan_always[i];
     int32 n = p6_scan_n;
-    if (n <= 0)
+    if (n <= 0) {
+        p6_w_scancull_near = 0;
         return;
+    }
     int32 lo = cam_x_world - P6_SCAN_WINDOW, hi = cam_x_world + P6_SCAN_WINDOW;
     int32 a = 0, b = n; // binary-search the first entry with x >= lo
     while (a < b) {

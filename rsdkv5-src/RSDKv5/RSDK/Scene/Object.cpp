@@ -465,6 +465,9 @@ static int32 s_p6_inrange_prev_n = 0;
 // excluded. See p6_io_main.cpp + ghz-scan-split-parity-audit.
 extern "C" void p6_scan_update_near(int32 cam_x_world);
 extern unsigned char p6_scan_near[];
+// I3d (the 60fps step): cart always-iterate bitfield -- loop1 pins a scene slot here when its
+// active turns non-x-cullable (NORMAL/ALWAYS/YBOUNDS/RBOUNDS) so the far-skip never drops it.
+extern unsigned char *p6_scan_always;
 #endif
 void RSDK::ProcessObjects()
 {
@@ -577,9 +580,23 @@ void RSDK::ProcessObjects()
 #endif
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
 #if RETRO_PLATFORM == RETRO_SATURN
-        sceneInfo.entity = (EntityBase *)_ep;
+        EntityBase *_ce = (EntityBase *)_ep;
         _ep += (e < RESERVE_ENTITY_COUNT || e >= TEMPENTITY_START)
                    ? (uint32)ENTITY_WIDE_SIZE : (uint32)sizeof(EntityBase);
+        // I3d (the 60fps step, #246/#263): a FAR scene slot (combined near|always bit clear)
+        // is SKIPPED ENTIRELY -- no WRAM-L classID/active/position touch. Its inRange stays at
+        // the value it had when it left the window (false -- engine-private; nothing on Saturn
+        // reads it: loops 2/3 + the draw path run off s_p6_inrange / drawGroups, rebuilt below,
+        // not the field). p6_scan_near already includes the always-iterate set (the OR in
+        // p6_scan_update_near), so every NORMAL/ALWAYS/YBOUNDS/RBOUNDS/manager scene slot is
+        // kept. Skip-set == I3c's proven {scene, BOUNDS/XBOUNDS, x-far} cull set; this just
+        // stops re-walking the far majority's slow WRAM-L (loop1 ~9.88ms -> ~2ms).
+        if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START
+            && !(p6_scan_near[e >> 3] & (1 << (e & 7)))) {
+            sceneInfo.entitySlot++;
+            continue;
+        }
+        sceneInfo.entity = _ce;
 #else
         sceneInfo.entity = RSDK_ENTITY_AT(e);
 #endif
@@ -704,6 +721,19 @@ void RSDK::ProcessObjects()
 #endif
                     RSDK_DRAWGROUP_APPEND(drawGroups[sceneInfo.entity->drawGroup], sceneInfo.entitySlot);
             }
+#if RETRO_PLATFORM == RETRO_SATURN
+            // I3d maintain (POST-Update so it reads the entity's NEW active this frame -- no 1-frame
+            // pin lag at the window boundary): pin this scene entity always-iterate if its active is
+            // NOT x-cullable (NORMAL/ALWAYS/YBOUNDS/RBOUNDS -- set at Create OR just changed by its own
+            // Update). The far-skip then never drops it when the camera moves past its spawn-x. An
+            // entity can only reach a non-x-cullable active WHILE iterated, so this catches every
+            // transition the frame it happens. Monotonic + bounded (~managers; stale = one cheap visit).
+            if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START) {
+                uint8 _av = (uint8)sceneInfo.entity->active;
+                if (_av != ACTIVE_BOUNDS && _av != ACTIVE_XBOUNDS)
+                    p6_scan_always[e >> 3] |= (unsigned char)(1 << (e & 7));
+            }
+#endif
         }
         else {
             sceneInfo.entity->inRange = false;
