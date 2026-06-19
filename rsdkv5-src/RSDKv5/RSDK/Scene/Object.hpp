@@ -65,6 +65,15 @@ namespace RSDK
 #define ENTITYLIST_SIZE_BYTES                                                                                                                        \
     ((uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase)                                                \
      + (uint32)TEMPENTITY_COUNT * ENTITY_WIDE_SIZE)
+// P6.8 I3b camera-local pool SHRINK -- the PHYSICAL scene-slot count (vs the 1088 LOGICAL
+// SCENEENTITY_COUNT). DATA-PROVEN sizing (tools/_portspike/qa_p6_pool_window.py, offline slide-
+// window over every scene's real Scene.bin placements at P6_SCAN_WINDOW=1024): the worst-case
+// simultaneously-camera-near scene-entity count is 527 (TMZ1/Scene1; 203 even in GHZ1's dense
+// section) -> 640 covers the whole-game ceiling with headroom. The plan's earlier 160 was a
+// SPARSE-AUTORUN-sample artifact (runtime autorun only reached GHZ1's empty opening = 52) and a
+// too-small offline proxy box (101) -- DISPROVEN. Sized to the census ceiling (binding rule:
+// never one zone). Pool = 64*556 + 640*344 + 64*556 = 291,328 B (frees ~150 KB WRAM-L vs 445,440).
+#define P6_POOL_SCENE_PHYS (640)
 
 // P6.7 W11b group-list entry caps (P68_TYPEGROUP/DRAWGROUP_ENTRY_CAP):
 // stock TypeGroupList/DrawList embed entries[ENTITY_COUNT] -- at 0x500

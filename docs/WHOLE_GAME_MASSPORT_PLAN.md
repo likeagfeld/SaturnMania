@@ -339,7 +339,8 @@ basis:
 slots** (2x headroom over 121) with **~32 X-WIDE(1088B)** + ~64 WIDE(576) + ~160 NARROW(344) =
 **~127 KB**, streaming entities in/out as the camera moves. This single change: (a) admits the 17
 oversize classes -> **S1 GREEN**; (b) bounds the live population to the near-set -> the DROP wall
-**7.3 GREEN** for all 15 dense acts; (c) **FREES ~318 KB WRAM-L** (127 KB pool vs 445 KB resident
+**7.3 GREEN** for all 15 dense acts; (c) **FREES ~150 KB WRAM-L** (291 KB pool vs 445 KB resident;
+DATA-CORRECTED 2026-06-19 from the claimed 318 KB -- SCENE_PHYS proved to be 640 not 160, see 7.5)
 table) -- it pays for itself.
 
 **Implementation = a real engine sub-project** (not a data tweak; ~the plan's ~6-cycle
@@ -388,10 +389,25 @@ entity-streaming item, now the #1 execution increment). Roadmap:
     force-fit 344 per Object.hpp:104-110 -> NO tiering in the current build, tiers are the whole-game
     I6 add). New map:
     ```
-    0x243000  pool 126,208 B   RESERVE 64x556 + SCENE_PHYS 160x344 + TEMP 64x556   [SHRUNK 445->126KB]
-    0x261D80  remap[1216]u16 2432 + inverse[288]u16 576 + dormant[1088]~2176 ~=5KB [NEW, in freed gap]
-    0x263180  FREE ~306 KB   (the WRAM-L saving; whole-game asset-residency home)   [NEW free]
-    0x2AFC00  band store / DATASTORAGE / TILELAYERS / ... / GROUPB / DEAD           [UNCHANGED]
+    0x243000  pool 291,328 B  RESERVE 64x556 + SCENE_PHYS 640x344 + TEMP 64x556   [SHRUNK 445->291KB]
+    0x28A200  FREE ~150 KB   (the WRAM-L saving; whole-game asset-residency home)  [NEW free]
+    0x2AFC00  band store / DATASTORAGE / TILELAYERS / ... / GROUPB / DEAD          [UNCHANGED]
+    cart 0x226B8000  remap[1216] + inverse[640] + dormant[1088]  [IN CART, not the WRAM-L gap]
+    ```
+    **SIZING DATA-CORRECTED (2026-06-19, qa_p6_pool_window.py + the "do it, no-assume" pass):**
+    SCENE_PHYS = **640, not 160**. The 160 was a SPARSE-SAMPLE artifact: the runtime autorun probe
+    measured peak near = 52 because it only reaches GHZ1's EMPTY OPENING, and the offline census
+    used a too-small 680/960 proxy box (101/121). The offline slide-window over the REAL Scene.bin
+    placements at the engine's actual P6_SCAN_WINDOW=1024 shows the worst-case camera-near demand is
+    **527 (TMZ1/Scene1), 203 even in GHZ1's dense section, 32/94 scenes > 160**. Sized to the census
+    ceiling (binding rule). Pool 291 KB, **frees ~150 KB** (not 318). Gate qa_p6_pool_window.py GREEN.
+    **TABLES STAY IN CART** (I3b.1's 0x226B8000), NOT the WRAM-L freed gap as sketched below: the
+    entity-pool base ALIASES `tilesetPixels` (p6_io_main.cpp:1260, ~256 KB load scratch) + the 64 KB
+    sheet-staging scratch, which transiently overwrite the freed gap DURING load -- so the gap is
+    "free for post-LoadStageGIF resident assets," not free during load, and WRAM-L tables there would
+    be clobbered. The old line below is superseded:
+    ```
+    0x261D80  remap[1216]u16 2432 + inverse[288]u16 576 + dormant[1088]~2176 ~=5KB [SUPERSEDED -> cart]
     ```
     `SaturnEntityAt` computes the address with PHYSICAL region counts (RESERVE 64 / SCENE_PHYS 160 /
     TEMP 64) on the REMAPPED physical slot; loop1 iterates the **288 physical slots** (not 1216

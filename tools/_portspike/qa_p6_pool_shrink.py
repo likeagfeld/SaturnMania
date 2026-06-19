@@ -23,7 +23,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import qa_p6_scene as Q
 
-POOL_PHYS = 288   # RESERVE 64 + SCENE_PHYS 160 + TEMP 64 (whole-game-safe: peak near 101 + pins + headroom)
+POOL_PHYS = 768   # RESERVE 64 + SCENE_PHYS 640 + TEMP 64. SCENE_PHYS DATA-CORRECTED 160 -> 640:
+                  # qa_p6_pool_window.py (offline, real placements) proved the whole-game camera-near
+                  # demand at WINDOW=1024 is 527 (TMZ1) / 203 even in GHZ1's dense section -- the old
+                  # 160 was a sparse-autorun artifact (runtime peak 52 = GHZ1's empty opening only).
 
 
 def main(argv):
