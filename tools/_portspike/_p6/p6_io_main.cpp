@@ -1019,6 +1019,22 @@ __attribute__((used)) int32 p6_w_draw_nents  = 0; // total entries iterated over
 __attribute__((used)) int32 p6_w_scan_pop     = 0; // slots with classID != 0
 __attribute__((used)) int32 p6_w_scan_maxslot = 0; // highest slot with classID != 0
 __attribute__((used)) int32 p6_w_scan_bounds  = 0; // populated slots with ACTIVE_*BOUNDS
+#if defined(P6_SHADOW_COMPARE)
+// LOCKED-60 (#243) SCAN-SPLIT PARITY PROOF: before building the dual-SH2 scan-split
+// (master classifies [0,mid), slave [mid,end), all at frame-start), PROVE it matches
+// the serial engine. Object.cpp runs a shadow pre-pass (classify-all-at-frame-start
+// into s_p6_shadow_inrange[], the EXACT engine bounds checks) then compares to the
+// real interleaved loop1's inRange per entity. divergence = an entity a mid-frame
+// reposition pushed across its update bound (the ONLY way the split could differ).
+// 0 over real gameplay => the scan-split is parity-exact for GHZ1. Gated -> normal
+// builds never define this.
+// Starts DISABLED -- p6_ghz_frame enables it only AFTER gameplay is live (cont_frames
+// > 10), so the two extra full-entity scans never run during the load/init phase
+// (where they hung the boot -- a load-phase ProcessObjects timing/edge issue).
+extern "C" { int g_p6_shadow_enable = 0; unsigned char s_p6_shadow_inrange[1216];
+             __attribute__((used)) int32 p6_w_scan_divergence = 0;
+             __attribute__((used)) int32 p6_w_scan_divmax = 0; } // worst-frame divergence
+#endif
 __attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
 __attribute__((used)) int32 p6_w_hog_x   = 0;   // a hog entity's world x (fixed)
 __attribute__((used)) int32 p6_w_hog_y   = 0;   // a hog entity's world y (fixed)
@@ -2470,6 +2486,12 @@ static void p6_ghz_frame(void)
 #endif /* P6_PERF_NOSCAN -- skip the diagnostic census/hog scans in the timed frame */
 
     ++p6_w_cont_frames;
+#if defined(P6_SHADOW_COMPARE)
+    // Arm the scan-split parity proof only once gameplay is live (avoids the load-
+    // phase hang). If cont_frames freezes at ~10, the shadow itself hangs in-gameplay;
+    // if it climbs, the hang was load-phase and the divergence measure is valid.
+    if (p6_w_cont_frames > 10) g_p6_shadow_enable = 1;
+#endif
 
     // True-fps tally: snapshot the hardware-60Hz vblank counter + the per-frame
     // slip (vblanks elapsed since the previous rendered frame; 1 == locked 60).

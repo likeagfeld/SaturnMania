@@ -414,6 +414,15 @@ extern "C" int p6_w_scan_pop;
 extern "C" int p6_w_scan_maxslot;
 extern "C" int p6_w_scan_bounds;
 #endif
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SHADOW_COMPARE)
+// LOCKED-60 (#243) scan-split PARITY PROOF -- decls (defs in p6_io_main.cpp).
+extern "C" {
+    extern int g_p6_shadow_enable;
+    extern unsigned char s_p6_shadow_inrange[];
+    extern int p6_w_scan_divergence;
+    extern int p6_w_scan_divmax;
+}
+#endif
 
 #if RETRO_PLATFORM == RETRO_SATURN
 // Phase 2h (Task #230): the in-range slot list. ProcessObjects ran THREE full
@@ -478,6 +487,59 @@ void RSDK::ProcessObjects()
         }
     }
 
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SHADOW_COMPARE)
+    // SCAN-SPLIT PARITY PROOF (#243): classify ALL entities at frame-start (the
+    // dual-SH2 scan-split model -- no Update has run; the camera is already updated
+    // above so it matches loop1) into s_p6_shadow_inrange[], using the engine's EXACT
+    // bounds checks (copied verbatim from the switch below). The real loop1 then
+    // classifies interleaved; the compare after it counts where inRange differs --
+    // i.e. an entity a mid-frame reposition pushed across its bound (the ONLY way the
+    // split could diverge from serial). 0 over real gameplay => split is parity-exact.
+    if (g_p6_shadow_enable) {
+        uint8 *_shep = (uint8 *)objectEntityList;
+        for (int32 e = 0; e < ENTITY_COUNT; ++e) {
+            EntityBase *se = (EntityBase *)_shep;
+            _shep += (e < RESERVE_ENTITY_COUNT || e >= TEMPENTITY_START)
+                         ? (uint32)ENTITY_WIDE_SIZE : (uint32)sizeof(EntityBase);
+            uint8 ir = 0;
+            if (se->classID) {
+                switch (se->active) {
+                    case ACTIVE_ALWAYS:
+                    case ACTIVE_NORMAL: ir = 1; break;
+                    case ACTIVE_BOUNDS:
+                        for (int32 s = 0; s < cameraCount; ++s) {
+                            int32 sx = abs(se->position.x - cameras[s].position.x);
+                            int32 sy = abs(se->position.y - cameras[s].position.y);
+                            if (sx <= se->updateRange.x + cameras[s].offset.x
+                                && sy <= se->updateRange.y + cameras[s].offset.y) { ir = 1; break; }
+                        }
+                        break;
+                    case ACTIVE_XBOUNDS:
+                        for (int32 s = 0; s < cameraCount; ++s) {
+                            int32 sx = abs(se->position.x - cameras[s].position.x);
+                            if (sx <= se->updateRange.x + cameras[s].offset.x) { ir = 1; break; }
+                        }
+                        break;
+                    case ACTIVE_YBOUNDS:
+                        for (int32 s = 0; s < cameraCount; ++s) {
+                            int32 sy = abs(se->position.y - cameras[s].position.y);
+                            if (sy <= se->updateRange.y + cameras[s].offset.y) { ir = 1; break; }
+                        }
+                        break;
+                    case ACTIVE_RBOUNDS:
+                        for (int32 s = 0; s < cameraCount; ++s) {
+                            int32 sx = FROM_FIXED(abs(se->position.x - cameras[s].position.x));
+                            int32 sy = FROM_FIXED(abs(se->position.y - cameras[s].position.y));
+                            if (sx * sx + sy * sy <= se->updateRange.x + cameras[s].offset.x) { ir = 1; break; }
+                        }
+                        break;
+                    default: ir = 0; break;
+                }
+            }
+            s_p6_shadow_inrange[e] = ir;
+        }
+    }
+#endif
     sceneInfo.entitySlot = 0;
 #if RETRO_PLATFORM == RETRO_SATURN
     s_p6_inrange_n = 0; // Phase 2h: rebuild the in-range slot list this frame
@@ -627,6 +689,23 @@ void RSDK::ProcessObjects()
 
         sceneInfo.entitySlot++;
     }
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SHADOW_COMPARE)
+    // SCAN-SPLIT PARITY: compare the real interleaved inRange (loop1 sets it ONCE in
+    // the switch, NOT re-evaluated after the own-update move) to the frame-start
+    // shadow. A mismatch == an entity an EARLIER entity's update repositioned across
+    // its bound before this entity's classification -> the only split divergence.
+    if (g_p6_shadow_enable) {
+        int32 _div = 0; uint8 *_cep = (uint8 *)objectEntityList;
+        for (int32 e = 0; e < ENTITY_COUNT; ++e) {
+            EntityBase *ce = (EntityBase *)_cep;
+            _cep += (e < RESERVE_ENTITY_COUNT || e >= TEMPENTITY_START)
+                        ? (uint32)ENTITY_WIDE_SIZE : (uint32)sizeof(EntityBase);
+            if (ce->classID && (uint8)(ce->inRange ? 1 : 0) != s_p6_shadow_inrange[e]) ++_div;
+        }
+        p6_w_scan_divergence = _div;
+        if (_div > p6_w_scan_divmax) p6_w_scan_divmax = _div;
+    }
+#endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
     _ps_tB = p6_perf_frt_get(); // end loop1 (inRange scan + Update + drawgroup)
 #endif

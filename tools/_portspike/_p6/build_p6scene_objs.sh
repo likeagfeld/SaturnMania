@@ -80,7 +80,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # #181: P6_WARP_BRIDGE builds the bridge-warp diag variant (pin the player onto
 # the first GHZ1 bridge for a rendered-plank screenshot). Mutually exclusive with
 # P6_WARP/P6_XTEST (build_diag.sh picks exactly one); shipping leaves all unset.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -130,7 +130,7 @@ $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Audio_Audio.o" "$SRC/RSDK/Audio/Audio.cpp"
 
 echo "[7f] Scene_Object.o (UNMODIFIED engine Object.cpp -- RegisterObject + ResetEntitySlot + ProcessObjects + ProcessObjectDrawLists for P6.7a; editor/serialize surface gc-drops; +P6_PERF_OBJPROF Phase-2d per-classID Update timing diagnostic) ..."
-$CC $CXXFLAGS $ENG_DEFS -DP6_PERF_OBJPROF $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS -DP6_PERF_OBJPROF ${P6_SHADOW:+-DP6_SHADOW_COMPARE} $CORE_INC \
     -c -o "$P6/Scene_Object.o" "$SRC/RSDK/Scene/Object.cpp"
 
 echo "[7q] Scene_Collision.o (VERBATIM engine Collision.cpp -- P6.7 W15b Task #227: ProcessObjectMovement/ProcessPathGrip/ProcessAirCollision_Down + the Find*/[ LR]Wall/Floor/Roof sensor walkers + CheckObjectCollision*; every tile read goes through the RSDK_*_MASK/_ANGLE seam -> PackedCollisionMask/PackedTileAngle (Scene.hpp:289-378, gate qa_p6_collision K1-K5); CopyCollisionMask + Legacy + ProcessAirCollision_Up preprocess out at REV02/MOD_LOADER=0; -Os NOT -O2: lone-TU census 2026-06-12 measured 18,696 B alloc at -O2 vs 13,016 B at -Os against a 2,708 B pre-land _end margin) ..."
@@ -387,6 +387,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_objsec_loop1 -u _p6_w_objsec_loop2 -u _p6_w_objsec_loop3 \
     -u _p6_w_draw_sort -u _p6_w_draw_cb -u _p6_w_draw_maxgrp -u _p6_w_draw_nents \
     -u _p6_w_scan_pop -u _p6_w_scan_maxslot -u _p6_w_scan_bounds \
+    ${P6_SHADOW:+-u _p6_w_scan_divergence -u _p6_w_scan_divmax} \
     -u _p6_w_lay_slot_refills \
     -u _p6_w_col_t1hash -u _p6_w_col_nowhash -u _p6_w_col_badframe \
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \

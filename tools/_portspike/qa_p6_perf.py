@@ -79,7 +79,9 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         # LOCKED-60 (#243): DrawLists sub-attribution -- bubble-sort vs draw() callbacks.
         "_p6_w_draw_sort", "_p6_w_draw_cb", "_p6_w_draw_maxgrp", "_p6_w_draw_nents",
         # LOCKED-60 (#243): loop1 scan occupancy -- sizes the trim + explains the growth.
-        "_p6_w_scan_pop", "_p6_w_scan_maxslot", "_p6_w_scan_bounds"]
+        "_p6_w_scan_pop", "_p6_w_scan_maxslot", "_p6_w_scan_bounds",
+        # LOCKED-60 (#243): scan-split PARITY PROOF (P6_SHADOW build only).
+        "_p6_w_scan_divergence", "_p6_w_scan_divmax"]
 
 
 def main(argv):
@@ -422,6 +424,22 @@ def main(argv):
                       % (100.0 * tail / ENT))
             else:
                 print("    -> maxOccupiedSlot trim MARGINAL (scattered empties).")
+        # LOCKED-60 (#243): scan-split PARITY PROOF -- divergence between classify-all-
+        # at-frame-start (the split model) and the serial interleaved engine. 0 over
+        # real gameplay => the dual-SH2 scan-split is parity-EXACT for GHZ1 (safe to
+        # build). >0 => a mid-frame reposition crosses a bound -> the split would
+        # differ; investigate those entities before splitting.
+        sdiv = v.get("_p6_w_scan_divergence"); sdmax = v.get("_p6_w_scan_divmax")
+        if sdiv is not None:
+            print("  --- SCAN-SPLIT PARITY PROOF (#243; P6_SHADOW build) -----------")
+            print("    inRange divergence (split vs serial): this frame %s, worst %s"
+                  % (sdiv, sdmax))
+            if (sdmax or 0) == 0:
+                print("    -> GREEN: scan-split is PARITY-EXACT for GHZ1 -- safe to build.")
+            else:
+                print("    -> %s entities diverge: a mid-frame reposition crosses a bound."
+                      % sdmax)
+                print("       Scan-split is NOT free-parity here -- investigate before building.")
         # Phase 1b (#243): the 2-VBLANK-LOCK discriminator. A 4ms CPU cut moved
         # fps 29.91->29.91 (zero frames flipped to 1 vbl) -> the 30fps is NOT CPU-
         # bound. EDSR.CEF at compute-done (just before slSynch) decides WHY the
