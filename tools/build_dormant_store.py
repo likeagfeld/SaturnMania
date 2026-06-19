@@ -16,7 +16,11 @@
 # any materialize design reads placements from it. Parser reused VERBATIM from
 # build_scene_census.py (Scene.bin walk proven against extract_ghz_spawn.py).
 #
-#   <TAG>DORM.BIN layout (little-endian, matches the engine's reader endianness):
+# ENDIANNESS (measured -- the I3b 2a load read magic 0x5036444D = 'P6DM' byte-swapped): the STORE
+# STRUCTURE fields are BIG-ENDIAN (read NATIVELY by the big-endian SH-2 runtime -- magic/slot_count/
+# obj_idx/pos/index). The raw VAR-BYTES stay little-endian Scene.bin bytes: the materialize replays
+# them through the engine's ReadInt16/32 which already byte-swaps the PC-format scene file.
+#   <TAG>DORM.BIN layout (big-endian structure fields):
 #     'P6DM' u32 magic | version u16=1 | slot_count u16 | object_count u16 | pad u16
 #     object table[object_count]:  hash[16] | var_count u8 | nvtypes u8 | var_types[nvtypes] (2-byte aligned)
 #     slot_index[slot_count] u32:  byte offset of the entity record (0xFFFFFFFF = empty slot)
@@ -88,7 +92,7 @@ def emit(objects, entities):
     # object table
     otab = bytearray()
     for nhash, vc, vts in objects:
-        otab += nhash + struct.pack("<BB", vc & 0xFF, len(vts) & 0xFF) + bytes(vts)
+        otab += nhash + struct.pack(">BB", vc & 0xFF, len(vts) & 0xFF) + bytes(vts)
         if len(otab) & 1:
             otab += b"\x00"
     # entity records (12-B header each: obj_idx u16, nvarbytes u16, pos_x i32, pos_y i32) + var bytes
@@ -96,9 +100,9 @@ def emit(objects, entities):
     index = [0xFFFFFFFF] * slot_count
     for slot, oi, x, y, vb in entities:
         index[slot] = len(recs)
-        recs += struct.pack("<HHii", oi, len(vb), x, y) + vb
-    hdr = struct.pack("<IHHHH", 0x4D443650, 1, slot_count, len(objects), 0)  # 'P6DM'
-    idx = b"".join(struct.pack("<I", o) for o in index)
+        recs += struct.pack(">HHii", oi, len(vb), x, y) + vb
+    hdr = struct.pack(">IHHHH", 0x4D443650, 1, slot_count, len(objects), 0)  # 'P6DM'
+    idx = b"".join(struct.pack(">I", o) for o in index)
     return bytes(hdr) + bytes(otab) + idx + bytes(recs), slot_count
 
 
