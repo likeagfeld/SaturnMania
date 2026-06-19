@@ -432,3 +432,249 @@ entity-streaming item, now the #1 execution increment). Roadmap:
     verify on a dense scene. Gate: `qa_entity_slots` GREEN for that act + whole-game regression union
     + fps no-regress + on-screen parity SSIM.
 This sub-project lands BEFORE SPZ (order 3) and is the gate for every dense zone.
+
+---
+
+## (8) END-STATE MEMORY/PERF LAYOUT + EXECUTION SEQUENCING (added 2026-06-19)
+
+> **CORRECTED BY §9 (serial adversarial QA, 2026-06-19) -- read both.** Key reversals:
+> CRAM is a WALL (Phase-Z Z3, bites shipping GHZ water), NOT a non-wall; the SGL 144-command
+> sortlist is a 4th wall colliding with "WRAM-H frozen"; the camera-local pool's D2/I4 have
+> CRITICAL correctness bugs (manager-child corruption + collected-ring-reappears) -> demoted to
+> OPEN; whole-game AUDIO (58 BGM tracks) needs a new Phase S-AUDIO; the `_end`/ceiling figures
+> are corrected (real enforced ceiling 0x060B8000); load-time = the Saturn-native scene-bake.
+
+Sections 0-7 plan the OBJECT PORT (the 4 walls, the waves, the camera-local pool). This
+section adds the dimension that was causing per-feature thrash (the GHZ 64-byte `_end`
+fight, #258 cart relocation, the dual-SH2 scan-split's #228 boot trap): **a single
+end-state memory + perf MAP, sized to the WORST-CASE zone, with a residency RULE per
+resource so every future increment has a defined home and lands by construction.**
+Every number is measured (census byte fields, `SaturnMemoryMap.h`, `p6_vdp1/2.c`, the
+memory map).
+
+### 8.1 The four real walls (measured) -- and the THREE non-walls
+
+WORST-CASE demand vs capacity, whole game:
+
+| Resource | Capacity | Worst-case zone demand | Verdict |
+|---|---|---|---|
+| **WRAM-H code/fixed** | 1 MB; `_end` ceiling = ANIMPAK **0x060B6600** | engine core + ANIMPAK 69 KB + GLOBALS 56 KB + PACKEDCOL + layout window + SGL area = FULL (`_end` 0x060b65c0, **64 B** headroom) | **WALL.** New engine code must NOT grow `_end`. |
+| **Cart sheet store** | **393,216 B** banded (`dropin_census.store_bytes`) | **TMZ1/Scene1 = 634,388 B banded** (decoded 2.88 MB); **28/94 scenes overflow** | **WALL.** Worst zone is 241 KB over -- needs store growth or per-sheet band-window. |
+| **WRAM-L runtime** | 1 MB | entityList **445 KB** + heap 630 KB + DATASET_STG 150 KB = over without care | **WALL today -> SOLVED by the pool:** camera-local pool 445->127 KB **frees ~318 KB**. |
+| **VDP1 fill-rate** | ~1 vblank of rasteriser | 9.3x overdraw; FBZ/PSZ/SPZ 1287-2016 placed | **WALL at density (S3).** Not a VRAM-space wall. |
+| ~~VDP1 VRAM~~ | 512 KB | 40-slot LRU working set; sheet pixels live in CART | **NON-wall** (sheets stream from cart). |
+| ~~VDP2 VRAM~~ | 512 KB | CEL 256 KB (0x25E00000) + MAP 16 KB + band store | **NON-wall** (room; per-zone tile swap). |
+| ~~CRAM~~ | 4 KB = 8x 256-color banks | tiles bank 0 + sprites bank 1 = **2 of 8 used** | **NON-wall** (6 banks free; per-scene palette load is free). |
+
+The lesson the GHZ thrash taught: **stop spending effort on the non-walls and on
+WRAM-H byte-shaving. The cart is the expansion store; the pool frees WRAM-L; WRAM-H is
+frozen.**
+
+### 8.2 RESIDENCY RULES -- where each kind of thing lives in the end state (binding)
+
+So no increment ever has to re-derive a home:
+
+1. **New object CODE -> per-zone CART overlay** (D1; `ovl_ring.ld`, swapped per zone via
+   S4). NEVER WRAM-H. The overlay grows per wave (O1->O2->...); only the ACTIVE zone's
+   overlay is resident.
+2. **New sprite sheet -> CART banded store** (393 KB, S4-swapped per `currentSceneFolder`).
+   NEVER WRAM-resident. Shared sheets (Global/SuperButtons 33 scenes, Objects3 27) are
+   resident-once; per-zone `<Zone>/Enemies|Objects.gif` swap. A zone over 393 KB
+   band-windows its largest sheet (the W12a pattern); TMZ1 (634 KB) is the canonical case.
+3. **New anim pack -> CART OBJANIMPAK** (256 KB at 0x22760000, S2-swapped). Player anims
+   stay in the WRAM-H ANIMPAK (69 KB, fixed). NEVER grow DATASET_STG resident.
+4. **New entity -> camera-local POOL** (~256 tiered slots, I3-I6). NEVER the 1216-resident
+   table. The pool bounds live population to the near-set (~150) -> scan + DROP-wall solved.
+5. **New ENGINE compute that would grow `_end`** (the scan-split lesson) **-> CART overlay
+   or fold into the pool**, NOT WRAM-H. WRAM-H `_end` is frozen at the 64 B headroom.
+6. **New palette -> a free CRAM bank** (6 of 8 free). Free.
+7. **New tile layer -> camera-local band-window** (D4; VDP2), per-zone swapped.
+
+A gate enforces each: `qa_p6_cart` (store fit), `qa_entity_slots` (pool), `_end<0x060B6600`
+(the WRAM-H freeze, now in `qa_p6_scansplit` S0 + `qa_p6_ghz_regression` R0).
+
+### 8.3 Worst-case-zone budget verdict
+
+The binding constraints, in order of how hard they bite:
+
+- **Cart sheet store (HARDEST):** TMZ1 634 KB banded vs 393 KB store. Two fixes, sequenced:
+  grow the store into the cart free gap where it fits (measure `qa_p6_cart` first), AND
+  band-window the single largest sheet of the 28 overflow scenes. This is S4-adjacent and
+  must mature before TMZ (W13) and the SPZ/MSZ band (W5/W6/W8).
+- **Entity pool (SECOND):** PSZ2 2016 placed. Solved generically by the camera-local pool
+  (I3-I6) -- ~256 near-slots hold the ~150 worst materialized set; far entities are dormant
+  records. Lands before SPZ (order 3).
+- **VDP1 fill-rate (THIRD):** S3 content-sized draw; needed before the dense zones.
+- **WRAM-H (FROZEN, not a moving target):** nothing new goes there; rule 8.2.1/8.2.5.
+
+CRAM, VDP2 VRAM, VDP1 VRAM are confirmed non-binding -- do not budget against them.
+
+### 8.4 END-TO-END EXECUTION SEQUENCING (dependency-ordered; replaces ad-hoc per-feature)
+
+**Phase A -- Memory architecture (unblocks all content; do FIRST):**
+- **A1 = camera-local entity pool I3-I6** (§7.5). THE keystone: frees 318 KB WRAM-L, bounds
+  the loop1 scan (15.62->~3 ms = locked 60 fps at the SOURCE, **subsuming the dual-SH2
+  scan-split**), admits the 17 oversize scene classes (S1), kills the 15-scene DROP wall.
+  I1+I2 landed; I3 (shrink+resident-pin) is the next build.
+- **A2 = cart residency-swap machine (S4+S2)** -- per-zone teardown+reload of sheet store +
+  OBJANIMPAK + VDP1 bind table + layout band store + overlay, keyed on folder change.
+- **A3 = cart sheet-store sizing** -- grow store / band-window the 28 overflow scenes
+  (TMZ1 634 KB the cap). Gate `qa_p6_cart`.
+- **A4 = load-time (S5) -- DEPENDS ON A1+A2** (this is why the boot is ~45 s of blue/red
+  loading). The fix (pre-pack ~50 global SFX into one blob + raw-on-disc sheets to kill
+  the 7 s miniz + offline-bake TileConfig -> ~24-30 s) needs 64-128 KB of read-ahead/blob
+  buffers that are **memory-BLOCKED today** (#251: WRAM-H 3.6 KB margin, WRAM-L full, cart
+  = resident store, no guaranteed-free hole across transitions). **A1 frees 318 KB WRAM-L +
+  A2's per-zone swap frees cart holes -> S5 lands right after A2, not "whenever."** Phase-1
+  adaptive read-ahead already banked 52->45 s (commit 023ab37). IRREDUCIBLE: ~12 s Saturn
+  BIOS (not game-controlled) + ~5-7 s genuine CPU decode -> ~24-30 s is the floor, NOT zero.
+  Gate `qa_p6_loadtime`.
+
+**Phase B -- Render/perf (before dense zones):**
+- **B1 = VDP1 content-sized draw (S3)** -- size-bucketed slots, kill 9.3x overdraw.
+- **B2 = the 7 render stubs (D5)** -- DrawString (HUD/cards, ALL zones) first, then DrawTile/
+  DrawAniTile/DrawDeformedSprite/FillScreen/SwapDrawListEntries/LoadVideo with their consumer.
+
+**Phase C -- Content waves (§2 W1-W13):** GHZ-complete -> AIZ -> OOZ -> CPZ -> ... -> FBZ ->
+TMZ/ERZ, each using A2's swap machine + the 6-edit recipe. Front-load store-fits/low-density,
+back-load FBZ/PSZ/SPZ/TMZ.
+
+**Phase D -- Phase-Z native (scheduled WITH first consumer, D5):** Z2 scanline FX (HCZ water
+W7) -> Z1 3D mesh (UFO specials T2) -> Z3 palette FX (incremental).
+
+**Phase E -- Shell:** boot chain (Logos->Menu->zone, S6) + UI widgets (T3) + save (S7) +
+characters (Tails AI/Knuckles/Mighty/Ray) + cutscenes/ending (T4).
+
+The whole-game regression union (§5) runs THROUGHOUT (load-time S5 is now A4, sequenced
+on the memory it depends on, not "whenever").
+
+### 8.5 Disposition of the in-flight dual-SH2 scan-split (2026-06-19)
+
+SHELVED as redundant. Measured: the loop1 inRange scan is 15.62 ms over all 1216 slots;
+A1's camera-local pool iterates only ~256 -> scan ~3 ms -> compute-full 24.1->~12 ms = 60 fps
+at the source, with NO slave fork and NO WRAM-H growth (which is what trapped it: +608 B
+pushed `_end` 0x060b6820, 544 B past the ANIMPAK 0x060B6600 ceiling -> GFS-callback fault,
+master PC 0x06000956). KEPT from that work: the decomp **parity audit**
+([[ghz-scan-split-parity-audit]]) and the **layout/RED gates** (`qa_p6_scansplit` S0 =
+`_end<0x060B6600`). The scan-split code stays gated-off/inert; it is only worth reviving if
+A1 measures short of 60 on a specific dense zone (the D2 fallback).
+
+---
+
+## (9) ADVERSARIAL QA VERIFICATION + CORRECTIONS (2026-06-19, serial 6-lens audit)
+
+The independent adversarial validation §7.4 flagged as never-completed (the parallel
+fan-out throttled twice) was finally run SERIALLY: 6 lenses (budget / perf / pool-safety /
+completeness / sequencing / hardware) + synthesis, each hunting on-disk counterexamples.
+**Verdict: HIGH confidence in the FRAMEWORK + arithmetic (8 load-bearing claims CONFIRMED
+exact on-disk) -- but 5 CRITICAL + 7 MAJOR defects.** The corrections below SUPERSEDE the
+disputed claims in §7-§8 (same authority pattern as §7's reconciliation).
+
+### 9.1 CONFIRMED on-disk (the spine holds)
+Cart-store overflow headline (TMZ1 634,388 vs 393,216 B, 28/94 overflow -- exact);
+entity-pool arithmetic (ENTITY_COUNT 1216; resident 445,440 B; camera-local 126,720 B;
+frees 318,720 B -- exact); GHZ 60 fps from the pool (recompute: scan 15.62->0.24-3.0 ms,
+compute-full ~9-11.5 ms < vblank); A1 acyclic + A1-first well-founded; WRAM-H addresses;
+census scalars (544 obj / 31 reg / 88,081 B sheet-free / 7 stubs); VDP2 band-store + VDP1
+VRAM *space* are genuine capacity non-walls. Shelving the dual-SH2 scan-split is SOUND.
+
+### 9.2 CRITICAL corrections (each gates a wave; do NOT proceed on the old claim)
+1. **CRAM is a WALL, not a non-wall.** Mania palettes are PER-SCANLINE (gfxLineBuffer,
+   Palette.hpp:26; Drawing.cpp reads fullPalette[*lineBuffer]/scanline); the Saturn backend
+   does only fullPalette[0] -- "2/8 banks" measured a MISSING FEATURE. >=2 banks are live in
+   SHIPPING GHZ (water cycle + water-line split, Water.c:291); 77 objects use palette-FX.
+   FIX: reclassify CRAM as **Phase-Z Z3, FIRST CONSUMER = GHZ water (today)**, then CPZ(W4)/
+   HCZ(W7). Tiles via VDP2 per-line CRAM / line-color-screen (ST-058-R2); sprites = per-sprite
+   single-bank approx (VDP1 has no per-line palette). RED gate: GHZ below-water-line region
+   uses the water palette (histogram vs PC ref), not bank 0.
+2. **VDP1 COMMAND-COUNT wall (SGL MAX_POLYGONS=144)** -- distinct from S3 fill-rate, and it
+   COLLIDES with rule 8.2.5 "WRAM-H frozen." The SGL work area was shrunk to 144 to FREE
+   212 KB WRAM-H (SaturnSGLArea.c:47), lives in WRAM-H, cannot move to cart. The pool's own
+   ~150 near entities >= 144 BEFORE multi-sprite + HUD digits. PICK ONE (before W5/PSZ):
+   (a) per-frame draw-list cull + HUD-digit batch so cmds<=144, WRAM-H stays frozen
+   (preferred); or (b) move the 64 KB packed-collision tenant to cart to fund a bigger
+   MAX_POLYGONS. Gate `qa_p6_sortlist` (p6_w_vdp1_cmds<=144, dense scene). [#87 hit this.]
+3. **Pool D2 slot-stability is OPEN, not "FEASIBLE/DONE."** PlatformControl walks its child
+   slot-span with deep EntityBase read/writes + `platform->speed` is an ABSOLUTE slot index
+   (PlatformControl.c:19-63); 1264 Platforms / 23 controllers game-wide; circuits are
+   level-wide so a child is dormant while the controller is live -> the walk hits a record
+   with no such fields = the silent #249/#250 corruption class, game-wide. FIX (before I3):
+   per-scene gate the max manager<->farthest-child span; if > near-window, PIN that
+   manager+children RESIDENT as a unit (don't stream) OR widen the dormant record to full
+   EntityBase for every manager-reachable slot (enumerate offline from the manifest). Demote
+   §7.5 D2/D3 to OPEN.
+4. **I4 streaming breaks frame-parity (re-Create).** Ring_Create re-arms unconditionally with
+   NO collected-guard -> a collected ring REAPPEARS on backtrack (11,558 rings / 922 ItemBox /
+   203 CollapsingPlatform / 31 SignPost game-wide); the dormant {classID,pos,flags} record has
+   no lifecycle bit. FIX: the dormant record MUST persist a per-slot lifecycle bit (alive/
+   destroyed/triggered/collected); materialize from SERIALIZED live fields, NEVER call Create
+   twice; destroyed stays dead. RED-first BACKTRACK gate (collect a ring / break a platform,
+   scroll off+back, assert it does NOT reappear). The current I4 gate ("GHZ play unchanged")
+   passes while this ships -- it is insufficient.
+5. **Whole-game AUDIO is unspecified -> add Phase S-AUDIO (before W2).** 58 BGM .ogg but
+   build_cdda ships a 3-track CUE; 0 plan mentions of CD-DA track-budget / per-zone SFX. The
+   disc fits 74 min ONLY after stripping ~71 MB OGG from DATA.RSDK -> Red-book CD-DA (~67.6
+   min, ~6 min margin). S-AUDIO: (1) rebuild DATA.RSDK music-stripped; (2) 59-track master CUE
+   + `qa_disc_capacity` (<74 min); (3) BGM-name->track-index + PlayStream context push-pop
+   (ActClear/Invincible/Super/Drowning); (4) **per-zone SFX into the S4 swap set** (~367 files
+   / 39 MB today have NO home; manifest + ADPCM budget vs 512 KB Sound RAM) + `qa_zone_sfx`.
+   Without this every non-GHZ zone is silent on contact/hazard/boss.
+
+### 9.3 MAJOR corrections
+- **SCOPE (binding, add near §0): Saturn ships MANIA BASE, no Plus.** OUT: Encore / Mighty /
+  Ray (sheets absent from extracted/) / Time-Attack replays (4 MB buffers impossible in 2 MB;
+  packed replay >> 32 KB BUP) / UIReplayCarousel. KEEP: Tails AI + Knuckles (Knux1-3.gif
+  exist). Time Attack, if wanted, replay-less (leaderboard times fit BUP).
+- **Pool 60 fps is GHZ-ONLY.** Dense zones: (a) the scan is 781 BOUNDS-checks not slots
+  (empty slots cheap); (b) I4 adds a per-frame MANIFEST window-entry scan over ALL placed
+  (1041 GHZ / 2016 PSZ2) -- spec it PACKED in the freed WRAM-L (reverses #246's cart-only
+  "packed-cache dead"); (c) DrawLists (~400 us/sprite master CPU) is untouched -> PSZ2 ~30
+  drawn = ~12 ms -> 30 fps even with the scan fixed -> dense zones are the D2 render-pipeline
+  fallback. Reword §8.5; add a DENSE (PSZ2/FBZ) RED gate.
+- **OBJANIMPAK 256 KB cap is UNPROVEN** (only GHZ 14 KB measured; FBZ 53 / MSZ 51 / HCZ 44
+  classes plausibly exceed). Measure per-zone Sigma(frames*36+anims*28) BEFORE W2; if over, S2
+  must BAND/STREAM object anims (build_pack hard-asserts <=cap = build FAILURE, not graceful).
+- **qa_active_census under-counts managers** (parses only Create; PlatformControl flips to
+  NORMAL in its first Update tick). Re-scan State_/Update for unconditional active=NORMAL/
+  ALWAYS; hard-pin PlatformControl + every childCount-serialize object RESIDENT; re-derive D3.
+- **Phase-Z sequencing contradiction:** SpecialRing (3D mesh) is in GHZ1 x3 (74/scene). SPLIT
+  Z1 -> **Z1a (SpecialRing single shaded/wireframe quad via slPutPolygon, BEFORE W1)** + Z1b
+  (full UFO mesh, T2/last); interleave Z2 before W3(Smog)/W7(HCZ); EggTower(W10) needs Z1 or a
+  sprite fallback. UNION the draw_stub gate with the 3D path (Draw3DScene/AddModelTo3DScene) +
+  DrawBlendedFace -- today a wave with un-rendered 3D goes GREEN.
+- **UFO 3D specials never sized vs the pool** (qa_camera_local_pool is 2D-box only; UFO is a 3D
+  forward tunnel, peak UFO6=960 = 528 spheres + 228 rings, not "~680"). Model a 3D frustum over
+  UFO1-7; report near-set + tier breakdown; gate before T2.
+
+### 9.4 LOAD-TIME -- reframed to the Saturn-native bake (A4 target; user-directed 2026-06-19)
+The ~45 s boot is our PC-style load (174 MB compressed pack + 94 per-file CD seeks ~13 s +
+miniz ~7 s + parse), NOT a Saturn limit -- commercial Saturn games prove it. TARGET is not a
+"~30 s floor" but **transitions that FEEL instant**: offline-bake each scene into ONE
+Saturn-native CONTIGUOUS blob (VDP1-format sheets, pre-built tile maps + cell patterns,
+pre-converted CRAM, pre-parsed entity table, packed collision) -> one big SEQUENTIAL DMA (no
+seeks, no decompress; ~2-4 s for ~1 MB at 2x) -> MASK behind the TitleCard the engine already
+has. Extends the band-store/resident-sheet bake to the WHOLE scene (a legitimate Phase-Z
+native rewrite of the slow RSDK pack-load). IRREDUCIBLE: one-time power-on BIOS (~5-8 s real
+HW / ~12 s Mednafen, ONCE not per-level). Depends on A1+A2 (the 64-128 KB bake/DMA buffers are
+memory-blocked today, #251). **Promote from "S5 floor" to the A4 goal.**
+
+### 9.5 MINOR (fold in per-wave)
+Bind each of the 7 stubs to a first-consumer scene (FillScreen->Title/Pause @S6;
+SwapDrawListEntries->Zone @W1; LoadVideo->TitleSetup); orphaned Puyo + DAGarden -> a §3 "T5
+secret/bonus" item or an explicit descope note (+ a Competition/2-player scope note); add §8.2
+residency rules for PROCEDURAL render output (deform/blended/3D mesh -> Phase-Z path + mesh
+store); normalize §8 units (bytes or KiB) + reconcile "318 KB freed" vs the WRAM-L floor in
+one unit; cap I4 materialize-burst (N Create/frame) + a dense streaming-cost gate; the BG
+band-stream (D4) is UNLANDED (P68_W11_LAYOUTS_OPEN=1) -- RED-gate fast-wide-BG inflate/frame
+BEFORE W4; VDP1 40-slot LRU thrash unverified at dense density -- add a distinct-rect witness;
+§0 shared-infra 9 -> ~14 increments + a >1 cycle factor on high-risk pool steps.
+
+### 9.6 _end + ANIMPAK-ceiling reconciliation (§8.1 fix)
+The on-disk game.map `_end` is **0x060b6660** (the plan's 0x060b65c0 is the clean baseline; the
+current map reflects the in-flight scan-split build, reverted with the shelf). The ENFORCED
+ceiling is **0x060B8000** via Gate V-MAPOVERLAP (`qa_p6_mapoverlap`, the gate verify_done
+actually runs) -> ~6,560 B real headroom, NOT "64 B", and NOT R0 (qa_p6_ghz_regression R0
+checks cont_frames only). FOUR inconsistent ANIMPAK ceilings exist (0x060B6600 define +
+scansplit S0, 0x060B7800 Animation.hpp comment, 0x060B8000 mapoverlap) -- reconcile to ONE
+before any WRAM-H work. (The 64 B "headroom" in §8 was the scan-split's own squeeze, not the
+shipping baseline.)

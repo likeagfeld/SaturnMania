@@ -79,9 +79,14 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         # LOCKED-60 (#243): DrawLists sub-attribution -- bubble-sort vs draw() callbacks.
         "_p6_w_draw_sort", "_p6_w_draw_cb", "_p6_w_draw_maxgrp", "_p6_w_draw_nents",
         # LOCKED-60 (#243): loop1 scan occupancy -- sizes the trim + explains the growth.
-        "_p6_w_scan_pop", "_p6_w_scan_maxslot", "_p6_w_scan_bounds",
-        # LOCKED-60 (#243): scan-split PARITY PROOF (P6_SHADOW build only).
-        "_p6_w_scan_divergence", "_p6_w_scan_divmax"]
+        "_p6_w_scan_pop", "_p6_w_scan_maxslot", "_p6_w_scan_bounds"]
+
+# OPTIONAL witnesses -- present only in specific build flavors, peeked with .get so
+# M1 stays GREEN on the normal/shipping build that omits them:
+#   scan_divergence/divmax -- the P6_SHADOW scan-split parity proof.
+#   scan_slave_n/pop        -- the P6_SPLIT dual-SH2 scan-split (slave classify).
+OPT_SYMS = ["_p6_w_scan_divergence", "_p6_w_scan_divmax",
+            "_p6_w_scan_slave_n", "_p6_w_scan_slave_pop"]
 
 
 def main(argv):
@@ -126,6 +131,9 @@ def main(argv):
         return 1
     v = {s: _scene.peek_u32(mod, sections, syms[s], perm, signed=True)
          for s in SYMS}
+    for s in OPT_SYMS:
+        a = _scene.map_symbol(map_text, s)
+        v[s] = _scene.peek_u32(mod, sections, a, perm, signed=True) if a else None
 
     vbl = v["_p6_w_perf_vblanks"]
     frames = v["_p6_w_perf_frames"]
