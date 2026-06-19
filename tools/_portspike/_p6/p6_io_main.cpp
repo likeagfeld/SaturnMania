@@ -1029,9 +1029,11 @@ __attribute__((used)) int32 p6_w_scan_bounds  = 0; // populated slots with ACTIV
 // 0 over real gameplay => the scan-split is parity-exact for GHZ1. Gated -> normal
 // builds never define this.
 // Starts DISABLED -- p6_ghz_frame enables it only AFTER gameplay is live (cont_frames
-// > 10), so the two extra full-entity scans never run during the load/init phase
-// (where they hung the boot -- a load-phase ProcessObjects timing/edge issue).
-extern "C" { int g_p6_shadow_enable = 0; unsigned char s_p6_shadow_inrange[1216];
+// > 10). The 1216-byte shadow array is NOT here (it lived in .bss and its placement
+// shifted the pack layout -> #228-class boot hang); it now lives in the free 4MB-cart
+// gap (Object.cpp macro). Only these tiny witnesses stay in .bss (the savestate peeks
+// them; the cart is not serialized into the .mcs).
+extern "C" { int g_p6_shadow_enable = 0;
              __attribute__((used)) int32 p6_w_scan_divergence = 0;
              __attribute__((used)) int32 p6_w_scan_divmax = 0; } // worst-frame divergence
 #endif

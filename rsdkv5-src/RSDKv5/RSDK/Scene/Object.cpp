@@ -418,10 +418,15 @@ extern "C" int p6_w_scan_bounds;
 // LOCKED-60 (#243) scan-split PARITY PROOF -- decls (defs in p6_io_main.cpp).
 extern "C" {
     extern int g_p6_shadow_enable;
-    extern unsigned char s_p6_shadow_inrange[];
     extern int p6_w_scan_divergence;
     extern int p6_w_scan_divmax;
 }
+// #228-avoidance: the 1216-byte shadow array lives in the FREE 4MB-cart gap
+// (0x026C0000, after the overlay window 0x026B0000, before GFS 0x02700000) -- NOT in
+// .bss, so it can't shift the pack layout (which hung the boot). Master-only (written
+// in the pre-pass, read in the compare, same cache) -> cached cart alias; volatile so
+// the write->read roundtrip survives optimization.
+#define s_p6_shadow_inrange ((volatile unsigned char *)0x026C0000u)
 #endif
 
 #if RETRO_PLATFORM == RETRO_SATURN
