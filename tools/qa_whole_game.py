@@ -164,13 +164,15 @@ def main(argv):
     # W5b per-scene SFX working set / W6 per-zone anim / W7 video (build_residency_census.py)
     if rc:
         scn = rc["scenes"]
+        hz = rc.get("sfx_adpcm_hz", 11025)
         over = [k for k, v in scn.items() if not v.get("sfx_fits_sound_ram")]
-        worst = max(scn.items(), key=lambda kv: kv[1].get("sfx_adpcm_est", 0)) if scn else ("-", {})
-        print("  [DASH ] W5b AUDIO/SFX per-scene (Sound RAM 512 KB): %d/%d scenes' FULL registered SFX"
-              % (len(over), len(scn)))
-        print("            set exceeds 512 KB ADPCM (worst %s = %.0f KB) -> resident WORKING SUBSET"
-              % (worst[0], worst[1].get("sfx_adpcm_est", 0) / 1024.0))
-        print("            required (most-used SFX resident, rest CD-on-demand). Phase S-AUDIO.")
+        worst = max(scn.items(), key=lambda kv: kv[1].get("sfx_adpcm_bytes", 0)) if scn else ("-", {})
+        print("  [DASH ] W5b AUDIO/SFX per-scene @ %d Hz ADPCM mono (512 KB Sound RAM): COMPRESSION fits"
+              % hz)
+        print("            %d/%d scenes (was 82/94 raw); %d dense scenes still over (worst %s = %.0f KB)"
+              % (len(scn) - len(over), len(scn), len(over), worst[0],
+                 worst[1].get("sfx_adpcm_bytes", 0) / 1024.0))
+        print("            -> those need ~8 kHz OR a resident working-subset (S-AUDIO). Re-encode = build step.")
         zw = max(rc["zones"].items(), key=lambda kv: kv[1].get("anim_bin_source_bytes", 0)) if rc.get("zones") else ("-", {})
         print("  [DASH ] W6 ANIM (DATASET_STG pool ~150 KB): worst zone %s = %.0f KB .bin SOURCE"
               % (zw[0], zw[1].get("anim_bin_source_bytes", 0) / 1024.0))
