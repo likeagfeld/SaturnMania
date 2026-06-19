@@ -26,18 +26,19 @@ import json, os, glob, struct
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SOUND_RAM = 512 * 1024
-# SFX source is MEASURED 44.1 kHz mono 16-bit (WAV fmt audit). The CURRENT engine backend
-# (p6_snd.c #209) plays them at S16 MONO 44.1 kHz = 2 B/sample, ONE SFX at a time (SCSP
-# slots 28-31) -- NOT the full RSDK resident sfxList. So the whole-game per-scene residency
-# below is the TARGET compressed format, which REQUIRES Phase S-AUDIO engine work:
-#   (1) the SCSP 4-bit ADPCM playback path (PCM8B/ADPCM mode -- not the current 16-bit), AND
-#   (2) the full resident sfxList model (not one-at-a-time).
-# TARGET = Saturn 4-bit ADPCM @ 11.025 kHz mono = 0.5 B/sample (vs the current 16-bit-44.1's
-# 2 B/sample = a 16x cut). At that target the per-scene full SFX set fits 512 KB for most
-# scenes; that is the compression GOAL the S-AUDIO build must hit, MEASURED here -- not a
-# claim about today's build.
+# SFX source is MEASURED 44.1 kHz mono 16-bit (WAV fmt audit). DOC-VERIFIED (ST-077 / SCSP
+# User's Manual: "Wave Form Data Format = 8-bit, 16-bit formats"; grep adpcm = EMPTY): the
+# Saturn SCSP has NO native ADPCM -- it plays only 8-bit or 16-bit PCM (+ FM/noise). ADPCM
+# would need software decode -> PCM, and the DECODED PCM is what's resident, so ADPCM does
+# NOT shrink the 512 KB Sound-RAM wall. The SCSP-native max compression for the RESIDENT
+# format is therefore 8-bit PCM (PCM8B=1, 1 B/sample = half of 16-bit) @ a downsampled rate.
+# We model 8-bit mono @ 11.025 kHz = 1 B/sample (an 8x cut vs the current engine's 16-bit-
+# 44.1 kHz = 2 B/sample). Phase S-AUDIO build = (1) the engine resident sfxList at 8-bit PCM
+# @ low rate (current p6_snd #209 = 16-bit, one-at-a-time), AND -- since even this does NOT
+# fit most scenes' FULL set -- (2) a per-scene WORKING-SUBSET residency (most-used resident,
+# rest CD-on-demand). Compression alone (8-bit + downsample) is necessary but NOT sufficient.
 SFX_ADPCM_HZ = 11025
-SFX_ADPCM_BYTES_PER_SAMPLE = 0.5  # 4-bit ADPCM mono (the S-AUDIO TARGET; current engine = 16-bit)
+SFX_ADPCM_BYTES_PER_SAMPLE = 1.0  # 8-bit PCM mono (SCSP-NATIVE max; the SCSP has no ADPCM, ST-077)
 
 
 def _wav_seconds(p):
@@ -136,8 +137,10 @@ def main():
     worst = max(out["scenes"].items(), key=lambda kv: kv[1]["sfx_adpcm_bytes"]) if out["scenes"] else ("-", {})
     zworst = max(out["zones"].items(), key=lambda kv: kv[1]["anim_bin_source_bytes"]) if out["zones"] else ("-", {})
     print("wrote", op)
-    print("  SFX per-scene @ %d Hz ADPCM mono: worst = %s %.0f KB (vs 512 KB)  -- %d/%d scenes OVER"
-          % (SFX_ADPCM_HZ, worst[0], worst[1].get("sfx_adpcm_bytes", 0) / 1024.0, len(over), len(out["scenes"])))
+    print("  SFX per-scene @ %d Hz 8-bit PCM mono (SCSP-native; NO ADPCM per ST-077): worst = %s %.0f KB"
+          % (SFX_ADPCM_HZ, worst[0], worst[1].get("sfx_adpcm_bytes", 0) / 1024.0))
+    print("       %d/%d scenes OVER 512 KB -> compression helps but working-subset residency still needed"
+          % (len(over), len(out["scenes"])))
     print("  ANIM per-zone worst = %s: %.0f KB .bin source (decoded pool is the precise gate)"
           % (zworst[0], zworst[1].get("anim_bin_source_bytes", 0) / 1024.0))
     print("  VIDEO: Mania.ogv = %.1f MB source -> low-res Cinepak FILM on the data track (boot)"

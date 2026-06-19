@@ -167,13 +167,13 @@ def main(argv):
         hz = rc.get("sfx_adpcm_hz", 11025)
         over = [k for k, v in scn.items() if not v.get("sfx_fits_sound_ram")]
         worst = max(scn.items(), key=lambda kv: kv[1].get("sfx_adpcm_bytes", 0)) if scn else ("-", {})
-        print("  [DASH ] W5b AUDIO/SFX per-scene -- TARGET 4-bit ADPCM @ %d Hz mono (512 KB Sound RAM):"
+        print("  [DASH ] W5b AUDIO/SFX per-scene -- 8-bit PCM @ %d Hz mono (SCSP-NATIVE max; NO ADPCM,"
               % hz)
-        print("            at TARGET, %d/%d scenes' full SFX set fits; %d dense over (worst %s = %.0f KB)."
+        print("            ST-077 doc-verified): %d/%d scenes' full SFX set fits 512 KB; %d over (worst %s %.0f KB)."
               % (len(scn) - len(over), len(scn), len(over), worst[0],
                  worst[1].get("sfx_adpcm_bytes", 0) / 1024.0))
-        print("            CURRENT engine = 16-bit 44.1k ONE-at-a-time (p6_snd #209). S-AUDIO BUILD = (1)")
-        print("            SCSP 4-bit ADPCM path + (2) full resident sfxList -> THEN this compressed fit is real.")
+        print("            CURRENT engine = 16-bit 44.1k ONE-at-a-time (p6_snd #209). S-AUDIO BUILD = engine")
+        print("            resident sfxList @ 8-bit PCM low-rate + a per-scene WORKING-SUBSET (the %d dense)." % len(over))
         zw = max(rc["zones"].items(), key=lambda kv: kv[1].get("anim_bin_source_bytes", 0)) if rc.get("zones") else ("-", {})
         print("  [DASH ] W6 ANIM (DATASET_STG pool ~150 KB): worst zone %s = %.0f KB .bin SOURCE"
               % (zw[0], zw[1].get("anim_bin_source_bytes", 0) / 1024.0))
