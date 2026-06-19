@@ -333,7 +333,16 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * record its full draw state so the decision tree resolves in one capture. Each
      * badnik Entity has its `animator` field; GetFrame(aniFrames, animID, frameID) is
      * stride-safe (->frames is opaque here). The handle accessor reads the pack table.
-     * Non-sticky every frame so the LATEST on-screen badnik is what the capture sees. */
+     * Non-sticky every frame so the LATEST on-screen badnik is what the capture sees.
+     *
+     * PERF (2026-06-18): this 6x-foreach_all scan ran EVERY shipping frame and cost
+     * ~19ms in-motion -- it HALVED fps (48->20) until measured (qa_p6_perf M8/M9). It
+     * is PURE DIAGNOSTIC (feeds qa_p6_ghz_regression R16 only). Compile-strip it from
+     * the shipping build via P6_PERF_NOSCAN (set by build_shipping.sh) -- the SAME flag
+     * that strips the census in p6_io_main.cpp. R14/R15 (arm_env bind witnesses) still
+     * prove GHZ/Objects.gif binds in shipping; R16 (a LIVE badnik's handle) is diag-
+     * only and reads the -1 sentinel below as "skipped". */
+#ifndef P6_PERF_NOSCAN
     {
         int32 found = 0;
         /* Macro: scan one badnik type's live entities in its OWN block scope (foreach_all
@@ -373,4 +382,10 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         #undef BD_SCAN
         p6_w_bd_found = found;
     }
+#else
+    /* Shipping (P6_PERF_NOSCAN): the per-frame badnik scan is stripped from the hot
+     * loop. The -1 sentinel tells qa_p6_ghz_regression R16 to SKIP (diag-only); the
+     * R14/R15 bind-table checks (arm_env witnesses) still prove the surface binds. */
+    p6_w_bd_found = -1;
+#endif
 }

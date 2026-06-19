@@ -167,6 +167,30 @@ def main(argv):
     m7 = (ff is not None and ff > 0 and ct is not None and ff >= ct
           and all(x is not None and x >= 0 for x in (hd, kk, tl)))
 
+    # ---- DON'T-REGRESS TEETH (the "fps won't come back" gate, 2026-06-18) -------
+    # The perf gate was measurement-only ("sub-60 is EXPECTED"). It now also FAILS
+    # on a framerate regression, because the badnik batch silently HALVED fps
+    # (48->20) when a per-frame diagnostic (the BD_SCAN 6x-foreach badnik witness)
+    # leaked into the SHIPPING hot loop -- and no gate caught it. Two ceilings,
+    # both read from the in-motion shipping capture:
+    #   M8 compute-full <= 33.3ms  -- the 2-vblank boundary. Over it the master
+    #      compute spills to 3+ vblanks => sub-30fps. Protects "never below 30".
+    #   M9 shipping diagnostic tail <= 3ms -- the per-frame witness/EDSR/overlay
+    #      block (present-end -> frame-exit). In the NOSCAN shipping build this
+    #      MUST be ~0 (the census + the badnik scan are compile-stripped). A
+    #      non-trivial tail == a diagnostic leaked into the production frame (the
+    #      exact regression). RED on the leak, GREEN once it's stripped.
+    # NOTE: run against the SHIPPING build (P6_NOSCAN=1). A diag build (NOSCAN off)
+    # legitimately fails M9 (it runs the witnesses by design) -- that is expected.
+    COMPUTE_CEIL_MS = 33.3
+    TAIL_CEIL_MS = 3.0
+    _c = cks if (cks is not None and 0 <= cks <= 3) else 1
+    _tick_us = (8 << (2 * _c)) / CLOCK_MHZ
+    compute_full_ms = (ff * _tick_us / 1000.0) if ff else None
+    tail_ms_now = (tl * _tick_us / 1000.0) if tl is not None else None
+    m8 = compute_full_ms is not None and compute_full_ms <= COMPUTE_CEIL_MS
+    m9 = tail_ms_now is not None and tail_ms_now <= TAIL_CEIL_MS
+
     checks = [
         ("M2 instrumentation measuring (frames>0, vblanks>0, cyc_total>0)", m2,
          "frames=%s vblanks=%s cyc_total=%s" % (frames, vbl, ct)),
@@ -180,6 +204,10 @@ def main(argv):
          "v1_done=%s v1_busy=%s" % (v1d, v1b)),
         ("M7 compute-full MEASURED (full>0, full>=section-sum, head/kick/tail>=0)", m7,
          "full=%s sectsum=%s head=%s kick=%s tail=%s" % (ff, ct, hd, kk, tl)),
+        ("M8 DON'T-REGRESS compute-full <= %.1fms (>=30fps floor)" % COMPUTE_CEIL_MS, m8,
+         "compute_full=%.1f ms (ceiling %.1f)" % (compute_full_ms if compute_full_ms else -1.0, COMPUTE_CEIL_MS)),
+        ("M9 DON'T-REGRESS shipping diag tail <= %.1fms (no diagnostic in hot loop)" % TAIL_CEIL_MS, m9,
+         "tail=%.1f ms (ceiling %.1f)" % (tail_ms_now if tail_ms_now else -1.0, TAIL_CEIL_MS)),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:

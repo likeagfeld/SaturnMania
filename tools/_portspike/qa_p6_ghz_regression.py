@@ -121,8 +121,13 @@ def main(argv):
             lambda t: t[0] is not None and t[1] is not None and t[0] == t[1] and t[1] > 0),
         # R16: a live badnik's current frame resolves to a BOUND handle (the on-screen
         # render contract). bd_found>0 == badniks exist; bd_handle>=0 == its sheet binds.
-        ("R16 live badnik frame handle BOUND (>=0)", (v["_p6_w_bd_found"], v["_p6_w_bd_handle"]),
-            lambda t: t[0] is not None and t[0] > 0 and t[1] is not None and t[1] >= 0),
+        # PERF (2026-06-18): the per-frame badnik scan that feeds this is DIAGNOSTIC and
+        # cost ~19ms/frame -> it is compile-stripped from the SHIPPING build (P6_PERF_
+        # NOSCAN), which writes bd_found=-1. On a shipping capture R16 SKIPS (the -1
+        # sentinel) -- R14/R15 (arm_env bind witnesses) already prove the surface binds
+        # in shipping; R16 hard-checks only on a diag build (NOSCAN off, scan present).
+        ("R16 live badnik handle BOUND (>=0; -1==diag-only/skipped)", (v["_p6_w_bd_found"], v["_p6_w_bd_handle"]),
+            lambda t: t[0] == -1 or (t[0] is not None and t[0] > 0 and t[1] is not None and t[1] >= 0)),
     ]
     # Surface the global anim-load diagnostics so a RED above is pinpointed inline
     # (no forensic dig). lastfail = (sprfile_id<<16)|frameCount (bit15: animCount fail);
