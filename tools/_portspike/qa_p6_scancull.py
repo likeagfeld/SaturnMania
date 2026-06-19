@@ -47,6 +47,7 @@ def main(argv):
     cont = peek("_p6_w_cont_frames")
     n = peek("_p6_w_scancull_n")
     near = peek("_p6_w_scancull_near")
+    capped = peek("_p6_w_scancull_capped")  # WHOLE-GAME: 1 == index hit the cap -> un-indexed scene slots
 
     print("=== qa_p6_scancull (loop1 spatial-cull, mass-port I3c -- the fps win) ===")
     print("  cont_frames    = %s" % Q._dv(cont))
@@ -60,11 +61,16 @@ def main(argv):
     c1 = cont is not None and cont > 0
     c2 = n > 0
     c3 = near is not None and 0 < near <= n and near < n
+    # C4 WHOLE-GAME: the sorted index covered EVERY populated scene slot (the cap was not the
+    # limiter). RED if capped==1 (un-indexed scene slots -> their ACTIVE_BOUNDS entities skipped)
+    # OR if the witness is absent (pre-fix build -- the GHZ1-ism cap=800 under-covered 1034).
+    c4 = capped is not None and capped == 0
     for tag, ok, d in [("C1 boots (cont_frames>0)", c1, Q._dv(cont)),
                        ("C2 index built (scancull_n>0)", c2, Q._dv(n)),
-                       ("C3 near set BOUNDED (0<near<n)", c3, "%s of %s" % (Q._dv(near), Q._dv(n)))]:
+                       ("C3 near set BOUNDED (0<near<n)", c3, "%s of %s" % (Q._dv(near), Q._dv(n))),
+                       ("C4 WHOLE-GAME index not truncated (capped==0)", c4, Q._dv(capped))]:
         print("  [%s] %s = %s" % ("GREEN" if ok else " RED ", tag, d))
-    if c1 and c2 and c3:
+    if c1 and c2 and c3 and c4:
         pct = (100.0 * near / n) if n else 0.0
         print("RESULT: GREEN -- the spatial cull is live: loop1 skips the WRAM-L position read for the "
               "%d of %d (%.0f%%) FAR scene entities. Confirm the fps drop via qa_p6_perf (compute-full) "

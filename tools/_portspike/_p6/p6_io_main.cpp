@@ -4240,10 +4240,13 @@ extern "C" void p6_pool_remap_init(void)
 // order). Full backing + IDENTITY remap kept (SaturnEntityAt byte-identical, no dormant-
 // access). The WRAM-L-saving COMPACTION is the separate later step. Gate qa_p6_scancull.py.
 __attribute__((used)) unsigned char p6_scan_near[(ENTITY_COUNT + 7) / 8] = { 0 }; // WRAM-H bitfield
-static uint32 *p6_scan_sorted = (uint32 *)0x226B9000u; // cart, after the remap table (verified-free gap)
+static uint32 *p6_scan_sorted = (uint32 *)0x226B9000u; // cart; SCENEENTITY_COUNT*4 = 4352 B (0x226B9000..
+                                                       // 0x226BA100), whole-game-sized (was 800*4=3200 B)
 __attribute__((used)) int32 p6_scan_n          = 0;
 __attribute__((used)) int32 p6_w_scancull_n    = 0; // index entries (witness)
 __attribute__((used)) int32 p6_w_scancull_near = 0; // near bits set on the last update (witness)
+__attribute__((used)) int32 p6_w_scancull_capped = 0; // WHOLE-GAME: 1 if the index hit P6_SCAN_CAP before
+                                                      // scanning all scene slots (un-indexed -> skip bug)
 // I3d (loop1 LIVE-ITERATION = the 60fps step): I3c iterated all 1216 slots and used the
 // near bit to skip only the FAR scene entities' POSITION read; the 1216-slot iteration
 // itself (classID/active touches of slow WRAM-L) still cost ~9.88ms -> compute-full
@@ -4257,20 +4260,26 @@ __attribute__((used)) int32 p6_w_scancull_near = 0; // near bits set on the last
 // the merge -> ZERO WRAM-H data). The skip-set is then IDENTICAL to I3c's proven {scene,
 // BOUNDS/XBOUNDS, x-far} cull set (qa_p6_scancull GREEN, R0-R16) -- parity-exact, just no
 // WRAM-L re-walk of the far majority. Monotonic always-set (never cleared; bounded ~managers).
-unsigned char *p6_scan_always = (unsigned char *)0x226BA000u; // cart, after the sorted index (free gap)
+unsigned char *p6_scan_always = (unsigned char *)0x226BB000u; // cart, AFTER the 4352 B sorted index (0x226BA100)
 __attribute__((used)) int32 p6_w_scan_always = 0; // always-iterate scene slots seeded at load (witness)
 #define P6_SCAN_WINDOW 1024 // world px each side of the camera. MUST be >= max(updateRange.x+offset)
                             // + max mover drift, or a near entity is wrongly culled (it freezes).
                             // 1024 covers updateRange.x up to ~700 + offset 320; far-majority still
                             // culled in a ~10000px level. scancull_near witness measures the actual
                             // near-set -> tune down later if it is too generous (less win).
-#define P6_SCAN_CAP    800  // GHZ1 ~765 scene-populated; bigger zones need a bigger cap + a faster sort
+#define P6_SCAN_CAP    SCENEENTITY_COUNT // = 1088 = the FULL scene region (the pool ceiling). WHOLE-GAME
+                            // scalable: covers EVERY scene's max populated count -- GHZ1 alone is 1034
+                            // (not 765), worst PSZ2/SPZ1 ~2016 dropped to 1088 by the pool's entity-drop
+                            // wall. Was 800 = a GHZ1-ism that under-covered even GHZ1 -> populated slots
+                            // past the 800th were UN-indexed -> their ACTIVE_BOUNDS entities got no near
+                            // bit -> wrongly skipped (silent: R3 counts PlaneSwitch, not whether all tick).
+                            // The index insertion-sort is O(n^2) one-time at load (a faster sort = future opt).
 // Built once per scene load (post-InitObjects). (spawn_x << 11)|slot for every populated
 // scene slot, sorted by x via insertion sort (n<=765, one-time -- ~64ms in the long GHZ load).
 extern "C" void p6_scan_index_build(void)
 {
-    int32 n = 0;
-    for (int32 e = RESERVE_ENTITY_COUNT; e < TEMPENTITY_START && n < P6_SCAN_CAP; ++e) {
+    int32 n = 0, e;
+    for (e = RESERVE_ENTITY_COUNT; e < TEMPENTITY_START && n < P6_SCAN_CAP; ++e) {
         EntityBase *ent = RSDK_ENTITY_AT(e);
         if (!ent->classID)
             continue;
@@ -4279,6 +4288,11 @@ extern "C" void p6_scan_index_build(void)
             xw = 0;
         p6_scan_sorted[n++] = ((uint32)(xw & 0x1FFFFF) << 11) | (uint32)(e & 0x7FF);
     }
+    // WHOLE-GAME truncation witness: the loop stopped on the CAP (n==P6_SCAN_CAP) BEFORE the whole
+    // scene region was scanned (e < TEMPENTITY_START) -> some populated scene slots are UN-indexed ->
+    // their ACTIVE_BOUNDS entities would be wrongly skipped. With P6_SCAN_CAP == SCENEENTITY_COUNT (the
+    // pool ceiling) this can NEVER fire; it RED-gates a future cap-lowering or scene-region growth.
+    p6_w_scancull_capped = (e < TEMPENTITY_START) ? 1 : 0;
     for (int32 i = 1; i < n; ++i) {
         uint32 key = p6_scan_sorted[i];
         int32 j    = i - 1;
@@ -4298,7 +4312,13 @@ extern "C" void p6_scan_index_build(void)
         if (!ent->classID)
             continue;
         uint8 av = (uint8)ent->active;
-        if (av != ACTIVE_BOUNDS && av != ACTIVE_XBOUNDS) {
+        // x-CULLABLE iff BOUNDS/XBOUNDS AND its x half-extent (+512 px for camera offset + mover
+        // drift) fits the window. A WIDER object's true in-range span exceeds the window -> the
+        // x-cull would wrongly skip it -> pin always-iterate. This REMOVES the WHOLE-GAME WINDOW >=
+        // max(updateRange.x) ASSUMPTION (GHZ1 happens to fit, but un-ported wide objects -- bosses,
+        // long platforms -- may not). updateRange.x is fixed-point (>>16 = px), set in Create.
+        int32 rngx = (int32)(ent->updateRange.x >> 16);
+        if ((av != ACTIVE_BOUNDS && av != ACTIVE_XBOUNDS) || (rngx + 512 > P6_SCAN_WINDOW)) {
             p6_scan_always[e >> 3] |= (unsigned char)(1 << (e & 7));
             ++alw;
         }
