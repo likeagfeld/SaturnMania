@@ -409,6 +409,10 @@ extern "C" int p6_w_draw_sort;
 extern "C" int p6_w_draw_cb;
 extern "C" int p6_w_draw_maxgrp;
 extern "C" int p6_w_draw_nents;
+// LOCKED-60 (#243): loop1 scan occupancy -- sizes the trim + explains the growth.
+extern "C" int p6_w_scan_pop;
+extern "C" int p6_w_scan_maxslot;
+extern "C" int p6_w_scan_bounds;
 #endif
 
 #if RETRO_PLATFORM == RETRO_SATURN
@@ -489,6 +493,7 @@ void RSDK::ProcessObjects()
     // ProcessObjects FRT cost (loop1 inRange-scan+Update / loop2 typeGroup /
     // loop3 lateUpdate-scan). Diagnostic only.
     unsigned short _ps_tA = p6_perf_frt_get(), _ps_tB = _ps_tA, _ps_tC = _ps_tA, _ps_tD = _ps_tA;
+    p6_w_scan_pop = 0; p6_w_scan_maxslot = 0; p6_w_scan_bounds = 0;
 #endif
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
 #if RETRO_PLATFORM == RETRO_SATURN
@@ -499,6 +504,11 @@ void RSDK::ProcessObjects()
         sceneInfo.entity = RSDK_ENTITY_AT(e);
 #endif
         if (sceneInfo.entity->classID) {
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+            ++p6_w_scan_pop; p6_w_scan_maxslot = e;
+            { uint8 _av = (uint8)sceneInfo.entity->active;
+              if (_av >= ACTIVE_BOUNDS && _av <= ACTIVE_RBOUNDS) ++p6_w_scan_bounds; }
+#endif
             switch (sceneInfo.entity->active) {
                 default:
                 case ACTIVE_DISABLED: break;

@@ -386,6 +386,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_hog_cid -u _p6_w_hog_x -u _p6_w_hog_y -u _p6_w_obj_refills \
     -u _p6_w_objsec_loop1 -u _p6_w_objsec_loop2 -u _p6_w_objsec_loop3 \
     -u _p6_w_draw_sort -u _p6_w_draw_cb -u _p6_w_draw_maxgrp -u _p6_w_draw_nents \
+    -u _p6_w_scan_pop -u _p6_w_scan_maxslot -u _p6_w_scan_bounds \
     -u _p6_w_lay_slot_refills \
     -u _p6_w_col_t1hash -u _p6_w_col_nowhash -u _p6_w_col_badframe \
     -u _p6_w_lay_ring_wx -u _p6_w_lay_ring_wy -u _p6_w_lay_ring_pos \

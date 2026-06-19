@@ -77,7 +77,9 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         "_p6_w_perf_full_frt", "_p6_w_perf_full_max",
         "_p6_w_perf_head_frt", "_p6_w_perf_kick_frt", "_p6_w_perf_tail_frt",
         # LOCKED-60 (#243): DrawLists sub-attribution -- bubble-sort vs draw() callbacks.
-        "_p6_w_draw_sort", "_p6_w_draw_cb", "_p6_w_draw_maxgrp", "_p6_w_draw_nents"]
+        "_p6_w_draw_sort", "_p6_w_draw_cb", "_p6_w_draw_maxgrp", "_p6_w_draw_nents",
+        # LOCKED-60 (#243): loop1 scan occupancy -- sizes the trim + explains the growth.
+        "_p6_w_scan_pop", "_p6_w_scan_maxslot", "_p6_w_scan_bounds"]
 
 
 def main(argv):
@@ -388,6 +390,38 @@ def main(argv):
             else:
                 print("    -> CALLBACKS/EMIT dominate: the dual-SH2 render-pipeline"
                       " is the lever.")
+        # LOCKED-60 (#243): loop1 SCAN occupancy -- sizes the maxOccupiedSlot trim AND
+        # explains the 5.82->15.95ms growth. ENTITY_COUNT=1216 (0x40 reserve + 0x440
+        # scene + 0x40 temp). More ACTIVE_*BOUNDS = more per-camera distance checks.
+        spop = v.get("_p6_w_scan_pop"); smax = v.get("_p6_w_scan_maxslot")
+        sbnd = v.get("_p6_w_scan_bounds")
+        if spop is not None and smax is not None and spop > 0:
+            ENT = 1216
+            tail = (ENT - 1 - smax) if smax >= 0 else 0
+            print("  --- loop1 SCAN occupancy (the 15.95ms WALL: trim size + growth) -")
+            print("    populated slots (classID!=0) : %s / %d" % (spop, ENT))
+            print("    highest populated slot       : %s  (empty tail %d = %.1f%% of scan)"
+                  % (smax, tail, 100.0 * tail / ENT))
+            print("    ACTIVE_*BOUNDS (per-cam check): %s  (%.0f%% of populated = per-slot hog)"
+                  % (sbnd, 100.0 * (sbnd or 0) / spop))
+            # The trim saving is NOT the tail % of TIME -- empty slots are CHEAP
+            # (classID==0 -> instant skip), so skipping the empty tail saves only
+            # tail*cheap-cost. The scan TIME is dominated by the populated BOUNDS
+            # checks (per-camera distance reads from slow WRAM-L). So when bounds%
+            # is high, the maxOccupiedSlot trim is MARGINAL and the real lever is
+            # parallelizing the bounds scan (dual-SH2 split) -- MEASURED, not guessed.
+            bpct = 100.0 * (sbnd or 0) / spop
+            if bpct > 80.0:
+                print("    -> SCAN COST = the %s BOUNDS checks (%.0f%% of populated) on slow"
+                      % (sbnd, bpct))
+                print("       WRAM-L, NOT slot count. Empty slots are cheap -> maxOccupiedSlot")
+                print("       saves only ~tail*cheap = MARGINAL. The lever is the dual-SH2")
+                print("       scan-split (parallelize the bounds scan), NOT the trim.")
+            elif tail >= 0.10 * ENT:
+                print("    -> maxOccupiedSlot trim recovers ~%.1f%% (empty tail; worth it)."
+                      % (100.0 * tail / ENT))
+            else:
+                print("    -> maxOccupiedSlot trim MARGINAL (scattered empties).")
         # Phase 1b (#243): the 2-VBLANK-LOCK discriminator. A 4ms CPU cut moved
         # fps 29.91->29.91 (zero frames flipped to 1 vbl) -> the 30fps is NOT CPU-
         # bound. EDSR.CEF at compute-done (just before slSynch) decides WHY the

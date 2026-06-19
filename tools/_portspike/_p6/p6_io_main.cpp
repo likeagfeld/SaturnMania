@@ -1010,6 +1010,15 @@ __attribute__((used)) int32 p6_w_draw_sort   = 0; // FRT ticks in the bubble-sor
 __attribute__((used)) int32 p6_w_draw_cb     = 0; // FRT ticks in the draw()-callback loops (summed)
 __attribute__((used)) int32 p6_w_draw_maxgrp = 0; // max list->entityCount over visible drawgroups
 __attribute__((used)) int32 p6_w_draw_nents  = 0; // total entries iterated over visible drawgroups
+// LOCKED-60 (#243): loop1 scan occupancy -- sizes the maxOccupiedSlot trim AND
+// explains the 5.82->15.95ms scan growth. pop = populated slots (classID!=0);
+// maxslot = highest populated slot (the empty-tail boundary); bounds = slots whose
+// active is ACTIVE_*BOUNDS (the per-camera distance check, the per-slot HOG). If
+// bounds grew with the mass-port, the scan cost is INTRINSIC (registered objects
+// run the bounds check) -- not a cheap trim. MEASURED, not guessed.
+__attribute__((used)) int32 p6_w_scan_pop     = 0; // slots with classID != 0
+__attribute__((used)) int32 p6_w_scan_maxslot = 0; // highest slot with classID != 0
+__attribute__((used)) int32 p6_w_scan_bounds  = 0; // populated slots with ACTIVE_*BOUNDS
 __attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
 __attribute__((used)) int32 p6_w_hog_x   = 0;   // a hog entity's world x (fixed)
 __attribute__((used)) int32 p6_w_hog_y   = 0;   // a hog entity's world y (fixed)
