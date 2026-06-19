@@ -378,6 +378,31 @@ entity-streaming item, now the #1 execution increment). Roadmap:
   so each step is additive/reversible and GHZ stays GREEN throughout). Change sites: `Object.hpp:56-67`
   (pool tiers), `Object.cpp` RETRO_SATURN `SaturnEntityAt`/`SaturnEntitySlot` (the single indirection
   point), `Scene.cpp:620-646` (LoadScene entity loop), `p6_io_main.cpp` (pool home + witnesses).
+  - **I-PHASE CONCRETE WRAM-L MAP (2026-06-19, data-driven build spec).** The pool is a POINTER
+    (`objectEntityList`, p6_io_main.cpp:1184) -> a 445,440 B backing at `P6_LW_ENTITYLIST=0x243000`,
+    ending EXACTLY at the band store (`P6_LW_COLLMASKS`/`LAYOUTBANDS=0x2AFC00`). **KEY DE-RISK
+    (measured this turn):** shrink the pool IN PLACE and seat the new tables + the saving in the
+    FREED GAP -> every region below 0x2AFC00 (band store .. TILELAYERS .. GROUPB .. DEAD) keeps its
+    CURRENT absolute address = ZERO shift-every-absolute hazard (the #249/#250 corruption class).
+    Sizing (`qa_camera_local_pool`: peak near = **101** all-game / **62** GHZ; ALL current classes
+    force-fit 344 per Object.hpp:104-110 -> NO tiering in the current build, tiers are the whole-game
+    I6 add). New map:
+    ```
+    0x243000  pool 126,208 B   RESERVE 64x556 + SCENE_PHYS 160x344 + TEMP 64x556   [SHRUNK 445->126KB]
+    0x261D80  remap[1216]u16 2432 + inverse[288]u16 576 + dormant[1088]~2176 ~=5KB [NEW, in freed gap]
+    0x263180  FREE ~306 KB   (the WRAM-L saving; whole-game asset-residency home)   [NEW free]
+    0x2AFC00  band store / DATASTORAGE / TILELAYERS / ... / GROUPB / DEAD           [UNCHANGED]
+    ```
+    `SaturnEntityAt` computes the address with PHYSICAL region counts (RESERVE 64 / SCENE_PHYS 160 /
+    TEMP 64) on the REMAPPED physical slot; loop1 iterates the **288 physical slots** (not 1216
+    logical) -> the measured **17.62 ms / 765-populated** scan drops to <=288 -> the fps recovery
+    (compute-full 24->~12 ms = 60 fps). NOTE: there is NO identity-table intermediate (identity +
+    shrunk pool = logical>288 out-of-bounds), so the shrink + non-identity remap + materialization
+    are ONE coupled increment; the only PRE-shrink table home is the cart (an optional de-risk).
+    Increment order: **I3b** = SHRINK + non-identity remap + materialize-near/dormant-far +
+    loop1-iterates-physical (the big one; RED gates = byte-identical LAYOUT of the lower regions +
+    R0-R16 regression + the backtrack gate) -> **I3c** = lifecycle bit (alive/destroyed/collected;
+    never re-Create a collected ring) -> **I6** = tiers (whole-game). Each RED-gated, GHZ stays GREEN.
   - **I1 MANIFEST-ENUMERATION** (gate `tools/_portspike/qa_p6_manifest.py` WRITTEN + RED-confirmed;
     source edits TURNKEY below). De-risked scope: prove the enumerate-every-placed-entity path via 3
     count/checksum witnesses, ZERO new allocation (the stored side-table waits for I3 when the
