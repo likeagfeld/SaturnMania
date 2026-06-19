@@ -26,11 +26,18 @@ import json, os, glob, struct
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 SOUND_RAM = 512 * 1024
-# SFX source is MEASURED 44.1 kHz mono 16-bit (build_residency_census audit). Saturn SCSP
-# 4-bit ADPCM @ a downsampled rate = 0.5 byte/sample. SFX tolerate a low rate well; we plan
-# at 11.025 kHz mono ADPCM (the rate that fits the most scenes -- whole-game 42 MB -> 2.7 MB).
+# SFX source is MEASURED 44.1 kHz mono 16-bit (WAV fmt audit). The CURRENT engine backend
+# (p6_snd.c #209) plays them at S16 MONO 44.1 kHz = 2 B/sample, ONE SFX at a time (SCSP
+# slots 28-31) -- NOT the full RSDK resident sfxList. So the whole-game per-scene residency
+# below is the TARGET compressed format, which REQUIRES Phase S-AUDIO engine work:
+#   (1) the SCSP 4-bit ADPCM playback path (PCM8B/ADPCM mode -- not the current 16-bit), AND
+#   (2) the full resident sfxList model (not one-at-a-time).
+# TARGET = Saturn 4-bit ADPCM @ 11.025 kHz mono = 0.5 B/sample (vs the current 16-bit-44.1's
+# 2 B/sample = a 16x cut). At that target the per-scene full SFX set fits 512 KB for most
+# scenes; that is the compression GOAL the S-AUDIO build must hit, MEASURED here -- not a
+# claim about today's build.
 SFX_ADPCM_HZ = 11025
-SFX_ADPCM_BYTES_PER_SAMPLE = 0.5  # 4-bit ADPCM, mono
+SFX_ADPCM_BYTES_PER_SAMPLE = 0.5  # 4-bit ADPCM mono (the S-AUDIO TARGET; current engine = 16-bit)
 
 
 def _wav_seconds(p):
