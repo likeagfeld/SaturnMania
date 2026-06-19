@@ -52,8 +52,15 @@ namespace RSDK
 // changes `pak`. ANIMPAK still ends contiguously at the new OVL base 0x060C8800
 // (0x060B7800 + 0x11000). _end (after Spring left the pack) must stay < 0x060B7800
 // -- gate qa_p6_ghz_regression R0 (frozen boot if over).
-#define P6_HW_ANIMPAK     0x060B6600u // O1 step 2: slid to D=0x1A00 (Bridge+PlaneSwitch
-                                      // join the overlay); ends at OVL_BASE 0x060C7600
+#define P6_HW_ANIMPAK     0x060B6C00u // RECLAIM 2026-06-19 (camera-local pool streaming WRAM-H budget):
+                                      // RAISED 0x600 from 0x060B6600 into the gap the cart-relocated overlay
+                                      // (#258) vacated -- the anim pack is OFFSET-based so the base moves freely
+                                      // (no baked pointers). Top = 0x060B6C00 + CAP 0x11000 = 0x060C7C00, still
+                                      // 1024 B below the resident GLOBALS window 0x060C8000 (gen_globals_map.py;
+                                      // the stale 0x060CA000 comment predates the #258 OVL->cart decouple, so the
+                                      // CONSERVATIVE 0x060C8000 is used). _end headroom 64 -> ~1600 B, unblocking
+                                      // the streaming code. qa_p6_mapoverlap tracks the live #define; R0-R16 proves
+                                      // the anim pack loads + renders at the new base. WAS 0x060B6600 (O1 D=0x1A00).
 #define P6_HW_ANIMPAK_CAP 0x00011000u // 69,632 B (build_anim_pack.py asserts)
 // #254 residency lever (2026-06-17): SECOND resident anim pack in the CART for the
 // COLD GHZ object anims (Animation.cpp reads it after the WRAM-H pack). Cache-through
