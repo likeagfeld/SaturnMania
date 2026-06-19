@@ -1001,6 +1001,15 @@ __attribute__((used)) int32 p6_w_obj_refills = 0; // SaturnLayout inflates DURIN
 __attribute__((used)) int32 p6_w_objsec_loop1 = 0; // inRange scan + Update + drawgroup (FRT ticks)
 __attribute__((used)) int32 p6_w_objsec_loop2 = 0; // typeGroup build (FRT ticks)
 __attribute__((used)) int32 p6_w_objsec_loop3 = 0; // lateUpdate full-scan + onScreen clear (FRT ticks)
+// LOCKED-60 (#243, 2026-06-18): DrawLists (7.3ms) sub-attribution -- is the cost the
+// O(n^2) zdepth BUBBLE SORT (Object.cpp:953-964, per sorted drawgroup) or the per-
+// entity draw() callbacks + VDP1 emission? Decides the lever: a sort fix is a cheap
+// single-CPU win (maybe 60fps WITHOUT dual-SH2); callback/emit cost justifies the
+// slave render-pipeline. P6_PERF_OBJPROF-gated FRT ticks, summed across drawgroups.
+__attribute__((used)) int32 p6_w_draw_sort   = 0; // FRT ticks in the bubble-sort loops (summed)
+__attribute__((used)) int32 p6_w_draw_cb     = 0; // FRT ticks in the draw()-callback loops (summed)
+__attribute__((used)) int32 p6_w_draw_maxgrp = 0; // max list->entityCount over visible drawgroups
+__attribute__((used)) int32 p6_w_draw_nents  = 0; // total entries iterated over visible drawgroups
 __attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
 __attribute__((used)) int32 p6_w_hog_x   = 0;   // a hog entity's world x (fixed)
 __attribute__((used)) int32 p6_w_hog_y   = 0;   // a hog entity's world y (fixed)

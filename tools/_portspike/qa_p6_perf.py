@@ -75,7 +75,9 @@ SYMS = ["_p6_w_perf_vblanks", "_p6_w_perf_frames", "_p6_w_perf_vbl_max",
         # kick/tail symbols are absent on the pre-2c map -> M1 fires RED there.
         "_p6_w_perf_synch_frt", "_p6_w_perf_synch_max",
         "_p6_w_perf_full_frt", "_p6_w_perf_full_max",
-        "_p6_w_perf_head_frt", "_p6_w_perf_kick_frt", "_p6_w_perf_tail_frt"]
+        "_p6_w_perf_head_frt", "_p6_w_perf_kick_frt", "_p6_w_perf_tail_frt",
+        # LOCKED-60 (#243): DrawLists sub-attribution -- bubble-sort vs draw() callbacks.
+        "_p6_w_draw_sort", "_p6_w_draw_cb", "_p6_w_draw_maxgrp", "_p6_w_draw_nents"]
 
 
 def main(argv):
@@ -368,6 +370,24 @@ def main(argv):
             print("    -> %.0f%% of ProcessObjects = the two full entity-table "
                   "scans, NOT game logic (%.2f ms)."
                   % (100.0 * (l1 - upd + l3) / tot, us(upd) / 1000.0))
+        # LOCKED-60 (#243): DrawLists (7.3ms) sub-attribution -- the lever decision.
+        # bubble-sort O(n^2) is a CHEAP single-CPU fix; callbacks/emit cost justifies
+        # the dual-SH2 render-pipeline. MEASURED, not guessed.
+        dsort = v.get("_p6_w_draw_sort"); dcb = v.get("_p6_w_draw_cb")
+        dmax = v.get("_p6_w_draw_maxgrp"); dn = v.get("_p6_w_draw_nents")
+        if dsort is not None and dcb is not None:
+            sort_ms = us(dsort) / 1000.0; cb_ms = us(dcb) / 1000.0
+            print("  --- INSIDE DrawLists (#243 LOCKED-60 lever decision) --------")
+            print("    zdepth bubble-sort (O(n^2)) : %6.2f ms" % sort_ms)
+            print("    draw() callbacks + VDP1 emit: %6.2f ms" % cb_ms)
+            print("    drawgroups: max %s entities/group, %s total entries"
+                  % (dmax, dn))
+            if sort_ms > cb_ms:
+                print("    -> SORT DOMINATES: a cheap single-CPU sort fix is the lever"
+                      " (possibly 60fps WITHOUT dual-SH2).")
+            else:
+                print("    -> CALLBACKS/EMIT dominate: the dual-SH2 render-pipeline"
+                      " is the lever.")
         # Phase 1b (#243): the 2-VBLANK-LOCK discriminator. A 4ms CPU cut moved
         # fps 29.91->29.91 (zero frames flipped to 1 vbl) -> the 30fps is NOT CPU-
         # bound. EDSR.CEF at compute-done (just before slSynch) decides WHY the

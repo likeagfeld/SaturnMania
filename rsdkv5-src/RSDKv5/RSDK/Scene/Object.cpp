@@ -404,6 +404,11 @@ extern "C" int p6_w_objupd_us[64];
 extern "C" int p6_w_objsec_loop1;
 extern "C" int p6_w_objsec_loop2;
 extern "C" int p6_w_objsec_loop3;
+// LOCKED-60 (#243): DrawLists sub-attribution -- bubble sort vs draw() callbacks.
+extern "C" int p6_w_draw_sort;
+extern "C" int p6_w_draw_cb;
+extern "C" int p6_w_draw_maxgrp;
+extern "C" int p6_w_draw_nents;
 #endif
 
 #if RETRO_PLATFORM == RETRO_SATURN
@@ -929,6 +934,10 @@ void RSDK::ProcessFrozenObjects()
 void RSDK::ProcessObjectDrawLists()
 {
     if (sceneInfo.state != ENGINESTATE_LOAD && sceneInfo.state != (ENGINESTATE_LOAD | ENGINESTATE_STEPOVER)) {
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+        // LOCKED-60 (#243): per-frame reset of the DrawLists sub-attribution witnesses.
+        p6_w_draw_sort = 0; p6_w_draw_cb = 0; p6_w_draw_maxgrp = 0; p6_w_draw_nents = 0;
+#endif
         for (int32 s = 0; s < videoSettings.screenCount; ++s) {
             currentScreen             = &screens[s];
             sceneInfo.currentScreenID = s;
@@ -950,6 +959,11 @@ void RSDK::ProcessObjectDrawLists()
                     if (list->hookCB)
                         list->hookCB();
 
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+                    if (list->entityCount > p6_w_draw_maxgrp) p6_w_draw_maxgrp = list->entityCount;
+                    p6_w_draw_nents += list->entityCount;
+                    unsigned short _ds0 = p6_perf_frt_get();
+#endif
                     if (list->sorted) {
                         for (int32 e = 0; e < list->entityCount; ++e) {
                             for (int32 i = list->entityCount - 1; i > e; --i) {
@@ -962,6 +976,10 @@ void RSDK::ProcessObjectDrawLists()
                             }
                         }
                     }
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+                    { unsigned short _ds1 = p6_perf_frt_get();
+                      p6_w_draw_sort += (int)(unsigned short)(_ds1 - _ds0); _ds0 = _ds1; }
+#endif
 
                     for (int32 i = 0; i < list->entityCount; ++i) {
                         sceneInfo.entitySlot = list->entries[i];
@@ -979,6 +997,9 @@ void RSDK::ProcessObjectDrawLists()
                             sceneInfo.entity->onScreen |= validDraw << sceneInfo.currentScreenID;
                         }
                     }
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
+                    p6_w_draw_cb += (int)(unsigned short)(p6_perf_frt_get() - _ds0);
+#endif
 
                     for (int32 i = 0; i < list->layerCount; ++i) {
                         TileLayer *layer = &tileLayers[list->layerDrawList[i]];
