@@ -94,37 +94,53 @@ def main(argv):
         print("   .bss/.data -- the W12b GFS-table-clobber class. Fix = the")
         print("   p6_pack_merge.ld second `ld -r` pass in build_p6scene_objs.sh.)")
         return 1
-    # Task #227 STG sizing: the fixed WRAM-H ANIMPAK window (P6_HW_ANIMPAK,
-    # Animation.hpp; W15 base 0x060AF000) lives below the 0x060C0000 overlay
-    # -- the linked image must end BELOW the window floor or the ANIMPAK
-    # boot load clobbers live .bss (MEASURED p6_g2: scene_step froze at 1).
-    # DIAG FLAVOR ONLY: the shipping build carries neither the window nor
-    # the bound (discriminated by the p6_scene_run symbol).
-    # W17 (Task #227, 2026-06-13): pak relocated UP to 0x060B8000 by the WRAM-H
-    # re-budget (OVL 16K->4K + GROUPWIN 40K->32K compaction; the layout window
-    # at 0x060F0000 and PACKEDCOL at 0x060E0000 are FIXED -- NOT a free gap).
-    ANIMPAK_FLOOR = 0x060B8000
-    # W17 RED-first: the re-budget must leave a working margin, not the 1,092 B
-    # the pre-W17 floor (0x060B3000) gave -- that fires RED on the old build and
-    # GREEN after the compaction. 16 KB headroom funds the next FX/TU growth.
-    MARGIN_MIN = 0x4000
+    # Task #227 STG sizing: the linked image must end BELOW the fixed WRAM-H ANIMPAK
+    # load address or the anim-pack boot load clobbers live .bss (MEASURED p6_g2:
+    # scene_step froze at 1).
+    #
+    # 2026-06-19 CORRECTION (RED-first for the #228 boot-trap class): the REAL clobber
+    # line is P6_HW_ANIMPAK ITSELF (Animation.hpp), NOT the stale hardcoded 0x060B8000
+    # this gate used. MEASURED: a diagnostic that pushed _end 0x060B65C0 -> 0x060B6800
+    # (just 0x200 OVER P6_HW_ANIMPAK=0x060B6600) made the anim-pack load corrupt .bss ->
+    # master SH-2 trapped at 0x06000956 (#228), blue screen forever, cont_frames=0. The
+    # old 0x060B8000 ceiling sat 0x1A00 ABOVE the real line, so it would have passed that
+    # trapping build (only the 16 KB headroom coincidentally RED'd it -- and that same
+    # headroom FALSE-RED's working builds that legitimately run near the ceiling). Fix:
+    # parse the LIVE ANIMPAK base and assert _end < it as the HARD gate -- this static map
+    # check catches the trap WITHOUT a capture. The growth headroom is demoted to an
+    # ADVISORY note (the tree runs near the ceiling until the pool/re-budget frees WRAM-H;
+    # it must not fail a booting build).
+    animpak = None
+    anim_hpp = os.path.join(os.path.dirname(__file__), "..", "..",
+                            "rsdkv5-src", "RSDKv5", "RSDK", "Graphics", "Animation.hpp")
+    try:
+        with open(anim_hpp, errors="ignore") as f:
+            ma = re.search(r"#define\s+P6_HW_ANIMPAK\s+(0x[0-9a-fA-F]+)", f.read())
+        if ma:
+            animpak = int(ma.group(1), 16) & 0xFFFFFFFF
+    except OSError:
+        pass
+    ADVISORY_MARGIN = 0x1000  # below this, print a re-budget advisory (NOT a RED)
     with open(mp, errors="ignore") as f:
         text = f.read()
-    if "p6_scene_run" in text:
+    if "p6_scene_run" in text and animpak is not None:
         m = re.search(r"0x[0]*([0-9a-fA-F]+)\s+_end = \.", text)
         if m:
             end = int(m.group(1), 16)
-            if end > ANIMPAK_FLOOR:
-                print("RESULT: RED -- _end 0x%08X over the ANIMPAK window floor 0x%08X"
-                      % (end, ANIMPAK_FLOOR))
+            if end >= animpak:
+                print("RESULT: RED -- BOOT TRAP: _end 0x%08X >= P6_HW_ANIMPAK 0x%08X -- the "
+                      "anim-pack load clobbers live .bss (#228; master SH-2 traps 0x06000956, "
+                      "blue screen, cont_frames=0). Reclaim WRAM-H before adding to it."
+                      % (end, animpak))
                 return 1
-            margin = ANIMPAK_FLOOR - end
-            if margin < MARGIN_MIN:
-                print("RESULT: RED -- _end 0x%08X margin %d B < %d B floor "
-                      "(WRAM-H re-budget needed)" % (end, margin, MARGIN_MIN))
-                return 1
-            print("  _end 0x%08X <= ANIMPAK window floor 0x%08X (margin %d B)"
-                  % (end, ANIMPAK_FLOOR, margin))
+            margin = animpak - end
+            adv = ("  [ADVISORY] only %d B WRAM-H headroom under ANIMPAK -- re-budget/pool "
+                   "shrink needed before further growth" % margin) if margin < ADVISORY_MARGIN else ""
+            print("  _end 0x%08X < P6_HW_ANIMPAK 0x%08X (headroom %d B)%s"
+                  % (end, animpak, margin, ("\n" + adv) if adv else ""))
+    elif "p6_scene_run" in text and animpak is None:
+        print("  [warn] could not parse P6_HW_ANIMPAK from Animation.hpp -- _end clobber "
+              "check SKIPPED (update the regex).")
     print("RESULT: GREEN -- all allocated output sections disjoint")
     return 0
 

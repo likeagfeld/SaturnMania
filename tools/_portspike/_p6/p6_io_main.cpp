@@ -605,6 +605,14 @@ static EntityBase *p6_i2_direct(int32 slot)
 // P6.8 I2 load-time self-check: walk every slot once (1216 slots, NOT per-frame --
 // negligible cost) and latch resolve_ok=1 iff the routed SaturnEntityAt matches the
 // direct oracle for ALL slots. Called post-InitObjects beside p6_purge_scene_players.
+// NOTE (I3, 2026-06-19): the round-trip + non-identity bijection proof that I3 needs
+// (SaturnEntitySlot is the exact inverse, and survives a non-identity remap) is a STATIC
+// property of the address arithmetic -- it is proven OFFLINE by tools/_portspike/qa_p6_i3.py
+// (parses the live pool #defines, replicates SaturnEntityAt/SaturnEntitySlot). A runtime
+// self-check is NOT added here: WRAM-H has only ~64 B headroom under P6_HW_ANIMPAK
+// (0x060B6600); a ~576 B runtime check pushed _end to 0x060B6800 and the anim-pack load
+// clobbered .bss -> #228 boot trap (master PC 0x06000956, blue screen). Re-confirm at
+// runtime only AFTER the pool shrink frees WRAM-H.
 void p6_i2_selfcheck(void)
 {
     int32 ok = 1;
