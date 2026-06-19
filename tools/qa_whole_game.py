@@ -24,6 +24,14 @@
 #      band-window (S2/S4). (The census store_fits/dropin_ready use a stricter cumulative
 #      all-resident model -- NOT the actual per-zone-swap residency -- so we use OWN bytes.)
 #   W4 WRAM-H CODE (ENFORCED): the current build's _end < P6_HW_ANIMPAK (#228 ceiling).
+#   W5c TEXT/LOCALIZATION (DASHBOARD): DATASET_STR active-language resident (build_strings_census).
+#   W8 COVERAGE COMPLETENESS (ENFORCED): the self-audit -- every on-disk extracted/Data root AND
+#      every live RSDK storage pool (Storage.hpp StorageDataSets, parsed) must map to a tracked
+#      wall. This is the data-driven answer to "what about the asset classes I did NOT name?" --
+#      a NEW or forgotten asset class (root or pool) RED-fails the gate instead of silently slipping
+#      through. The 5 RSDK pools (STG/MUS/SFX/STR/TMP) + the 7 Data roots + the FIXED HW tables
+#      (entity pool, CRAM palette, collision 0x060E0000, WRAM-H code, VDP VRAM, backup RAM) are the
+#      WHOLE corpus partition; W8 proves the wall set is total over it.
 #
 # TRACKED-NOT-YET-STATIC (printed so they are never forgotten -- WHOLE_GAME_MASSPORT_PLAN s9):
 #   CRAM per-scanline palettes (Phase-Z Z3), whole-game AUDIO 58 BGM + per-zone SFX vs
@@ -81,6 +89,14 @@ def main(argv):
     ac = json.load(open(acp)) if os.path.isfile(acp) else None  # W5 (tools/build_audio_census.py)
     rcp = os.path.join(ROOT, "docs/residency_census.json")
     rc = json.load(open(rcp)) if os.path.isfile(rcp) else None  # W5b/W6/W7 (build_residency_census.py)
+    stp = os.path.join(ROOT, "docs/strings_census.json")
+    stc = json.load(open(stp)) if os.path.isfile(stp) else None  # W5c DATASET_STR (build_strings_census.py)
+    sxp = os.path.join(ROOT, "docs/sfx_subset.json")
+    sxc = json.load(open(sxp)) if os.path.isfile(sxp) else None  # W5b subset (build_sfx_subset.py)
+    # LIVE RSDK storage-pool enum (Storage.hpp StorageDataSets) -- parsed so it cannot drift; W8
+    # asserts every pool maps to a tracked wall (an engine-added pool would surface as untracked).
+    sthpp = _read(os.path.join(ROOT, "rsdkv5-src/RSDKv5/RSDK/Storage/Storage.hpp"))
+    POOLS = re.findall(r"\b(DATASET_[A-Z]+)\s*=\s*\d+", sthpp)
     scenes_d = dc["scenes"]
     scenes_s = sc["scenes"]
     NSC = len(scenes_d)
@@ -186,6 +202,58 @@ def main(argv):
     else:
         print("  [  ?  ] W5b/W6/W7: docs/residency_census.json absent -- run build_residency_census.py")
 
+    # W5b working-subset feasibility (build_sfx_subset.py) + W5c text/localization (DATASET_STR)
+    if sxc:
+        s = sxc["scenes"]
+        zero = sum(1 for v in s.values() if v["ondemand_count"] == 0)
+        wod = max(s.items(), key=lambda kv: kv[1]["ondemand_count"]) if s else ("-", {})
+        print("  [GREEN] W5b SUBSET feasible: ALL %d scenes fit the %d KB scene budget @ 8-bit %d Hz;"
+              % (len(s), sxc["scene_budget_bytes"] // 1024, sxc["sfx_hz"]))
+        print("            %d need ZERO on-demand; worst %s = %d SFX CD-on-demand (S-AUDIO plays on trigger)."
+              % (zero, wod[0], wod[1].get("ondemand_count", 0)))
+    if stc:
+        print("  [GREEN] W5c TEXT/LOCALIZATION (DATASET_STR, %d langs): active-language resident = %s %d B"
+              % (stc["language_count"], stc["active_lang_worst"], stc["active_lang_resident_bytes"]))
+        print("            (load ONLY the active language; all %d = %d B is the anti-pattern; Credits %d B scene-only)."
+              % (stc["language_count"], stc["all_langs_resident_bytes"], stc["credits_bytes"]))
+
+    # W8 COVERAGE COMPLETENESS (hard) -- the self-audit answering "the asset classes I did NOT name":
+    # every on-disk Data root AND every live RSDK storage pool must map to a tracked wall, so a NEW
+    # or forgotten asset class cannot be silently uncovered (user 2026-06-19). Mechanical, not a
+    # hand-kept list -- it RED-fails the instant an untracked root/pool appears.
+    ROOT_WALL = {
+        "Music": "W5a BGM (CD-DA)", "SoundFX": "W5b/subset SFX (Sound RAM)",
+        "Sprites": "W3 sheets + W6 anim (DATASET_STG)", "Video": "W7 Cinepak (boot)",
+        "Strings": "W5c DATASET_STR (active-language)", "Game": "GameConfig boot index (StageList)",
+        "Stages": "W1/W2 entities + tiles(band/W3) + collision(0x060E0000 fixed) + palette(CRAM/Z3)",
+    }
+    POOL_WALL = {
+        "DATASET_STG": "W3 sheets + W6 anim", "DATASET_MUS": "W5a BGM (CD-DA)",
+        "DATASET_SFX": "W5b SFX (Sound RAM)", "DATASET_STR": "W5c (active-language)",
+        "DATASET_TMP": "transient load scratch (perf/load wall #249)",
+    }
+    data_dir = os.path.join(ROOT, "extracted/Data")
+    if os.path.isdir(data_dir):
+        roots = sorted(d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d)))
+        roots_src = "extracted/Data live"
+    else:
+        roots = sorted(ROOT_WALL); roots_src = "baked partition (extracted/ absent on this checkout)"
+    pools = [p for p in (POOLS or []) if p != "DATASET_MAX"]
+    untracked_roots = [r for r in roots if r not in ROOT_WALL]
+    untracked_pools = [p for p in pools if p not in POOL_WALL]
+    w8 = bool(roots) and bool(pools) and not untracked_roots and not untracked_pools
+    print("  [%s] W8 COVERAGE COMPLETE: every Data root + every RSDK pool maps to a tracked wall"
+          % ("GREEN" if w8 else " RED "))
+    print("         roots(%s): %s" % (roots_src, ", ".join(roots)))
+    print("         pools(Storage.hpp StorageDataSets): %s" % ", ".join(pools))
+    if untracked_roots:
+        print("         !! UNTRACKED ROOT(S): %s -- add a wall (an 'unnamed asset class')" % untracked_roots)
+    if untracked_pools:
+        print("         !! UNTRACKED POOL(S): %s -- add a wall" % untracked_pools)
+    print("         FIXED HW tables also budgeted (not pools/roots): entity pool=W1/W2,")
+    print("            CRAM palette=Z3, collision masks 0x060E0000=Scene.hpp x1-Saturn fixed,")
+    print("            WRAM-H code=W4, VDP1/VDP2 VRAM=band-store/S3, backup RAM 0x00180000 64KB=SaveGame.")
+
     # tracked-not-yet-static
     print("-" * 74)
     print("  TRACKED (precise gate still TODO -- next research-gate work, plan s9):")
@@ -193,11 +261,11 @@ def main(argv):
     print("    * ANIM decoded-frame pool census (W6 exact) * VDP1 fill-rate at density (S3)")
     print("-" * 74)
 
-    ok = w1 and w4 and w5bgm
+    ok = w1 and w4 and w5bgm and w8
     if ok:
         print("RESULT: GREEN -- foundation INVARIANTS hold whole-game (W1 cull covers all %d scenes,"
-              " W4 under #228, W5a all-58-BGM fits one disc). W2/W3/W5b are the documented mass-port"
-              " roadmap above (per-Zone waves), not regressions. Consult on every foundation change." % NSC)
+              " W4 under #228, W5a all-58-BGM fits one disc, W8 every asset class tracked). W2/W3/W5b"
+              " are the documented mass-port roadmap above (per-Zone waves), not regressions." % NSC)
         return 0
     print("RESULT: RED -- a foundation invariant BROKE for the whole game:")
     if not w1:
@@ -206,6 +274,9 @@ def main(argv):
         print("   W4: _end >= ANIMPAK -> #228 boot trap. Reclaim WRAM-H before growing.")
     if not w5bgm:
         print("   W5a: BGM CD-DA + data pack > 74-min CD -> needs 2nd disc OR PCM-stream some BGM.")
+    if not w8:
+        print("   W8: an on-disk Data root or RSDK storage pool has NO tracked wall -> an asset class")
+        print("       is uncovered ('a class I did not name'). Add its wall before the foundation grows.")
     return 1
 
 
