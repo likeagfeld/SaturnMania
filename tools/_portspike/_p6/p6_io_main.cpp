@@ -622,6 +622,11 @@ __attribute__((used)) int32 p6_w_plr_drawflags  = -1; // (drawGroup<<16)|(visibl
 __attribute__((used)) int32 p6_w_bind_count     = 0;  // successful VDP1 binds in the GHZ pre-tick loop
 __attribute__((used)) int32 p6_w_bind_log[8]    = { 0 }; // (surfaceId<<8)|(handle&0xFF) per bind attempt
 __attribute__((used)) int32 p6_w_bind_logn      = 0;
+// BADNIK-VIS: shipping arm_env bind-loop instrumentation (the burst bind_log never
+// runs in shipping). bind_demand = surfaces that consumed a VDP1 bind slot (vs the
+// P6_VDP1_NSHEETS table size); bind_log16[k] = (surfaceID<<16)|(wasPix<<8)|(handle&0xFF).
+__attribute__((used)) int32 p6_w_bind_demand    = 0;
+__attribute__((used)) int32 p6_w_bind_log16[16] = { 0 };
 // W18 (Task #227, qa_p6_entdraw.py): the SURFACE CENSUS taken right after the
 // GHZ pre-tick bind loop -- proves WHICH surfaces exist + their bind state.
 // surfcensus[i] = (scope<<24)|(hasPixels<<16)|((shtSlot&0xFF)<<8)|(handle&0xFF)
@@ -762,6 +767,36 @@ __attribute__((used)) int32 p6_w_ghzobj_h0     = 0;
 __attribute__((used)) int32 p6_w_brg_surfslot  = -9;
 __attribute__((used)) int32 p6_w_brg_surfscope = -9;
 __attribute__((used)) int32 p6_w_brg_surfh0    = 0;
+// BADNIK-VIS diag (2026-06-18): resolve WHERE the GHZ/Objects.gif surface lives now
+// that Batch 2 (Explosion/Animals add Global/Explosions.gif + Animals.gif) may have
+// shifted the surface load order off the hardcoded gfxSurface[14]. Scan ALL surfaces
+// for the GHZ/Objects.gif hash; report the surface index, its saturnSheetSlot, scope,
+// and the BOUND VDP1 handle. ghzobj_surf_idx<0 => the sheet has NO surface (no object
+// loaded it); handle<0 => surface exists but UNBOUND (the invisible cause).
+__attribute__((used)) int32 p6_w_ghzobj_surf_idx    = -9; // gfxSurface[] index for GHZ/Objects.gif
+__attribute__((used)) int32 p6_w_ghzobj_surf_slot   = -9; // its saturnSheetSlot (expect 8)
+__attribute__((used)) int32 p6_w_ghzobj_surf_scope  = -9; // its scope (2 == SCOPE_STAGE)
+__attribute__((used)) int32 p6_w_ghzobj_surf_handle = -9; // p6_vdp1HandleBySurface[idx] (>=0 GREEN)
+// (p6_w_surfpop already defined above at the surfcensus block -- reused here)
+// Live-badnik draw-state latch (written from the OVERLAY witness via the api, since
+// the pack cannot name Motobug/Newtron). bd_* = the first live badnik entity found:
+// classID, position x/y(px), onScreen, visible, drawGroup, active, framesNN(0=NULL
+// animator.frames=no sprite), animID, frameID, sheetID(the frame's), and the resolved
+// handle for that sheetID (the overlay reads it via the exposed accessor below).
+__attribute__((used)) int32 p6_w_bd_found    = 0;   // # live badnik entities scanned this frame
+__attribute__((used)) int32 p6_w_bd_classid  = -1;
+__attribute__((used)) int32 p6_w_bd_posx     = -1;
+__attribute__((used)) int32 p6_w_bd_posy     = -1;
+__attribute__((used)) int32 p6_w_bd_onscreen = -1;
+__attribute__((used)) int32 p6_w_bd_visible  = -1;
+__attribute__((used)) int32 p6_w_bd_drawgrp  = -1;
+__attribute__((used)) int32 p6_w_bd_active   = -1;
+__attribute__((used)) int32 p6_w_bd_framesNN = -1; // (animator.frames!=NULL)
+__attribute__((used)) int32 p6_w_bd_animid   = -1;
+__attribute__((used)) int32 p6_w_bd_frameid  = -1;
+__attribute__((used)) int32 p6_w_bd_sheetid  = -1;
+__attribute__((used)) int32 p6_w_bd_handle   = -2; // p6_vdp1HandleBySurface[bd_sheetid]
+__attribute__((used)) int32 p6_w_bd_drawn    = 0;  // Motobug/Newtron Draw reached DrawSprite for an on-screen badnik
 // P6.8 F.2-followup debug WARP (declared early -- the signpost-active scan in
 // p6_ghz_frame's census reads it). p6_w_warp_plrx = the player x after the warp
 // past the GHZ1 signpost (x=15792px); p6_w_warp_signactive = the active field of
@@ -1038,6 +1073,16 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
 // W12b: surfaceID -> vdp1 sheet handle (filled at bind time; -1 = unbound).
 static int8 p6_vdp1HandleBySurface[SURFACE_COUNT];
 static bool p6_vdp1HandlesInit = false;
+
+// BADNIK-VIS diag (2026-06-18): accessor the OVERLAY witness calls to resolve a
+// badnik frame's bound handle (the overlay cannot name this static table). Returns
+// -3 for an out-of-range/uninit query, else the int8 handle (>=0 bound, -1 unbound).
+extern "C" int32 p6_vdp1_handle_for_surface(int32 sheetID)
+{
+    if (!p6_vdp1HandlesInit || sheetID < 0 || sheetID >= SURFACE_COUNT)
+        return -3;
+    return (int32)p6_vdp1HandleBySurface[sheetID];
+}
 
 // P6.6c: Audio.cpp's file-scope stream state lives at GLOBAL scope (NOT in
 // namespace RSDK -- Audio.cpp:20,24): PlayStream sprintf-s the request path
@@ -1917,15 +1962,26 @@ static void p6_ghz_arm_env(void)
         if (sf->scope == SCOPE_NONE || p6_vdp1HandleBySurface[i] >= 0)
             continue;
         int32 h = -1;
-        if (sf->pixels)
+        int32 wasPix = 0;
+        if (sf->pixels) {
+            wasPix = 1;
             h = p6_vdp1_sheet_bind(sf->pixels, sf->width,
                                    (const unsigned short *)fullPalette[0]);
-        else if (sf->saturnSheetSlot >= 0)
+        } else if (sf->saturnSheetSlot >= 0)
             h = p6_vdp1_sheet_bind_banded(sf->saturnSheetSlot, sf->width,
                                           (const unsigned short *)fullPalette[0]);
         else
             continue;
         p6_vdp1HandleBySurface[i] = (int8)h;
+        // BADNIK-VIS: log every bind ATTEMPT in this (shipping) arm_env loop so the
+        // exact VDP1 bind-table demand is measured (the burst-path bind_log never
+        // runs in shipping -- bind_count was 0). attempt = (surfaceID<<16)|(wasPix<<8)
+        // |(handle&0xFF). bind_demand counts every surface that consumed a bind slot.
+        if (h >= 0) ++p6_w_bind_count;
+        ++p6_w_bind_demand;
+        if (p6_w_bind_logn < 16)
+            p6_w_bind_log16[p6_w_bind_logn++] =
+                (i << 16) | (wasPix << 8) | (h & 0xFF);
     }
 
     // #181 sheet-bind diag: pinpoint why GHZ/Objects.gif (sheetID 14, the bridge's
@@ -1941,6 +1997,25 @@ static void p6_ghz_arm_env(void)
             p6_w_brg_surfslot  = (int32)gfxSurface[14].saturnSheetSlot;
             p6_w_brg_surfscope = (int32)gfxSurface[14].scope;
             p6_w_brg_surfh0    = (int32)gfxSurface[14].hash[0];
+        }
+        // BADNIK-VIS: find the GHZ/Objects.gif surface by HASH scan (not the stale
+        // hardcoded index 14) + its bound handle. This is the surface-side truth for
+        // every badnik (all reference GHZ/Objects.gif). idx<0 => no object loaded the
+        // sheet; handle<0 => surface exists but UNBOUND (=> every badnik blit drops).
+        int32 pop = 0, found = -1;
+        for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+            if (gfxSurface[i].scope != SCOPE_NONE) ++pop;
+            if (found < 0 && gfxSurface[i].scope != SCOPE_NONE
+                && gfxSurface[i].hash[0] == gh[0] && gfxSurface[i].hash[1] == gh[1]
+                && gfxSurface[i].hash[2] == gh[2] && gfxSurface[i].hash[3] == gh[3])
+                found = i;
+        }
+        p6_w_surfpop = pop;
+        p6_w_ghzobj_surf_idx = found;
+        if (found >= 0) {
+            p6_w_ghzobj_surf_slot   = (int32)gfxSurface[found].saturnSheetSlot;
+            p6_w_ghzobj_surf_scope  = (int32)gfxSurface[found].scope;
+            p6_w_ghzobj_surf_handle = p6_vdp1_handle_for_surface(found);
         }
     }
 }
@@ -2672,6 +2747,11 @@ extern "C" void p6_scene_run(void)
         // -- the shared GHZ content-objects sheet the Bridge planks (and the rest of
         // the GHZ object sweep) index. Total banded store 305,135 B inside the 384 KB
         // cart. SATURNSHEET_SLOTS bumped 8->9 to hold it.
+        // BADNIK-VIS (2026-06-18): the staged set stays at 9 (EXPLODE/ANIMALS are NOT
+        // staged -- growing SATURNSHEET_SLOTS tripped the #228 orphan-.bss overlap).
+        // The badnik fix is solely P6_VDP1_NSHEETS 9->12 so GHZ/Objects.gif (surf 16)
+        // gets a bind slot. Explosions/Animals render via their stock resident-pixel
+        // path (LoadSpriteSheet decode into DATASET_STG, Sprite.cpp:994).
         static const char *shtFiles[9] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
                                            "ITEMS.SHT", "DISPLAY.SHT", "SHIELDS.SHT",
                                            "TAILS1.SHT", "GLOBJ.SHT", "GHZOBJ.SHT" };

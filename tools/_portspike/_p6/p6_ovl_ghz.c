@@ -69,6 +69,17 @@ extern int32 p6_w_explosion_aniframes; /* Explosion->aniFrames (load-status latc
 extern int32 p6_w_animals_aniframes;   /* Animals->aniFrames */
 extern int32 p6_w_newtron_aniframes;   /* Newtron->aniFrames */
 
+/* BADNIK-VIS diag (2026-06-18): the overlay names the badnik globals, so the live
+ * draw-state scan lives here. Witnesses DEFINED in p6_io_main.cpp (main image). The
+ * handle accessor is also there (the pack static table). bd_* latch the first live
+ * badnik entity each frame: pos/onScreen/visible/drawGroup/active + animator.frames
+ * (NULL?) + the current frame's sheetID + the resolved VDP1 handle for it. */
+extern int32 p6_w_bd_found, p6_w_bd_classid, p6_w_bd_posx, p6_w_bd_posy,
+             p6_w_bd_onscreen, p6_w_bd_visible, p6_w_bd_drawgrp, p6_w_bd_active,
+             p6_w_bd_framesNN, p6_w_bd_animid, p6_w_bd_frameid, p6_w_bd_sheetid,
+             p6_w_bd_handle, p6_w_bd_drawn;
+extern int32 p6_vdp1_handle_for_surface(int32 sheetID);
+
 /* Forward decl so p6_overlay_entry is the FIRST function (window base). */
 static void p6_ghz_ovl_witness(const void *ringSlot);
 
@@ -315,5 +326,51 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
             foreach_all(SpikeLog, e) { sl = e; break; }
             if (sl) { p6_w_spikelog_frames = (int32)(size_t)sl->animator.frames; s_sl_latched = 1; }
         }
+    }
+
+    /* BADNIK-VIS: live draw-state scan. Walk every badnik type; count live entities;
+     * latch the FIRST one that is on-screen (or, failing that, the first live one) and
+     * record its full draw state so the decision tree resolves in one capture. Each
+     * badnik Entity has its `animator` field; GetFrame(aniFrames, animID, frameID) is
+     * stride-safe (->frames is opaque here). The handle accessor reads the pack table.
+     * Non-sticky every frame so the LATEST on-screen badnik is what the capture sees. */
+    {
+        int32 found = 0;
+        /* Macro: scan one badnik type's live entities in its OWN block scope (foreach_all
+         * declares Entity##OBJP *_b -- a fresh _b per block avoids redeclaration). Latch
+         * the first live entity, preferring an on-screen one. */
+        #define BD_SCAN(OBJP, AFW)                                                     \
+            if (OBJP && (OBJP)->classID) {                                             \
+                foreach_all(OBJP, _b) {                                                \
+                    ++found;                                                           \
+                    int32 onscr = (int32)_b->onScreen;                                 \
+                    if (p6_w_bd_classid < 0 || (onscr && p6_w_bd_onscreen <= 0)) {     \
+                        p6_w_bd_classid  = (int32)_b->classID;                         \
+                        p6_w_bd_posx     = (int32)(_b->position.x >> 16);              \
+                        p6_w_bd_posy     = (int32)(_b->position.y >> 16);              \
+                        p6_w_bd_onscreen = onscr;                                      \
+                        p6_w_bd_visible  = (int32)_b->visible;                         \
+                        p6_w_bd_drawgrp  = (int32)_b->drawGroup;                       \
+                        p6_w_bd_active   = (int32)_b->active;                          \
+                        p6_w_bd_framesNN = (_b->animator.frames != NULL) ? 1 : 0;      \
+                        p6_w_bd_animid   = (int32)_b->animator.animationID;            \
+                        p6_w_bd_frameid  = (int32)_b->animator.frameID;                \
+                        SpriteFrame *_fr = RSDK.GetFrame((AFW),                        \
+                            _b->animator.animationID, _b->animator.frameID);           \
+                        p6_w_bd_sheetid  = _fr ? (int32)_fr->sheetID : -1;             \
+                        p6_w_bd_handle   = _fr ? p6_vdp1_handle_for_surface(_fr->sheetID) : -4; \
+                    }                                                                  \
+                }                                                                      \
+            }
+        /* reset the latch each frame so an on-screen badnik (when one exists) wins */
+        p6_w_bd_classid = -1; p6_w_bd_onscreen = -1;
+        BD_SCAN(Motobug,    Motobug->aniFrames)
+        BD_SCAN(Newtron,    Newtron->aniFrames)
+        BD_SCAN(Crabmeat,   Crabmeat->aniFrames)
+        BD_SCAN(BuzzBomber, BuzzBomber->aniFrames)
+        BD_SCAN(Chopper,    Chopper->aniFrames)
+        BD_SCAN(Batbrain,   Batbrain->aniFrames)
+        #undef BD_SCAN
+        p6_w_bd_found = found;
     }
 }

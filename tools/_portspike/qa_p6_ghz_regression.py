@@ -51,7 +51,14 @@ NAMES = ["_p6_w_cont_frames", "_p6_w_brg_classid", "_p6_w_brg_frames",
          "_p6_w_spring_aniframes", "_p6_w_brg_aniframes", "_p6_w_spikelog_aniframes",
          # Global anim-load diagnostics -- re-rooted into shipping so any -1 load
          # is pinpointed on the FIRST capture (no forensic dig, no second build).
-         "_p6_saturn_anim_allocfail", "_p6_w_anim_lastfail", "_p6_w_stg_at_fail"]
+         "_p6_saturn_anim_allocfail", "_p6_w_anim_lastfail", "_p6_w_stg_at_fail",
+         # BADNIK-VIS (2026-06-18): the VDP1 bind-table demand-vs-capacity gate. The
+         # GHZ/Objects.gif surface (badniks + Bridge + SpikeLog all blit it) must be
+         # BOUND (handle>=0); the bind DEMAND must not exceed the P6_VDP1_NSHEETS
+         # table (else the last surface(s) bind -1 -> invisible, the #181 class that
+         # re-bit when Batch 2's Explosions/Animals consumed extra bind slots).
+         "_p6_w_ghzobj_surf_handle", "_p6_w_bind_demand", "_p6_w_bind_count",
+         "_p6_w_bd_found", "_p6_w_bd_handle"]
 
 
 def capture(out):
@@ -105,6 +112,17 @@ def main(argv):
         ("R12 Bridge anim LOADED (aniFrames>=0)",   v["_p6_w_brg_aniframes"],      lambda x: x is not None and 0 <= x < 0x400),
         # R13: no STG-pool anim refusals anywhere in the scene load (the funding net).
         ("R13 no anim alloc-fails (==0)",           v["_p6_saturn_anim_allocfail"],lambda x: x == 0),
+        # R14-R16 BADNIK-VIS: the VDP1 bind-table demand-vs-capacity gate. The
+        # GHZ/Objects.gif surface (every badnik + Bridge + SpikeLog blits it) must be
+        # BOUND, and the total bind demand must fit the P6_VDP1_NSHEETS table -- else
+        # the overflowing surface(s) get handle -1 and draw NOTHING (the #181 class).
+        ("R14 GHZ/Objects.gif surface BOUND (handle>=0)", v["_p6_w_ghzobj_surf_handle"], lambda x: x is not None and x >= 0),
+        ("R15 VDP1 bind demand all bound (count==demand)", (v["_p6_w_bind_count"], v["_p6_w_bind_demand"]),
+            lambda t: t[0] is not None and t[1] is not None and t[0] == t[1] and t[1] > 0),
+        # R16: a live badnik's current frame resolves to a BOUND handle (the on-screen
+        # render contract). bd_found>0 == badniks exist; bd_handle>=0 == its sheet binds.
+        ("R16 live badnik frame handle BOUND (>=0)", (v["_p6_w_bd_found"], v["_p6_w_bd_handle"]),
+            lambda t: t[0] is not None and t[0] > 0 and t[1] is not None and t[1] >= 0),
     ]
     # Surface the global anim-load diagnostics so a RED above is pinpointed inline
     # (no forensic dig). lastfail = (sprfile_id<<16)|frameCount (bit15: animCount fail);

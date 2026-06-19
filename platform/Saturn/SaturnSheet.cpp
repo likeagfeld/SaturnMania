@@ -50,7 +50,11 @@ typedef signed int int32;
 // the cart). Map: [[cart-4mb-extram-measured-map]]. The VDP2 0x25E44000 window
 // is the non-cart fallback (kept so a hypothetical non-P6_CART build still
 // links + boots; it stages only the 6 that fit).
-#define SATURNSHEET_SLOTS     9 // #247/#181: +GHZOBJ (GHZ/Objects.gif) = the GHZ content sheet
+#define SATURNSHEET_SLOTS     9 // #247/#181: +GHZOBJ (GHZ/Objects.gif) = the GHZ content sheet.
+                                 // BADNIK-VIS: kept at 9 (NOT grown for EXPLODE/ANIMALS) -- growing
+                                 // it AND P6_VDP1_NSHEETS together tripped the #228 orphan-.bss
+                                 // overlap that corrupts the GFS GfsMng ptr (boot trap 0x06000956).
+                                 // Explosions/Animals keep their stock resident-pixel decode path.
 #if defined(P6_CART)
 #define SATURNSHEET_VRAM_BASE 0x227A0000u // 4MB cart, after STG(3MB)+TMP(640KB)
 #define SATURNSHEET_VRAM_END  0x22800000u // top of the 4MB cart (384 KB store)

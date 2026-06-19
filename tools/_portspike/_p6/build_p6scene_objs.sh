@@ -417,6 +417,14 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_spikelog_aniframes -u _p6_w_spring_aniframes -u _p6_w_brg_aniframes \
     -u _p6_w_ring_aniframes -u _p6_w_ring_classid -u _p6_w_spikes_aniframes -u _p6_w_b1_registered \
     -u _p6_w_b2_registered -u _p6_w_b2_cids -u _p6_w_explosion_aniframes -u _p6_w_animals_aniframes -u _p6_w_newtron_aniframes \
+    -u _p6_vdp1_handle_for_surface \
+    -u _p6_w_ghzobj_surf_idx -u _p6_w_ghzobj_surf_slot -u _p6_w_ghzobj_surf_scope \
+    -u _p6_w_ghzobj_surf_handle -u _p6_w_surfpop \
+    -u _p6_w_bd_found -u _p6_w_bd_classid -u _p6_w_bd_posx -u _p6_w_bd_posy \
+    -u _p6_w_bd_onscreen -u _p6_w_bd_visible -u _p6_w_bd_drawgrp -u _p6_w_bd_active \
+    -u _p6_w_bd_framesNN -u _p6_w_bd_animid -u _p6_w_bd_frameid -u _p6_w_bd_sheetid \
+    -u _p6_w_bd_handle -u _p6_w_bd_drawn \
+    -u _p6_w_bind_demand -u _p6_w_bind_log16 \
     -u _Player_CheckBadnikBreak -u _Player_ProjectileHurt -u _Player_CheckBadnikTouch \
     -u _p6_ovl_badnikbreak_unseeded_raw -u _p6_ovl_badnikbreak_raw \
     -u _DrawHelpers_DrawHitboxOutline \

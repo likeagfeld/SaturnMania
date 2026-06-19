@@ -38,15 +38,26 @@
 #define P6_VDP1_NSLOTS  40 /* Ring 16 + Player working set; eviction = a
                             * declared later closer -- overflow DROPS and
                             * counts (p6_w_vdp1_drops), never overwrites */
-/* GHZ1 parity P2 (#181/#247): 9 staged sheets bind here -- SONIC1/2/3, ITEMS,
- * DISPLAY, SHIELDS, TAILS1, GLOBJ, and GHZOBJ (GHZ/Objects.gif, the bridge
- * planks + GHZ content objects). Must stay in lockstep with SaturnSheet.cpp
- * SATURNSHEET_SLOTS (the band-store staging count): each staged .SHT that
- * binds consumes exactly one VDP1 bind-table entry. MEASURED root cause of the
- * bridge not drawing: at 8, the 9th bind (GHZOBJ) hit s_sheet_count>=NSHEETS
- * and returned -1, leaving the surface handle -1 -> all plank blits dropped
- * (p6_w_dropbysheet[14]=251, p6_io_main.cpp:473/1097). */
-#define P6_VDP1_NSHEETS 9
+/* GHZ1 parity P2 (#181/#247): staged sheets bind here -- SONIC1/2/3, ITEMS,
+ * DISPLAY, SHIELDS, TAILS1, GLOBJ, GHZOBJ (GHZ/Objects.gif, the bridge planks +
+ * badniks + GHZ content objects), and the Batch 2 effect sheets EXPLODE
+ * (Global/Explosions.gif) + ANIMALS (Global/Animals.gif). Must stay >= the actual
+ * bind DEMAND: each surface that binds (a staged .SHT via the banded path, OR an
+ * unstaged sheet that LoadSpriteSheet gave resident pixels) consumes exactly one
+ * bind-table entry. MEASURED root cause of the bridge not drawing (#181): at 8,
+ * the 9th bind (GHZOBJ) hit s_sheet_count>=NSHEETS and returned -1 (handle -1 ->
+ * plank blits dropped). BADNIK-VIS (2026-06-18): the SAME class re-bit -- Batch 2's
+ * Explosions/Animals decoded to resident pixels (Sprite.cpp:994) + bound via the
+ * pixels path, so bind_demand=11 > the 9 slots and BOTH surf 13 (Explosions) AND
+ * surf 16 (GHZ/Objects.gif = badniks+bridge+SpikeLog) bound -1 -> invisible
+ * (MEASURED bind_log16). The GHZ1 scene's bind DEMAND is 11 (the 9 banded .SHT +
+ * 2 resident-PIXEL engine/player surfaces, bind_log16 surf 7 + surf 15). Sized to
+ * 12 = 11 measured + 1 margin so GHZ/Objects.gif (surf 16, last by index) binds.
+ * (12 * 12 B = 144 B .bss; int8 handle table holds 0..11.) NOTE: growing this and
+ * SATURNSHEET_SLOTS TOGETHER tripped the #228 orphan-.bss overlap (GFS GfsMng ptr
+ * corruption -> boot trap PC=0x06000956); keep the .bss delta minimal -- raise only
+ * this table (+24 B), leave SATURNSHEET_SLOTS and the staged-sheet set unchanged. */
+#define P6_VDP1_NSHEETS 12
 
 /* qa_p6_draw.py D5 witness: number of distinct rects resident on VDP1.
  * __attribute__((used)) defeats LTO name-collapse so the gate can locate it

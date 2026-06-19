@@ -71,6 +71,12 @@ SHEETS = [
     # Staging it (slot 8) makes the registered GHZ Bridge actually blit (#181) and
     # pre-binds the sheet for the rest of the GHZ object sweep.
     ("GHZ/Objects.gif", "GHZOBJ.SHT"),
+    # BADNIK-VIS (2026-06-18): Explosions/Animals were trialled as banded effect sheets
+    # but staging them grew SATURNSHEET_SLOTS, which (with the P6_VDP1_NSHEETS bump)
+    # tripped the #228 orphan-.bss overlap (GFS GfsMng ptr corruption -> boot trap
+    # 0x06000956). REVERTED to the 9-sheet staged set; the badnik fix is solely
+    # P6_VDP1_NSHEETS 9->12 (binds GHZ/Objects.gif = surf 16). Explosions/Animals keep
+    # their stock resident-pixel decode (Sprite.cpp:994) -- which already renders.
 ]
 
 

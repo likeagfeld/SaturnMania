@@ -35,8 +35,14 @@ param(
                                     # state machine (no input skip), so the
                                     # press burst below is harmless once in GHZ.
     [int]$PressCount = 6,           # number of Enter presses in the burst
-    [double]$PressEvery = 1.5       # seconds between burst presses (each press
+    [double]$PressEvery = 1.5,      # seconds between burst presses (each press
                                     # also coincides with a capture-loop tick)
+    [switch]$HoldRight              # BADNIK-VIS diag: hold the Saturn RIGHT d-pad
+                                    # (PS/2 set-1 scancode 0x4D extended) down for
+                                    # the whole capture loop so the autorun player
+                                    # actually advances right (the lean boot's
+                                    # player otherwise idles at spawn). Released at
+                                    # the end. Mirrors qa_savestate's HoldScans.
 )
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -135,6 +141,12 @@ if ($h -eq [IntPtr]::Zero) {
 [QaCap]::ShowWindow($h, 9) | Out-Null
 [QaCap]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 700
+# BADNIK-VIS: hold RIGHT (scancode 0x4D, extended flag 0x0001) down so the autorun
+# player advances right past the badnik spawns. keydown now; keyup after the loop.
+if ($HoldRight) {
+    [QaCap]::keybd_event(0, 0x4D, (0x0008 -bor 0x0001), [UIntPtr]::Zero)
+    Write-Output "QA hold-down RIGHT (scancode 0x4D ext)"
+}
 $base = [System.IO.Path]::GetFileNameWithoutExtension($Out)
 $ext  = [System.IO.Path]::GetExtension($Out)
 $pressesSent = 0
@@ -175,5 +187,8 @@ for ($i = 1; $i -le $Shots; $i++) {
     $g.Dispose(); $bmp.Dispose()
     Write-Output "QA capture saved: $name (${wd}x${ht})"
     if ($i -lt $Shots) { Start-Sleep -Milliseconds ([int]($Every * 1000)) }
+}
+if ($HoldRight) {
+    [QaCap]::keybd_event(0, 0x4D, (0x000A -bor 0x0001), [UIntPtr]::Zero)  # RIGHT up
 }
 if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
