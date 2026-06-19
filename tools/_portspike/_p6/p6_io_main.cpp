@@ -1571,6 +1571,13 @@ __attribute__((used)) int32 p6_w_ovl_bytes    = -1; // GFS bytes loaded into the
 __attribute__((used)) int32 p6_w_ovl_hash     = 0;  // djb2 over the loaded bytes (on SH-2)
 __attribute__((used)) int32 p6_w_ovl_classes  = -1; // objectClassCount after the entry ran
 __attribute__((used)) int32 p6_w_ovl_updatefn = 0;  // Ring_Update ptr the entry returned
+// P6.8 I3b increment 2a: the OFFLINE dormant placement store (cd/<TAG>DORM.BIN, build_dormant_store.py,
+// big-endian) chain-loaded to cart as DATA. The increment-2 materialize reads it to re-create far
+// entities. The capture is offline (the runtime form was #228-WRAM-H-blocked; the ANIMPAK reclaim
+// 609ce2d freed 1616 B so this load + 2b fit). Cart home 0x226C8000 (verified-free).
+__attribute__((used)) int32 p6_w_dorm_bytes   = -1; // GFS bytes of the dormant store (>0 = loaded)
+__attribute__((used)) int32 p6_w_dorm_magic   = 0;  // 'P6DM' 0x4D443650 if the store header parsed
+__attribute__((used)) int32 p6_w_dorm_slots   = -1; // slot_count from the store header (the index size)
 // P6.7 wave-1 (qa_p6_globals.py): game-globals + link-layer witnesses.
 __attribute__((used)) int32 p6_w_glb_size   = -1;  // sizeof(GlobalVariables) the game registered
 __attribute__((used)) int32 p6_w_glb_ptr    = 0;   // where globalVarsPtr landed
@@ -2686,6 +2693,23 @@ extern "C" void p6_scene_run(void)
             p6_w_ovl_hash = (int32)h;
             for (uint32 a = P6_OVL_BASE; a < P6_OVL_BASE + P6_OVL_WINDOW; a += 16)
                 *(volatile uint16 *)(a | 0x40000000u) = 0;  // line invalidate
+        }
+    }
+
+    // 1.5b) P6.8 I3b increment 2a: chain-load the OFFLINE dormant placement store
+    //       (cd/<TAG>DORM.BIN, big-endian, build_dormant_store.py). DATA load -> ZERO
+    //       WRAM-H capture code (the runtime capture form was #228-blocked; a cart-overlay
+    //       capture is impossible since the overlay loads AFTER LoadSceneAssets). The
+    //       increment-2 materialize reads this from cart to re-create far entities. Cart
+    //       home 0x226C8000 is VERIFIED-FREE (past s_p6_shadow_inrange 0x226C0000+1216 B,
+    //       before GFS 0x22700000); cache-through (cart-4mb rule), read raw at materialize.
+    {
+        unsigned char *w = (unsigned char *)0x226C8000u; // cache-through cart, verified-free
+        int n = rsdk_storage_load_to_lwram("GHZ1DORM.BIN", (void *)w, 0x10000);
+        p6_w_dorm_bytes = n;
+        if (n >= 12) {
+            p6_w_dorm_magic = (int32)(*(volatile uint32 *)w);       // 'P6DM' 0x4D443650 (big-endian)
+            p6_w_dorm_slots = (int32)(*(volatile uint16 *)(w + 6)); // slot_count (header offset 6)
         }
     }
 
