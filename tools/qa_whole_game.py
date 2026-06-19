@@ -79,6 +79,8 @@ def main(argv):
     STORE = dc.get("store_bytes")
     acp = os.path.join(ROOT, "docs/audio_census.json")
     ac = json.load(open(acp)) if os.path.isfile(acp) else None  # W5 (tools/build_audio_census.py)
+    rcp = os.path.join(ROOT, "docs/residency_census.json")
+    rc = json.load(open(rcp)) if os.path.isfile(rcp) else None  # W5b/W6/W7 (build_residency_census.py)
     scenes_d = dc["scenes"]
     scenes_s = sc["scenes"]
     NSC = len(scenes_d)
@@ -155,18 +157,37 @@ def main(argv):
         print("         CD-DA %d + data %d sectors; headroom %d (~%.1f min). All-58-CD-DA FEASIBLE."
               % (b["est_cdda_sectors"], b["data_sectors"], b["sector_headroom"],
                  b["sector_headroom"] / 75.0 / 60.0))
-        print("  [DASH ] W5b AUDIO/SFX Sound-RAM(512KB): worst zone resident %.1f MB raw / %.1f MB ADPCM"
-              % (s["worst_resident_raw_bytes"] / 1e6, s["worst_resident_adpcm_est"] / 1e6))
-        print("            -> full per-zone bank does NOT fit -> resident set = per-SCENE registered")
-        print("               SFX subset. NEXT GATE: per-scene SFX manifest (qa_zone_sfx).")
+        _ = s  # (full-bank summary now superseded by the per-scene W5b below)
     else:
         print("  [  ?  ] W5 AUDIO: docs/audio_census.json absent -- run tools/build_audio_census.py")
 
+    # W5b per-scene SFX working set / W6 per-zone anim / W7 video (build_residency_census.py)
+    if rc:
+        scn = rc["scenes"]
+        over = [k for k, v in scn.items() if not v.get("sfx_fits_sound_ram")]
+        worst = max(scn.items(), key=lambda kv: kv[1].get("sfx_adpcm_est", 0)) if scn else ("-", {})
+        print("  [DASH ] W5b AUDIO/SFX per-scene (Sound RAM 512 KB): %d/%d scenes' FULL registered SFX"
+              % (len(over), len(scn)))
+        print("            set exceeds 512 KB ADPCM (worst %s = %.0f KB) -> resident WORKING SUBSET"
+              % (worst[0], worst[1].get("sfx_adpcm_est", 0) / 1024.0))
+        print("            required (most-used SFX resident, rest CD-on-demand). Phase S-AUDIO.")
+        zw = max(rc["zones"].items(), key=lambda kv: kv[1].get("anim_bin_source_bytes", 0)) if rc.get("zones") else ("-", {})
+        print("  [DASH ] W6 ANIM (DATASET_STG pool ~150 KB): worst zone %s = %.0f KB .bin SOURCE"
+              % (zw[0], zw[1].get("anim_bin_source_bytes", 0) / 1024.0))
+        print("            (pool holds DECODED frames -> a decoded-size census is the precise gate; #254)")
+        v = rc.get("video", {})
+        print("  [DASH ] W7 VIDEO (intro Cinepak, BOOT): Mania.ogv %.1f MB -> low-res FILM on data track"
+              % (v.get("source_ogv_bytes", 0) / 1e6))
+        print("            fits the W5a CD headroom; decode = SBL Cinepak. INTRO.CPK = %d B stub today."
+              % v.get("current_saturn_cpk_bytes", 0))
+    else:
+        print("  [  ?  ] W5b/W6/W7: docs/residency_census.json absent -- run build_residency_census.py")
+
     # tracked-not-yet-static
     print("-" * 74)
-    print("  TRACKED (no static census gate yet -- next research-gate work, plan s9):")
-    print("    * CRAM per-scanline palettes (Phase-Z Z3)   * per-scene SFX manifest (qa_zone_sfx; W5b)")
-    print("    * DATASET_STG anim pool                     * VDP1 fill-rate at density (S3)")
+    print("  TRACKED (precise gate still TODO -- next research-gate work, plan s9):")
+    print("    * CRAM per-scanline palettes (Phase-Z Z3)   * SFX working-subset selection (S-AUDIO)")
+    print("    * ANIM decoded-frame pool census (W6 exact) * VDP1 fill-rate at density (S3)")
     print("-" * 74)
 
     ok = w1 and w4 and w5bgm
