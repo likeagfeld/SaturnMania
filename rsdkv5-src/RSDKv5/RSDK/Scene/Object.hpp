@@ -435,7 +435,14 @@ uint16 FindObject(const char *name);
 // what lets I3 do that WITHOUT touching the 211 RSDK_GET_ENTITY call sites. ZERO
 // new allocation in I2.
 inline int32 SaturnSlotToPoolSlot(int32 slot) { return slot; }
-inline EntityBase *SaturnEntityAt(int32 slot)
+// I3 (2026-06-19, WRAM-H funding): noinline forces ONE COMDAT-folded out-of-line copy
+// instead of inlining the dual-stride arithmetic at the ~69 RSDK_ENTITY_AT sites
+// (MEASURED ~2.4 KB of WRAM-H duplicates; the -fkeep-inline-functions copy was gc'd as
+// unreferenced -> 0 symbols in the map). De-inlining funds the per-access remap the
+// camera-local pool shrink needs (only ~64 B was free under P6_HW_ANIMPAK). Gate
+// tools/_portspike/qa_p6_deinline.py. SaturnSlotToPoolSlot STAYS inline -- a `return slot`
+// identity costs nothing inlined; it becomes a table lookup at the actual pool shrink.
+inline __attribute__((noinline)) EntityBase *SaturnEntityAt(int32 slot)
 {
     int32 ps    = SaturnSlotToPoolSlot(slot); // I2 indirection (identity now; I3 -> table)
     uint8 *base = (uint8 *)objectEntityList;
