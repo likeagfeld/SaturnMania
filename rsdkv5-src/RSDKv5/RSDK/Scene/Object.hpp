@@ -434,7 +434,14 @@ uint16 FindObject(const char *name);
 // slots to dormant records -- routing SaturnEntityAt through this ONE function is
 // what lets I3 do that WITHOUT touching the 211 RSDK_GET_ENTITY call sites. ZERO
 // new allocation in I2.
-inline int32 SaturnSlotToPoolSlot(int32 slot) { return slot; }
+// P6.8 I3b.1: the slot->pool remap is now a cart-resident table (p6_pool_remap, defined in
+// p6_io_main.cpp at the verified-free cart slot 0x226B8000). IDENTITY in I3b.1 (byte-identical;
+// resolve_ok stays 1) -- de-risks the cart-read + the table indirection at runtime; the pool
+// SHRINK then populates it non-trivially. p6_pool_remap_ready gates the read so a pre-init
+// access returns the raw slot (crash-safe; p6_pool_remap_init() runs first in the boot).
+extern uint16 *p6_pool_remap;
+extern int32   p6_pool_remap_ready;
+inline int32 SaturnSlotToPoolSlot(int32 slot) { return p6_pool_remap_ready ? (int32)p6_pool_remap[slot] : slot; }
 // I3 (2026-06-19, WRAM-H funding): noinline forces ONE COMDAT-folded out-of-line copy
 // instead of inlining the dual-stride arithmetic at the ~69 RSDK_ENTITY_AT sites
 // (MEASURED ~2.4 KB of WRAM-H duplicates; the -fkeep-inline-functions copy was gc'd as

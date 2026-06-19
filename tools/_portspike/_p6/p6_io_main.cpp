@@ -1182,6 +1182,17 @@ __attribute__((used)) int32 p6_w_objapk_bytes  = 0;
 //   collisionMasks/tileInfo  LoadTileConfig only via LoadSceneFolder (:163-164)
 namespace RSDK {
 EntityBase *objectEntityList = (EntityBase *)P6_LW_ENTITYLIST;
+// P6.8 I3b.1 (camera-local pool shrink, RED-first): the logical->physical remap the pool
+// SHRINK will populate non-trivially. Home = the VERIFIED-FREE cart slot 0x226B8000 (32 KB
+// past the overlay window end 0x226B0000 = P6_OVL_BASE+P6_OVL_WINDOW, and 32 KB before the
+// s_p6_shadow_inrange diag buffer 0x226C0000; GFS windows are at 0x22700000). CACHE-THROUGH
+// alias so a read-mostly table needs no cache-coherency purge. I3b.1 keeps it IDENTITY
+// (byte-identical -- resolve_ok stays 1) to de-risk the cart-read + the indirection at
+// RUNTIME before the shrink makes it non-identity. p6_pool_remap_ready gates the read in
+// SaturnSlotToPoolSlot -> returns the raw slot until the table is built (crash-safe regardless
+// of init order; p6_pool_remap_init() runs first thing in p6_engine_boot_and_run).
+uint16 *p6_pool_remap        = (uint16 *)0x226B8000u; // 1216 u16 = 2432 B in the cart gap
+int32   p6_pool_remap_ready  = 0;
 TileLayer *tileLayers        = (TileLayer *)P6_LW_TILELAYERS;
 DataStorage *dataStorage     = (DataStorage *)P6_LW_DATASTORAGE;
 // P6.7a: objectClassList/typeGroups/drawGroups are LIVE (ProcessObjects,
@@ -4196,9 +4207,25 @@ static void p6_ghz_reload(void)
 // No diagnostic burst, no Title reload, no legacy Ring. Reversible: unset
 // P6_ENGINE_SHIPPING and main.c boots the hand-port (this entry is unreached).
 // =============================================================================
+// P6.8 I3b.1: build the IDENTITY remap (de-risk; the SHRINK replaces this body with the real
+// logical->physical assignment + free-list). Cache-through cart writes land immediately (no
+// purge dance). Self-checks the table is identity + readable -> p6_w_remap_ok (gate
+// qa_p6_i3b.py). Runs first thing in the boot so the table is ready before any entity access.
+__attribute__((used)) int32 p6_w_remap_ok = 0;
+extern "C" void p6_pool_remap_init(void)
+{
+    for (int32 i = 0; i < ENTITY_COUNT; ++i)
+        RSDK::p6_pool_remap[i] = (uint16)i;
+    RSDK::p6_pool_remap_ready = 1;
+    int32 ok = 1;
+    for (int32 i = 0; i < ENTITY_COUNT; ++i)
+        if ((int32)RSDK::p6_pool_remap[i] != i) { ok = 0; break; }
+    p6_w_remap_ok = ok;
+}
 extern "C" void p6_engine_boot_and_run(void)
 {
     p6_lean_boot = 1;
+    p6_pool_remap_init(); // P6.8 I3b.1: identity remap before any entity access (ready-flag crash-safe)
     p6_scene_run(); // masked load core -> lean early-return (no diag scaffolding)
 }
 
