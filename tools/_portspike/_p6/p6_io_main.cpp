@@ -1578,6 +1578,21 @@ __attribute__((used)) int32 p6_w_ovl_updatefn = 0;  // Ring_Update ptr the entry
 __attribute__((used)) int32 p6_w_dorm_bytes   = -1; // GFS bytes of the dormant store (>0 = loaded)
 __attribute__((used)) int32 p6_w_dorm_magic   = 0;  // 'P6DM' 0x4D443650 if the store header parsed
 __attribute__((used)) int32 p6_w_dorm_slots   = -1; // slot_count from the store header (the index size)
+// P6.8 I3b increment 2b: the MATERIALIZE WRITE side -- p6_materialize_one reconstructs a scene
+// entity from the cart DORM store into a scratch slot (mirrors Scene.cpp:585-806), proving the
+// runtime write mechanism (serialize() offsets + LE var-replay to the right field) on real HW
+// BEFORE any pool resize. Witnesses gated by qa_p6_materialize_write.py (read back in-function).
+__attribute__((used)) int32 p6_w_mat_slot    = -1; // logical slot materialized (the gate decodes it)
+__attribute__((used)) int32 p6_w_mat_classid = -1; // resolved stage classID (!=0 = registered)
+__attribute__((used)) int32 p6_w_mat_classcount = -1; // sceneInfo.classCount AT CALL TIME (proves the class tables are populated)
+__attribute__((used)) int32 p6_w_mat_posx    = 0;  // materialized position.x >> 16 (tiles)
+__attribute__((used)) int32 p6_w_mat_posy    = 0;  // materialized position.y >> 16
+__attribute__((used)) int32 p6_w_mat_nvars   = -1; // editable-var count of the object
+__attribute__((used)) int32 p6_w_mat_nmatch  = -1; // var-hashes matched in editableVarList
+__attribute__((used)) int32 p6_w_mat_v0      = 0;  // first 4 replayed var values (read back via offset)
+__attribute__((used)) int32 p6_w_mat_v1      = 0;
+__attribute__((used)) int32 p6_w_mat_v2      = 0;
+__attribute__((used)) int32 p6_w_mat_v3      = 0;
 // P6.7 wave-1 (qa_p6_globals.py): game-globals + link-layer witnesses.
 __attribute__((used)) int32 p6_w_glb_size   = -1;  // sizeof(GlobalVariables) the game registered
 __attribute__((used)) int32 p6_w_glb_ptr    = 0;   // where globalVarsPtr landed
@@ -2618,6 +2633,153 @@ static void p6_cart_probe(void)
     p6_w_cart_ok = ok;
 }
 
+// =============================================================================
+// I3b 2b -- the camera-local-pool MATERIALIZE (write side). Reconstructs scene
+// entity `logical_slot` from the offline DORM store (cart 0x226C8000; big-endian
+// header/index/records + raw LE Scene.bin var-bytes) into `dest_slot`. Mirrors the
+// engine placement loop Scene.cpp:585-806 EXACTLY: classID resolve by LE-ASSEMBLED
+// hash (Reader.hpp ReadInt32(...,false) == the little-endian value on the big-endian
+// SH-2 -- a RAW 16-byte memcmp of the store hash would FAIL), serialize() rebuilds
+// editableVarList, var-hash->offset match, var-value LE replay into the matched field.
+// NO Create yet (placement state only) -- the smallest write-side proof, before any
+// pool resize. Reaches engine symbols via `using namespace RSDK` (line 54). Witnesses
+// are read BACK here (scratch entity lifetime = a few us; zero interaction).
+// =============================================================================
+// noinline (NOT inline): the materialize runs ONCE at load, so out-of-lining these byte
+// assemblers costs no real time but keeps the function small -- #228 WRAM-H ceiling (the
+// inline form pushed _end 352 B past ANIMPAK; one out-of-line copy each fits under it).
+static __attribute__((noinline)) uint32 p6_mat_be32(const uint8 *p) { return ((uint32)p[0] << 24) | ((uint32)p[1] << 16) | ((uint32)p[2] << 8) | p[3]; }
+static __attribute__((noinline)) uint16 p6_mat_be16(const uint8 *p) { return (uint16)(((uint32)p[0] << 8) | p[1]); }
+static __attribute__((noinline)) uint32 p6_mat_le32(const uint8 *p) { return ((uint32)p[3] << 24) | ((uint32)p[2] << 16) | ((uint32)p[1] << 8) | p[0]; }
+static __attribute__((noinline)) uint16 p6_mat_le16(const uint8 *p) { return (uint16)(((uint32)p[1] << 8) | p[0]); }
+// LE-assemble a 16-byte md5 hash into uint32[4] (== 4x ReadInt32(...,false) on the BE SH-2).
+static __attribute__((noinline)) void p6_mat_loadhash(uint32 *out, const uint8 *le)
+{
+    out[0] = p6_mat_le32(le + 0); out[1] = p6_mat_le32(le + 4);
+    out[2] = p6_mat_le32(le + 8); out[3] = p6_mat_le32(le + 12);
+}
+
+// optimize("Os"): compile JUST this once-at-load function for SIZE (the pack is -O2 not -flto,
+// so the per-fn attribute takes effect -- the documented Collision/-Os precedent in this build).
+// Keeps the hot p6_ghz_frame at -O2 while fitting the materialize under the #228 ANIMPAK ceiling.
+static __attribute__((noinline, optimize("Os"))) void p6_materialize_one(uint16 logical_slot, uint16 dest_slot)
+{
+    const uint8 *D = (const uint8 *)0x226C8000u; // cart DORM store (loaded above)
+    if (p6_mat_be32(D) != 0x4D443650u) return;   // 'P6DM'
+    uint16 slot_count   = p6_mat_be16(D + 6);
+    uint16 obj_count    = p6_mat_be16(D + 8);
+    uint32 slot_idx_off = p6_mat_be32(D + 12);
+    uint32 recs_off     = p6_mat_be32(D + 16);
+    if (logical_slot >= slot_count) return;
+    uint32 rec = p6_mat_be32(D + slot_idx_off + (uint32)logical_slot * 4);
+    if (rec == 0xFFFFFFFFu) return;              // empty slot
+    const uint8 *R = D + recs_off + rec;
+    uint16 obj_idx = p6_mat_be16(R + 0);
+    int32 px = (int32)p6_mat_be32(R + 4);
+    int32 py = (int32)p6_mat_be32(R + 8);
+    const uint8 *vb = R + 12;
+    if (obj_idx >= obj_count) return;
+
+    // navigate the variable-length object table: each = hash16 | nvars u8 | nvars*(hash16|type u8)
+    const uint8 *O = D + 20;
+    for (uint16 i = 0; i < obj_idx; ++i) { uint8 nv = O[16]; O += 17u + (uint32)nv * 17u; }
+    const uint8 *obj_hash_le = O;
+    uint8 nvars = O[16];
+    const uint8 *attribs = O + 17;
+
+    // classID resolve (Scene.cpp:585-589): LE-assemble the 16 store bytes into uint32[4]
+    // (== ReadInt32(...,false) on the BE SH-2) THEN memcmp vs objectClassList.
+    uint32 objHash[4];
+    p6_mat_loadhash(objHash, obj_hash_le);
+    int32 classID = 0;
+    for (int32 o = 0; o < sceneInfo.classCount; ++o) {
+        if (memcmp(objHash, objectClassList[stageObjectIDs[o]].hash, 16) == 0) { classID = o; break; }
+    }
+    p6_w_mat_slot       = (int32)logical_slot;
+    p6_w_mat_classcount = (int32)sceneInfo.classCount; // must be >0: tables populated (else called too early)
+    p6_w_mat_classid    = classID;
+    p6_w_mat_nvars      = (int32)nvars;
+    if (!classID) return;                        // unregistered -> skip (materialize spec)
+
+    ObjectClass *objectClass = &objectClassList[stageObjectIDs[classID]];
+
+    // rebuild editableVarList for this class (Scene.cpp:602-614). CRITICAL: LoadScene FREES
+    // editableVarList (-> NULL) at its end (Scene.cpp:855-857), and this runs AFTER LoadScene --
+    // so serialize() would write its var entries through a NULL pointer (silently no-op'd to ROM)
+    // and the match loop would read garbage (MEASURED: nmatch=0 though classID resolved). Point it
+    // at a cart SCRATCH (the free tail of the DORM window, past the 42 KB store, before GFS) for
+    // the serialize()+hash-match, then restore. objectClassList persists; editableVarList does not.
+    EditableVarInfo *saved_evl = editableVarList;
+    int32 saved_evc = editableVarCount;
+    editableVarList = (EditableVarInfo *)0x226D4000u; // cart scratch (DORM window free tail)
+    editableVarCount = 0;
+#if RETRO_REV02
+    SetEditableVar(VAR_UINT8, "filter", (uint8)classID, offsetof(Entity, filter));
+#endif
+    if (objectClass->serialize)
+        objectClass->serialize();
+
+    // write placement into the scratch dest (Scene.cpp:666-671); clean first (NOT ResetEntitySlot)
+    EntityBase *entity = RSDK_ENTITY_AT(dest_slot);
+    memset(entity, 0, sizeof(EntityBase));
+    entity->classID = classID;
+#if RETRO_REV02
+    entity->filter = 0xFF;
+#endif
+    entity->position.x = px;
+    entity->position.y = py;
+    p6_w_mat_posx = px >> 16;
+    p6_w_mat_posy = py >> 16;
+
+    // replay var values (Scene.cpp:687-806): match each attrib hash -> editableVarList offset,
+    // LE-decode the raw Scene.bin bytes (byte-wise = alignment-safe) into the matched field.
+    uint8 *eb = (uint8 *)entity;
+    const uint8 *vp = vb;
+    int32 nmatch = 0, vi = 0;
+    int32 wv[4] = { 0, 0, 0, 0 };
+    for (uint16 a = 0; a < nvars; ++a) {
+        const uint8 *vh_le = attribs + (uint32)a * 17u;
+        uint8 vt = attribs[(uint32)a * 17u + 16];
+        uint32 vHash[4];
+        p6_mat_loadhash(vHash, vh_le);
+        int32 off = -1;
+        for (int32 v = 0; v < editableVarCount; ++v) {
+            if (memcmp(vHash, editableVarList[v].hash, 16) == 0) { off = editableVarList[v].offset; break; }
+        }
+        int32 val = 0, have = 0;
+        switch (vt) {
+            case VAR_UINT8: case VAR_INT8:
+                val = (vt == VAR_INT8) ? (int32)(int8)vp[0] : (int32)vp[0]; vp += 1; have = 1;
+                if (off >= 0) eb[off] = (uint8)val;
+                break;
+            case VAR_UINT16: case VAR_INT16:
+                val = (vt == VAR_INT16) ? (int32)(int16)p6_mat_le16(vp) : (int32)p6_mat_le16(vp); vp += 2; have = 1;
+                if (off >= 0) *(int16 *)&eb[off] = (int16)val;
+                break;
+            case VAR_UINT32: case VAR_INT32: case VAR_ENUM: case VAR_BOOL: case VAR_FLOAT: case VAR_COLOR:
+                val = (int32)p6_mat_le32(vp); vp += 4; have = 1;
+                if (off >= 0) *(int32 *)&eb[off] = val;
+                break;
+            case VAR_VECTOR2: {
+                int32 vx = (int32)p6_mat_le32(vp), vy = (int32)p6_mat_le32(vp + 4); vp += 8; val = vx; have = 1;
+                if (off >= 0) { *(int32 *)&eb[off] = vx; *(int32 *)&eb[off + 4] = vy; }
+                break;
+            }
+            case VAR_STRING: {
+                uint16 ln = p6_mat_le16(vp); vp += 2u + (uint32)ln * 2u; // skip (no string var in GHZ reg set)
+                break;
+            }
+            default: break;
+        }
+        if (off >= 0) ++nmatch;
+        if (have && vi < 4) { wv[vi] = val; ++vi; }
+    }
+    p6_w_mat_nmatch = nmatch;
+    p6_w_mat_v0 = wv[0]; p6_w_mat_v1 = wv[1]; p6_w_mat_v2 = wv[2]; p6_w_mat_v3 = wv[3];
+    editableVarList  = saved_evl;   // restore LoadScene's freed NULL (no engine reader until next load)
+    editableVarCount = saved_evc;
+}
+
 extern "C" void p6_scene_run(void)
 {
     // Task #238: probe the 4MB cart FIRST (raw A-Bus RW; harmless -- the cart is
@@ -2712,6 +2874,13 @@ extern "C" void p6_scene_run(void)
             p6_w_dorm_slots = (int32)(*(volatile uint16 *)(w + 6)); // slot_count (header offset 6)
         }
     }
+
+    // 1.5c) P6.8 I3b increment 2b: the MATERIALIZE WRITE-side proof (p6_materialize_one) is NOT
+    //       called here -- the cart DORM store is loaded above, but stageObjectIDs + sceneInfo.
+    //       classCount are populated LATER by the GHZ LoadScene/InitObjects chain. Calling it now
+    //       resolves classID against an EMPTY class table (MEASURED: classid=0, classcount=0).
+    //       The call lives at the END of p6_scene_load_and_arm (after InitObjects), the same
+    //       "Saturn step AFTER the loader finalizes" discipline as the resident pre-inflate.
 
     // 1.6) P6.7 W11a: chain-load the GHZ1 layout BAND STORE (built by
     //      tools/build_layout_bands.py; zlib-banded layouts -- W11 design of
@@ -4088,6 +4257,15 @@ static void p6_scene_load_and_arm(void)
     p6_purge_scene_players();
     p6_i2_selfcheck(); // P6.8 I2: assert slot->pool indirection is 1:1 (byte-identical)
     p6_scan_index_build(); // P6.8 I3c: sorted-by-x scene-entity index for the loop1 spatial cull
+    // P6.8 I3b increment 2b: MATERIALIZE WRITE-side proof. NOW the class tables are populated
+    // (InitObjects above set stageObjectIDs + sceneInfo.classCount), so classID resolves. One-shot
+    // (first arm = GHZ1 in the shipping boot) -> reconstruct GHZ1 logical slot 10 (PlaneSwitch, 4
+    // vars) from the cart DORM store into scratch temp slot 1215 + witness (qa_p6_materialize_write).
+    // NO pool resize / loop1 / Create yet -- the smallest write-side proof. s_mat_done is .bss-zero.
+    {
+        static int s_mat_done = 0;
+        if (!s_mat_done) { s_mat_done = 1; p6_materialize_one(10, 1215); }
+    }
     // #P0 (GHZ1 parity): enable the level clock. The decomp enables it in
     // Zone_State_FadeIn (Zone.c:820) -- the act-start fade-in state that the lean
     // engine boot skips (it jumps straight to gameplay), so the timer stayed frozen.

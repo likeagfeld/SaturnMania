@@ -375,6 +375,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_phantom_purged -u _p6_w_i2_resolve_ok -u _p6_w_remap_ok \
     -u _p6_w_scancull_n -u _p6_w_scancull_near -u _p6_w_scan_always -u _p6_w_scancull_capped \
     -u _p6_w_dorm_bytes -u _p6_w_dorm_magic -u _p6_w_dorm_slots \
+    -u _p6_w_mat_slot -u _p6_w_mat_classid -u _p6_w_mat_classcount -u _p6_w_mat_posx -u _p6_w_mat_posy \
+    -u _p6_w_mat_nvars -u _p6_w_mat_nmatch -u _p6_w_mat_v0 -u _p6_w_mat_v1 -u _p6_w_mat_v2 -u _p6_w_mat_v3 \
     -u _p6_perf_vdp1_edsr -u _p6_perf_vdp1_lopr -u _p6_perf_vdp1_copr \
     -u _p6_w_slave_ticks \
     -u _p6_w_present_vbl_walk -u _p6_w_present_vbl_map \
