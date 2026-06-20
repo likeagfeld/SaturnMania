@@ -1203,6 +1203,11 @@ EntityBase *objectEntityList = (EntityBase *)P6_LW_ENTITYLIST;
 // of init order; p6_pool_remap_init() runs first thing in p6_engine_boot_and_run).
 uint16 *p6_pool_remap        = (uint16 *)0x226B8000u; // 1216 u16 = 2432 B in the cart gap
 int32   p6_pool_remap_ready  = 0;
+// P6.8 I3b.2 (camera-local pool shrink): the PHYSICAL scene-slot count SaturnEntityAt/SaturnEntitySlot
+// (Object.hpp) lay out. == SCENEENTITY_COUNT here -> the accessors stay BYTE-IDENTICAL (p6_i2_selfcheck's
+// oracle p6_i2_direct uses the SCENEENTITY_COUNT constant, so resolve_ok stays 1). The pool SHRINK sets
+// this < SCENEENTITY_COUNT (e.g. 640) ATOMICALLY with a non-identity p6_pool_remap + a resized backing.
+int32   p6_pool_scene_phys   = SCENEENTITY_COUNT;
 TileLayer *tileLayers        = (TileLayer *)P6_LW_TILELAYERS;
 DataStorage *dataStorage     = (DataStorage *)P6_LW_DATASTORAGE;
 // P6.7a: objectClassList/typeGroups/drawGroups are LIVE (ProcessObjects,

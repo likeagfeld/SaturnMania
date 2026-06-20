@@ -450,6 +450,14 @@ uint16 FindObject(const char *name);
 // access returns the raw slot (crash-safe; p6_pool_remap_init() runs first in the boot).
 extern uint16 *p6_pool_remap;
 extern int32   p6_pool_remap_ready;
+// P6.8 I3b.2 (camera-local pool shrink, RED-first): the PHYSICAL scene-slot count the dual-stride
+// accessor below lays out. Defined in p6_io_main.cpp == SCENEENTITY_COUNT, so SaturnEntityAt/Slot stay
+// BYTE-IDENTICAL (the I2 self-check oracle p6_i2_direct uses the SCENEENTITY_COUNT constant -> resolve_ok
+// stays 1). The pool SHRINK sets it < SCENEENTITY_COUNT (e.g. 640) ATOMICALLY with a non-identity
+// p6_pool_remap + a resized backing -- an identity remap + shrunk count would be out-of-bounds (plan 7.5).
+// Threading it now (still == the constant) de-risks the runtime variable-load indirection BEFORE the
+// shrink, exactly as p6_pool_remap stayed identity in I3b.1. Gate: resolve_ok==1 (qa_p6_i2) + R0-R16.
+extern int32   p6_pool_scene_phys;
 inline int32 SaturnSlotToPoolSlot(int32 slot) { return p6_pool_remap_ready ? (int32)p6_pool_remap[slot] : slot; }
 // I3 (2026-06-19, WRAM-H funding): noinline forces ONE COMDAT-folded out-of-line copy
 // instead of inlining the dual-stride arithmetic at the ~69 RSDK_ENTITY_AT sites
@@ -461,27 +469,29 @@ inline int32 SaturnSlotToPoolSlot(int32 slot) { return p6_pool_remap_ready ? (in
 inline __attribute__((noinline)) EntityBase *SaturnEntityAt(int32 slot)
 {
     int32 ps    = SaturnSlotToPoolSlot(slot); // I2 indirection (identity now; I3 -> table)
+    int32 sphys = p6_pool_scene_phys;         // == SCENEENTITY_COUNT until the shrink (byte-identical)
     uint8 *base = (uint8 *)objectEntityList;
     if (ps < RESERVE_ENTITY_COUNT)
         return (EntityBase *)(base + (uint32)ps * ENTITY_WIDE_SIZE);
-    if (ps < TEMPENTITY_START)
+    if (ps < RESERVE_ENTITY_COUNT + sphys)
         return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE
                               + (uint32)(ps - RESERVE_ENTITY_COUNT) * sizeof(EntityBase));
-    return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase)
-                          + (uint32)(ps - TEMPENTITY_START) * ENTITY_WIDE_SIZE);
+    return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)sphys * sizeof(EntityBase)
+                          + (uint32)(ps - RESERVE_ENTITY_COUNT - sphys) * ENTITY_WIDE_SIZE);
 }
 inline int32 SaturnEntitySlot(EntityBase *entity)
 {
     uint32 off       = (uint32)((uint8 *)entity - (uint8 *)objectEntityList);
+    int32  sphys     = p6_pool_scene_phys;    // == SCENEENTITY_COUNT until the shrink (byte-identical)
     uint32 narrowOff = (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE;
-    uint32 tempOff   = narrowOff + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase);
+    uint32 tempOff   = narrowOff + (uint32)sphys * sizeof(EntityBase);
     if (off >= ENTITYLIST_SIZE_BYTES)
         return 0;
     if (off < narrowOff)
         return (int32)(off / ENTITY_WIDE_SIZE);
     if (off < tempOff)
         return RESERVE_ENTITY_COUNT + (int32)((off - narrowOff) / sizeof(EntityBase));
-    return TEMPENTITY_START + (int32)((off - tempOff) / ENTITY_WIDE_SIZE);
+    return (RESERVE_ENTITY_COUNT + sphys) + (int32)((off - tempOff) / ENTITY_WIDE_SIZE);
 }
 #define RSDK_ENTITY_AT(slot) (RSDK::SaturnEntityAt((int32)(slot)))
 #define RSDK_ENTITY_SLOT(e)  (RSDK::SaturnEntitySlot((RSDK::EntityBase *)(e)))
