@@ -1028,6 +1028,15 @@ __attribute__((used)) int32 p6_w_draw_nents  = 0; // total entries iterated over
 __attribute__((used)) int32 p6_w_scan_pop     = 0; // slots with classID != 0
 __attribute__((used)) int32 p6_w_scan_maxslot = 0; // highest slot with classID != 0
 __attribute__((used)) int32 p6_w_scan_bounds  = 0; // populated slots with ACTIVE_*BOUNDS
+// I3b SHRINK distribution measurement (read-only, one-shot post-InitObjects). Resolves the LAST
+// design unknown for the atomic shrink WITHOUT touching the pool: is GHZ1's live scene set COMPACTED
+// to a contiguous [RESERVE, RESERVE+npop) (simple remap) or SPREAD with gaps (relocation needed)?
+// npop = total populated SCENE slots (the real N, vs scan_pop which is near-only); maxls = highest
+// populated scene slot; firstgap = first EMPTY scene slot at/after RESERVE (== RESERVE+npop iff fully
+// compacted, no gaps). p6_w_scan_pop's near-cull does NOT apply here (this is a plain full walk).
+__attribute__((used)) int32 p6_w_pool_npop     = -1; // total populated scene slots (the real N)
+__attribute__((used)) int32 p6_w_pool_maxls     = -1; // highest populated scene slot
+__attribute__((used)) int32 p6_w_pool_firstgap = -1; // first empty scene slot >= RESERVE (compaction test)
 #if defined(P6_SHADOW_COMPARE)
 // LOCKED-60 (#243) SCAN-SPLIT PARITY PROOF: before building the dual-SH2 scan-split
 // (master classifies [0,mid), slave [mid,end), all at frame-start), PROVE it matches
@@ -4205,6 +4214,17 @@ static void p6_scene_load_and_arm(void)
     p6_purge_scene_players();
     p6_i2_selfcheck(); // P6.8 I2: assert slot->pool indirection is 1:1 (byte-identical)
     p6_scan_index_build(); // P6.8 I3c: sorted-by-x scene-entity index for the loop1 spatial cull
+    // I3b SHRINK measurement (read-only, one-shot): walk the full scene region, count populated +
+    // max + first-gap, so the atomic shrink knows the live layout (compacted vs spread) from DATA.
+    // RSDK_ENTITY_AT here is the current identity/full accessor -> zero pool perturbation.
+    {
+        int32 np = 0, mx = -1, fg = -1;
+        for (int32 s = RESERVE_ENTITY_COUNT; s < TEMPENTITY_START; ++s) {
+            if (RSDK_ENTITY_AT(s)->classID) { ++np; mx = s; }
+            else if (fg < 0) fg = s;
+        }
+        p6_w_pool_npop = np; p6_w_pool_maxls = mx; p6_w_pool_firstgap = fg;
+    }
     // P6.8 I3b 2b -> overlay: MATERIALIZE WRITE-side proof, NOW DRIVEN VIA THE GHZ CART OVERLAY
     // (p6_ovl_materialize, filled into s_ovl.materialize_fn by the overlay entry; the bulk lives in
     // cart per the residency rule, freeing WRAM-H for the pool-shrink manager). The class tables are
