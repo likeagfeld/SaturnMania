@@ -130,7 +130,7 @@ $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Audio_Audio.o" "$SRC/RSDK/Audio/Audio.cpp"
 
 echo "[7f] Scene_Object.o (UNMODIFIED engine Object.cpp -- RegisterObject + ResetEntitySlot + ProcessObjects + ProcessObjectDrawLists for P6.7a; editor/serialize surface gc-drops; +P6_PERF_OBJPROF Phase-2d per-classID Update timing diagnostic) ..."
-$CC $CXXFLAGS $ENG_DEFS -DP6_PERF_OBJPROF ${P6_SHADOW:+-DP6_SHADOW_COMPARE} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS -DP6_PERF_OBJPROF ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} $CORE_INC \
     -c -o "$P6/Scene_Object.o" "$SRC/RSDK/Scene/Object.cpp"
 
 echo "[7q] Scene_Collision.o (VERBATIM engine Collision.cpp -- P6.7 W15b Task #227: ProcessObjectMovement/ProcessPathGrip/ProcessAirCollision_Down + the Find*/[ LR]Wall/Floor/Roof sensor walkers + CheckObjectCollision*; every tile read goes through the RSDK_*_MASK/_ANGLE seam -> PackedCollisionMask/PackedTileAngle (Scene.hpp:289-378, gate qa_p6_collision K1-K5); CopyCollisionMask + Legacy + ProcessAirCollision_Up preprocess out at REV02/MOD_LOADER=0; -Os NOT -O2: lone-TU census 2026-06-12 measured 18,696 B alloc at -O2 vs 13,016 B at -Os against a 2,708 B pre-land _end margin) ..."
@@ -380,7 +380,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_pool_npop -u _p6_w_pool_maxls -u _p6_w_pool_firstgap \
     -u _p6_w_compact_n -u _p6_w_compact_sphys -u _p6_w_compact_dummy \
     -u _p6_w_compact_bij_ok -u _p6_w_compact_lastL -u _p6_w_compact_lastP \
-    -u _p6_eng_pool_flip -u _p6_eng_pool_geom \
+    -u _p6_eng_pool_flip -u _p6_eng_pool_geom -u _p6_eng_create -u _p6_stream_tick \
+    -u _p6_w_stream_mat -u _p6_w_stream_dorm -u _p6_w_stream_free \
+    -u _p6_w_stream_resident -u _p6_w_stream_starve \
     -u _p6_eng_classid_resolve -u _p6_eng_serialize_begin -u _p6_eng_var_offset \
     -u _p6_eng_serialize_end -u _p6_eng_entity_prepare -u _p6_eng_write_placement \
     -u _p6_perf_vdp1_edsr -u _p6_perf_vdp1_lopr -u _p6_perf_vdp1_copr \

@@ -135,6 +135,10 @@ typedef struct {
     /* qa_p6_pool_compact_model), reserves a classID=0 dummy, flips p6_pool_scene_phys  */
     /* (via the pack thunk p6_eng_pool_flip). The pack drives it one-shot at load.      */
     void (*compact_fn)(void);
+    /* I3b 2b STREAMING per-frame manager (overlay-resident). Called every frame from ProcessObjects     */
+    /* (after p6_scan_update_near, before loop1): materialize newly-near scene entities from the DORM     */
+    /* store + dormant newly-far ones, maintaining the free-list + lifecycle bit. The fps + WRAM-L win.   */
+    void (*stream_fn)(void);
 } p6_ovl_api;
 
 /* The entry signature at P6_OVL_BASE: registers the overlay's classes via

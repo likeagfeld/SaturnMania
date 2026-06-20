@@ -566,6 +566,7 @@ __attribute__((used)) int32 p6_w_phantom_purged = 0;
 // slot empty (ProcessObjects' `if (classID)` skips it; loop2 excludes it from
 // typeGroups) with NO class-size memset (no narrow-slot overrun). Idempotent.
 extern "C" void p6_scan_index_build(void); // P6.8 I3c: defined near the boot, called from the scene-load setup below
+extern "C" void p6_scan_update_near(int32 cam_x_world); // I3b 2b: seed the near-set for the spawn camera at load
 void p6_purge_scene_players(void)
 {
     int32 pcls = (int32)RSDK_ENTITY_AT(0)->classID; // SLOT_PLAYER1 (==0); live Player classID
@@ -1045,6 +1046,12 @@ __attribute__((used)) int32 p6_w_compact_dummy  = -1; // reserved classID=0 dumm
 __attribute__((used)) int32 p6_w_compact_bij_ok = -1; // 1 iff remap/inv round-trip for all populated + dummy clear
 __attribute__((used)) int32 p6_w_compact_lastL  = -1; // highest populated logical slot (pre-compaction)
 __attribute__((used)) int32 p6_w_compact_lastP  = -1; // physical slot it mapped to (== R+n-1 iff it was the last)
+// I3b 2b STREAMING per-frame manager witnesses (the overlay p6_ovl_stream writes them via ld -R).
+__attribute__((used)) int32 p6_w_stream_mat      = 0;  // cumulative materializes (newly-near re-created from DORM)
+__attribute__((used)) int32 p6_w_stream_dorm     = 0;  // cumulative dormants (newly-far freed)
+__attribute__((used)) int32 p6_w_stream_free     = -1; // current free-list count (slots available for materialize)
+__attribute__((used)) int32 p6_w_stream_resident = -1; // current resident scene slots (remap != dummy)
+__attribute__((used)) int32 p6_w_stream_starve   = 0;  // times a materialize was wanted but the free-list was empty
 #if defined(P6_SHADOW_COMPARE)
 // LOCKED-60 (#243) SCAN-SPLIT PARITY PROOF: before building the dual-SH2 scan-split
 // (master classifies [0,mid), slave [mid,end), all at frame-start), PROVE it matches
@@ -4248,15 +4255,19 @@ static void p6_scene_load_and_arm(void)
         }
         p6_w_pool_npop = np; p6_w_pool_maxls = mx; p6_w_pool_firstgap = fg;
     }
-    // P6.8 I3b 2b COMPACTION (replaces the retired slot-1215 materialize TEST -- that scratch slot does
-    // not exist after the shrink). Relocate every populated scene entity into a dense physical pool via
-    // the non-identity remap (byte-plan proven offline by qa_p6_pool_compact_model). The DE-RISK
-    // milestone: exercises the full streaming machinery with ALL entities present, before the streaming
-    // shrink to 640+dormant. One-shot (.bss-zero guard); first arm = GHZ1. Runs AFTER the read-only walk
-    // above (which measured the pre-compaction layout into p6_w_pool_*).
+    // P6.8 I3b 2b STREAMING (load phase): camera-local NEAR-shrink to scene_phys=640. Seed p6_scan_near
+    // for the SPAWN camera (the per-frame p6_scan_update_near in ProcessObjects has not run yet at load),
+    // then the overlay relocates the near-populated set + dormants the far ones. One-shot (.bss-zero
+    // guard); first arm = GHZ1. p6_scan_index_build (above) built the sorted index p6_scan_update_near
+    // needs. LOAD-ONLY for now -> qa_p6_pool_shrink GREEN (pool shrunk) but R0-R16 RED (far entities the
+    // camera later reaches stay dormant); Build 2's per-frame materialize/dormant turns R0-R16 GREEN.
     {
         static int s_compact_done = 0;
-        if (!s_compact_done && s_ovl.compact_fn) { s_compact_done = 1; s_ovl.compact_fn(); }
+        if (!s_compact_done && s_ovl.compact_fn) {
+            s_compact_done = 1;
+            p6_scan_update_near(cameraCount > 0 ? (int32)(cameras[0].position.x >> 16) : 0);
+            s_ovl.compact_fn();
+        }
     }
     // #P0 (GHZ1 parity): enable the level clock. The decomp enables it in
     // Zone_State_FadeIn (Zone.c:820) -- the act-start fade-in state that the lean
@@ -4444,6 +4455,32 @@ extern "C" __attribute__((used)) void p6_eng_pool_geom(int32 *out)
     out[3] = SCENEENTITY_COUNT;
     out[4] = TEMPENTITY_COUNT;
     out[5] = ENTITY_WIDE_SIZE;
+    out[6] = P6_POOL_SCENE_PHYS; // the shrunk physical scene-slot count (640)
+}
+// I3b 2b STREAMING: re-CREATE a materialized entity. p6_ovl_materialize writes PLACEMENT only (classID +
+// position + editable vars); the entity is INERT until Create runs its animator/state setup. This mirrors
+// InitObjects (Object.cpp:362-374) EXACTLY -- the overlay sets remap[L]=P first, then materialize(L,L)
+// writes to physical P (entity_prepare applies remap) and calls this to Create it live. Create runs
+// MID-ProcessObjects (after the camera update, before loop1) -- supported (CreateEntity is called mid-frame
+// by gameplay); the R3 PlaneSwitch RED->GREEN is the proof.
+extern "C" __attribute__((used)) void p6_eng_create(int32 slot)
+{
+    using namespace RSDK;
+    sceneInfo.entitySlot = slot;
+    sceneInfo.entity     = RSDK_ENTITY_AT(slot);
+    int32 cid = (int32)sceneInfo.entity->classID;
+    if (cid && objectClassList[stageObjectIDs[cid]].create) {
+        sceneInfo.entity->interaction = true;
+        objectClassList[stageObjectIDs[cid]].create(NULL);
+    }
+}
+// I3b 2b STREAMING: per-frame tick forwarder. Object.cpp (ProcessObjects) calls this AFTER
+// p6_scan_update_near (the live near-set) + BEFORE loop1; it routes to the overlay-resident stream manager
+// (s_ovl.stream_fn) which materializes newly-near + dormants newly-far. NULL-safe pre-overlay-load.
+extern "C" void p6_stream_tick(void)
+{
+    if (s_ovl.stream_fn)
+        s_ovl.stream_fn();
 }
 // =============================================================================
 // P6.8 I3c (camera-local pool, the FPS WIN): SPATIAL-CULL loop1. The GHZ scan cost is

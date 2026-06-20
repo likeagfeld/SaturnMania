@@ -42,7 +42,7 @@ SAVESTATE = os.path.join(ROOT, "tools", "qa_savestate.ps1")
 TMP_MCS   = os.path.join(HERE, "_p6_ghzreg.mcs")
 
 NAMES = ["_p6_w_cont_frames", "_p6_w_brg_classid", "_p6_w_brg_frames",
-         "_p6_w_loop_pscount", "_p6_w_plr_live_rings", "_p6_w_plr_live_shield",
+         "_p6_w_loop_pscount", "_p6_w_loop_regmask", "_p6_w_plr_live_rings", "_p6_w_plr_live_shield",
          "_p6_w_time_enabled", "_p6_w_spring_classid", "_p6_w_spring_frames",
          "_p6_w_spikelog_classid", "_p6_w_spikelog_frames",
          # Range-independent anim-load status (Object->aniFrames; -1==FAILED). This
@@ -92,7 +92,15 @@ def main(argv):
         ("R0 boot healthy (cont_frames>0)",      v["_p6_w_cont_frames"],   lambda x: x and x > 0),
         ("R1 Bridge registered (classid>0)",     v["_p6_w_brg_classid"],   lambda x: x and x > 0),
         ("R2 Bridge.bin LOADED (frames>0)",      v["_p6_w_brg_frames"],    lambda x: x and x > 0),
-        ("R3 PlaneSwitch live (pscount>0)",      v["_p6_w_loop_pscount"],  lambda x: x and x > 0),
+        # R3 (STREAMING-AWARE, 2026-06-20): under the I3b camera-local pool, PlaneSwitch is
+        # materialized only while NEAR the camera. At this spawn capture (cam x~108) the nearest
+        # PlaneSwitch (x=3352) is >2200px away, so 0 are near and pscount=0 is CORRECT, not a
+        # regression -- OFFLINE-PROVEN (scene_census: GHZ1 PlaneSwitch min x=3352; the ~41 near
+        # entities at cam 108 contain 0 PlaneSwitches; scancull_near=41 matches exactly). The
+        # camera-INDEPENDENT #254 guard is PlaneSwitch REGISTRATION (regmask bit3) + R2 (Bridge.bin
+        # loaded == the actual pool-overflow symptom). The POSITIVE "a near PlaneSwitch materializes"
+        # proof is qa_p6_stream_in (warps the camera onto a PlaneSwitch cluster -> pscount>0).
+        ("R3 PlaneSwitch registered (regmask&0x08; streaming-aware)", v["_p6_w_loop_regmask"], lambda x: x is not None and (x & 0x08) != 0),
         ("R4 ring count sane (0<=rings<100; #258 collectible)", v["_p6_w_plr_live_rings"], lambda x: x is not None and 0 <= x < 100),
         ("R5 spawn shield==0",                   v["_p6_w_plr_live_shield"],lambda x: x == 0),
         ("R6 timer enabled==1",                  v["_p6_w_time_enabled"],   lambda x: x == 1),
@@ -132,8 +140,10 @@ def main(argv):
     # Surface the global anim-load diagnostics so a RED above is pinpointed inline
     # (no forensic dig). lastfail = (sprfile_id<<16)|frameCount (bit15: animCount fail);
     # stg_at_fail = DATASET_STG usedStorage at the refusal.
-    diag = ("anim_lastfail=0x%X  stg_at_fail=%s" %
-            ((v.get("_p6_w_anim_lastfail") or 0) & 0xFFFFFFFF, v.get("_p6_w_stg_at_fail")))
+    diag = ("anim_lastfail=0x%X  stg_at_fail=%s  ps_materialized=%s (info: camera-gated under streaming; "
+            "0 at spawn is correct -- see qa_p6_stream_in for the near-PlaneSwitch proof)" %
+            ((v.get("_p6_w_anim_lastfail") or 0) & 0xFFFFFFFF, v.get("_p6_w_stg_at_fail"),
+             v.get("_p6_w_loop_pscount")))
     print("=" * 64)
     print("GHZ1 WHOLE-LEVEL REGRESSION GATE")
     print("=" * 64)

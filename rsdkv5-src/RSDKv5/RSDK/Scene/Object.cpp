@@ -464,6 +464,7 @@ static int32 s_p6_inrange_prev_n = 0;
 // cost). Conservative -- the 768 px window >= the full-check range, so no near entity is
 // excluded. See p6_io_main.cpp + ghz-scan-split-parity-audit.
 extern "C" void p6_scan_update_near(int32 cam_x_world);
+extern "C" void p6_stream_tick(void); // I3b 2b: per-frame camera-local pool stream (materialize/dormant)
 extern unsigned char p6_scan_near[];
 // I3d (the 60fps step): cart always-iterate bitfield -- loop1 pins a scene slot here when its
 // active turns non-x-cullable (NORMAL/ALWAYS/YBOUNDS/RBOUNDS) so the far-skip never drops it.
@@ -505,8 +506,24 @@ void RSDK::ProcessObjects()
     }
 
 #if RETRO_PLATFORM == RETRO_SATURN
+#if defined(P6_STREAM_PROOF)
+    // I3b 2b STREAMING-IN PROOF (diag-only -- the shipping build leaves P6_STREAM_PROOF undefined).
+    // Pin the camera EVERY frame onto the GHZ1 PlaneSwitch cluster near x=2500 (scene_census: 7
+    // PlaneSwitches inside the +/-1024 window there; none within ~2200px of the x~108 spawn). This makes
+    // those PlaneSwitches NEWLY-NEAR so the per-frame stream (p6_stream_tick below) MATERIALIZES them from
+    // the DORM store -> the pscount latch goes >0. The shipping spawn capture has pscount=0 (correctly: no
+    // PlaneSwitch near); this proof capture's pscount>0 is the direct RED->GREEN observation that a
+    // PlaneSwitch streams in when the camera reaches it. Pinned after the camera-follow update, before the
+    // near-classify, so p6_scan_update_near sees the pinned x. Gate: qa_p6_stream_in.
+    if (cameraCount > 0)
+        cameras[0].position.x = 2500 << 16;
+#endif
     // P6.8 I3c: fill the loop1 spatial-cull near-bitfield from the (just-updated) camera x.
     p6_scan_update_near(cameraCount > 0 ? (int32)(cameras[0].position.x >> 16) : 0);
+    // P6.8 I3b 2b STREAMING: with the live near-set fresh, materialize newly-near scene entities from the
+    // DORM store + dormant newly-far ones (the camera-local pool's per-frame half) BEFORE loop1 iterates
+    // the physical pool. No-op until the load-near-shrink has run (p6_stream_tick -> s_ovl.stream_fn guard).
+    p6_stream_tick();
 #endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SHADOW_COMPARE)
     // SCAN-SPLIT PARITY PROOF (#243): classify ALL entities at frame-start (the

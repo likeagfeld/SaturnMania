@@ -104,10 +104,19 @@ extern int32 p6_w_mat_posx, p6_w_mat_posy, p6_w_mat_v0, p6_w_mat_v1, p6_w_mat_v2
  * pool GEOMETRY from the pack (p6_eng_pool_geom -- no struct/define hardcode); the only engine-touching
  * op is the atomic scene_phys flip (p6_eng_pool_flip). Forward-declared so p6_overlay_entry stays first. */
 static void p6_ovl_pool_compact(void);
-extern void p6_eng_pool_geom(int32 *out);              /* {classID off, NARROW, R, SCN, TEMP, WIDE} */
+extern void p6_eng_pool_geom(int32 *out);              /* {classID off, NARROW, R, SCN, TEMP, WIDE, SCENE_PHYS} */
 extern void p6_eng_pool_flip(int32 sphys, int32 dummy);/* atomic flip of the RSDK pool ints (LAST) */
+extern unsigned char p6_scan_near[];                   /* WRAM-H near bitfield (pack; per-frame near-set) */
 extern int32 p6_w_compact_n, p6_w_compact_sphys, p6_w_compact_dummy;
 extern int32 p6_w_compact_bij_ok, p6_w_compact_lastL, p6_w_compact_lastP;
+/* I3b 2b STREAMING (per-frame manager). */
+static void p6_ovl_stream(void);
+extern void p6_eng_create(int32 slot);                 /* re-Create a materialized entity (InitObjects mirror) */
+extern int32 p6_w_stream_mat, p6_w_stream_dorm, p6_w_stream_free, p6_w_stream_resident, p6_w_stream_starve;
+/* cart structures -- the verified-free [0x226BC980,0x226C0000) gap (inv-end -> shadow buffer). */
+#define P6_STREAM_FREELIST 0x226BD000u  /* unsigned short[SCENE_PHYS] -- free physical-slot stack */
+#define P6_STREAM_FREECNT  0x226BD600u  /* int -- free-list count */
+#define P6_STREAM_LIFE     0x226BD700u  /* unsigned char[(SCENEENTITY_COUNT+7)/8] -- destroyed (lifecycle) bits */
 
 // =============================================================================
 // p6_overlay_entry -- MUST be first (window base). Registers the overlay's
@@ -249,6 +258,9 @@ int p6_overlay_entry(p6_ovl_api *api)
     /* I3b 2b: the pack drives the COMPACTION one-shot at load (s_ovl.compact_fn) -- relocates all
      * populated scene entities into a dense physical pool (overlay-resident per the residency rule). */
     api->compact_fn = p6_ovl_pool_compact;
+    /* I3b 2b: the per-frame STREAMING manager (s_ovl.stream_fn) -- materialize newly-near + dormant
+     * newly-far, the camera-local pool's live half. Called from ProcessObjects via p6_stream_tick. */
+    api->stream_fn = p6_ovl_stream;
     return 0;
 }
 
@@ -433,77 +445,100 @@ static unsigned short p6m_be16(const unsigned char *p) { return (unsigned short)
 static unsigned int   p6m_le32(const unsigned char *p) { return ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | p[0]; }
 static unsigned short p6m_le16(const unsigned char *p) { return (unsigned short)(((unsigned int)p[1] << 8) | p[0]); }
 
-// I3b 2b COMPACTION (overlay-resident). Relocate every populated scene entity into a dense physical
-// pool [R,R+n), reserve R+n as a classID=0 dummy, shift temp 1:1 down, flip p6_pool_scene_phys to n+1
-// (via the pack thunk). Byte-plan proven offline by qa_p6_pool_compact_model; runtime gate
-// qa_p6_pool_compact (C1-C5) + qa_p6_ghz_regression (R0-R16) catch any corruption. One-shot at load.
+// I3b 2b STREAMING (load phase, overlay-resident). Camera-local NEAR-shrink: relocate the camera-NEAR
+// populated scene entities (p6_scan_near, seeded for the spawn camera) into a dense pool [R,R+nNear),
+// DORMANT the FAR ones (remap -> the reserved dummy at R+SCENE_PHYS-1), make the free slots
+// [R+nNear,R+SCENE_PHYS-1) inert (materialize-targets for the per-frame stream, Build 2), shift temp
+// down, flip p6_pool_scene_phys to SCENE_PHYS=640. Relocation reuses the PROVEN compaction byte-plan
+// (near is a subset; qa_p6_pool_compact_model). LOAD-ONLY (no per-frame stream yet) -> this SHRINKS the
+// pool (qa_p6_pool_shrink GREEN, maxslot<768) but DROPS entities the camera later reaches (R0-R16 RED
+// baseline); Build 2's per-frame materialize/dormant turns R0-R16 GREEN. The pack seeds p6_scan_near via
+// p6_scan_update_near(spawn camX) before calling this.
 static void p6_ovl_pool_compact(void)
 {
-    int32 g[6];
-    unsigned char  *base, *src, *dst, *e, *dd;
+    int32 g[7];
+    unsigned char  *base, *src, *dst, *e, *pe;
     unsigned short *remap, *inv;
     unsigned int    SCN_BASE;
-    int CIDOFF, NARROW, R, SCN, TEMP, WIDE;
-    int n, lastL, NEW, dummy, L, k, t, i, ok;
+    int CIDOFF, NARROW, R, SCN, TEMP, WIDE, SP;
+    int n, lastL, dummy, L, k, t, i, ok, P, isnear;
 
     p6_eng_pool_geom(g);
     CIDOFF = (int)g[0]; NARROW = (int)g[1]; R = (int)g[2]; SCN = (int)g[3]; TEMP = (int)g[4]; WIDE = (int)g[5];
+    SP = (int)g[6];     /* P6_POOL_SCENE_PHYS = 640 (the shrunk physical scene-slot count) */
     base  = (unsigned char *)0x00243000u;        /* P6_LW_ENTITYLIST (WRAM-L, cached, master SH-2) */
     remap = (unsigned short *)0x226B8000u;        /* p6_pool_remap (cache-through cart) */
     inv   = (unsigned short *)0x226BC000u;        /* p6_pool_remap_inv */
     SCN_BASE = (unsigned int)R * (unsigned int)WIDE;
+    dummy = R + SP - 1; /* reserved classID=0 dummy = the LAST scene-physical slot (kept OUT of the free
+                           pool so a future materialize never overwrites it) */
     n = 0; lastL = -1;
 
-    /* Pass A -- classify populated scene slots ascending, assign dense ranks (no data move). */
+    /* Pass A -- classify NEAR-and-populated scene slots ascending into a dense pool. p6_scan_near already
+       includes the always-iterate set (NORMAL/managers), so they are kept resident. */
     for (L = R; L < R + SCN; ++L) {
         e = base + SCN_BASE + (unsigned int)(L - R) * (unsigned int)NARROW;
-        if (*(unsigned short *)(e + CIDOFF)) {    /* Entity::classID (uint16) */
+        isnear = (p6_scan_near[L >> 3] >> (L & 7)) & 1;
+        if (isnear && *(unsigned short *)(e + CIDOFF)) {
             remap[L]   = (unsigned short)(R + n);
             inv[R + n] = (unsigned short)L;
             lastL = L; ++n;
         } else {
-            remap[L] = (unsigned short)0xFFFFu;    /* sentinel -> dummy in A2 */
+            remap[L] = (unsigned short)0xFFFFu;    /* far or empty -> dummy in A2 */
         }
     }
-    NEW = n + 1; dummy = R + n;
-    /* A2 -- empty logical slots -> the single dummy; dummy inverse = a safe in-bounds index. */
+    /* A2 -- far/empty logical slots -> the reserved dummy. */
     for (L = R; L < R + SCN; ++L)
         if (remap[L] == (unsigned short)0xFFFFu) remap[L] = (unsigned short)dummy;
-    inv[dummy] = (unsigned short)dummy;
-    /* Pass B -- relocate scene per-entity ASCENDING. dst<=src and per-entity non-overlapping (src-dst is
-       a multiple of NARROW, 0 or >=NARROW) -> a plain forward byte copy is correct. */
+    /* Pass B -- relocate near ascending (dst<=src, per-entity non-overlap -> forward byte copy; proven). */
     for (k = 0; k < n; ++k) {
         L   = (int)inv[R + k];
         src = base + SCN_BASE + (unsigned int)(L - R) * (unsigned int)NARROW;
         dst = base + SCN_BASE + (unsigned int)k * (unsigned int)NARROW;
         if (dst != src) for (i = 0; i < NARROW; ++i) dst[i] = src[i];
     }
-    /* Pass C -- zero the inert dummy slot (classID=0 -> loop1 skips it). */
-    dd = base + SCN_BASE + (unsigned int)(dummy - R) * (unsigned int)NARROW;
-    for (i = 0; i < NARROW; ++i) dd[i] = 0;
-    /* Pass D -- shift temp 1:1 DOWN (ascending; scene already consumed -> writes into the stale upper
-       scene region are safe; dst<src forward copy correct even if regions touch). */
+    /* Pass C -- make every NON-near scene-physical slot inert: [R+n, R+SP) = the free pool + the dummy.
+       loop1 iterates the whole physical scene region, so a STALE classID here would be a phantom entity
+       -> zero the classID (2 B) + set inv=self (a safe in-bounds _L for loop1's near-cull index). */
+    for (P = R + n; P < R + SP; ++P) {
+        pe = base + SCN_BASE + (unsigned int)(P - R) * (unsigned int)NARROW;
+        *(unsigned short *)(pe + CIDOFF) = 0;
+        inv[P] = (unsigned short)P;
+    }
+    /* Pass D -- shift temp 1:1 DOWN to [R+SP, R+SP+TEMP). */
     for (t = 0; t < TEMP; ++t) {
         src = base + SCN_BASE + (unsigned int)SCN * (unsigned int)NARROW + (unsigned int)t * (unsigned int)WIDE;
-        dst = base + SCN_BASE + (unsigned int)NEW * (unsigned int)NARROW + (unsigned int)t * (unsigned int)WIDE;
+        dst = base + SCN_BASE + (unsigned int)SP  * (unsigned int)NARROW + (unsigned int)t * (unsigned int)WIDE;
         if (dst != src) for (i = 0; i < WIDE; ++i) dst[i] = src[i];
-        remap[R + SCN + t] = (unsigned short)(R + NEW + t);
-        inv[R + NEW + t]   = (unsigned short)(R + SCN + t);
+        remap[R + SCN + t] = (unsigned short)(R + SP + t);
+        inv[R + SP + t]    = (unsigned short)(R + SCN + t);
     }
-    /* witnesses */
+    /* STREAMING init: the free pool = [R+n, R+SP-1) (the inert slots Pass C made, EXCLUDING the reserved
+       dummy at R+SP-1). Push them onto the free-list stack; zero the lifecycle (destroyed) bitfield. The
+       resident set is the spawn-near [R,R+n) (already placed). The per-frame p6_ovl_stream uses these. */
+    {
+        unsigned short *fl   = (unsigned short *)P6_STREAM_FREELIST;
+        int            *fc   = (int *)P6_STREAM_FREECNT;
+        unsigned char  *life = (unsigned char *)P6_STREAM_LIFE;
+        int f = 0, q;
+        for (q = R + n; q < R + SP - 1; ++q) fl[f++] = (unsigned short)q;
+        *fc = f;
+        for (q = 0; q < (SCN + 7) / 8; ++q) life[q] = 0;
+    }
+    /* witnesses (compact_n is now the spawn NEAR count; sphys is the shrunk 640). */
     p6_w_compact_n     = n;
-    p6_w_compact_sphys = NEW;
+    p6_w_compact_sphys = SP;
     p6_w_compact_dummy = dummy;
     p6_w_compact_lastL = lastL;
     p6_w_compact_lastP = (lastL >= 0) ? (int32)remap[lastL] : -1;
-    /* light bij self-check: dummy inert + the highest-logical entity at the last dense slot. The real
-       corruption catch is qa_p6_ghz_regression R0-R16 (a corrupted entity breaks its feature). */
+    /* light bij self-check: dummy inert + the highest-near entity at the last dense slot. The real
+       gameplay catch is qa_p6_ghz_regression R0-R16 (RED here without the per-frame stream). */
     ok = 1;
-    if (*(unsigned short *)(dd + CIDOFF) != 0) ok = 0;
+    if (*(unsigned short *)(base + SCN_BASE + (unsigned int)(dummy - R) * (unsigned int)NARROW + CIDOFF) != 0) ok = 0;
     if (lastL >= 0 && (int)remap[lastL] != R + n - 1) ok = 0;
     p6_w_compact_bij_ok = ok;
-    /* ATOMIC FLIP (pack thunk, LAST -- the remap is now fully non-identity + data relocated). */
-    p6_eng_pool_flip(NEW, dummy);
+    /* ATOMIC FLIP (pack thunk, LAST) -- scene_phys = SCENE_PHYS (640). */
+    p6_eng_pool_flip(SP, dummy);
 }
 
 static void p6_ovl_materialize(unsigned logical_slot, unsigned dest_slot)
@@ -578,4 +613,82 @@ static void p6_ovl_materialize(unsigned logical_slot, unsigned dest_slot)
     p6_eng_serialize_end();                                  // pack thunk: restore editableVarList
     p6_w_mat_nmatch = nmatch;
     p6_w_mat_v0 = wv[0]; p6_w_mat_v1 = wv[1]; p6_w_mat_v2 = wv[2]; p6_w_mat_v3 = wv[3];
+    // I3b 2b STREAMING: re-CREATE the entity. Placement alone is INERT (no animator/state machine); Create
+    // runs the object's spawn setup so a re-materialized entity is LIVE. Mirrors InitObjects (the gap the
+    // qa_p6_materialize_write gate did NOT cover -- it only checked placement M1-M5).
+    p6_eng_create((int32)dest_slot);
+}
+
+// I3b 2b STREAMING per-frame manager. Runs EVERY frame from ProcessObjects (after p6_scan_update_near
+// rebuilt p6_scan_near for the LIVE camera, BEFORE loop1). One pass over the scene logical range:
+//   - gameplay-destroyed (resident but classID==0) -> retire: set lifecycle bit, free the slot, dormant.
+//   - newly-near + not-resident + not-destroyed -> MATERIALIZE: pop a free physical slot, re-Create from
+//     DORM into it (live), remap[L]=P, inv[P]=L.
+//   - newly-far + resident -> DORMANT: make the slot inert, push it to the free-list, remap[L]=dummy.
+// Guarded by p6_w_compact_n>=0 (the load-near-shrink ran -> pool is shrunk). The materialize + relocate +
+// dummy are PROVEN; this diff/free-list/lifecycle + the mid-frame Create are the new code -> R3 RED->GREEN.
+static void p6_ovl_stream(void)
+{
+    int32 g[7];
+    unsigned char  *base, *pe;
+    unsigned short *remap, *inv, *fl;
+    unsigned char  *life;
+    int *fc;
+    unsigned int SCN_BASE;
+    int CIDOFF, NARROW, R, SCN, WIDE, SP, dummy, L, P, isnear, resident, res;
+
+    if (p6_w_compact_n < 0) return;   /* the load-near-shrink has not run -> not shrunk -> no-op */
+    p6_eng_pool_geom(g);
+    CIDOFF = (int)g[0]; NARROW = (int)g[1]; R = (int)g[2]; SCN = (int)g[3]; WIDE = (int)g[5]; SP = (int)g[6];
+    base  = (unsigned char *)0x00243000u;
+    remap = (unsigned short *)0x226B8000u;
+    inv   = (unsigned short *)0x226BC000u;
+    fl    = (unsigned short *)P6_STREAM_FREELIST;
+    fc    = (int *)P6_STREAM_FREECNT;
+    life  = (unsigned char *)P6_STREAM_LIFE;
+    SCN_BASE = (unsigned int)R * (unsigned int)WIDE;
+    dummy = R + SP - 1;
+    res = 0;
+
+    for (L = R; L < R + SCN; ++L) {
+        isnear   = (p6_scan_near[L >> 3] >> (L & 7)) & 1;
+        P        = (int)remap[L];
+        resident = (P != dummy);
+        if (resident) {
+            pe = base + SCN_BASE + (unsigned int)(P - R) * (unsigned int)NARROW;
+            if (*(unsigned short *)(pe + CIDOFF) == 0) {   /* gameplay destroyed it -> retire permanently */
+                life[L >> 3] |= (unsigned char)(1 << (L & 7));
+                fl[(*fc)++] = (unsigned short)P;
+                remap[L] = (unsigned short)dummy;
+                resident = 0;
+            }
+        }
+        if (isnear && !resident) {
+            if (!(life[L >> 3] & (1 << (L & 7)))) {          /* not destroyed -> materialize */
+                if (*fc > 0) {
+                    P = (int)fl[--(*fc)];
+                    remap[L] = (unsigned short)P;
+                    inv[P]   = (unsigned short)L;
+                    /* DORM is indexed by the raw Scene.bin slotID = L-RESERVE (build_dormant_store.py:
+                       slot<SCENEENTITY_COUNT, slot_count=max+1=1041); dest_slot=L -> RSDK_ENTITY_AT(L)=
+                       remap[L]=P -> the entity is written + Created at physical P. */
+                    p6_ovl_materialize((unsigned)(L - R), (unsigned)L);
+                    ++p6_w_stream_mat;
+                    resident = 1;
+                } else {
+                    ++p6_w_stream_starve;                     /* free-list empty (SP undersized -- gate) */
+                }
+            }
+        } else if (!isnear && resident) {                    /* newly far -> dormant */
+            pe = base + SCN_BASE + (unsigned int)(P - R) * (unsigned int)NARROW;
+            *(unsigned short *)(pe + CIDOFF) = 0;
+            fl[(*fc)++] = (unsigned short)P;
+            remap[L] = (unsigned short)dummy;
+            ++p6_w_stream_dorm;
+            resident = 0;
+        }
+        if (resident) ++res;
+    }
+    p6_w_stream_free     = *fc;
+    p6_w_stream_resident = res;
 }
