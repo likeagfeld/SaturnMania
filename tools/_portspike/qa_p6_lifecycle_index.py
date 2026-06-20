@@ -69,7 +69,11 @@ def main():
     if not accesses:
         print("  [ RED ] S2 no life[...>>3] lifecycle accesses found (parser stale?)")
         return 1
-    subtracts_R = [bool(re.search(r"\bL\s*-\s*R\b", a)) for a in accesses]
+    # An access subtracts the RESERVE offset if it contains "- R" (the local R), for ANY index var
+    # (the retire/skip loops use L, the backtrack-proof recorder uses tl) -- all land in [0,SCN). A BARE
+    # index (no "- R") carries the +R offset and overflows. "- RESERVE_X" won't false-match (R\b needs a
+    # word boundary, and RESERVE_X has E after R).
+    subtracts_R = [bool(re.search(r"-\s*R\b", a)) for a in accesses]
     bare_L      = [(not sub) for sub in subtracts_R]
     offset = R if any(bare_L) else 0   # any bare-L access => the +R offset is in play
     array_bytes = (SCN + 7) // 8
