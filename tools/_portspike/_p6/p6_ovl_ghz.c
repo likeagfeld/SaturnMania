@@ -657,14 +657,21 @@ static void p6_ovl_stream(void)
         if (resident) {
             pe = base + SCN_BASE + (unsigned int)(P - R) * (unsigned int)NARROW;
             if (*(unsigned short *)(pe + CIDOFF) == 0) {   /* gameplay destroyed it -> retire permanently */
-                life[L >> 3] |= (unsigned char)(1 << (L & 7));
+                /* lifecycle bitfield is indexed by the SCENE slot (L - R), NOT bare L: it is sized
+                   (SCENEENTITY_COUNT+7)/8 = [0,SCN), so a bare-L index (which carries the +RESERVE
+                   offset) overflows by RESERVE/8 bytes into UN-ZEROED cart RAM for the top RESERVE
+                   logical slots (GHZ1: the 17 PlaneSwitches at slotID 1024-1040 -> a stray garbage bit
+                   flags them destroyed -> invisible path-switches). p6_scan_near above IS indexed by
+                   bare L -- it is sized (ENTITY_COUNT+7)/8 so it stays in-bounds; do NOT "match" it
+                   here. Gate: qa_p6_lifecycle_index (static, deterministic). */
+                life[(L - R) >> 3] |= (unsigned char)(1 << ((L - R) & 7));
                 fl[(*fc)++] = (unsigned short)P;
                 remap[L] = (unsigned short)dummy;
                 resident = 0;
             }
         }
         if (isnear && !resident) {
-            if (!(life[L >> 3] & (1 << (L & 7)))) {          /* not destroyed -> materialize */
+            if (!(life[(L - R) >> 3] & (1 << ((L - R) & 7)))) {  /* not destroyed (scene-slot L-R index) -> materialize */
                 if (*fc > 0) {
                     P = (int)fl[--(*fc)];
                     remap[L] = (unsigned short)P;
