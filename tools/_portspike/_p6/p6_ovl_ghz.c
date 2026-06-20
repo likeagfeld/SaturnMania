@@ -119,6 +119,12 @@ extern int32 p6_w_pool_inv_bad; /* I3b 2b: sticky free-list-invariant violation 
 #define P6_STREAM_FREELIST 0x226BD000u  /* unsigned short[SCENE_PHYS] -- free physical-slot stack */
 #define P6_STREAM_FREECNT  0x226BD600u  /* int -- free-list count */
 #define P6_STREAM_LIFE     0x226BD700u  /* unsigned char[(SCENEENTITY_COUNT+7)/8] -- destroyed (lifecycle) bits */
+/* I3b 2b PERF #2 (scan narrowing): the resident-list -- logical slots currently holding a physical slot.
+   The per-frame DORMANT/RETIRE pass iterates THIS ~42-entry list; the MATERIALIZE pass byte-scans the
+   existing WRAM-H p6_scan_near bitfield (zero new pack code -> no WRAM-H growth, CART-only). Verified-free
+   hole 0x226BDE00 (after the 136-B life bitfield), u16[SCENE_PHYS=640]=1280 B + count, < shadow 0x226C0000. */
+#define P6_STREAM_RESIDLIST  0x226BDE00u  /* unsigned short[SCENE_PHYS] -- resident logical slots */
+#define P6_STREAM_RESIDCNT   0x226BE300u  /* int -- resident-list count */
 
 // =============================================================================
 // p6_overlay_entry -- MUST be first (window base). Registers the overlay's
@@ -537,10 +543,17 @@ static void p6_ovl_pool_compact(void)
         unsigned short *fl   = (unsigned short *)P6_STREAM_FREELIST;
         int            *fc   = (int *)P6_STREAM_FREECNT;
         unsigned char  *life = (unsigned char *)P6_STREAM_LIFE;
+        unsigned short *rl   = (unsigned short *)P6_STREAM_RESIDLIST;  /* I3b 2b PERF #2: resident logical-slot list */
+        int            *rc   = (int *)P6_STREAM_RESIDCNT;
         int f = 0, q;
         for (q = R + n; q < R + SP - 1; ++q) fl[f++] = (unsigned short)q;
         *fc = f;
         for (q = 0; q < (SCN + 7) / 8; ++q) life[q] = 0;
+        /* I3b 2b PERF #2 (scan narrowing): seed the resident-list with the n spawn-near residents [R,R+n).
+           Their logical slots are inv[R+0..R+n-1] (Pass A set inv[R+k]=L). The per-frame stream's DORMANT/
+           RETIRE pass iterates THIS ~42-entry list instead of all 1088 scene slots. */
+        for (q = 0; q < n; ++q) rl[q] = inv[R + q];
+        *rc = n;
     }
     /* witnesses (compact_n is now the spawn NEAR count; sphys is the shrunk 640). */
     p6_w_compact_n     = n;
@@ -652,7 +665,7 @@ static void p6_ovl_stream(void)
     unsigned char  *life;
     int *fc;
     unsigned int SCN_BASE;
-    int CIDOFF, NARROW, R, SCN, WIDE, SP, dummy, L, P, isnear, resident, res;
+    int CIDOFF, NARROW, R, SCN, WIDE, SP, dummy, L, P, isnear, res;
 
     if (p6_w_compact_n < 0) return;   /* the load-near-shrink has not run -> not shrunk -> no-op */
     p6_eng_pool_geom(g);
@@ -696,57 +709,81 @@ static void p6_ovl_stream(void)
     }
 #endif
 
-    for (L = R; L < R + SCN; ++L) {
-        isnear   = (p6_scan_near[L >> 3] >> (L & 7)) & 1;
-        P        = (int)remap[L];
-        resident = (P != dummy);
-        if (resident) {
+    /* I3b 2b PERF #2 (scan narrowing) -- the old full scan walked all 1088 scene slots EVERY frame
+       (3.512 ms = 32.4% of ProcessObjects, qa_p6_streamscan). Replace it with two passes over only the
+       ~83 active slots: DORMANT/RETIRE over the resident-list, then MATERIALIZE by byte-scanning the
+       WRAM-H near bitfield. Per-slot logic is BYTE-IDENTICAL to the old scan; only the iteration changed.
+       The always-iterate set (managers/NORMAL) is resident from the load-near-shrink + kept by Pass A's
+       `isnear` (its p6_scan_near bit is always set); it appears in the byte-scan too but is skipped resident. */
+    {
+        unsigned short *rl  = (unsigned short *)P6_STREAM_RESIDLIST;
+        int            *rc  = (int *)P6_STREAM_RESIDCNT;
+        int k, w, b, bit, lo_b = R >> 3, hi_b = (R + SCN + 7) >> 3;
+        unsigned int bv;
+
+        /* PASS A -- DORMANT/RETIRE first (frees slots for the materialize below). Walk the resident-list,
+           in-place swap-compacting survivors. classID==0 -> gameplay-destroyed -> RETIRE (lifecycle bit +
+           free); no longer near -> DORMANT (free); else KEEP. */
+        w = 0;
+        for (k = 0; k < *rc; ++k) {
+            L  = (int)rl[k];
+            P  = (int)remap[L];
             pe = base + SCN_BASE + (unsigned int)(P - R) * (unsigned int)NARROW;
-            if (*(unsigned short *)(pe + CIDOFF) == 0) {   /* gameplay destroyed it -> retire permanently */
-                /* lifecycle bitfield is indexed by the SCENE slot (L - R), NOT bare L: it is sized
-                   (SCENEENTITY_COUNT+7)/8 = [0,SCN), so a bare-L index (which carries the +RESERVE
-                   offset) overflows by RESERVE/8 bytes into UN-ZEROED cart RAM for the top RESERVE
-                   logical slots (GHZ1: the 17 PlaneSwitches at slotID 1024-1040 -> a stray garbage bit
-                   flags them destroyed -> invisible path-switches). p6_scan_near above IS indexed by
-                   bare L -- it is sized (ENTITY_COUNT+7)/8 so it stays in-bounds; do NOT "match" it
-                   here. Gate: qa_p6_lifecycle_index (static, deterministic). */
+            isnear = (p6_scan_near[L >> 3] >> (L & 7)) & 1;
+            if (*(unsigned short *)(pe + CIDOFF) == 0) {       /* destroyed -> retire permanently */
+                /* lifecycle bitfield indexed by the SCENE slot (L - R), NOT bare L -- sized
+                   (SCENEENTITY_COUNT+7)/8; a bare-L index overflows by RESERVE/8 into un-zeroed cart for
+                   the top RESERVE slots (qa_p6_lifecycle_index, static, deterministic). */
                 life[(L - R) >> 3] |= (unsigned char)(1 << ((L - R) & 7));
                 fl[(*fc)++] = (unsigned short)P;
                 remap[L] = (unsigned short)dummy;
-                resident = 0;
+                ++p6_w_stream_dorm;                            /* retire counts as a dorm for the witness */
+            } else if (!isnear) {                              /* newly far -> dormant */
+                *(unsigned short *)(pe + CIDOFF) = 0;
+#if !defined(P6_POOLINV_LEAK)
+                fl[(*fc)++] = (unsigned short)P;               /* return the freed slot to the pool */
+#endif                                                         /* P6_POOLINV_LEAK: skip the return -> LEAK (RED demo) */
+                remap[L] = (unsigned short)dummy;
+                ++p6_w_stream_dorm;
+            } else {
+                rl[w++] = (unsigned short)L;                   /* still near + live -> keep */
             }
         }
-        if (isnear && !resident) {
+        *rc = w;
+
+        /* PASS B -- MATERIALIZE: byte-scan the WRAM-H near bitfield p6_scan_near (the overlay links it via
+           -R; the pack rebuilt it just before this tick). Skip-zero-byte -> ~136 WRAM-H reads for a sparse
+           near set instead of 1088 cart remap reads. Each set bit is a near logical slot; materialize it if
+           dormant + not destroyed, then append to the resident-list. */
+        for (b = lo_b; b < hi_b; ++b) {
+            bv = p6_scan_near[b];
+            if (!bv) continue;
+            for (bit = 0; bit < 8; ++bit) {
+                if (!(bv & (1u << bit))) continue;
+                L = (b << 3) + bit;
+                if (L < R || L >= R + SCN) continue;           /* scene slots only */
+                if ((int)remap[L] != dummy) continue;          /* already resident (Pass A handled retire) */
 #if defined(P6_BT_NOSKIP)
-            if (1) {  /* BACKTRACK RED demo (diag): ignore the lifecycle bit -> a destroyed entity RE-MATERIALIZES */
+                if (1) {  /* BACKTRACK RED demo (diag): ignore the lifecycle bit -> a destroyed entity RE-MATERIALIZES */
 #else
-            if (!(life[(L - R) >> 3] & (1 << ((L - R) & 7)))) {  /* not destroyed (scene-slot L-R index) -> materialize */
+                if (!(life[(L - R) >> 3] & (1 << ((L - R) & 7)))) {  /* not destroyed (scene-slot L-R index) */
 #endif
-                if (*fc > 0) {
-                    P = (int)fl[--(*fc)];
-                    remap[L] = (unsigned short)P;
-                    inv[P]   = (unsigned short)L;
-                    /* DORM is indexed by the raw Scene.bin slotID = L-RESERVE (build_dormant_store.py:
-                       slot<SCENEENTITY_COUNT, slot_count=max+1=1041); dest_slot=L -> RSDK_ENTITY_AT(L)=
-                       remap[L]=P -> the entity is written + Created at physical P. */
-                    p6_ovl_materialize((unsigned)(L - R), (unsigned)L);
-                    ++p6_w_stream_mat;
-                    resident = 1;
-                } else {
-                    ++p6_w_stream_starve;                     /* free-list empty (SP undersized -- gate) */
+                    if (*fc > 0) {
+                        P = (int)fl[--(*fc)];
+                        remap[L] = (unsigned short)P;
+                        inv[P]   = (unsigned short)L;
+                        /* DORM is indexed by the raw Scene.bin slotID = L-RESERVE; dest_slot=L ->
+                           RSDK_ENTITY_AT(L)=remap[L]=P -> the entity is written + Created at physical P. */
+                        p6_ovl_materialize((unsigned)(L - R), (unsigned)L);
+                        ++p6_w_stream_mat;
+                        rl[(*rc)++] = (unsigned short)L;        /* add to the resident-list */
+                    } else {
+                        ++p6_w_stream_starve;                  /* free-list empty (SP undersized -- gate) */
+                    }
                 }
             }
-        } else if (!isnear && resident) {                    /* newly far -> dormant */
-            pe = base + SCN_BASE + (unsigned int)(P - R) * (unsigned int)NARROW;
-            *(unsigned short *)(pe + CIDOFF) = 0;
-#if !defined(P6_POOLINV_LEAK)
-            fl[(*fc)++] = (unsigned short)P;                  /* return the freed slot to the pool */
-#endif                                                        /* P6_POOLINV_LEAK: skip the return -> LEAK (RED demo) */
-            remap[L] = (unsigned short)dummy;
-            ++p6_w_stream_dorm;
-            resident = 0;
         }
-        if (resident) ++res;
+        res = *rc;
     }
     p6_w_stream_free     = *fc;
     p6_w_stream_resident = res;
