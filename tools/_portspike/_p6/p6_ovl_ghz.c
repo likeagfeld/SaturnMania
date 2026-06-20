@@ -113,6 +113,7 @@ extern int32 p6_w_compact_bij_ok, p6_w_compact_lastL, p6_w_compact_lastP;
 static void p6_ovl_stream(void);
 extern void p6_eng_create(int32 slot);                 /* re-Create a materialized entity (InitObjects mirror) */
 extern int32 p6_w_stream_mat, p6_w_stream_dorm, p6_w_stream_free, p6_w_stream_resident, p6_w_stream_starve;
+extern int32 p6_w_bt_logical, p6_w_bt_cid, p6_w_bt_life, p6_w_bt_reappear; /* I3b 2b backtrack-proof witnesses */
 /* cart structures -- the verified-free [0x226BC980,0x226C0000) gap (inv-end -> shadow buffer). */
 #define P6_STREAM_FREELIST 0x226BD000u  /* unsigned short[SCENE_PHYS] -- free physical-slot stack */
 #define P6_STREAM_FREECNT  0x226BD600u  /* int -- free-list count */
@@ -650,6 +651,35 @@ static void p6_ovl_stream(void)
     dummy = R + SP - 1;
     res = 0;
 
+#ifdef P6_BACKTRACK_PROOF
+    /* BACKTRACK PROOF (diag-only): once the stream has settled (call 30), synthetically DESTROY the
+       first resident scene entity -- set classID=0, EXACTLY how RSDK destroyEntity/ResetEntitySlot
+       signals a kill (collected ring, broken badnik). The main loop below then RETIRES it (lifecycle
+       bit, free, dummy); on every later frame it stays NEAR (camera fixed) but dormant -> the
+       skip-destroyed path must keep it dead. p6_w_bt_logical (set LAST) arms the post-loop recorder.
+       RED demo: -DP6_BT_NOSKIP forces materialize -> the dead entity RE-MATERIALIZES (reappear=1). */
+    {
+        static int s_bt_frame = 0;
+        ++s_bt_frame;
+        if (p6_w_bt_logical < 0 && s_bt_frame == 30) {
+            int tl;
+            for (tl = R; tl < R + SCN; ++tl) {
+                int tp = (int)remap[tl];
+                if (tp != dummy) {
+                    unsigned char *te = base + SCN_BASE + (unsigned int)(tp - R) * (unsigned int)NARROW;
+                    unsigned short cid = *(unsigned short *)(te + CIDOFF);
+                    if (cid != 0) {
+                        p6_w_bt_cid = (int32)cid;
+                        *(unsigned short *)(te + CIDOFF) = 0;  /* the synthetic gameplay destroy */
+                        p6_w_bt_logical = tl;                  /* set LAST -- arms the recorder */
+                        break;
+                    }
+                }
+            }
+        }
+    }
+#endif
+
     for (L = R; L < R + SCN; ++L) {
         isnear   = (p6_scan_near[L >> 3] >> (L & 7)) & 1;
         P        = (int)remap[L];
@@ -671,7 +701,11 @@ static void p6_ovl_stream(void)
             }
         }
         if (isnear && !resident) {
+#if defined(P6_BT_NOSKIP)
+            if (1) {  /* BACKTRACK RED demo (diag): ignore the lifecycle bit -> a destroyed entity RE-MATERIALIZES */
+#else
             if (!(life[(L - R) >> 3] & (1 << ((L - R) & 7)))) {  /* not destroyed (scene-slot L-R index) -> materialize */
+#endif
                 if (*fc > 0) {
                     P = (int)fl[--(*fc)];
                     remap[L] = (unsigned short)P;
@@ -698,4 +732,15 @@ static void p6_ovl_stream(void)
     }
     p6_w_stream_free     = *fc;
     p6_w_stream_resident = res;
+
+#ifdef P6_BACKTRACK_PROOF
+    /* RECORD (post-loop, every frame once armed): did the destroyed entity get RETIRED (life bit) and
+       does it STAY dead (remap == dummy)?  life=1 + reappear=0 == the lifecycle works. Under
+       -DP6_BT_NOSKIP the dead entity re-materialized this frame -> remap != dummy -> reappear=1 (RED). */
+    if (p6_w_bt_logical >= 0) {
+        int tl = (int)p6_w_bt_logical;
+        p6_w_bt_life     = (int32)((life[(tl - R) >> 3] >> ((tl - R) & 7)) & 1);
+        p6_w_bt_reappear = (remap[tl] != (unsigned short)dummy) ? 1 : 0;
+    }
+#endif
 }

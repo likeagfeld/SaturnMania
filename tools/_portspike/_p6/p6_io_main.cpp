@@ -1052,6 +1052,13 @@ __attribute__((used)) int32 p6_w_stream_dorm     = 0;  // cumulative dormants (n
 __attribute__((used)) int32 p6_w_stream_free     = -1; // current free-list count (slots available for materialize)
 __attribute__((used)) int32 p6_w_stream_resident = -1; // current resident scene slots (remap != dummy)
 __attribute__((used)) int32 p6_w_stream_starve   = 0;  // times a materialize was wanted but the free-list was empty
+// I3b 2b BACKTRACK PROOF witnesses (written ONLY by the overlay's P6_BACKTRACK_PROOF harness; 0 in
+// shipping). The harness synthetically destroys a resident scene entity (classID=0, exactly how RSDK
+// destroyEntity signals it) and proves the stream RETIRES it (life bit) + never RE-MATERIALIZES it.
+__attribute__((used)) int32 p6_w_bt_logical = -1; // logical slot of the destroyed entity (-1 = none yet)
+__attribute__((used)) int32 p6_w_bt_cid     = 0;  // its classID BEFORE the destroy (0 = no real entity hit)
+__attribute__((used)) int32 p6_w_bt_life    = 0;  // 1 = stream set its lifecycle (destroyed) bit = retired
+__attribute__((used)) int32 p6_w_bt_reappear= -1; // 1 = it RE-MATERIALIZED after destroy (THE BUG); 0 = stayed dead
 #if defined(P6_SHADOW_COMPARE)
 // LOCKED-60 (#243) SCAN-SPLIT PARITY PROOF: before building the dual-SH2 scan-split
 // (master classifies [0,mid), slave [mid,end), all at frame-start), PROVE it matches
