@@ -123,6 +123,12 @@ typedef struct {
                                       /* foreach_active(Animals,...) -> the pack's    */
                                       /* NULL Animals is rewired to *animals_slot     */
                                       /* every frame (the #235 Ring-seam pattern).   */
+    /* I3b 2b: the camera-local-pool MATERIALIZE (overlay-resident per the residency  */
+    /* rule -- new engine code goes to cart). Reconstructs scene entity `logical_slot`*/
+    /* from the cart DORM store into `dest_slot`; the pack drives it one-shot at load  */
+    /* (s_ovl.materialize_fn) + per-frame at the shrink. The overlay does the DORM     */
+    /* navigation + var-replay; the ENGINE-touching ops are pack extern "C" thunks.   */
+    void (*materialize_fn)(unsigned logical_slot, unsigned dest_slot);
 } p6_ovl_api;
 
 /* The entry signature at P6_OVL_BASE: registers the overlay's classes via

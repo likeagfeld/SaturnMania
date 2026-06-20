@@ -83,6 +83,22 @@ extern int32 p6_vdp1_handle_for_surface(int32 sheetID);
 /* Forward decl so p6_overlay_entry is the FIRST function (window base). */
 static void p6_ghz_ovl_witness(const void *ringSlot);
 
+/* I3b 2b: the camera-local-pool MATERIALIZE, overlay-resident (new engine code -> cart per the
+ * residency rule, freeing WRAM-H for the shrink manager). Forward-declared so p6_overlay_entry stays
+ * first; defined at file end. The ENGINE-touching ops are thin extern "C" PACK thunks (the overlay
+ * can't name C++-mangled engine syms -- flat-TU rule; ld -R game.elf resolves these). The overlay
+ * does the DORM navigation + LE var-replay (raw offset writes -- no engine types). */
+static void p6_ovl_materialize(unsigned logical_slot, unsigned dest_slot);
+extern int32 p6_eng_classid_resolve(const unsigned char *objhash_le); /* -> classID (0=unregistered) */
+extern void  p6_eng_serialize_begin(int32 classID);                   /* rebuild editableVarList (cart scratch) */
+extern int32 p6_eng_var_offset(const unsigned char *varhash_le);      /* var-hash -> field offset (-1=none) */
+extern void  p6_eng_serialize_end(void);                              /* restore editableVarList */
+extern void *p6_eng_entity_prepare(int32 slot);                       /* RSDK_ENTITY_AT(slot) + memset */
+extern void  p6_eng_write_placement(void *ent, int32 classID, int32 px, int32 py);
+/* the materialize witnesses are PACK globals (extern "C"); the overlay writes them via ld -R game.elf */
+extern int32 p6_w_mat_slot, p6_w_mat_classid, p6_w_mat_nvars, p6_w_mat_nmatch;
+extern int32 p6_w_mat_posx, p6_w_mat_posy, p6_w_mat_v0, p6_w_mat_v1, p6_w_mat_v2, p6_w_mat_v3;
+
 // =============================================================================
 // p6_overlay_entry -- MUST be first (window base). Registers the overlay's
 // classes through the api thunks; the engine LoadGameConfig hash loop matches
@@ -218,6 +234,8 @@ int p6_overlay_entry(p6_ovl_api *api)
      * pack's NULL Animals placeholder (ActClear.c:903 foreach_active) gets rewired
      * to the live object each frame (p6_io_main, the #235 Ring-seam). */
     api->animals_slot = (void *)&Animals;
+    /* I3b 2b: the pack drives the materialize one-shot at load (s_ovl.materialize_fn). */
+    api->materialize_fn = p6_ovl_materialize;
     return 0;
 }
 
@@ -388,4 +406,90 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * R14/R15 bind-table checks (arm_env witnesses) still prove the surface binds. */
     p6_w_bd_found = -1;
 #endif
+}
+
+// =============================================================================
+// I3b 2b: the camera-local-pool MATERIALIZE (overlay-resident). Reconstructs scene entity
+// `logical_slot` from the cart DORM store (0x226C8000; big-endian header/index/records + raw LE
+// Scene.bin var-bytes) into `dest_slot`. Mirrors the proven pack logic (qa_p6_materialize_write
+// GREEN @ 55c77e5) EXACTLY -- only the home moved (pack -> cart, residency rule). The overlay does
+// the DORM navigation + LE var-replay (raw offset writes); the ENGINE-touching ops are pack thunks.
+// =============================================================================
+static unsigned int   p6m_be32(const unsigned char *p) { return ((unsigned int)p[0] << 24) | ((unsigned int)p[1] << 16) | ((unsigned int)p[2] << 8) | p[3]; }
+static unsigned short p6m_be16(const unsigned char *p) { return (unsigned short)(((unsigned int)p[0] << 8) | p[1]); }
+static unsigned int   p6m_le32(const unsigned char *p) { return ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | p[0]; }
+static unsigned short p6m_le16(const unsigned char *p) { return (unsigned short)(((unsigned int)p[1] << 8) | p[0]); }
+
+static void p6_ovl_materialize(unsigned logical_slot, unsigned dest_slot)
+{
+    const unsigned char *D = (const unsigned char *)0x226C8000u; // cart DORM store
+    if (p6m_be32(D) != 0x4D443650u) return;                      // 'P6DM'
+    unsigned short slot_count   = p6m_be16(D + 6);
+    unsigned short obj_count    = p6m_be16(D + 8);
+    unsigned int   slot_idx_off = p6m_be32(D + 12);
+    unsigned int   recs_off     = p6m_be32(D + 16);
+    if (logical_slot >= slot_count) return;
+    unsigned int rec = p6m_be32(D + slot_idx_off + logical_slot * 4u);
+    if (rec == 0xFFFFFFFFu) return;
+    const unsigned char *R = D + recs_off + rec;
+    unsigned short obj_idx = p6m_be16(R + 0);
+    int px = (int)p6m_be32(R + 4);
+    int py = (int)p6m_be32(R + 8);
+    const unsigned char *vb = R + 12;
+    if (obj_idx >= obj_count) return;
+
+    // navigate the variable-length object table: each = hash16 | nvars u8 | nvars*(hash16|type u8)
+    const unsigned char *O = D + 20;
+    for (unsigned short i = 0; i < obj_idx; ++i) { unsigned char nv = O[16]; O += 17u + (unsigned int)nv * 17u; }
+    const unsigned char *obj_hash_le = O;
+    unsigned char nvars = O[16];
+    const unsigned char *attribs = O + 17;
+
+    p6_w_mat_slot    = (int32)logical_slot;
+    int classID      = p6_eng_classid_resolve(obj_hash_le); // pack thunk (also latches classcount)
+    p6_w_mat_classid = classID;
+    p6_w_mat_nvars   = (int32)nvars;
+    if (!classID) return;                                   // unregistered -> skip
+
+    p6_eng_serialize_begin(classID);                        // pack thunk: rebuild editableVarList
+    unsigned char *eb = (unsigned char *)p6_eng_entity_prepare((int32)dest_slot);
+    p6_eng_write_placement((void *)eb, classID, px, py);
+    p6_w_mat_posx = px >> 16;
+    p6_w_mat_posy = py >> 16;
+
+    // replay var values: per attrib, match hash -> offset (pack thunk), LE-decode the raw bytes
+    // (byte-wise = alignment-safe), write into the matched field by offset (no engine types here).
+    const unsigned char *vp = vb;
+    int nmatch = 0, vi = 0, wv[4] = { 0, 0, 0, 0 };
+    for (unsigned short a = 0; a < nvars; ++a) {
+        int off = p6_eng_var_offset(attribs + (unsigned int)a * 17u);
+        unsigned char vt = attribs[(unsigned int)a * 17u + 16];
+        int val = 0, have = 0;
+        switch (vt) {
+            case 0: case 3: // VAR_UINT8 / VAR_INT8 (1 byte)
+                val = (vt == 3) ? (int)(signed char)vp[0] : (int)vp[0]; vp += 1; have = 1;
+                if (off >= 0) eb[off] = (unsigned char)val;
+                break;
+            case 1: case 4: // VAR_UINT16 / VAR_INT16 (2)
+                val = (vt == 4) ? (int)(short)p6m_le16(vp) : (int)p6m_le16(vp); vp += 2; have = 1;
+                if (off >= 0) *(short *)(eb + off) = (short)val;
+                break;
+            case 2: case 5: case 6: case 7: case 10: case 11: // U32/I32/ENUM/BOOL/FLOAT/COLOR (4)
+                val = (int)p6m_le32(vp); vp += 4; have = 1;
+                if (off >= 0) *(int *)(eb + off) = val;
+                break;
+            case 9: { // VAR_VECTOR2 (8)
+                int vx = (int)p6m_le32(vp), vy = (int)p6m_le32(vp + 4); vp += 8; val = vx; have = 1;
+                if (off >= 0) { *(int *)(eb + off) = vx; *(int *)(eb + off + 4) = vy; }
+                break;
+            }
+            case 8: { unsigned short ln = p6m_le16(vp); vp += 2u + (unsigned int)ln * 2u; break; } // STRING skip
+            default: break;
+        }
+        if (off >= 0) ++nmatch;
+        if (have && vi < 4) { wv[vi] = val; ++vi; }
+    }
+    p6_eng_serialize_end();                                  // pack thunk: restore editableVarList
+    p6_w_mat_nmatch = nmatch;
+    p6_w_mat_v0 = wv[0]; p6_w_mat_v1 = wv[1]; p6_w_mat_v2 = wv[2]; p6_w_mat_v3 = wv[3];
 }
