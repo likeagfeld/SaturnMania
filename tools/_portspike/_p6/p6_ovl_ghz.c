@@ -114,6 +114,7 @@ static void p6_ovl_stream(void);
 extern void p6_eng_create(int32 slot);                 /* re-Create a materialized entity (InitObjects mirror) */
 extern int32 p6_w_stream_mat, p6_w_stream_dorm, p6_w_stream_free, p6_w_stream_resident, p6_w_stream_starve;
 extern int32 p6_w_bt_logical, p6_w_bt_cid, p6_w_bt_life, p6_w_bt_reappear; /* I3b 2b backtrack-proof witnesses */
+extern int32 p6_w_pool_inv_bad; /* I3b 2b: sticky free-list-invariant violation latch (resident+free!=SP-1) */
 /* cart structures -- the verified-free [0x226BC980,0x226C0000) gap (inv-end -> shadow buffer). */
 #define P6_STREAM_FREELIST 0x226BD000u  /* unsigned short[SCENE_PHYS] -- free physical-slot stack */
 #define P6_STREAM_FREECNT  0x226BD600u  /* int -- free-list count */
@@ -723,7 +724,9 @@ static void p6_ovl_stream(void)
         } else if (!isnear && resident) {                    /* newly far -> dormant */
             pe = base + SCN_BASE + (unsigned int)(P - R) * (unsigned int)NARROW;
             *(unsigned short *)(pe + CIDOFF) = 0;
-            fl[(*fc)++] = (unsigned short)P;
+#if !defined(P6_POOLINV_LEAK)
+            fl[(*fc)++] = (unsigned short)P;                  /* return the freed slot to the pool */
+#endif                                                        /* P6_POOLINV_LEAK: skip the return -> LEAK (RED demo) */
             remap[L] = (unsigned short)dummy;
             ++p6_w_stream_dorm;
             resident = 0;
@@ -732,6 +735,14 @@ static void p6_ovl_stream(void)
     }
     p6_w_stream_free     = *fc;
     p6_w_stream_resident = res;
+
+    /* POOL-INVARIANT GUARD (always-on, ~1 compare/frame): every physical scene slot [R,R+SP) is exactly
+       one of resident / free / the single dummy, so resident + free == SP - 1 EVERY frame. A free-list
+       leak (a dormant that fails to return its slot) or a double-free breaks it. p6_w_pool_inv_bad is a
+       STICKY latch -> a transient or multi-cycle violation that self-corrects by capture-time is still
+       caught. Permanent self-check: peek p6_w_pool_inv_bad from any savestate if entities ever vanish
+       after scrolling. RED demo: -DP6_POOLINV_LEAK (above) skips the dormant return. Gate qa_p6_stream_in S4. */
+    if (res + *fc != SP - 1) p6_w_pool_inv_bad = 1;
 
 #ifdef P6_BACKTRACK_PROOF
     /* RECORD (post-loop, every frame once armed): did the destroyed entity get RETIRED (life bit) and

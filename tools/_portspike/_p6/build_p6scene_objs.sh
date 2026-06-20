@@ -322,7 +322,7 @@ echo "[7l2] p6_ovl_ghz.o (O1 GHZ overlay entry -- Ring + Spring multi-class) ...
 # compile-stripped from the SHIPPING build, the same way the pack's census is. Without
 # this the #ifndef in the overlay never engages -> the scan ships -> fps halves.
 $CC -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} -I"$GINC" -I"$P6" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} -I"$GINC" -I"$P6" -I"$NEWLIB" \
     -c -o "$P6/p6_ovl_ghz.o" "$P6/p6_ovl_ghz.c"
 
 echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding windows; miniz inflate decoder) ..."
@@ -383,7 +383,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_eng_pool_flip -u _p6_eng_pool_geom -u _p6_eng_create -u _p6_stream_tick \
     -u _p6_w_stream_mat -u _p6_w_stream_dorm -u _p6_w_stream_free \
     -u _p6_w_stream_resident -u _p6_w_stream_starve \
-    -u _p6_w_bt_logical -u _p6_w_bt_cid -u _p6_w_bt_life -u _p6_w_bt_reappear \
+    -u _p6_w_bt_logical -u _p6_w_bt_cid -u _p6_w_bt_life -u _p6_w_bt_reappear -u _p6_w_pool_inv_bad \
     -u _p6_eng_classid_resolve -u _p6_eng_serialize_begin -u _p6_eng_var_offset \
     -u _p6_eng_serialize_end -u _p6_eng_entity_prepare -u _p6_eng_write_placement \
     -u _p6_perf_vdp1_edsr -u _p6_perf_vdp1_lopr -u _p6_perf_vdp1_copr \

@@ -46,7 +46,8 @@ TMP_MCS   = os.path.join(HERE, "_p6_streamin.mcs")
 
 NAMES = ["_p6_w_cont_frames", "_p6_w_loop_pscount", "_p6_w_loop_regmask",
          "_p6_w_scancull_near", "_p6_w_stream_mat", "_p6_w_stream_dorm",
-         "_p6_w_stream_resident", "_p6_w_stream_free", "_p6_w_stream_starve"]
+         "_p6_w_stream_resident", "_p6_w_stream_free", "_p6_w_stream_starve",
+         "_p6_w_pool_inv_bad"]
 
 
 def capture(out):
@@ -80,6 +81,11 @@ def main(argv):
         ("S1 PlaneSwitch MATERIALIZED near pinned cam (pscount>0)", v["_p6_w_loop_pscount"], lambda x: x is not None and x > 0),
         ("S2 no free-list starve while materializing (starve==0)",  v["_p6_w_stream_starve"], lambda x: x == 0),
         ("S3 proof build still boots (cont_frames>0)",              v["_p6_w_cont_frames"],  lambda x: x and x > 0),
+        # S4 (free-list integrity under the warp churn -- the spawn-near set dormants as the camera jumps
+        # to x=2500, exercising the FAR-dormant path ~27x + materialize ~83x): the sticky pool-invariant
+        # latch must be 0 (resident+free==SCENE_PHYS-1 held EVERY frame; no leak / double-free). RED demo:
+        # build with -DP6_POOLINV_LEAK (the dormant slot is not returned) -> inv_bad latches 1.
+        ("S4 free-list invariant held every frame (inv_bad==0)",    v["_p6_w_pool_inv_bad"], lambda x: x == 0),
     ]
     info = ("regmask=0x%s  scancull_near=%s  stream(mat=%s dorm=%s resident=%s free=%s)" % (
         ("%X" % v["_p6_w_loop_regmask"]) if v.get("_p6_w_loop_regmask") is not None else "?",
@@ -103,8 +109,10 @@ def main(argv):
         print("RESULT: GREEN -- a near PlaneSwitch MATERIALIZED live via the per-frame stream "
               "(pscount=%s). The camera-local pool streams entities IN on approach." % v["_p6_w_loop_pscount"])
         return 0
-    print("RESULT: RED -- the pinned-on-a-PlaneSwitch-cluster camera did NOT materialize one "
-          "(pscount=%s). The per-frame stream is not bringing near entities in." % v["_p6_w_loop_pscount"])
+    print("RESULT: RED -- see the RED check above: either a near PlaneSwitch did not materialize "
+          "(pscount=%s, want>0 -> stream not bringing near entities in) OR the free-list invariant "
+          "broke under the warp churn (inv_bad=%s, want 0 -> a dormant leaked/double-freed a slot)."
+          % (v["_p6_w_loop_pscount"], v.get("_p6_w_pool_inv_bad")))
     return 1
 
 

@@ -1059,6 +1059,10 @@ __attribute__((used)) int32 p6_w_bt_logical = -1; // logical slot of the destroy
 __attribute__((used)) int32 p6_w_bt_cid     = 0;  // its classID BEFORE the destroy (0 = no real entity hit)
 __attribute__((used)) int32 p6_w_bt_life    = 0;  // 1 = stream set its lifecycle (destroyed) bit = retired
 __attribute__((used)) int32 p6_w_bt_reappear= -1; // 1 = it RE-MATERIALIZED after destroy (THE BUG); 0 = stayed dead
+// I3b 2b POOL-INVARIANT guard (ALWAYS-ON, written by the overlay stream): sticky latch == 1 the first
+// frame the free-list invariant resident+free==SCENE_PHYS-1 is ever violated (a leak/double-free). 0 ==
+// the pool stayed accountable every frame. Permanent self-check; gate qa_p6_stream_in S4.
+__attribute__((used)) int32 p6_w_pool_inv_bad = 0;
 #if defined(P6_SHADOW_COMPARE)
 // LOCKED-60 (#243) SCAN-SPLIT PARITY PROOF: before building the dual-SH2 scan-split
 // (master classifies [0,mid), slave [mid,end), all at frame-start), PROVE it matches
