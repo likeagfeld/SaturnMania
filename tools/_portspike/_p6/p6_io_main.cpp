@@ -960,6 +960,12 @@ __attribute__((used)) int32 p6_w_perf_full_max  = 0; // worst-case compute-full
 __attribute__((used)) int32 p6_w_perf_head_frt  = 0; // entry -> ProcessInput (setup overhead)
 __attribute__((used)) int32 p6_w_perf_kick_frt  = 0; // p6_present_kick (slave fork dispatch)
 __attribute__((used)) int32 p6_w_perf_tail_frt  = 0; // present-end -> exit (census/EDSR/witness)
+#if defined(P6_STREAM_PERF)
+// I3b 2b PERF #2 measurement (diag-only, P6_STREAM_PERF): the per-frame p6_ovl_stream scan cost in FRC
+// ticks, bracketed in p6_stream_tick (runs INSIDE the cyc_obj bracket, so it isolates the stream's slice
+// of ProcessObjects). ZERO shipping cost (gated out). RED baseline for the 1088-slot scan-narrowing lever.
+__attribute__((used)) int32 p6_w_perf_stream_frt = 0;
+#endif
 // #243 band-crossing stall (user-felt: "fps gets really slow as I move forward /
 // as it renders the next part"). A crossing = obj_refills>0 (the SaturnLayout FG +
 // collision band store synchronously re-inflates for the new section, blocking the
@@ -4490,8 +4496,19 @@ extern "C" __attribute__((used)) void p6_eng_create(int32 slot)
 // (s_ovl.stream_fn) which materializes newly-near + dormants newly-far. NULL-safe pre-overlay-load.
 extern "C" void p6_stream_tick(void)
 {
+#if defined(P6_STREAM_PERF)
+    /* PERF #2 measurement (diag-only): bracket the per-frame stream scan to isolate its cost from the
+       cyc_obj (ProcessObjects) total -- same coherent-16-bit-FRC idiom (p6_perf_frt_get + P6_FRT_DELTA)
+       p6_ghz_frame uses for its sections. This call already runs inside the cyc_obj bracket. */
+    if (s_ovl.stream_fn) {
+        unsigned short _s0 = p6_perf_frt_get();
+        s_ovl.stream_fn();
+        p6_w_perf_stream_frt = P6_FRT_DELTA(_s0, p6_perf_frt_get());
+    }
+#else
     if (s_ovl.stream_fn)
         s_ovl.stream_fn();
+#endif
 }
 // =============================================================================
 // P6.8 I3c (camera-local pool, the FPS WIN): SPATIAL-CULL loop1. The GHZ scan cost is
