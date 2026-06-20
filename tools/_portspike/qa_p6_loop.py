@@ -101,15 +101,20 @@ def main(argv):
         print("RED: not a live GHZ capture (cont_frames=%s) -- recapture deeper" % Q._dv(cont)); return 1
 
     l1 = (mask & 0x08) != 0
-    l2 = psc > 0
+    # L2 (STREAMING-AWARE, 2026-06-20): under the I3b camera-local pool a PlaneSwitch is INSTANTIATED
+    # only while near the camera. At the x~108 spawn capture the nearest (x=3352) is >2200px outside the
+    # window, so pscount=0 is CORRECT -- same resolution as qa_p6_ghz_regression R3. (The pscount scan is
+    # now compiled out of shipping entirely; it lives in the P6_STREAM_PROOF build.) The
+    # instantiation-on-approach proof is qa_p6_stream_in (warps the camera onto a cluster). L1
+    # (registration) is the camera-independent standalone check here.
     print("  [%s] L1 PlaneSwitch registered (regmask bit3 set: 0x%02X)"
           % ("GREEN" if l1 else " RED ", mask))
-    print("  [%s] L2 PlaneSwitch instantiated (pscount=%s > 0)" % ("GREEN" if l2 else " RED ", Q._dv(psc)))
-    if l1 and l2:
-        print("RESULT: GREEN -- loop closure registered + instantiated "
-              "(play-test the loop to confirm Sonic completes it)")
+    print("  [info]  L2 pscount=%s -- camera-gated under streaming; 0 at spawn is correct "
+          "(near-instantiation proof: qa_p6_stream_in)" % Q._dv(psc))
+    if l1:
+        print("RESULT: GREEN -- PlaneSwitch loop registered (instantiation-on-approach: qa_p6_stream_in)")
         return 0
-    print("RESULT: RED -- loop objects not fully live (see L1/L2)")
+    print("RESULT: RED -- PlaneSwitch not registered (regmask bit3 clear)")
     return 1
 
 

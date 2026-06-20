@@ -354,11 +354,20 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     static int32 s_loop_latched = 0;
     if (!s_loop_latched) {
         p6_w_loop_regmask = (PlaneSwitch && PlaneSwitch->classID) ? 0x08 : 0;
+#if defined(P6_STREAM_PROOF)
+        /* PERF (2026-06-20, MEASURED): pscount is a foreach_all FULL-POOL scan. Under the camera-local
+         * pool a PlaneSwitch may NEVER be near (nearest is x=3352, >2200px past the x~108 spawn window)
+         * so this latch NEVER fires -> the scan ran EVERY shipping frame == ~half the 9.65ms "tail"
+         * (qa_p6_perf), the perf-diagnostic-in-hotloop regression the streaming introduced. pscount is
+         * consumed ONLY by qa_p6_stream_in (the P6_STREAM_PROOF warp build, where PlaneSwitches ARE near
+         * and it DOES latch). Shipping uses regmask (above) for R3 / qa_p6_loop, so the scan is pure
+         * diagnostic overhead there -> compile it out of shipping. */
         if (PlaneSwitch && PlaneSwitch->classID) {
             int32 cnt = 0;
             foreach_all(PlaneSwitch, ps) { ++cnt; }
             if (cnt > 0) { p6_w_loop_pscount = cnt; s_loop_latched = 1; }
         }
+#endif
     }
 
     /* SpikeLog (O3 step 1): classid live; first instance's animator.frames latched
@@ -366,11 +375,17 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     static int32 s_sl_latched = 0;
     if (SpikeLog && SpikeLog->classID) {
         p6_w_spikelog_classid = (int32)SpikeLog->classID;
+#if defined(P6_STREAM_PROOF)
+        /* PERF: same regression as PlaneSwitch -- SpikeLog (min x=2632) is never near the x~108 spawn
+         * so this latch never fires -> foreach_all scanned EVERY shipping frame (the other ~half of the
+         * tail). spikelog_frames is diag-only (qa_p6_ghz_regression checks classid above + the
+         * load-status aniframes witness, NOT this latch) -> strip from shipping, keep for diag builds. */
         if (!s_sl_latched) {
             EntitySpikeLog *sl = NULL;
             foreach_all(SpikeLog, e) { sl = e; break; }
             if (sl) { p6_w_spikelog_frames = (int32)(size_t)sl->animator.frames; s_sl_latched = 1; }
         }
+#endif
     }
 
     /* BADNIK-VIS: live draw-state scan. Walk every badnik type; count live entities;
