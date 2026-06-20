@@ -129,6 +129,12 @@ typedef struct {
     /* (s_ovl.materialize_fn) + per-frame at the shrink. The overlay does the DORM     */
     /* navigation + var-replay; the ENGINE-touching ops are pack extern "C" thunks.   */
     void (*materialize_fn)(unsigned logical_slot, unsigned dest_slot);
+    /* I3b 2b COMPACTION (overlay-resident per the residency rule -- new engine code   */
+    /* goes to cart, NOT WRAM-H). Relocates every populated scene entity into a dense  */
+    /* physical pool via the non-identity remap (byte-plan proven by                   */
+    /* qa_p6_pool_compact_model), reserves a classID=0 dummy, flips p6_pool_scene_phys  */
+    /* (via the pack thunk p6_eng_pool_flip). The pack drives it one-shot at load.      */
+    void (*compact_fn)(void);
 } p6_ovl_api;
 
 /* The entry signature at P6_OVL_BASE: registers the overlay's classes via

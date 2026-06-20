@@ -98,6 +98,16 @@ extern void  p6_eng_write_placement(void *ent, int32 classID, int32 px, int32 py
 /* the materialize witnesses are PACK globals (extern "C"); the overlay writes them via ld -R game.elf */
 extern int32 p6_w_mat_slot, p6_w_mat_classid, p6_w_mat_nvars, p6_w_mat_nmatch;
 extern int32 p6_w_mat_posx, p6_w_mat_posy, p6_w_mat_v0, p6_w_mat_v1, p6_w_mat_v2, p6_w_mat_v3;
+/* I3b 2b COMPACTION (overlay-resident per the residency rule -- the pack-placed version overflowed
+ * WRAM-H/ANIMPAK by 80 B). Relocates every populated scene entity into a dense physical pool via the
+ * non-identity remap (byte-plan proven offline by qa_p6_pool_compact_model). Pure byte-math with the
+ * pool GEOMETRY from the pack (p6_eng_pool_geom -- no struct/define hardcode); the only engine-touching
+ * op is the atomic scene_phys flip (p6_eng_pool_flip). Forward-declared so p6_overlay_entry stays first. */
+static void p6_ovl_pool_compact(void);
+extern void p6_eng_pool_geom(int32 *out);              /* {classID off, NARROW, R, SCN, TEMP, WIDE} */
+extern void p6_eng_pool_flip(int32 sphys, int32 dummy);/* atomic flip of the RSDK pool ints (LAST) */
+extern int32 p6_w_compact_n, p6_w_compact_sphys, p6_w_compact_dummy;
+extern int32 p6_w_compact_bij_ok, p6_w_compact_lastL, p6_w_compact_lastP;
 
 // =============================================================================
 // p6_overlay_entry -- MUST be first (window base). Registers the overlay's
@@ -236,6 +246,9 @@ int p6_overlay_entry(p6_ovl_api *api)
     api->animals_slot = (void *)&Animals;
     /* I3b 2b: the pack drives the materialize one-shot at load (s_ovl.materialize_fn). */
     api->materialize_fn = p6_ovl_materialize;
+    /* I3b 2b: the pack drives the COMPACTION one-shot at load (s_ovl.compact_fn) -- relocates all
+     * populated scene entities into a dense physical pool (overlay-resident per the residency rule). */
+    api->compact_fn = p6_ovl_pool_compact;
     return 0;
 }
 
@@ -419,6 +432,79 @@ static unsigned int   p6m_be32(const unsigned char *p) { return ((unsigned int)p
 static unsigned short p6m_be16(const unsigned char *p) { return (unsigned short)(((unsigned int)p[0] << 8) | p[1]); }
 static unsigned int   p6m_le32(const unsigned char *p) { return ((unsigned int)p[3] << 24) | ((unsigned int)p[2] << 16) | ((unsigned int)p[1] << 8) | p[0]; }
 static unsigned short p6m_le16(const unsigned char *p) { return (unsigned short)(((unsigned int)p[1] << 8) | p[0]); }
+
+// I3b 2b COMPACTION (overlay-resident). Relocate every populated scene entity into a dense physical
+// pool [R,R+n), reserve R+n as a classID=0 dummy, shift temp 1:1 down, flip p6_pool_scene_phys to n+1
+// (via the pack thunk). Byte-plan proven offline by qa_p6_pool_compact_model; runtime gate
+// qa_p6_pool_compact (C1-C5) + qa_p6_ghz_regression (R0-R16) catch any corruption. One-shot at load.
+static void p6_ovl_pool_compact(void)
+{
+    int32 g[6];
+    unsigned char  *base, *src, *dst, *e, *dd;
+    unsigned short *remap, *inv;
+    unsigned int    SCN_BASE;
+    int CIDOFF, NARROW, R, SCN, TEMP, WIDE;
+    int n, lastL, NEW, dummy, L, k, t, i, ok;
+
+    p6_eng_pool_geom(g);
+    CIDOFF = (int)g[0]; NARROW = (int)g[1]; R = (int)g[2]; SCN = (int)g[3]; TEMP = (int)g[4]; WIDE = (int)g[5];
+    base  = (unsigned char *)0x00243000u;        /* P6_LW_ENTITYLIST (WRAM-L, cached, master SH-2) */
+    remap = (unsigned short *)0x226B8000u;        /* p6_pool_remap (cache-through cart) */
+    inv   = (unsigned short *)0x226BC000u;        /* p6_pool_remap_inv */
+    SCN_BASE = (unsigned int)R * (unsigned int)WIDE;
+    n = 0; lastL = -1;
+
+    /* Pass A -- classify populated scene slots ascending, assign dense ranks (no data move). */
+    for (L = R; L < R + SCN; ++L) {
+        e = base + SCN_BASE + (unsigned int)(L - R) * (unsigned int)NARROW;
+        if (*(unsigned short *)(e + CIDOFF)) {    /* Entity::classID (uint16) */
+            remap[L]   = (unsigned short)(R + n);
+            inv[R + n] = (unsigned short)L;
+            lastL = L; ++n;
+        } else {
+            remap[L] = (unsigned short)0xFFFFu;    /* sentinel -> dummy in A2 */
+        }
+    }
+    NEW = n + 1; dummy = R + n;
+    /* A2 -- empty logical slots -> the single dummy; dummy inverse = a safe in-bounds index. */
+    for (L = R; L < R + SCN; ++L)
+        if (remap[L] == (unsigned short)0xFFFFu) remap[L] = (unsigned short)dummy;
+    inv[dummy] = (unsigned short)dummy;
+    /* Pass B -- relocate scene per-entity ASCENDING. dst<=src and per-entity non-overlapping (src-dst is
+       a multiple of NARROW, 0 or >=NARROW) -> a plain forward byte copy is correct. */
+    for (k = 0; k < n; ++k) {
+        L   = (int)inv[R + k];
+        src = base + SCN_BASE + (unsigned int)(L - R) * (unsigned int)NARROW;
+        dst = base + SCN_BASE + (unsigned int)k * (unsigned int)NARROW;
+        if (dst != src) for (i = 0; i < NARROW; ++i) dst[i] = src[i];
+    }
+    /* Pass C -- zero the inert dummy slot (classID=0 -> loop1 skips it). */
+    dd = base + SCN_BASE + (unsigned int)(dummy - R) * (unsigned int)NARROW;
+    for (i = 0; i < NARROW; ++i) dd[i] = 0;
+    /* Pass D -- shift temp 1:1 DOWN (ascending; scene already consumed -> writes into the stale upper
+       scene region are safe; dst<src forward copy correct even if regions touch). */
+    for (t = 0; t < TEMP; ++t) {
+        src = base + SCN_BASE + (unsigned int)SCN * (unsigned int)NARROW + (unsigned int)t * (unsigned int)WIDE;
+        dst = base + SCN_BASE + (unsigned int)NEW * (unsigned int)NARROW + (unsigned int)t * (unsigned int)WIDE;
+        if (dst != src) for (i = 0; i < WIDE; ++i) dst[i] = src[i];
+        remap[R + SCN + t] = (unsigned short)(R + NEW + t);
+        inv[R + NEW + t]   = (unsigned short)(R + SCN + t);
+    }
+    /* witnesses */
+    p6_w_compact_n     = n;
+    p6_w_compact_sphys = NEW;
+    p6_w_compact_dummy = dummy;
+    p6_w_compact_lastL = lastL;
+    p6_w_compact_lastP = (lastL >= 0) ? (int32)remap[lastL] : -1;
+    /* light bij self-check: dummy inert + the highest-logical entity at the last dense slot. The real
+       corruption catch is qa_p6_ghz_regression R0-R16 (a corrupted entity breaks its feature). */
+    ok = 1;
+    if (*(unsigned short *)(dd + CIDOFF) != 0) ok = 0;
+    if (lastL >= 0 && (int)remap[lastL] != R + n - 1) ok = 0;
+    p6_w_compact_bij_ok = ok;
+    /* ATOMIC FLIP (pack thunk, LAST -- the remap is now fully non-identity + data relocated). */
+    p6_eng_pool_flip(NEW, dummy);
+}
 
 static void p6_ovl_materialize(unsigned logical_slot, unsigned dest_slot)
 {

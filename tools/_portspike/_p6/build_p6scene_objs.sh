@@ -378,6 +378,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_mat_slot -u _p6_w_mat_classid -u _p6_w_mat_classcount -u _p6_w_mat_posx -u _p6_w_mat_posy \
     -u _p6_w_mat_nvars -u _p6_w_mat_nmatch -u _p6_w_mat_v0 -u _p6_w_mat_v1 -u _p6_w_mat_v2 -u _p6_w_mat_v3 \
     -u _p6_w_pool_npop -u _p6_w_pool_maxls -u _p6_w_pool_firstgap \
+    -u _p6_w_compact_n -u _p6_w_compact_sphys -u _p6_w_compact_dummy \
+    -u _p6_w_compact_bij_ok -u _p6_w_compact_lastL -u _p6_w_compact_lastP \
+    -u _p6_eng_pool_flip -u _p6_eng_pool_geom \
     -u _p6_eng_classid_resolve -u _p6_eng_serialize_begin -u _p6_eng_var_offset \
     -u _p6_eng_serialize_end -u _p6_eng_entity_prepare -u _p6_eng_write_placement \
     -u _p6_perf_vdp1_edsr -u _p6_perf_vdp1_lopr -u _p6_perf_vdp1_copr \

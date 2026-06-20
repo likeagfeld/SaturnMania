@@ -1037,6 +1037,14 @@ __attribute__((used)) int32 p6_w_scan_bounds  = 0; // populated slots with ACTIV
 __attribute__((used)) int32 p6_w_pool_npop     = -1; // total populated scene slots (the real N)
 __attribute__((used)) int32 p6_w_pool_maxls     = -1; // highest populated scene slot
 __attribute__((used)) int32 p6_w_pool_firstgap = -1; // first empty scene slot >= RESERVE (compaction test)
+// I3b 2b COMPACTION witnesses (the de-risk milestone: relocate all populated scene entities into a
+// dense physical pool via the non-identity remap, proven byte-safe offline by qa_p6_pool_compact_model).
+__attribute__((used)) int32 p6_w_compact_n      = -1; // populated scene slots relocated (== p6_w_pool_npop)
+__attribute__((used)) int32 p6_w_compact_sphys  = -1; // NEW p6_pool_scene_phys after compaction (n+1)
+__attribute__((used)) int32 p6_w_compact_dummy  = -1; // reserved classID=0 dummy physical slot (R+n)
+__attribute__((used)) int32 p6_w_compact_bij_ok = -1; // 1 iff remap/inv round-trip for all populated + dummy clear
+__attribute__((used)) int32 p6_w_compact_lastL  = -1; // highest populated logical slot (pre-compaction)
+__attribute__((used)) int32 p6_w_compact_lastP  = -1; // physical slot it mapped to (== R+n-1 iff it was the last)
 #if defined(P6_SHADOW_COMPARE)
 // LOCKED-60 (#243) SCAN-SPLIT PARITY PROOF: before building the dual-SH2 scan-split
 // (master classifies [0,mid), slave [mid,end), all at frame-start), PROVE it matches
@@ -1208,6 +1216,9 @@ int32   p6_pool_remap_ready  = 0;
 // oracle p6_i2_direct uses the SCENEENTITY_COUNT constant, so resolve_ok stays 1). The pool SHRINK sets
 // this < SCENEENTITY_COUNT (e.g. 640) ATOMICALLY with a non-identity p6_pool_remap + a resized backing.
 int32   p6_pool_scene_phys   = SCENEENTITY_COUNT;
+// P6.8 I3b 2b: the reserved classID=0 DUMMY physical slot every EMPTY logical slot remaps to after
+// compaction (so RSDK_ENTITY_AT(empty L) is always a safe classID=0 read). -1 until compaction runs.
+int32   p6_pool_dummy_slot   = -1;
 // P6.8 I3b.2 (sub-step 2a): the PHYSICAL->logical inverse of p6_pool_remap. loop1 (Object.cpp
 // ProcessObjects) iterates the PHYSICAL pool [0,RESERVE+sphys+TEMP) and recovers the LOGICAL slot
 // for sceneInfo.entitySlot (-> drawGroups), the near bitfield index, the in-range list (loop2/3
@@ -4237,15 +4248,15 @@ static void p6_scene_load_and_arm(void)
         }
         p6_w_pool_npop = np; p6_w_pool_maxls = mx; p6_w_pool_firstgap = fg;
     }
-    // P6.8 I3b 2b -> overlay: MATERIALIZE WRITE-side proof, NOW DRIVEN VIA THE GHZ CART OVERLAY
-    // (p6_ovl_materialize, filled into s_ovl.materialize_fn by the overlay entry; the bulk lives in
-    // cart per the residency rule, freeing WRAM-H for the pool-shrink manager). The class tables are
-    // populated (InitObjects above set stageObjectIDs + sceneInfo.classCount), so classID resolves.
-    // One-shot (first arm = GHZ1) -> reconstruct GHZ1 slot 10 (PlaneSwitch) into scratch temp slot
-    // 1215 + witness (qa_p6_materialize_write). s_mat_done is .bss-zero.
+    // P6.8 I3b 2b COMPACTION (replaces the retired slot-1215 materialize TEST -- that scratch slot does
+    // not exist after the shrink). Relocate every populated scene entity into a dense physical pool via
+    // the non-identity remap (byte-plan proven offline by qa_p6_pool_compact_model). The DE-RISK
+    // milestone: exercises the full streaming machinery with ALL entities present, before the streaming
+    // shrink to 640+dormant. One-shot (.bss-zero guard); first arm = GHZ1. Runs AFTER the read-only walk
+    // above (which measured the pre-compaction layout into p6_w_pool_*).
     {
-        static int s_mat_done = 0;
-        if (!s_mat_done && s_ovl.materialize_fn) { s_mat_done = 1; s_ovl.materialize_fn(10, 1215); }
+        static int s_compact_done = 0;
+        if (!s_compact_done && s_ovl.compact_fn) { s_compact_done = 1; s_ovl.compact_fn(); }
     }
     // #P0 (GHZ1 parity): enable the level clock. The decomp enables it in
     // Zone_State_FadeIn (Zone.c:820) -- the act-start fade-in state that the lean
@@ -4408,6 +4419,31 @@ extern "C" void p6_pool_remap_init(void)
     for (int32 i = 0; i < ENTITY_COUNT; ++i)
         if ((int32)RSDK::p6_pool_remap[i] != i) { ok = 0; break; }
     p6_w_remap_ok = ok;
+}
+// P6.8 I3b 2b COMPACTION -- the relocation MANAGER lives in the GHZ CART OVERLAY (p6_ovl_pool_compact,
+// p6_ovl_ghz.c) per the residency rule (new engine code -> cart, NOT WRAM-H; the pack-placed version
+// overflowed P6_HW_ANIMPAK by 80 B = #228 trap, MEASURED 2026-06-20). The overlay does the relocation
+// with LITERAL cart/WRAM-L addresses + writes the p6_w_compact_* witnesses directly (ld -R game.elf).
+// The ONE engine-touching op it cannot do itself is the ATOMIC flip of the namespace-RSDK pool ints --
+// this thin pack thunk. Called LAST by the overlay (after the remap is fully built + data relocated);
+// scene_phys is set AFTER dummy so the accessor never sees a half-built (remap-new, sphys-old) state.
+extern "C" __attribute__((used)) void p6_eng_pool_flip(int32 sphys, int32 dummy)
+{
+    RSDK::p6_pool_dummy_slot = dummy;
+    RSDK::p6_pool_scene_phys = sphys;
+}
+// I3b 2b: hands the overlay the pool GEOMETRY (the pack owns the struct layout + the #defines; the
+// flat-TU overlay must not hardcode them -- a struct/define drift would silently misclassify). The
+// overlay does pure byte-math with these. out[]= {classID byte offset, sizeof(EntityBase)=NARROW,
+// RESERVE, SCENEENTITY_COUNT, TEMPENTITY_COUNT, ENTITY_WIDE_SIZE}.
+extern "C" __attribute__((used)) void p6_eng_pool_geom(int32 *out)
+{
+    out[0] = (int32)__builtin_offsetof(RSDK::EntityBase, classID);
+    out[1] = (int32)sizeof(RSDK::EntityBase);
+    out[2] = RESERVE_ENTITY_COUNT;
+    out[3] = SCENEENTITY_COUNT;
+    out[4] = TEMPENTITY_COUNT;
+    out[5] = ENTITY_WIDE_SIZE;
 }
 // =============================================================================
 // P6.8 I3c (camera-local pool, the FPS WIN): SPATIAL-CULL loop1. The GHZ scan cost is
