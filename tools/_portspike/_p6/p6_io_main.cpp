@@ -1208,6 +1208,13 @@ int32   p6_pool_remap_ready  = 0;
 // oracle p6_i2_direct uses the SCENEENTITY_COUNT constant, so resolve_ok stays 1). The pool SHRINK sets
 // this < SCENEENTITY_COUNT (e.g. 640) ATOMICALLY with a non-identity p6_pool_remap + a resized backing.
 int32   p6_pool_scene_phys   = SCENEENTITY_COUNT;
+// P6.8 I3b.2 (sub-step 2a): the PHYSICAL->logical inverse of p6_pool_remap. loop1 (Object.cpp
+// ProcessObjects) iterates the PHYSICAL pool [0,RESERVE+sphys+TEMP) and recovers the LOGICAL slot
+// for sceneInfo.entitySlot (-> drawGroups), the near bitfield index, the in-range list (loop2/3
+// RSDK_ENTITY_AT it), and scan_always. IDENTITY here (inv[p]==p -> byte-identical); the SHRINK
+// fills it non-trivially alongside p6_pool_remap. Cart home 0x226BC000 (1216 u16 = 2432 B, in the
+// verified-free gap between p6_scan_always 0x226BB000 and s_p6_shadow_inrange 0x226C0000).
+uint16 *p6_pool_remap_inv    = (uint16 *)0x226BC000u;
 TileLayer *tileLayers        = (TileLayer *)P6_LW_TILELAYERS;
 DataStorage *dataStorage     = (DataStorage *)P6_LW_DATASTORAGE;
 // P6.7a: objectClassList/typeGroups/drawGroups are LIVE (ProcessObjects,
@@ -4392,8 +4399,10 @@ static void p6_ghz_reload(void)
 __attribute__((used)) int32 p6_w_remap_ok = 0;
 extern "C" void p6_pool_remap_init(void)
 {
-    for (int32 i = 0; i < ENTITY_COUNT; ++i)
-        RSDK::p6_pool_remap[i] = (uint16)i;
+    for (int32 i = 0; i < ENTITY_COUNT; ++i) {
+        RSDK::p6_pool_remap[i]     = (uint16)i;
+        RSDK::p6_pool_remap_inv[i] = (uint16)i; // identity inverse (2a); the shrink fills both non-trivially
+    }
     RSDK::p6_pool_remap_ready = 1;
     int32 ok = 1;
     for (int32 i = 0; i < ENTITY_COUNT; ++i)

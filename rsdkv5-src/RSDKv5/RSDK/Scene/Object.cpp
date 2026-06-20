@@ -580,9 +580,17 @@ void RSDK::ProcessObjects()
 #endif
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
 #if RETRO_PLATFORM == RETRO_SATURN
+        // I3b.2 (2a): `e` IS THE PHYSICAL pool slot now. Iterate only the PHYSICAL pool
+        // [0,RESERVE+sphys+TEMP) -- == ENTITY_COUNT at sphys=1088 (byte-identical), == 768 shrunk.
+        // _L = the LOGICAL slot via the inverse remap (== e at identity) -- used for the near
+        // bitfield index, sceneInfo.entitySlot (-> drawGroups), the in-range list, and scan_always.
+        if (e >= RESERVE_ENTITY_COUNT + p6_pool_scene_phys + TEMPENTITY_COUNT)
+            break;
         EntityBase *_ce = (EntityBase *)_ep;
-        _ep += (e < RESERVE_ENTITY_COUNT || e >= TEMPENTITY_START)
+        _ep += (e < RESERVE_ENTITY_COUNT || e >= RESERVE_ENTITY_COUNT + p6_pool_scene_phys)
                    ? (uint32)ENTITY_WIDE_SIZE : (uint32)sizeof(EntityBase);
+        int32 _L = (int32)p6_pool_remap_inv[e];
+        sceneInfo.entitySlot = _L;
         // I3d (the 60fps step, #246/#263): a FAR scene slot (combined near|always bit clear)
         // is SKIPPED ENTIRELY -- no WRAM-L classID/active/position touch. Its inRange stays at
         // the value it had when it left the window (false -- engine-private; nothing on Saturn
@@ -591,10 +599,9 @@ void RSDK::ProcessObjects()
         // p6_scan_update_near), so every NORMAL/ALWAYS/YBOUNDS/RBOUNDS/manager scene slot is
         // kept. Skip-set == I3c's proven {scene, BOUNDS/XBOUNDS, x-far} cull set; this just
         // stops re-walking the far majority's slow WRAM-L (loop1 ~9.88ms -> ~2ms).
-        if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START
-            && !(p6_scan_near[e >> 3] & (1 << (e & 7)))) {
-            sceneInfo.entitySlot++;
-            continue;
+        if (e >= RESERVE_ENTITY_COUNT && e < RESERVE_ENTITY_COUNT + p6_pool_scene_phys
+            && !(p6_scan_near[_L >> 3] & (1 << (_L & 7)))) {
+            continue; // sceneInfo.entitySlot already set to _L above
         }
         sceneInfo.entity = _ce;
 #else
@@ -602,7 +609,7 @@ void RSDK::ProcessObjects()
 #endif
         if (sceneInfo.entity->classID) {
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
-            ++p6_w_scan_pop; p6_w_scan_maxslot = e;
+            ++p6_w_scan_pop; p6_w_scan_maxslot = e; // e == PHYSICAL slot (gate wants < 768 post-shrink)
             { uint8 _av = (uint8)sceneInfo.entity->active;
               if (_av >= ACTIVE_BOUNDS && _av <= ACTIVE_RBOUNDS) ++p6_w_scan_bounds; }
 #endif
@@ -621,9 +628,10 @@ void RSDK::ProcessObjects()
 #if RETRO_PLATFORM == RETRO_SATURN
                     // I3c spatial cull: a FAR scene entity (x-window bit clear) is out-of-range
                     // by the x-condition -> skip the slow WRAM-L position read. Reserve/temp +
-                    // near scene entities fall through to the exact check below.
-                    if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START
-                        && !(p6_scan_near[e >> 3] & (1 << (e & 7))))
+                    // near scene entities fall through to the exact check below. (2a: physical
+                    // region via sphys, near indexed by the LOGICAL slot _L = inv[e].)
+                    if (e >= RESERVE_ENTITY_COUNT && e < RESERVE_ENTITY_COUNT + p6_pool_scene_phys
+                        && !(p6_scan_near[_L >> 3] & (1 << (_L & 7))))
                         break;
 #endif
 
@@ -642,8 +650,8 @@ void RSDK::ProcessObjects()
                 case ACTIVE_XBOUNDS:
                     sceneInfo.entity->inRange = false;
 #if RETRO_PLATFORM == RETRO_SATURN
-                    if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START
-                        && !(p6_scan_near[e >> 3] & (1 << (e & 7))))
+                    if (e >= RESERVE_ENTITY_COUNT && e < RESERVE_ENTITY_COUNT + p6_pool_scene_phys
+                        && !(p6_scan_near[_L >> 3] & (1 << (_L & 7))))
                         break;
 #endif
 
@@ -728,10 +736,10 @@ void RSDK::ProcessObjects()
             // Update). The far-skip then never drops it when the camera moves past its spawn-x. An
             // entity can only reach a non-x-cullable active WHILE iterated, so this catches every
             // transition the frame it happens. Monotonic + bounded (~managers; stale = one cheap visit).
-            if (e >= RESERVE_ENTITY_COUNT && e < TEMPENTITY_START) {
+            if (e >= RESERVE_ENTITY_COUNT && e < RESERVE_ENTITY_COUNT + p6_pool_scene_phys) {
                 uint8 _av = (uint8)sceneInfo.entity->active;
                 if (_av != ACTIVE_BOUNDS && _av != ACTIVE_XBOUNDS)
-                    p6_scan_always[e >> 3] |= (unsigned char)(1 << (e & 7));
+                    p6_scan_always[_L >> 3] |= (unsigned char)(1 << (_L & 7));
             }
 #endif
         }
@@ -745,7 +753,7 @@ void RSDK::ProcessObjects()
         // stock separate passes re-read). Drives passes 2 + 3 off the list.
         if (sceneInfo.entity->classID && sceneInfo.entity->inRange
             && s_p6_inrange_n < SATURN_INRANGE_CAP)
-            s_p6_inrange[s_p6_inrange_n++] = (int16)e;
+            s_p6_inrange[s_p6_inrange_n++] = (int16)_L;
 #endif
 
         sceneInfo.entitySlot++;

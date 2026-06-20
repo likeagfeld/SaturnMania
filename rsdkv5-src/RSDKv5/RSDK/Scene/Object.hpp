@@ -458,6 +458,10 @@ extern int32   p6_pool_remap_ready;
 // Threading it now (still == the constant) de-risks the runtime variable-load indirection BEFORE the
 // shrink, exactly as p6_pool_remap stayed identity in I3b.1. Gate: resolve_ok==1 (qa_p6_i2) + R0-R16.
 extern int32   p6_pool_scene_phys;
+// P6.8 I3b.2 (sub-step 2a): physical->logical inverse of p6_pool_remap (cart). loop1 iterates the
+// PHYSICAL pool and recovers the logical slot via this for entitySlot/near/in-range/scan_always.
+// IDENTITY (inv[p]==p) until the shrink fills it. Defined in p6_io_main.cpp (namespace RSDK).
+extern uint16 *p6_pool_remap_inv;
 inline int32 SaturnSlotToPoolSlot(int32 slot) { return p6_pool_remap_ready ? (int32)p6_pool_remap[slot] : slot; }
 // I3 (2026-06-19, WRAM-H funding): noinline forces ONE COMDAT-folded out-of-line copy
 // instead of inlining the dual-stride arithmetic at the ~69 RSDK_ENTITY_AT sites
