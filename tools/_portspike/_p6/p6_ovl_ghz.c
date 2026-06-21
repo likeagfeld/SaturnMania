@@ -81,6 +81,38 @@ extern int32 p6_w_uipic_drawgrp, p6_w_uipic_active, p6_w_uipic_visible,
              p6_w_uipic_animid, p6_w_uipic_frameid, p6_w_uipic_sheetid,
              p6_w_uipic_handle;
 #endif
+#if defined(P6_FRONTEND_TITLE)
+/* CP5a FRONT-END link 2 (Task #267): the Title scene objects. Registered only in
+ * the -DP6_FRONTEND_TITLE overlay flavor (their Game_TitleSetup.o/Game_TitleLogo.o
+ * link into the overlay only in that build). TitleSetup self-places at slot 0 +
+ * drives the State machine; TitleLogo carries the Scene1.bin logo-piece placements
+ * (the T4 objcount evidence). Their classID witnesses are pack globals (ld -R). */
+extern ObjectTitleSetup *TitleSetup;
+extern ObjectTitleLogo  *TitleLogo;
+extern int32 p6_w_titlesetup_classid, p6_w_titlelogo_classid, p6_w_title_objcount;
+/* CLOSURE EDGE (overlay-resident, flat-TU rule): symbols TitleSetup.c references
+ * that no other linked TU provides, all inert at the CP5a capture frame (90, inside
+ * State_Wait -- timer 1024 -> -1024 by 16/frame = ~128 frames before the first
+ * foreach_all/SetupFX/advance fires). Stubbed here under the flag so they LINK; none
+ * is CALLED before the title would auto-advance, so they are runtime-safe for CP5a.
+ *   - TitleSonic: foreach_all(TitleSonic) in State_FlashIn -- never deref'd at f90.
+ *   - TitleBG_SetupFX: called in State_FlashIn (TitleBG is CP5b).
+ *   - TimeAttackData_Clear: TitleSetup_StageLoad (no .c cached); a clear of save
+ *     tables that are unused on Saturn -> inert no-op is correct.
+ *   - APICallback_ClearPrerollErrors: TitleSetup_StageLoad (API_ClearPrerollErrors
+ *     macro -> this under !PLUS/REV02); the removed-at-REV02 preroll-error surface,
+ *     a no-op on Saturn. */
+ObjectTitleSonic *TitleSonic = NULL;
+void TitleBG_SetupFX(void) {}
+void TimeAttackData_Clear(void) {}
+void APICallback_ClearPrerollErrors(void) {}
+/* TitleSetup_State_WaitForEnter (reached only on a button-press, ~256+ frames in --
+ * never at the CP5a f90 capture) calls API_ResetInputSlotAssignments ->
+ * APICallback_ResetControllerAssignments (the !PLUS/REV02 macro arm, APICallback.h:69).
+ * No .c cached -> inert stub. The sibling AssignControllerID/MostRecentActiveControllerID
+ * macros it also uses are already stubbed in p6_closure_edge.c. */
+void APICallback_ResetControllerAssignments(void) {}
+#endif
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
 extern int32 p6_w_explosion_aniframes; /* Explosion->aniFrames (load-status latch) */
 extern int32 p6_w_animals_aniframes;   /* Animals->aniFrames */
@@ -201,6 +233,22 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityUIPicture), (unsigned)sizeof(ObjectUIPicture),
                               UIPicture_Update, UIPicture_LateUpdate, UIPicture_StaticUpdate,
                               UIPicture_Draw, UIPicture_Create, UIPicture_StageLoad, UIPicture_Serialize);
+#endif
+#if defined(P6_FRONTEND_TITLE)
+    /* CP5a: the Title scene objects. Register order is irrelevant (the engine
+     * LoadGameConfig matches by md5(name)); these resolve their classIDs the same
+     * registration-time way Ring/LogoSetup do. NULL editor callbacks (matches the
+     * verbatim RSDK_REGISTER_OBJECT non-editor arm). TitleSetup_StageLoad runs
+     * RSDK.ResetEntitySlot(0,...) to self-place at slot 0 + loads Title/Electricity.bin;
+     * TitleLogo_StageLoad loads Title/Logo.bin and TitleLogo carries the placements. */
+    api->register_object_full((void **)&TitleSetup, "TitleSetup",
+                              (unsigned)sizeof(EntityTitleSetup), (unsigned)sizeof(ObjectTitleSetup),
+                              TitleSetup_Update, TitleSetup_LateUpdate, TitleSetup_StaticUpdate,
+                              TitleSetup_Draw, TitleSetup_Create, TitleSetup_StageLoad, TitleSetup_Serialize);
+    api->register_object_full((void **)&TitleLogo, "TitleLogo",
+                              (unsigned)sizeof(EntityTitleLogo), (unsigned)sizeof(ObjectTitleLogo),
+                              TitleLogo_Update, TitleLogo_LateUpdate, TitleLogo_StaticUpdate,
+                              TitleLogo_Draw, TitleLogo_Create, TitleLogo_StageLoad, TitleLogo_Serialize);
 #endif
     /* MASS-PORT BATCH 1 (verified-CLEAN drop-ins; closure self-confirmed: only
      * Zone/Player/SceneInfo/DebugMode/Zone_RotateOnPivot, all ported). Decoration =
@@ -354,6 +402,14 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
             }
         }
     }
+#endif
+#if defined(P6_FRONTEND_TITLE)
+    /* CP5a (T2/T3): latch the Title classIDs once they resolve. Called from
+     * p6_frontend_frame each tick (the api->witness_fn seam). T4 (objcount) is
+     * latched in InitObjects (p6_io_main); T1/T5 are set in p6_title_reload /
+     * p6_frontend_frame. */
+    if (TitleSetup && TitleSetup->classID) p6_w_titlesetup_classid = (int32)TitleSetup->classID;
+    if (TitleLogo  && TitleLogo->classID)  p6_w_titlelogo_classid  = (int32)TitleLogo->classID;
 #endif
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;
     {   /* Batch 1: count how many of the 4 clean objects registered (classID>0). */

@@ -50,6 +50,19 @@
 # =============================================================================
 set -eu
 
+# CP5a (Task #267): the TITLE front-end flavor IMPLIES the LOGOS flavor -- it
+# reuses every shared `#if defined(P6_FRONTEND_LOGOS)` machinery (the generic
+# p6_frontend_frame, the VDP1 oversize box in p6_vdp1.c, p6_vdp2_arm_sprites_only,
+# the SaturnSheet front-end slot bump, the render-diag witnesses). Set
+# P6_FRONTEND_LOGOS here when P6_FRONTEND_TITLE is set so every existing
+# ${P6_FRONTEND_LOGOS:+...} thread below fires unchanged; the Title-specific
+# threads (-DP6_FRONTEND_TITLE on the io_main/ovl/vdp2/sheet compiles, the Title
+# game-TU compiles, the Title witness -u roots) are added explicitly. The default
+# GHZ build leaves both unset -> byte-identical.
+if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
+    export P6_FRONTEND_LOGOS=1
+fi
+
 CC=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-gcc-8.2.0
 LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
 NEWLIB=/work/jo-engine/Compiler/WINDOWS/sh-elf/include
@@ -84,7 +97,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # tick boots the Logos splash scene instead of GHZ (p6_logos_reload +
 # p6_frontend_frame). Mutually independent of the GHZ diag knobs; the default
 # shipping build leaves it unset -> boots GHZ unchanged.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -329,6 +342,21 @@ if [ -n "${P6_FRONTEND_LOGOS:-}" ]; then
             -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
     done
 fi
+# CP5a (Task #267): the FRONT-END Title scene objects, compiled VERBATIM from the
+# cached decomp (SonicMania_Objects_Title_{TitleSetup,TitleLogo}.c) the same wfe way.
+# Only built in the Title flavor; they link into the OVERLAY (build_shipping.sh [3b]),
+# NOT the pack -- so they are gc-dropped from the pack link regardless. The -Os census
+# knob matches the other game TUs. The MANIA_USE_PLUS=0 / RETRO_REV02 simple branch
+# compiles (preprocessor-confirmed; the Plus cheat/SetupPlusLogo + State_* fns drop).
+if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
+    for wft in Title_TitleSetup:Game_TitleSetup \
+               Title_TitleLogo:Game_TitleLogo; do
+        src_tu="${wft%%:*}"; out_tu="${wft##*:}"
+        "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+            $GAME_DEFS -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS -I"$GINC" -I"$NEWLIB" \
+            -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
+    done
+fi
 # Integer-only vsprintf shim (rationale in-file: newlib's float closure is
 # 10.2 KB and breached the 0x060C0000 floor by 2,856 B -- MEASURED).
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
@@ -348,7 +376,7 @@ echo "[7l2] p6_ovl_ghz.o (O1 GHZ overlay entry -- Ring + Spring multi-class) ...
 # compile-stripped from the SHIPPING build, the same way the pack's census is. Without
 # this the #ifndef in the overlay never engages -> the scan ships -> fps halves.
 $CC -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} -I"$GINC" -I"$P6" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} -I"$GINC" -I"$P6" -I"$NEWLIB" \
     -c -o "$P6/p6_ovl_ghz.o" "$P6/p6_ovl_ghz.c"
 
 echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding windows; miniz inflate decoder) ..."
@@ -485,6 +513,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_mount_tag -u _p6_w_mount_listpos \
     -u _p6_w_frontend_folder_tag -u _p6_w_logosetup_classid \
     -u _p6_w_uipicture_classid -u _p6_w_logos_objcount \
+    -u _p6_w_titlesetup_classid -u _p6_w_titlelogo_classid -u _p6_w_title_objcount \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipicture_aniframes -u _p6_w_uipicture_framesNN} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_drawgrp -u _p6_w_uipic_active -u _p6_w_uipic_visible -u _p6_w_uipic_onscreen} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_posx -u _p6_w_uipic_posy -u _p6_w_uipic_animid -u _p6_w_uipic_frameid} \

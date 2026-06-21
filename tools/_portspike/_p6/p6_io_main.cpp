@@ -744,6 +744,28 @@ __attribute__((used)) int32 p6_w_frontend_folder_tag = 0;
 __attribute__((used)) int32 p6_w_logosetup_classid   = 0;
 __attribute__((used)) int32 p6_w_uipicture_classid   = 0;
 __attribute__((used)) int32 p6_w_logos_objcount      = 0;
+// CP5a FRONT-END link 2 (Task #267, qa_engine_title.py T1-T5): the TITLE scene.
+// Mirrors the CP4 Logos witnesses -- the engine LoadScene + run path now serves the
+// Title scene (TitleSetup + TitleLogo ports) through the SAME generic chain GHZ +
+// Logos use, behind -DP6_FRONTEND_TITLE (which also defines P6_FRONTEND_LOGOS so the
+// shared frontend_frame/VDP1-box/arm-sprites machinery compiles unchanged).
+// frontend_folder_tag is REUSED (set to 0x5469 'Ti' in p6_title_reload; T1).
+// titlesetup/titlelogo_classid = the overlay-registered classIDs (written by the
+// overlay witness via -R; T2/T3 > 0 == ports linked + resolved). title_objcount =
+// the live-classID scene-entity census after InitObjects for the Title scene (T4 > 0
+// == the TitleLogo Scene1.bin placements instantiated through the generic chain).
+// cont_frames is REUSED (T5).
+// GUARDED under P6_FRONTEND_TITLE (NOT unconditional like the CP4 Logos witnesses):
+// the default GHZ _end (0x060B6BA0) has only 96 B of margin to ANIMPAK (0x060B6C00),
+// so 12 B of unconditional .bss would breach the exact-equality regression contract.
+// The gate evaluates the TITLE-flavor map (where these are defined + -u rooted); the
+// default GHZ map stays byte-identical. The -u roots in build_p6scene_objs.sh are
+// harmless no-ops when the symbols are absent (default build).
+#if defined(P6_FRONTEND_TITLE)
+__attribute__((used)) int32 p6_w_titlesetup_classid  = 0;
+__attribute__((used)) int32 p6_w_titlelogo_classid   = 0;
+__attribute__((used)) int32 p6_w_title_objcount      = 0;
+#endif
 #if defined(P6_FRONTEND_LOGOS)
 // CP4b render diag (front-end only): UIPicture->aniFrames (LoadSpriteAnimation
 // ("Logos/Logos.bin") result; -1 == load FAILED == the anim half of the render
@@ -4419,6 +4441,24 @@ static void p6_scene_load_and_arm(void)
         p6_w_logos_objcount = nf;
     }
 #endif
+    // CP5a (Task #267, qa_engine_title T4): census the live-classID scene entities
+    // the generic InitObjects chain just instantiated for the TITLE scene (the
+    // TitleLogo logo-piece placements). LATCH on the "Title" folder + never
+    // overwrite -- TitleSetup auto-advances (RSDK.LoadScene -> "Menu") after the
+    // title plays, which would re-enter with the next scene's count (0, since Menu
+    // objects aren't registered yet) and clobber the measurement. The first Title
+    // load's count is the T4 evidence. > 0 proves the Title Scene1.bin placements
+    // created through the SAME LoadScene path GHZ + Logos use.
+#if defined(P6_FRONTEND_TITLE)
+    if (p6_w_title_objcount == 0
+        && !strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "Title")) {
+        int32 nf = 0;
+        for (int32 s = 0; s < SCENEENTITY_COUNT; ++s)
+            if (RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + s)->classID)
+                ++nf;
+        p6_w_title_objcount = nf;
+    }
+#endif
     p6_i2_selfcheck(); // P6.8 I2: assert slot->pool indirection is 1:1 (byte-identical)
     p6_scan_index_build(); // P6.8 I3c: sorted-by-x scene-entity index for the loop1 spatial cull
     // I3b SHRINK measurement (read-only, one-shot): walk the full scene region, count populated +
@@ -4620,6 +4660,42 @@ static void p6_logos_reload(void)
     p6_scene_load_and_arm();
     p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
 }
+
+#if defined(P6_FRONTEND_TITLE)
+// =============================================================================
+// CP5a (Task #267): p6_title_reload -- the FRONT-END mirror of p6_logos_reload
+// for the TITLE scene. VERBATIM copy of p6_logos_reload (the proven CP4 path)
+// except it scans every category range for the folder "Title" and tags it
+// 0x5469 ('T'<<8 | 'i'; gate T1). Load+arm through the same generic
+// p6_scene_load_and_arm (its GHZ-tilemap steps no-op for the sprite-only Title
+// scene). Behind -DP6_FRONTEND_TITLE; the default shipping build never compiles
+// this and boots GHZ unchanged. =============================================================================
+static void p6_title_reload(void)
+{
+    int32 found = 0;
+    for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
+        SceneListInfo *cat = &sceneInfo.listCategory[c];
+        for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+            if (!strcmp(sceneInfo.listData[i].folder, "Title")) {
+                sceneInfo.activeCategory = c;
+                sceneInfo.listPos        = i;
+                found                    = 1;
+                break;
+            }
+        }
+    }
+    if (!found)
+        return;
+    // T1: tag the loaded folder's first two chars ('T'<<8 | 'i' = 0x5469).
+    {
+        const char *f = sceneInfo.listData[sceneInfo.listPos].folder;
+        p6_w_frontend_folder_tag =
+            (int32)(((uint32)(uint8)f[0] << 8) | (uint32)(uint8)(f[0] ? f[1] : 0));
+    }
+    p6_scene_load_and_arm();
+    p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
+}
+#endif // P6_FRONTEND_TITLE
 
 // =============================================================================
 // CP4 (Task #265): p6_frontend_frame -- the GENERIC per-frame tick for a non-GHZ
@@ -4936,7 +5012,16 @@ extern "C" void p6_scene_tick(void)
     // frame. Subsequent ticks take the armed fast path below. Gated on
     // p6_lean_boot so the diag tick is unchanged.
     if (p6_lean_boot && !p6_ghz_continuous_armed) {
-#if defined(P6_FRONTEND_LOGOS)
+#if defined(P6_FRONTEND_TITLE)
+        // CP5a (Task #267): the TITLE front-end flavor boots the Title scene on
+        // the first live tick (select "Title" + load+arm, then run the generic
+        // UI-scene frame). Title takes precedence over Logos (it also defines
+        // P6_FRONTEND_LOGOS so the shared p6_frontend_frame compiles).
+        p6_title_reload();
+        if (p6_ghz_continuous_armed)
+            p6_frontend_frame();
+        return;
+#elif defined(P6_FRONTEND_LOGOS)
         // CP4 (Task #265): the FRONT-END flavor boots the Logos splash scene
         // instead of GHZ -- same lean-tick shape (select + load+arm on the first
         // live tick, then run the scene frame), routed to the front-end fns.

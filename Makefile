@@ -206,6 +206,17 @@ ifeq ($(P6_FRONTEND_LOGOS),1)
 CCFLAGS += -DP6_FRONTEND_LOGOS
 endif
 
+# CP5a (Task #267): the TITLE front-end flavor. P6_FRONTEND_TITLE IMPLIES
+# P6_FRONTEND_LOGOS -- it reuses the shared #if defined(P6_FRONTEND_LOGOS) machinery
+# (the VDP1 oversize box in the jo-side p6_vdp1.c, p6_vdp2_arm_sprites_only, the
+# frontend_frame). Both flags reach the jo-make compile of p6_vdp1.c here so the
+# Title logo/electricity frames (up to 187x89) clear the 64x64 oversize-drop guard.
+# build_shipping.sh passes P6_FRONTEND_TITLE=1 (which also sets LOGOS) for the Title
+# flavor. The DEFAULT (GHZ) build leaves both unset -> p6_vdp1.c byte-identical.
+ifeq ($(P6_FRONTEND_TITLE),1)
+CCFLAGS += -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS
+endif
+
 # --- Our sources ---
 #
 # Phase 0.5 foundation alignment (2026-05-26): the hand-rolled

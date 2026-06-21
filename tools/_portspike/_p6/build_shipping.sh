@@ -51,6 +51,18 @@ export P6_NOSCAN="${P6_NOSCAN-1}"
 # NOT set this, so it stays byte-identical (no re-validation of its gate sweep).
 export P6_CART_TMP="${P6_CART_TMP-1}"
 
+# CP5a (Task #267): the TITLE front-end flavor IMPLIES the LOGOS flavor (it reuses
+# every shared #if defined(P6_FRONTEND_LOGOS) machinery -- frontend_frame, the VDP1
+# box in p6_vdp1.c, p6_vdp2_arm_sprites_only, the SaturnSheet slot bump). Setting
+# P6_FRONTEND_LOGOS=1 here makes the existing ${P6_FRONTEND_LOGOS:+...} threads in
+# THIS script (the make knob + the overlay OVL_FE + the symbol grep) fire, and is
+# also seen by build_p6scene_objs.sh (which self-implies it too). The Title-specific
+# bits (the make knob P6_FRONTEND_TITLE=1 for p6_vdp1.c, the Title overlay objects,
+# the Title witness grep) are added explicitly. Default GHZ leaves both unset.
+if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
+    export P6_FRONTEND_LOGOS=1
+fi
+
 echo "[1/5] proof pack (engine TUs, ld -r gc-pack; -u p6_engine_boot_and_run root) ..."
 bash /work/tools/_portspike/_p6/build_p6scene_objs.sh > /dev/null
 
@@ -70,7 +82,7 @@ cd /work
 # hybrid-image rule).
 rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
       tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
 LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
@@ -98,6 +110,13 @@ OVL_FE=""
 if [ -n "${P6_FRONTEND_LOGOS:-}" ]; then
     OVL_FE="Game_LogoSetup.o Game_UIPicture.o"
 fi
+# CP5a (Task #267): the Title flavor adds the Title scene objects to the overlay so
+# they link against game.elf via -R (same as every other overlay obj). They are
+# ADDITIVE to the Logos objects (P6_FRONTEND_TITLE implies P6_FRONTEND_LOGOS, so the
+# Logos objects compile + register too -- inert on the Title scene, no placements).
+if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
+    OVL_FE="$OVL_FE Game_TitleSetup.o Game_TitleLogo.o"
+fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
     Game_Decoration.o Game_ForceSpin.o Game_SpinBooster.o \
@@ -111,7 +130,7 @@ cd /work
 
 echo "[4/5] re-master the ISO with the overlay on disc ..."
 rm -f game.iso
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[5/5] sanity: _end + lean-boot entry + flavor flag + overlay entry ..."
 grep " _end = " game.map
@@ -133,5 +152,16 @@ if [ -n "${P6_FRONTEND_LOGOS:-}" ]; then
     grep -m1 "p6_w_logos_shtslot$"       game.map || echo "  MISSING p6_w_logos_shtslot (arm_env Logos scan compiled out?)"
     grep -m1 "LogoSetup_Update"  "$P6/ovl_ring.map" || echo "  MISSING LogoSetup in overlay"
     grep -m1 "UIPicture_Update"  "$P6/ovl_ring.map" || echo "  MISSING UIPicture in overlay"
+fi
+# CP5a (Task #267): in the Title flavor, confirm the Title witnesses landed in
+# game.map (build_p6scene_objs.sh SWALLOWS compile errors -> a stale .o leaves them
+# ABSENT; this grep catches the silent-fail) + the Title objects landed in the overlay.
+if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
+    echo "[5c] CP5a Title front-end symbol presence:"
+    grep -m1 "p6_w_titlesetup_classid$" game.map || echo "  MISSING p6_w_titlesetup_classid (compile failed silently?)"
+    grep -m1 "p6_w_titlelogo_classid$"  game.map || echo "  MISSING p6_w_titlelogo_classid"
+    grep -m1 "p6_w_title_objcount$"     game.map || echo "  MISSING p6_w_title_objcount"
+    grep -m1 "TitleSetup_Update" "$P6/ovl_ring.map" || echo "  MISSING TitleSetup in overlay"
+    grep -m1 "TitleLogo_Update"  "$P6/ovl_ring.map" || echo "  MISSING TitleLogo in overlay"
 fi
 echo "DONE [shipping image built: game.iso/game.cue + cd/OVLRING.BIN]."
