@@ -187,6 +187,17 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     grep -m1 "p6_w_tsonic_shtslot$" game.map || echo "  MISSING p6_w_tsonic_shtslot (TSONIC.SHT arm-env scan compiled out?)"
     grep -m1 "TitleSonic_Update" "$P6/ovl_ring.map" || echo "  MISSING TitleSonic in overlay (Game_TitleSonic.o not linked?)"
 fi
+# Task #271: front-end LOAD-TIMING witnesses + the SFX-early-out fix witness. The
+# front-end flavors gate these on P6_FRONTEND_LOGOS; build_p6scene_objs.sh swallows
+# compile errors -> a stale .o would leave them ABSENT (the silent-fail signature).
+if [ -n "${P6_FRONTEND_LOGOS:-}" ]; then
+    echo "[5e] Task #271 load-timing + SFX-early-out symbol presence:"
+    grep -m1 "p6_w_lt_vbl$"          game.map || echo "  MISSING p6_w_lt_vbl (load-timing instrumentation compiled out?)"
+    grep -m1 "p6_w_lt_fills$"        game.map || echo "  MISSING p6_w_lt_fills"
+    grep -m1 "p6_w_lt_sfx_savedopen$" game.map || echo "  MISSING p6_w_lt_sfx_savedopen (SFX early-out witness compiled out?)"
+    grep -m1 "p6_saturn_sfx_pool_full" game.map || echo "  MISSING p6_saturn_sfx_pool_full (SFX early-out LATCH compiled out -- the fix is INERT?)"
+    grep -m1 "p6_w_gfs_bytes$"       game.map || echo "  MISSING p6_w_gfs_bytes (GFS byte counter compiled out?)"
+fi
 # CP5c (Task #270): in the CHAIN flavor, confirm the chain witnesses landed in
 # game.map (build_p6scene_objs.sh SWALLOWS compile errors -> a stale p6_io_main.o
 # leaves the -DP6_FRONTEND_CHAIN advance compiled out + the witnesses ABSENT; this

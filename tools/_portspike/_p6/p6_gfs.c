@@ -320,6 +320,15 @@ int Saturn_fClose(Saturn_FileIO *file)
 // sector was asked for, and whether GFS_Fread ever returned (lastfread
 // stays the 0x7FFFFFFF sentinel while the wedge is INSIDE GFS_Fread).
 int p6_w_gfs_fills    = 0;
+#if defined(P6_FRONTEND_LOGOS)
+// Front-end load-timing (Task #271): TOTAL bytes the GFS layer has read so far
+// (windowed path here + the single-shot rsdk_storage_load_to_lwram which adds to
+// it). Wrap-immune integer the per-sub-step load-timing snapshots diff to size
+// each sub-step's CD I/O without relying on the (78 ms-wrapping /32 FRT) clock.
+// FRONT-END-ONLY: the default GHZ build's WRAM-H is ~64 B under the ANIMPAK ceiling
+// (memory/wram-h-animpak-ceiling-boot-trap), so it stays byte-identical to baseline.
+int p6_w_gfs_bytes    = 0;
+#endif
 int p6_w_gfs_lastsect = -1;
 int p6_w_gfs_lastseek = -2;
 int p6_w_gfs_lastfread = -2;
@@ -377,6 +386,9 @@ static int p6_window_fill(Saturn_FileIO *file, int offset)
     }
     s_pack_gfs_pos = sector + nsct; // GFS_Fread advanced the pointer past nsct
     p6_w_gfs_io_vbl += (int)(p6_perf_vbl_count - io_v0); // accumulate IO vblanks
+#if defined(P6_FRONTEND_LOGOS)
+    p6_w_gfs_bytes  += (int)(nsct * P6_GFS_SECTOR);      // load-timing: bytes read this fill
+#endif
 
     file->win_off = sector * P6_GFS_SECTOR;
     file->win_len = nsct * P6_GFS_SECTOR;

@@ -313,6 +313,35 @@ void RSDK::LoadSfxToSlot(char *filename, uint8 slot, uint8 plays, uint8 scope)
     RETRO_HASH_MD5(hash);
     GEN_HASH_MD5(filename, hash);
 
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_FRONTEND_LOGOS)
+    // Task #271 LOAD-TIME FIX (MEASURED root cause of the ~70 s FRONT-END title load):
+    // LoadGameConfig's global-SFX loop (RetroEngine.cpp:1097-1102) calls this for all
+    // 52 Mania global SFX. The Saturn DATASET_SFX pool is 30 KB (Storage.cpp:129) --
+    // MEASURED p6_w_sfx_skips=51, so 51 of 52 are alloc-rejected at the guard BELOW.
+    // But the rejection happens AFTER LoadFile (the EXPENSIVE part): each open is a
+    // GEN_HASH_MD5 + OpenDataFile MD5-registry lookup + GFS_Seek into the 182 MB
+    // DATA.RSDK pack (MEASURED ~75% of fills need a real CD seek; ~0.8 s/open emulated)
+    // -> ~51 wasted file-opens = the dominant ~40 s of the load. Once the pool is
+    // EXHAUSTED it stays exhausted for the rest of this load (no SFX is freed between
+    // the loop's calls -- usedStorage only grows), so a failed alloc LATCHES
+    // p6_saturn_sfx_pool_full and EVERY subsequent SFX is guaranteed to be rejected.
+    // Skip the open for them -> BEHAVIOR-IDENTICAL (the same SFX load, the same get
+    // skipped) but the wasted seeks are eliminated. NOT the budget-blocked GFS-window
+    // change (#251); a pure redundant-I/O cut. The latch is reset per scene-SFX clear
+    // (ClearStageSfx, below) so a stage's own SFX still attempt to load.
+    //
+    // FRONT-END-FLAVOR-GATED: the default GHZ build's WRAM-H is ~64 B under the ANIMPAK
+    // ceiling (memory/wram-h-animpak-ceiling-boot-trap) -- adding even the latch global
+    // there risks the #228 boot trap, so the GHZ image stays BYTE-IDENTICAL. GHZ's own
+    // identical load-time win is a separate, budget-aware change (#251 tracked).
+    extern int32 p6_saturn_sfx_pool_full;    // p6_io_main.cpp: 1 once DATASET_SFX is full
+    extern int32 p6_saturn_sfx_skipped_open; // p6_io_main.cpp: opens saved by this early-out
+    if (p6_saturn_sfx_pool_full) {
+        ++p6_saturn_sfx_skipped_open;
+        return; // pool exhausted -> this SFX cannot fit; do NOT pay the file-open seek
+    }
+#endif
+
     if (LoadFile(&info, fullFilePath, FMODE_RB)) {
         HASH_COPY_MD5(sfxList[slot].hash, hash);
         sfxList[slot].scope              = scope;
@@ -391,6 +420,15 @@ void RSDK::LoadSfxToSlot(char *filename, uint8 slot, uint8 plays, uint8 scope)
                 if (!sfxList[slot].buffer) {
                     extern int32 p6_saturn_sfx_skips;
                     ++p6_saturn_sfx_skips;
+#if defined(P6_FRONTEND_LOGOS)
+                    // Task #271: the DATASET_SFX pool is full. It only GROWS during a
+                    // GameConfig/stage SFX load (no frees between LoadSfxToSlot calls),
+                    // so latch it -> the early-out at the top of this fn skips the
+                    // remaining file-opens for THIS load batch. (Front-end-gated to keep
+                    // the default GHZ image byte-identical -- WRAM-H ceiling budget.)
+                    extern int32 p6_saturn_sfx_pool_full;
+                    p6_saturn_sfx_pool_full = 1;
+#endif
                     // MEM_ZERO the WHOLE slot (the ClearStageSfx shape,
                     // below in this file): the hash was copied before the
                     // alloc and GetSfx matches on hash ALONE -- a stale hash
@@ -595,6 +633,16 @@ void RSDK::ClearStageSfx()
             sfxList[s].scope = SCOPE_NONE;
         }
     }
+
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_FRONTEND_LOGOS)
+    // Task #271: a new stage SFX-load batch follows -- clear the pool-full latch so
+    // a stage's own SFX get a fair load attempt (the AllocateStorage GC reclaims the
+    // now-SCOPE_NONE stage slots on the first alloc; if the pool is STILL full, the
+    // latch simply re-sets on that first failed alloc, costing at most one open).
+    // (Front-end-gated like the early-out -- the default GHZ image stays byte-identical.)
+    extern int32 p6_saturn_sfx_pool_full;
+    p6_saturn_sfx_pool_full = 0;
+#endif
 
     UnlockAudioDevice();
 }

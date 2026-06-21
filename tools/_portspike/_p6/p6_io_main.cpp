@@ -1346,6 +1346,15 @@ extern int32 streamLoopPoint;
 // run body mirrors it into the p6_w_sfx_skips witness.
 namespace RSDK {
 __attribute__((used)) int32 p6_saturn_sfx_skips = 0;
+// Task #271 load-time fix: DATASET_SFX pool-full LATCH + the count of file-opens
+// the LoadSfxToSlot early-out SAVED. Same namespace as p6_saturn_sfx_skips so
+// Audio.cpp's `using namespace RSDK` block-scope externs bind here under GCC 8.2.
+// pool_full latches when an SFX alloc fails (pool only grows mid-load), reset per
+// ClearStageSfx; skipped_open counts the ~51 wasted GameConfig SFX seeks removed.
+#if defined(P6_FRONTEND_LOGOS)
+__attribute__((used)) int32 p6_saturn_sfx_pool_full    = 0; // front-end-only (GHZ WRAM-H ceiling)
+__attribute__((used)) int32 p6_saturn_sfx_skipped_open = 0; // front-end witness only
+#endif
 // P6.7 W11: tempEntityList overflow witness (Scene.cpp clamp; expectation
 // zero at every measured 1.03 scene under the GHZ-scale retarget).
 __attribute__((used)) int32 p6_saturn_tempentity_skips = 0;
@@ -1946,6 +1955,86 @@ extern "C" void p6_input_witness(void);
 extern "C" int32 p6_input_settle(void);
 namespace RSDK { namespace SKU { void InitSaturnInputAPI(); } }
 extern "C" int p6_w_vdp1_slots; // p6_vdp1.c slot-cache population counter
+
+#if defined(P6_FRONTEND_LOGOS)
+// =============================================================================
+// Front-end LOAD-TIMING instrumentation (Task #271) -- FLAG-GATED to the
+// front-end flavors ONLY (P6_FRONTEND_LOGOS/TITLE/CHAIN). NEVER compiled in the
+// default GHZ image (its _end sits ~64 B under the WRAM-H ANIMPAK ceiling per
+// memory/wram-h-animpak-ceiling-boot-trap; these witnesses would breach it).
+// The front-end flavor drops the large p6_ghz_frame/Ring-proof code (build_
+// shipping.sh:5371) so it has the WRAM-H headroom for the witnesses.
+//
+// PURPOSE: time each LOAD SUB-STEP so the dominant cost of the ~70 s front-end
+// title load is MEASURED (not assumed). Two regimes:
+//   MASKED CORE (p6_scene_run, interrupts off, vblank ISR frozen + not yet
+//     registered -- main.c:1270 runs the whole core BEFORE the vblank callback):
+//     vblanks DON'T advance, so the wrap-immune metric is (fills,bytes) read from
+//     the GFS counters (p6_gfs.c); FRT-ticks are EXACT for a compute sub-step
+//     (<78 ms, no /32-FRT wrap) and undercount a multi-wrap I/O sub-step (sized
+//     by fills instead).
+//   PHASE-2 (p6_scene_load_and_arm, UNMASKED): vblanks advance -> EXACT ms AND
+//     the ground-truth ms-per-fill (vbl_delta/fills_delta) that converts the
+//     masked I/O fills to ms.
+// p6_lt_mark(slot) snapshots the deltas since the previous mark into the slot's
+// witnesses. Slots: 1..10 (see the checklist). All int32, savestate-peeked.
+#define P6_LT_NSLOT 11   // index 0 unused; 1..10
+__attribute__((used)) int32 p6_w_lt_vbl[P6_LT_NSLOT]   = {0}; // vblanks elapsed in the sub-step (phase-2 exact)
+__attribute__((used)) int32 p6_w_lt_fills[P6_LT_NSLOT] = {0}; // GFS_Fread calls in the sub-step (wrap-immune)
+__attribute__((used)) int32 p6_w_lt_kb[P6_LT_NSLOT]    = {0}; // KB read in the sub-step (wrap-immune)
+__attribute__((used)) int32 p6_w_lt_frt[P6_LT_NSLOT]   = {0}; // FRT ticks (/32: exact<78ms, undercounts multi-wrap)
+__attribute__((used)) int32 p6_w_lt_cks       = -1; // FRT divider select (expect 1 = /32)
+__attribute__((used)) int32 p6_w_lt_masked_vbl = 0; // total vblanks across the MASKED core (expect ~0: frozen)
+__attribute__((used)) int32 p6_w_lt_ph2_fills  = 0; // total fills in phase-2 (ground-truth ms/fill numerator helper)
+__attribute__((used)) int32 p6_w_lt_ph2_vbl    = 0; // total vblanks in phase-2 (-> ms/fill = vbl*16.67/fills)
+__attribute__((used)) int32 p6_w_lt_sfx_savedopen = 0; // Task #271 fix: SFX file-opens the early-out SKIPPED (was wasted seeks)
+// Running state for the marker (NOT witnesses).
+extern "C" int p6_w_gfs_fills;   // p6_gfs.c windowed + storage.c single-shot fill count
+extern "C" int p6_w_gfs_bytes;   // p6_gfs.c + storage.c total bytes read
+static unsigned short p6_lt_prev_frt   = 0;
+static unsigned int   p6_lt_prev_vbl   = 0;
+static int            p6_lt_prev_fills  = 0;
+static int            p6_lt_prev_bytes  = 0;
+static int32          p6_lt_frt_acc     = 0; // wrap-accumulated ticks since the last mark
+// Call ONCE at the very start of the timed region to zero the running cursors.
+static void p6_lt_begin(void)
+{
+    p6_lt_prev_frt   = p6_perf_frt_get();
+    p6_lt_prev_vbl   = p6_perf_vbl_count;
+    p6_lt_prev_fills = p6_w_gfs_fills;
+    p6_lt_prev_bytes = p6_w_gfs_bytes;
+    p6_lt_frt_acc    = 0;
+    if (p6_w_lt_cks < 0)
+        p6_w_lt_cks = p6_perf_frt_cks();
+}
+// Record the sub-step that JUST ENDED into witness slot `slot`, then re-baseline.
+// FRT wrap handling: a single ldelta < prev means exactly one /32 wrap elapsed
+// since the previous frt sample (correct for any sub-step whose FRT span is one
+// wrap; a multi-wrap I/O sub-step is sized by its fills, not this value).
+static void p6_lt_mark(int slot)
+{
+    unsigned short frt = p6_perf_frt_get();
+    unsigned int   vbl = p6_perf_vbl_count;
+    int            fil = p6_w_gfs_fills;
+    int            byt = p6_w_gfs_bytes;
+    int32 dfrt = (int32)(uint16)((unsigned)frt - (unsigned)p6_lt_prev_frt);
+    if (slot > 0 && slot < P6_LT_NSLOT) {
+        p6_w_lt_frt[slot]   = dfrt;
+        p6_w_lt_vbl[slot]   = (int32)(vbl - p6_lt_prev_vbl);
+        p6_w_lt_fills[slot] = fil - p6_lt_prev_fills;
+        p6_w_lt_kb[slot]    = (byt - p6_lt_prev_bytes) / 1024;
+    }
+    p6_lt_prev_frt   = frt;
+    p6_lt_prev_vbl   = vbl;
+    p6_lt_prev_fills = fil;
+    p6_lt_prev_bytes = byt;
+}
+#define P6_LT_BEGIN()    p6_lt_begin()
+#define P6_LT_MARK(slot) p6_lt_mark(slot)
+#else
+#define P6_LT_BEGIN()    ((void)0)
+#define P6_LT_MARK(slot) ((void)0)
+#endif
 
 // src/rsdk/storage.c (hand-port TU, linked in this image): generic GFS
 // load-to-address -- the overlay loader. Name is historical; any address.
@@ -3050,6 +3139,7 @@ extern "C" void p6_scene_run(void)
     p6_input_settle();
 
     p6_load_phase_enter();
+    P6_LT_BEGIN(); // Task #271: start the front-end load-timing cursors (masked core)
     // 0) Zero the WRAM-L windows (SLSTART zeroes only WRAM-H __bstart..__bend).
     memset((void *)P6_LW_ZERO_BASE, 0, P6_LW_ZERO_END - P6_LW_ZERO_BASE);
     // P6.7 W11: zero the WRAM-H packed-collision window in the PRE-STATE --
@@ -3069,6 +3159,7 @@ extern "C" void p6_scene_run(void)
         return; // loaded stays 0 -> gate RED with initstorage diagnosis
     }
     p6_w_scene_step = 1;
+    P6_LT_MARK(1); // Task #271 S1: boot pre-load (memsets + InitStorage)
 
     // 1.5) P6.7d.3: chain-load the Ring OVERLAY -- MUST precede BOTH the
     //      registration preamble at 2b (the entry registers Ring) AND the
@@ -3297,6 +3388,7 @@ extern "C" void p6_scene_run(void)
                 }
             }
         }
+        P6_LT_MARK(2); // Task #271 S2: chain loads (OVLRING/DORM/LAYT/ANIMPACK/GHZ Player sheets)
 #if defined(P6_FRONTEND_LOGOS)
         // CP4 (Task #266): stage LOGOS.SHT (Logos/Logos.gif, the 4-logo splash sheet,
         // 512x256 banded ~6.4 KB) into the 10th SaturnSheet slot so UIPicture's
@@ -3351,6 +3443,7 @@ extern "C" void p6_scene_run(void)
                 }
             }
         }
+        P6_LT_MARK(3); // Task #271 S3: 512x512 sheets (LOGOS.SHT + TLOGO.SHT load+stage+resident)
         // CP5b.2 (Task #269): stage TSONIC.SHT (Title/Sonic.gif, the ring-center head
         // sheet) into the 12th SaturnSheet slot (slot 11; slots 9/10 = LOGOS/TLOGO,
         // staged above because TITLE implies LOGOS) so TitleSonic's DrawSprite resolves
@@ -3396,6 +3489,7 @@ extern "C" void p6_scene_run(void)
                 }
             }
         }
+        P6_LT_MARK(4); // Task #271 S4: TSONIC.SHT (1024x1024, 121,090 B) load+stage -- the CP5b.2 suspect
 #endif
 
 #include "p6_sheet_probes.inc"
@@ -3528,6 +3622,7 @@ extern "C" void p6_scene_run(void)
         p6_load_phase_exit();
         return; // loaded stays 0 -> gate RED with the mount diagnosis
     }
+    P6_LT_MARK(5); // Task #271 S5: LoadDataPack (DATA.RSDK 182 MB windowed registry walk) -- #251 suspect
 
     // 3-pre) P6.6 audio proofs run BEFORE LoadGameConfig so the 32 KB
     //    DATASET_SFX pool serves them deterministically: LoadGameConfig's
@@ -3614,6 +3709,7 @@ extern "C" void p6_scene_run(void)
             ++p6_w_snd_plays;
         }
     }
+    P6_LT_MARK(6); // Task #271 S6: AudioDevice::Init + ScoreAdd + MenuBleep SFX (WAV parse + S16<->F32)
 
 
     // 3a) P6.7c THE CALL UNDER TEST #1: the engine's OWN LoadGameConfig
@@ -3636,6 +3732,17 @@ extern "C" void p6_scene_run(void)
         p6_w_cfg_startpos    = sceneInfo.listPos;
         p6_w_sfx_skips       = p6_saturn_sfx_skips;
     }
+#if defined(P6_FRONTEND_LOGOS)
+    p6_w_lt_sfx_savedopen = p6_saturn_sfx_skipped_open; // Task #271: opens the early-out saved
+#endif
+    P6_LT_MARK(7); // Task #271 S7: LoadGameConfig (GameConfig.bin parse: globals/palette/SFX/92-scene list)
+#if defined(P6_FRONTEND_LOGOS)
+    // Task #271: total vblanks elapsed across the WHOLE masked core (S1..S7).
+    // EXPECT ~0 -- the vblank ISR is masked off AND not yet registered (main.c:1270
+    // runs this entire core before jo_core_add_vblank_callback). Proves the masked
+    // core cannot be vblank-timed (-> its sub-steps are sized by fills/bytes + FRT).
+    p6_w_lt_masked_vbl = (int32)p6_perf_vbl_count;
+#endif
 
     // P6.8 Step B (Task #211): the LEAN SHIPPING boot stops HERE. Everything
     // above is the masked load core BOTH flavors need (InitStorage, the staged
@@ -4588,10 +4695,15 @@ static void p6_scene_load_and_arm(void)
     // F.2: (re)mount the windowed band store for the zone being loaded BEFORE
     // LoadSceneFolder's SaturnLayout_Bind (Scene.cpp:439/444). No-op on a same-
     // zone reload (tag match); swaps GHZ1<->GHZ2 on a cross-zone act advance.
+    // Task #271: re-baseline the load-timing cursors for PHASE-2 (UNMASKED -- the
+    // vblank ISR is now registered + running, so S8..S10 get EXACT vblank ms AND
+    // the ground-truth ms/fill that converts the masked-core I/O fills to ms).
+    P6_LT_BEGIN();
     p6_w_load_step = 30; // #251 phase-2: layout mount-for-scene
     p6_layout_mount_for_scene();
     p6_w_load_step = 31; // #251 phase-2: LoadSceneFolder (tileset GIF + TileConfig inflate)
     LoadSceneFolder();
+    P6_LT_MARK(8); // Task #271 S8: layout mount + LoadSceneFolder (Title scene + TileConfig)
     // #249/#250: pin the packed-collision geometry RIGHT AFTER the gameplay
     // LoadTileConfig (nested in LoadSceneFolder, Scene.cpp:163-164). The lean boot
     // skips the diag step-9 hash, so this is the ONLY witness of 0x060E0000 in the
@@ -4619,6 +4731,7 @@ static void p6_scene_load_and_arm(void)
         p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
     p6_w_load_step = 33; // #251 phase-2: LoadSceneAssets (sprite sheets)
     LoadSceneAssets();
+    P6_LT_MARK(9); // Task #271 S9: LoadSceneAssets (sprite-sheet GIF decode/stage for the scene)
     // Screen env must exist BEFORE InitObjects (Camera_Create reads
     // ScreenInfo->center) -- arm it here, then arm the binds after.
     videoSettings.screenCount = 1;
@@ -4729,6 +4842,13 @@ static void p6_scene_load_and_arm(void)
     sceneInfo.timeEnabled = true;
     p6_w_load_step = 35; // #251 phase-2: arm VDP1 sheet binds
     p6_ghz_arm_env();
+    P6_LT_MARK(10); // Task #271 S10: InitObjects (entity Create/StageLoad) + arm_env VDP1 binds
+#if defined(P6_FRONTEND_LOGOS)
+    // Task #271: phase-2 totals -> the ground-truth ms-per-fill for converting the
+    // masked-core I/O fills (S2/S5) to ms. ms/fill = ph2_vbl*16.67/ph2_fills.
+    p6_w_lt_ph2_fills = p6_w_lt_fills[8] + p6_w_lt_fills[9] + p6_w_lt_fills[10];
+    p6_w_lt_ph2_vbl   = p6_w_lt_vbl[8]   + p6_w_lt_vbl[9]   + p6_w_lt_vbl[10];
+#endif
     // #249/#250: run the resident layout pre-inflate (the band-crossing stall fix)
     // NOW -- AFTER LoadTileConfig packed 0x060E0000 + LoadSceneFolder/Assets/Init-
     // Objects finished every cart/heap allocation. MEASURED ROOT CAUSE: running it

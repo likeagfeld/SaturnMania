@@ -112,6 +112,7 @@ $CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_T
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
+    ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} \
     -I"$SGLINC" -I"$NEWLIB" \
     -c -o "$P6/p6_gfs.o" "$P6/p6_gfs.c"
 
@@ -161,7 +162,7 @@ $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Graphics_Animation.o" "$SRC/RSDK/Graphics/Animation.cpp"
 
 echo "[7e/9] Audio_Audio.o (UNMODIFIED engine Audio.cpp -- LoadSfx/LoadSfxToSlot WAV parse + PlaySfx channel allocator + InitAudioChannels for P6.6a; the in-TU stb_vorbis + stream/mixer surface gc-drops while unreferenced; dyn-init audit: all file-scope state constant/zero-init, no .init_array trap) ..."
-$CC $CXXFLAGS $ENG_DEFS $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} $CORE_INC \
     -c -o "$P6/Audio_Audio.o" "$SRC/RSDK/Audio/Audio.cpp"
 
 echo "[7f] Scene_Object.o (UNMODIFIED engine Object.cpp -- RegisterObject + ResetEntitySlot + ProcessObjects + ProcessObjectDrawLists for P6.7a; editor/serialize surface gc-drops; +P6_PERF_OBJPROF Phase-2d per-classID Update timing diagnostic) ..."
@@ -477,7 +478,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _SaturnLayout_SlotLayer \
     -u _p6_w_transitions -u _p6_w_xtile_lo -u _p6_w_xtile_hi \
     -u _p6_w_load_step \
-    -u _p6_w_gfs_seeks_real -u _p6_w_gfs_io_vbl \
+    -u _p6_w_gfs_seeks_real -u _p6_w_gfs_io_vbl ${P6_FRONTEND_LOGOS:+-u _p6_w_gfs_bytes} \
     -u _p6_w_ghz2_loaded -u _p6_w_ghz2_xtile_lo -u _p6_w_ghz2_xtile_hi \
     -u _p6_w_ghz2_entcount -u _p6_w_ghz2_plrx -u _p6_w_ghz2_plry \
     -u _p6_w_ghz2_listpos -u _p6_w_ghz2_play_frames -u _p6_w_ghz2_max_plry \
@@ -541,6 +542,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_shtslot -u _p6_w_tsonic_surfidx -u _p6_w_tsonic_surfslot -u _p6_w_tsonic_surfscope -u _p6_w_tsonic_surfh0 -u _p6_w_tsonic_h0} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_visible -u _p6_w_tsonic_onscreen -u _p6_w_tsonic_sheetid -u _p6_w_tsonic_handle -u _p6_w_tsonic_animid -u _p6_w_tsonic_frameid} \
     ${P6_FRONTEND_CHAIN:+-u _p6_w_chain_fired -u _p6_w_chain_folder_pre -u _p6_w_chain_listpos_adv -u _p6_w_chain_listpos_title} \
+    ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_vbl -u _p6_w_lt_fills -u _p6_w_lt_kb -u _p6_w_lt_frt} \
+    ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_cks -u _p6_w_lt_masked_vbl -u _p6_w_lt_ph2_fills -u _p6_w_lt_ph2_vbl -u _p6_w_lt_sfx_savedopen} \
     -u _p6_w_sign_crossed \
     -u _p6_w_sign_count -u _p6_w_sign_type -u _p6_w_sign_posx \
     -u _p6_w_cart_ok -u _p6_w_cart_rb0 -u _p6_w_cart_rb1 \

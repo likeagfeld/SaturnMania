@@ -774,6 +774,19 @@ int rsdk_storage_load_to_lwram(const char *iso9660_name,
     GFS_Close(gfs);
 
     if (read <= 0) return -1;
+#if defined(P6_FRONTEND_LOGOS)
+    /* Front-end load-timing (Task #271): fold this single-shot whole-file read
+     * into the SAME wrap-immune GFS counters the windowed pack path bumps, so a
+     * per-sub-step (fills,bytes) snapshot sizes the OVLRING/LAYT/ANIMPACK/SHT
+     * loads done outside the pack window. Defined in p6_gfs.c (also front-end-
+     * gated -- the default GHZ image stays byte-identical, WRAM-H ceiling budget). */
+    {
+        extern int p6_w_gfs_fills;
+        extern int p6_w_gfs_bytes;
+        ++p6_w_gfs_fills;
+        p6_w_gfs_bytes += (int)read;
+    }
+#endif
     /* Truncate reported bytes to the logical file size: GFS_Fread may have
      * read the full last sector (2048 B) but only `last_sct_size` of that
      * is real data. Caller's checksum / size validation should use the
