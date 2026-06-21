@@ -297,6 +297,39 @@
           "hash": "0x1190A41F"
         }
       ]
+    },
+    {
+      "sheet": "Logos/Logos.gif",
+      "file": "LOGOS.SHT",
+      "width": 512,
+      "height": 256,
+      "band_rows": 16,
+      "bands": 16,
+      "bytes": 6387,
+      "file_hash": "0x04FFE95C",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x2CB9EE8E"
+        },
+        {
+          "sx": 448,
+          "sy": 120,
+          "w": 64,
+          "h": 64,
+          "hash": "0xC70D1505"
+        },
+        {
+          "sx": 16,
+          "sy": 216,
+          "w": 48,
+          "h": 40,
+          "hash": "0x548E2D05"
+        }
+      ]
     }
   ]
 }

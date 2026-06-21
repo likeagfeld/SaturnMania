@@ -74,6 +74,12 @@ extern ObjectLogoSetup *LogoSetup;
 extern ObjectUIPicture *UIPicture;
 extern int32 p6_w_logosetup_classid, p6_w_uipicture_classid; /* pack witnesses, ld -R */
 extern int32 p6_w_uipicture_aniframes, p6_w_uipicture_framesNN; /* CP4b render diag */
+/* CP4c BLUE-SCREEN diag: the first live UIPicture entity's full draw-chain state
+ * (mirrors the BD_SCAN badnik witness). Written below in the witness fn. */
+extern int32 p6_w_uipic_drawgrp, p6_w_uipic_active, p6_w_uipic_visible,
+             p6_w_uipic_onscreen, p6_w_uipic_posx, p6_w_uipic_posy,
+             p6_w_uipic_animid, p6_w_uipic_frameid, p6_w_uipic_sheetid,
+             p6_w_uipic_handle;
 #endif
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
 extern int32 p6_w_explosion_aniframes; /* Explosion->aniFrames (load-status latch) */
@@ -324,6 +330,29 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         EntityUIPicture *up = NULL;
         foreach_all(UIPicture, e) { up = e; break; }
         if (up) p6_w_uipicture_framesNN = (up->animator.frames != NULL) ? 1 : 0;
+    }
+    /* CP4c BLUE-SCREEN diag: latch the first live UIPicture entity's full draw-chain
+     * state -- the exact links p6_vdp1_blit needs (mirrors BD_SCAN, :456). Prefer an
+     * on-screen entity. The resolved frame's sheetID -> p6_vdp1_handle_for_surface
+     * is the load-bearing one: handle<0 == Logos surface UNBOUND == the blit drops. */
+    if (UIPicture && UIPicture->classID) {
+        foreach_all(UIPicture, up2) {
+            int32 onscr = (int32)up2->onScreen;
+            if (p6_w_uipic_drawgrp < 0 || (onscr && p6_w_uipic_onscreen <= 0)) {
+                p6_w_uipic_drawgrp  = (int32)up2->drawGroup;
+                p6_w_uipic_active   = (int32)up2->active;
+                p6_w_uipic_visible  = (int32)up2->visible;
+                p6_w_uipic_onscreen = onscr;
+                p6_w_uipic_posx     = (int32)(up2->position.x >> 16);
+                p6_w_uipic_posy     = (int32)(up2->position.y >> 16);
+                p6_w_uipic_animid   = (int32)up2->animator.animationID;
+                p6_w_uipic_frameid  = (int32)up2->animator.frameID;
+                SpriteFrame *ufr = RSDK.GetFrame(UIPicture->aniFrames,
+                    up2->animator.animationID, up2->animator.frameID);
+                p6_w_uipic_sheetid  = ufr ? (int32)ufr->sheetID : -1;
+                p6_w_uipic_handle   = ufr ? p6_vdp1_handle_for_surface(ufr->sheetID) : -4;
+            }
+        }
     }
 #endif
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;

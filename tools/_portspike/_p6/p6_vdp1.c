@@ -33,11 +33,35 @@
  * ========================================================================== */
 #include <jo/jo.h>
 
+/* CP4c BLUE-SCREEN FIX (this session): the VDP1 slot cache stages every sprite
+ * into a FIXED box (content top-left, transparent pad). The GHZ gameplay set
+ * (Ring/Player/badniks) fits 64x64, but the FRONT-END Logos splash frames are
+ * large UI images -- MEASURED from Logos/Logos.bin: Sega 187x58, CW 150x85,
+ * HC 92x89, PWG 147x71 (every one > 64 in W and/or H). With a 64x64 box, every
+ * Logos blit hit `w > P6_SPR_MAXW || h > P6_SPR_MAXH` in p6_slot_for and DROPPED
+ * (MEASURED p6_w_vdp1_drops == draw_calls, vdp1_landed == 0 -> uniform-blue
+ * screen). A single VDP1 sprite supports up to 504(W,mult-8) x 255(H) per
+ * ST-013-R3 sec 6.6 (CMDSIZE), so the 187x89 max fits ONE sprite each. The
+ * FRONT-END flavor therefore uses a 192x96 box (covers the largest frame,
+ * width mult-8 per jo-sgl-sprite-width-mult8-shear) with only 8 slots (the
+ * Logos working set is the 4 logo frames + a margin; far below 8 -> the LRU
+ * eviction path never fires). 8 * 192*96 = 147,456 px < JO_VDP1_USER_AREA_SIZE
+ * (0x71D38 = 466,232 B). The DEFAULT (GHZ) build is BYTE-IDENTICAL (64x64x40);
+ * only -DP6_FRONTEND_LOGOS enlarges the box. The two staging buffers are also
+ * relocated off .bss to a verified-free cart window in the FRONT-END build
+ * (192*96*2 = 36 KB would breach the ~1.2 KB WRAM-H headroom under ANIMPAK);
+ * the GHZ build keeps them as the original 64x64 .bss arrays. */
+#if defined(P6_FRONTEND_LOGOS)
+#define P6_SPR_MAXW     192 /* Logos: widest frame 187 -> mult-8 pad 192 */
+#define P6_SPR_MAXH     96  /* Logos: tallest frame 89 -> 96 */
+#define P6_VDP1_NSLOTS  8   /* Logos working set = 4 logo frames; no eviction */
+#else
 #define P6_SPR_MAXW     64 /* W12b: Player frames (Ring needed 32) */
 #define P6_SPR_MAXH     64
 #define P6_VDP1_NSLOTS  40 /* Ring 16 + Player working set; eviction = a
                             * declared later closer -- overflow DROPS and
                             * counts (p6_w_vdp1_drops), never overwrites */
+#endif
 /* GHZ1 parity P2 (#181/#247): staged sheets bind here -- SONIC1/2/3, ITEMS,
  * DISPLAY, SHIELDS, TAILS1, GLOBJ, GHZOBJ (GHZ/Objects.gif, the bridge planks +
  * badniks + GHZ content objects), and the Batch 2 effect sheets EXPLODE
@@ -79,6 +103,17 @@ __attribute__((used)) int p6_w_vdp1_drops = 0;
 __attribute__((used)) int p6_w_vdp1_evicts = 0;
 /* W14: jo_sprite_add_8bits_image failures (the silent no-drop exit). */
 __attribute__((used)) int p6_w_vdp1_joaddfail = 0;
+/* CP4c BLUE-SCREEN diag: WHICH drop branch in p6_slot_for fired last, + the
+ * last attempted fetch's (slot,w,h). 1=oversize(w/h>box) 2=no-fetch-fn-or-
+ * fetch-failed 3=jo_sprite_add failed. lastfetch packs (shtSlot<<24)|(w<<12)|h ;
+ * fetchret = the s_fetchFn return (1 ok / 0 fail). FRONT-END ONLY so the GHZ
+ * hot-path p6_slot_for (60 fps-sensitive) stays byte-identical. */
+#if defined(P6_FRONTEND_LOGOS)
+__attribute__((used)) int p6_w_vdp1_dropreason = 0;
+__attribute__((used)) int p6_w_vdp1_lastfetch  = 0;
+__attribute__((used)) int p6_w_vdp1_fetchret   = -1;
+__attribute__((used)) int p6_w_vdp1_lastwh     = 0; /* (w<<16)|h of the last slot_for call */
+#endif
 /* W18 (Task #227, qa_p6_entdraw.py): the UNBOUND-SURFACE silent drop. A
  * DrawSprite blit whose surface never bound (handle < 0) returned early
  * WITHOUT counting (the dominant ~5944 unrendered ring/entity blits/run);
@@ -144,8 +179,23 @@ static struct {
  * eviction victim when the cache is full and a new rect misses. */
 static int s_useclock = 0;
 
+/* CP4c BLUE-SCREEN FIX: in the FRONT-END flavor the 192x96 box makes these two
+ * buffers 18,432 B each (36 KB total) -- relocate them to a VERIFIED-FREE cart
+ * window so .bss (and thus _end vs ANIMPAK) is unchanged. 0x226E0000 is past the
+ * camera-local pool / DORM / editableVarList cart structures (highest is
+ * 0x226D4000) and well before the GFS windows (0x22700000); the FRONT-END build
+ * never loads GHZ so those pool structures are inert anyway, but this address is
+ * disjoint regardless. Cache-through alias (0x226E....) -- written by the SH-2,
+ * read by jo's DMA into VDP1 VRAM; no coherency purge needed (the existing GHZ
+ * staging copies have the same producer/consumer and rely on the same property).
+ * The DEFAULT (GHZ) build keeps the original 64x64 .bss arrays (byte-identical). */
+#if defined(P6_FRONTEND_LOGOS)
+static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 18,432 B */
+static unsigned char *const s_fetch = (unsigned char *)0x226E4800u; /* 18,432 B */
+#else
 static unsigned char s_stage[P6_SPR_MAXW * P6_SPR_MAXH]; /* padded upload copy */
 static unsigned char s_fetch[P6_SPR_MAXW * P6_SPR_MAXH]; /* banded-miss fetch */
+#endif
 
 /* Mirror the 256-color stage palette into CRAM bank 1 once (engine RGB565,
  * same conversion as p6_vdp2.c bank 0). All Mania global sprites share the
@@ -232,6 +282,9 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
     int srcStride;
     jo_img_8bits img;
 
+#if defined(P6_FRONTEND_LOGOS)
+    p6_w_vdp1_lastwh = (w << 16) | (h & 0xFFFF);
+#endif
     for (i = 0; i < p6_w_vdp1_slots; ++i) {
         if (s_slots[i].sheet == sheet &&
             s_slots[i].sx == sx && s_slots[i].sy == sy &&
@@ -240,9 +293,12 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
             return i;
         }
     }
-    /* A fixed 64x64 slot cannot hold an oversize frame -> genuine drop. */
+    /* A fixed P6_SPR_MAXW x P6_SPR_MAXH slot cannot hold an oversize frame. */
     if (w > P6_SPR_MAXW || h > P6_SPR_MAXH) {
         ++p6_w_vdp1_drops;
+#if defined(P6_FRONTEND_LOGOS)
+        p6_w_vdp1_dropreason = 1;
+#endif
         return -1;
     }
 
@@ -254,11 +310,23 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
         /* W12b banded miss: fetch the rect rows from the VDP2 band store
          * through the runtime pointer (see root-cause note above). s_fetch
          * holds the bare rect (stride w); the CACHE KEY keeps sheet sx/sy. */
+#if defined(P6_FRONTEND_LOGOS)
+        p6_w_vdp1_lastfetch = ((s_sheets[sheet].shtSlot & 0xFF) << 24)
+                            | ((w & 0xFFF) << 12) | (h & 0xFFF);
+        p6_w_vdp1_fetchret = s_fetchFn
+            ? s_fetchFn(s_sheets[sheet].shtSlot, sx, sy, w, h, s_fetch) : -2;
+        if (p6_w_vdp1_fetchret <= 0) {
+            ++p6_w_vdp1_drops;
+            p6_w_vdp1_dropreason = 2;
+            return -1;
+        }
+#else
         if (!s_fetchFn
             || !s_fetchFn(s_sheets[sheet].shtSlot, sx, sy, w, h, s_fetch)) {
             ++p6_w_vdp1_drops;
             return -1;
         }
+#endif
         srcPx     = s_fetch;
         srcStride = w;
     }
@@ -287,6 +355,9 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
         int id = jo_sprite_add_8bits_image(&img);
         if (id < 0) {
             ++p6_w_vdp1_joaddfail; /* W14: the silent no-drop exit */
+#if defined(P6_FRONTEND_LOGOS)
+            p6_w_vdp1_dropreason = 3;
+#endif
             return -1;
         }
         victim = p6_w_vdp1_slots++;

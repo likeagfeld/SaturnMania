@@ -157,6 +157,35 @@ void p6_vdp2_blank(void)
     slScrAutoDisp(0);
 }
 
+/* CP4c BLUE-SCREEN FIX (this session): arm the VDP1 SPRITE LAYER for a non-GHZ UI
+ * scene (the Logos splash). MEASURED ROOT CAUSE of the uniform-blue splash: the
+ * lean boot calls p6_vdp2_blank() (slScrAutoDisp(0)) during load, which disables
+ * ALL VDP2 layers INCLUDING the VDP1 sprite layer (SPRON). The GHZ frame re-arms
+ * NBG1ON|SPRON via p6_vdp2_present_ghz_camera, but the front-end frame
+ * (p6_frontend_frame) does NO present (a UI scene has no FG plane), so SPRON
+ * stayed OFF -- the UIPicture VDP1 sprites were drawn to the framebuffer
+ * (MEASURED p6_w_vdp1_landed == draw_calls) but VDP2 never composited them
+ * (MEASURED VDP2 BGON=0x0000, the sprite layer dark). This enables ONLY SPRON
+ * (no NBG -- the UI scene draws no VDP2 cells) + a black backdrop, mirroring the
+ * GHZ present's sprite-layer arm (p6_vdp2.c:471 slScrAutoDisp(NBG1ON|SPRON)).
+ * Idempotent; the front-end frame calls it once the scene is armed. SGL owns the
+ * sprite priority via the per-sprite slDispSprite Z (jo_sprite_draw3D), same as
+ * the proven GHZ HUD/character path -- no PRISA write needed here.
+ * Flag-gated (CP4c _end-leak FIX): the ONLY caller is p6_frontend_frame, itself
+ * behind #if defined(P6_FRONTEND_LOGOS) -- so the DEFAULT (GHZ) build never
+ * references it. Compiling it out (rather than leaning on --gc-sections at the
+ * ld -r pack step) keeps the default p6_vdp2.o provably byte-identical. p6_vdp2.c
+ * is compiled by build_p6scene_objs.sh (NOT jo-make), which threads
+ * -DP6_FRONTEND_LOGOS into THIS TU's compile only in the front-end build, so the
+ * definition is present for the front-end caller and absent in the default. */
+#if defined(P6_FRONTEND_LOGOS)
+void p6_vdp2_arm_sprites_only(void)
+{
+    slBack1ColSet((void *)P6_VDP2_BAK, 0x8000); /* black backdrop (model's) */
+    slScrAutoDisp(SPRON);
+}
+#endif
+
 /* ============================================================================
  * P6.7 W16 (Task #228): present the ENGINE-loaded GHZ1 FOREGROUND on NBG1,
  * anchored to the LIVE camera. Same VRAM/PND geometry as the Title present

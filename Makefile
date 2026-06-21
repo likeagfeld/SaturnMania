@@ -194,6 +194,18 @@ CCFLAGS += -DP6_ENGINE_SHIPPING
 LIBS += tools/_portspike/_p6/p6_scene_pack.o
 endif
 
+# CP4c BLUE-SCREEN FIX: the FRONT-END Logos flavor (-DP6_FRONTEND_LOGOS, passed to
+# the pack via build_p6scene_objs.sh) must ALSO reach the jo-make compile of the
+# jo-side TU p6_vdp1.c -- that TU's VDP1 slot-box size (P6_SPR_MAXW/H) and the
+# off-.bss staging-buffer relocation are FRONT-END-conditional. Without this the
+# Logos frames (up to 187x89) hit the 64x64 oversize-drop guard and never blit
+# (MEASURED: p6_w_vdp1_dropreason==1, lastwh==0x00BB003A == 187x58). Picked up
+# from the environment (docker -e P6_FRONTEND_LOGOS=1). The DEFAULT (GHZ) build
+# leaves it empty so p6_vdp1.c compiles byte-identical (64x64x40, .bss buffers).
+ifeq ($(P6_FRONTEND_LOGOS),1)
+CCFLAGS += -DP6_FRONTEND_LOGOS
+endif
+
 # --- Our sources ---
 #
 # Phase 0.5 foundation alignment (2026-05-26): the hand-rolled

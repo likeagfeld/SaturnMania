@@ -118,7 +118,15 @@ $CC $CXXFLAGS $ENG_DEFS $CORE_INC \
     -c -o "$P6/Graphics_Sprite.o" "$SRC/RSDK/Graphics/Sprite.cpp"
 
 echo "[7c/9] p6_vdp2.o (P6.5b1 present: engine Island layer -> NBG1 2-word-PND cell mode; ST-058 contracts in-file) ..."
+# CP4c _end-leak FIX (Task #266): thread P6_FRONTEND_LOGOS so the front-end-only
+# p6_vdp2_arm_sprites_only definition (gated in p6_vdp2.c, called by the gated
+# p6_frontend_frame in p6_io_main.cpp) is COMPILED IN for the front-end build.
+# p6_vdp2.c is built HERE (not by jo-make), so the Makefile CCFLAGS that thread
+# the flag to p6_vdp1.c do NOT reach it -- without this, the front-end link fails
+# (undefined reference to p6_vdp2_arm_sprites_only). DEFAULT build: the :+ expands
+# to nothing -> the definition stays compiled out -> p6_vdp2.o byte-identical.
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
+    ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} \
     -I"$SGLINC" -I"$NEWLIB" \
     -c -o "$P6/p6_vdp2.o" "$P6/p6_vdp2.c"
 # NOTE: p6_vdp1.c (P6.5b2 sprite half) is NOT built here -- it includes
@@ -478,6 +486,10 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_frontend_folder_tag -u _p6_w_logosetup_classid \
     -u _p6_w_uipicture_classid -u _p6_w_logos_objcount \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipicture_aniframes -u _p6_w_uipicture_framesNN} \
+    ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_drawgrp -u _p6_w_uipic_active -u _p6_w_uipic_visible -u _p6_w_uipic_onscreen} \
+    ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_posx -u _p6_w_uipic_posy -u _p6_w_uipic_animid -u _p6_w_uipic_frameid} \
+    ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_sheetid -u _p6_w_uipic_handle} \
+    ${P6_FRONTEND_LOGOS:+-u _p6_w_logos_shtslot -u _p6_w_logos_surfidx -u _p6_w_logos_surfslot -u _p6_w_logos_surfscope -u _p6_w_logos_surfh0 -u _p6_w_logos_h0} \
     -u _p6_w_sign_crossed \
     -u _p6_w_sign_count -u _p6_w_sign_type -u _p6_w_sign_posx \
     -u _p6_w_cart_ok -u _p6_w_cart_rb0 -u _p6_w_cart_rb1 \

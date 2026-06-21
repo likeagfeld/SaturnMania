@@ -453,6 +453,14 @@ void p6_vdp1_perf_reset(void);
 // the slow synchronous load shows a clean back-color, not NBG1's half-written VRAM
 // (the red/green static). The first GHZ present re-arms NBG1ON|SPRON.
 void p6_vdp2_blank(void);
+// CP4c BLUE-SCREEN FIX: arm ONLY the VDP1 sprite layer (SPRON) for a non-GHZ UI
+// scene -- the Logos splash draws UIPicture VDP1 sprites with no VDP2 FG plane, so
+// the GHZ present (which re-arms SPRON) never runs and the sprites stayed dark.
+// Flag-gated (CP4c _end-leak FIX): definition (p6_vdp2.c) + its only caller
+// (p6_frontend_frame) are both behind P6_FRONTEND_LOGOS; gate the decl to match.
+#if defined(P6_FRONTEND_LOGOS)
+void p6_vdp2_arm_sprites_only(void);
+#endif
 // Perf Phase 2c (Task #211): re-arm the present's static-map cache on every GHZ
 // (re)load -- the build runs once, then per-frame the present only does the
 // hardware scroll (the static map/inflate was ~820ms/frame of waste).
@@ -744,6 +752,41 @@ __attribute__((used)) int32 p6_w_logos_objcount      = 0;
 // (0 == SetSpriteAnimation found no frame table = sprite can't draw).
 __attribute__((used)) int32 p6_w_uipicture_aniframes = -2;
 __attribute__((used)) int32 p6_w_uipicture_framesNN  = -1;
+// CP4c BLUE-SCREEN diag (front-end only, this session): trace EVERY link of the
+// first live UIPicture entity's draw chain to localise why the splash logos do
+// not blit (uniform-blue capture). Mirrors the BD_SCAN badnik witness pattern
+// (p6_ovl_ghz.c:456). Written by the overlay witness each tick (ld -R import).
+//   uipic_drawgrp/active/visible/onscreen = the entity render-gating state
+//     (decomp UIPicture_Create: ACTIVE_NORMAL=2, visible=1, drawGroup=2).
+//   uipic_posx/posy = the entity world position in px (Scene1.bin placement;
+//     0,0 or way off-camera == drawn off-screen == the FillScreen clip rejects it).
+//   uipic_animid/frameid/sheetid = the resolved frame's sheetID (the surface index
+//     DrawSprite indexes p6_vdp1HandleBySurface with). -1 == GetFrame returned NULL.
+//   uipic_handle = p6_vdp1_handle_for_surface(sheetID): -1 == the Logos surface is
+//     UNBOUND (== the blit drops at p6_vdp1_blit_flipped's handle<0 check == the bug).
+__attribute__((used)) int32 p6_w_uipic_drawgrp  = -9;
+__attribute__((used)) int32 p6_w_uipic_active   = -9;
+__attribute__((used)) int32 p6_w_uipic_visible  = -9;
+__attribute__((used)) int32 p6_w_uipic_onscreen = -9;
+__attribute__((used)) int32 p6_w_uipic_posx     = -999999;
+__attribute__((used)) int32 p6_w_uipic_posy     = -999999;
+__attribute__((used)) int32 p6_w_uipic_animid   = -9;
+__attribute__((used)) int32 p6_w_uipic_frameid  = -9;
+__attribute__((used)) int32 p6_w_uipic_sheetid  = -9;
+__attribute__((used)) int32 p6_w_uipic_handle   = -9;
+// SURFACE-side truth for the Logos sheet (mirrors the GHZ/Objects.gif scan,
+// p6_io_main.cpp:2148-2177): does LOGOS.SHT stage with hash "Logos/Logos.gif", and
+// does a gfxSurface resolve to it with a bound VDP1 handle? Written in p6_ghz_arm_env
+// (front-end arm). logos_shtslot = SaturnSheet_FindSlot(hash) (>=0 == staged+hashed).
+// logos_surfidx = the gfxSurface[] index whose hash matches (-1 == no surface loaded
+// the sheet). logos_surfslot = that surface's saturnSheetSlot. logos_surfh0/h0 = the
+// surface's stored hash word0 vs the path hash word0 (equal == same path).
+__attribute__((used)) int32 p6_w_logos_shtslot   = -9;
+__attribute__((used)) int32 p6_w_logos_surfidx   = -9;
+__attribute__((used)) int32 p6_w_logos_surfslot  = -9;
+__attribute__((used)) int32 p6_w_logos_surfscope = -9;
+__attribute__((used)) int32 p6_w_logos_surfh0    = 0;
+__attribute__((used)) int32 p6_w_logos_h0        = 0;
 #endif
 // #181 GHZ Bridge witnesses (set by the game-side p6_brg_witness(),
 // p6_wave1_reg.c -- only that TU has the Bridge class type/global). classid>0 +
@@ -2175,6 +2218,35 @@ static void p6_ghz_arm_env(void)
             p6_w_ghzobj_surf_handle = p6_vdp1_handle_for_surface(found);
         }
     }
+#if defined(P6_FRONTEND_LOGOS)
+    // CP4c BLUE-SCREEN diag: SURFACE-side truth for the Logos splash sheet. Same
+    // hash-scan as the GHZ/Objects.gif block above but for "Logos/Logos.gif". This
+    // pinpoints whether the bind loop (above, :2117-2142) bound the Logos surface:
+    // shtslot>=0 == LOGOS.SHT staged+hashed; surfidx>=0 == a gfxSurface loaded that
+    // sheet (UIPicture's LoadSpriteAnimation); surfslot>=0 == it resolved the banded
+    // slot; the bound handle is read separately in the per-frame witness.
+    {
+        RETRO_HASH_MD5(lh);
+        GEN_HASH_MD5("Logos/Logos.gif", lh);
+        p6_w_logos_h0      = (int32)lh[0];
+        p6_w_logos_shtslot = SaturnSheet_FindSlot((const uint32 *)lh);
+        int32 lfound = -1;
+        for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+            if (gfxSurface[i].scope != SCOPE_NONE
+                && gfxSurface[i].hash[0] == lh[0] && gfxSurface[i].hash[1] == lh[1]
+                && gfxSurface[i].hash[2] == lh[2] && gfxSurface[i].hash[3] == lh[3]) {
+                lfound = i;
+                break;
+            }
+        }
+        p6_w_logos_surfidx = lfound;
+        if (lfound >= 0) {
+            p6_w_logos_surfslot  = (int32)gfxSurface[lfound].saturnSheetSlot;
+            p6_w_logos_surfscope = (int32)gfxSurface[lfound].scope;
+            p6_w_logos_surfh0    = (int32)gfxSurface[lfound].hash[0];
+        }
+    }
+#endif
 }
 
 // =============================================================================
@@ -4590,6 +4662,13 @@ static void p6_frontend_frame(void)
     ProcessInput();
     ProcessObjects();
     ProcessSceneTimer();
+    // CP4c BLUE-SCREEN FIX: arm the VDP1 sprite layer (SPRON) for the UI scene.
+    // p6_vdp2_blank() (slScrAutoDisp(0)) in the lean load disabled ALL VDP2 layers;
+    // a UI scene runs no GHZ present to re-enable SPRON, so without this the
+    // UIPicture sprites blit to the framebuffer (p6_w_vdp1_landed>0) but VDP2 never
+    // composites them (MEASURED BGON=0 -> uniform-blue splash). Idempotent; armed
+    // each tick (cheap, mirrors how the GHZ frame re-arms SPRON via its present).
+    p6_vdp2_arm_sprites_only();
     ProcessObjectDrawLists(); // emits the UIPicture VDP1 sprite list (jo swaps it)
 
     ++p6_w_cont_frames; // E5: engine reached ENGINESTATE_REGULAR + is ticking

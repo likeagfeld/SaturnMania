@@ -70,7 +70,7 @@ cd /work
 # hybrid-image rule).
 rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
       tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
-make P6_ENGINE_SHIPPING=1 SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
 LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
@@ -111,7 +111,7 @@ cd /work
 
 echo "[4/5] re-master the ISO with the overlay on disc ..."
 rm -f game.iso
-make P6_ENGINE_SHIPPING=1 SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[5/5] sanity: _end + lean-boot entry + flavor flag + overlay entry ..."
 grep " _end = " game.map
@@ -128,6 +128,9 @@ if [ -n "${P6_FRONTEND_LOGOS:-}" ]; then
     grep -m1 "p6_w_logosetup_classid$"   game.map || echo "  MISSING p6_w_logosetup_classid"
     grep -m1 "p6_w_uipicture_classid$"   game.map || echo "  MISSING p6_w_uipicture_classid"
     grep -m1 "p6_w_logos_objcount$"      game.map || echo "  MISSING p6_w_logos_objcount"
+    grep -m1 "p6_w_uipicture_aniframes$" game.map || echo "  MISSING p6_w_uipicture_aniframes (FE render-diag block compiled out?)"
+    grep -m1 "p6_w_uipic_handle$"        game.map || echo "  MISSING p6_w_uipic_handle (CP4c blue-screen diag compiled out?)"
+    grep -m1 "p6_w_logos_shtslot$"       game.map || echo "  MISSING p6_w_logos_shtslot (arm_env Logos scan compiled out?)"
     grep -m1 "LogoSetup_Update"  "$P6/ovl_ring.map" || echo "  MISSING LogoSetup in overlay"
     grep -m1 "UIPicture_Update"  "$P6/ovl_ring.map" || echo "  MISSING UIPicture in overlay"
 fi
