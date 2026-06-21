@@ -391,7 +391,10 @@ echo "[7o] SaturnSheet.o (P6.7 W12 sprite-sheet band stores; Task #241: P6_CART 
 # invisible). Hardcoded (not ${P6_CART:+...}) because build_shipping.sh never set
 # P6_CART, so shipping silently used the small store. Storage/Scene stay WRAM
 # (env-gated) -- the cart's first 3.64 MB is unused here, so 0x227A0000 is free.
-$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} -I"$DEPS" -I"$NEWLIB" \
+# CP5b.1 (#268): thread P6_FRONTEND_TITLE so SaturnSheet's SATURNSHEET_SLOTS=11 branch
+# (slot 9=LOGOS, slot 10=TLOGO) compiles for the Title flavor. The Logos flavor keeps
+# 10; the default GHZ build sets neither -> 9 (byte-identical s_sheets[]).
+$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnSheet.o" "$PLAT/SaturnSheet.cpp"
 
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
@@ -519,6 +522,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_posx -u _p6_w_uipic_posy -u _p6_w_uipic_animid -u _p6_w_uipic_frameid} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_sheetid -u _p6_w_uipic_handle} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_logos_shtslot -u _p6_w_logos_surfidx -u _p6_w_logos_surfslot -u _p6_w_logos_surfscope -u _p6_w_logos_surfh0 -u _p6_w_logos_h0} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_shtslot -u _p6_w_tlogo_surfidx -u _p6_w_tlogo_surfslot -u _p6_w_tlogo_surfscope -u _p6_w_tlogo_surfh0 -u _p6_w_tlogo_h0} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_drawgrp -u _p6_w_tlogo_visible -u _p6_w_tlogo_onscreen -u _p6_w_tlogo_type -u _p6_w_tlogo_sheetid -u _p6_w_tlogo_handle -u _p6_w_tlogo_landed} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_existmask -u _p6_w_tlogo_vismask -u _p6_w_tlogo_onscrmask -u _p6_w_tlogo_boundmask -u _p6_w_tsetup_statetag} \
     -u _p6_w_sign_crossed \
     -u _p6_w_sign_count -u _p6_w_sign_type -u _p6_w_sign_posx \
     -u _p6_w_cart_ok -u _p6_w_cart_rb0 -u _p6_w_cart_rb1 \

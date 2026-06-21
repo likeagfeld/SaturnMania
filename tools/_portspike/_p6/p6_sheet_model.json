@@ -330,6 +330,39 @@
           "hash": "0x548E2D05"
         }
       ]
+    },
+    {
+      "sheet": "Title/Logo.gif",
+      "file": "TLOGO.SHT",
+      "width": 512,
+      "height": 512,
+      "band_rows": 16,
+      "bands": 32,
+      "bytes": 19502,
+      "file_hash": "0x77E57CFA",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x1757412F"
+        },
+        {
+          "sx": 448,
+          "sy": 248,
+          "w": 64,
+          "h": 64,
+          "hash": "0xF8DDF55A"
+        },
+        {
+          "sx": 16,
+          "sy": 472,
+          "w": 48,
+          "h": 40,
+          "hash": "0x674C227E"
+        }
+      ]
     }
   ]
 }

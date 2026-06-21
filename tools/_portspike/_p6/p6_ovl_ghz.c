@@ -90,6 +90,14 @@ extern int32 p6_w_uipic_drawgrp, p6_w_uipic_active, p6_w_uipic_visible,
 extern ObjectTitleSetup *TitleSetup;
 extern ObjectTitleLogo  *TitleLogo;
 extern int32 p6_w_titlesetup_classid, p6_w_titlelogo_classid, p6_w_title_objcount;
+/* CP5b.1 (Task #268) RENDER diag: the first live TitleLogo entity's draw-chain state
+ * (mirrors the CP4c p6_w_uipic_* witnesses). handle = the resolved frame's surface ->
+ * p6_vdp1_handle_for_surface; >=0 == Title/Logo.gif bound == the logo blit CAN land. */
+extern int32 p6_w_tlogo_drawgrp, p6_w_tlogo_visible, p6_w_tlogo_onscreen,
+             p6_w_tlogo_type, p6_w_tlogo_sheetid, p6_w_tlogo_handle, p6_w_tlogo_landed;
+extern int32 p6_w_tlogo_existmask, p6_w_tlogo_vismask, p6_w_tlogo_onscrmask,
+             p6_w_tlogo_boundmask, p6_w_tsetup_statetag;
+extern int p6_w_vdp1_landed; /* global VDP1 landed-blit counter (p6_vdp1.c) */
 /* CLOSURE EDGE (overlay-resident, flat-TU rule): symbols TitleSetup.c references
  * that no other linked TU provides, all inert at the CP5a capture frame (90, inside
  * State_Wait -- timer 1024 -> -1024 by 16/frame = ~128 frames before the first
@@ -410,6 +418,85 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * p6_frontend_frame. */
     if (TitleSetup && TitleSetup->classID) p6_w_titlesetup_classid = (int32)TitleSetup->classID;
     if (TitleLogo  && TitleLogo->classID)  p6_w_titlelogo_classid  = (int32)TitleLogo->classID;
+    /* CP5b.1 (Task #268) RENDER diag: latch the first live VISIBLE TitleLogo entity's
+     * draw-chain state -- the exact links p6_vdp1_blit needs (mirrors the CP4c
+     * p6_w_uipic_* block). Prefer a visible+on-screen piece (the emblem/ribbon/
+     * gametitle become visible at AnimateUntilFlash/FlashIn). The resolved frame's
+     * sheetID -> p6_vdp1_handle_for_surface is the load-bearing link: handle<0 ==
+     * Title/Logo.gif UNBOUND == the blit drops (the CP5a RED). landed = the global
+     * VDP1 landed-blit count snapshot (Title is sprite-only -> corroborates the logo
+     * reached the framebuffer; the screenshot + pixel measure are the PRIMARY proof). */
+    p6_w_tlogo_landed = p6_w_vdp1_landed;
+    if (TitleLogo && TitleLogo->classID) {
+        foreach_all(TitleLogo, tl2) {
+            int32 onscr = (int32)tl2->onScreen;
+            int32 vis   = (int32)tl2->visible;
+            /* take the first piece, then UPGRADE to a visible+on-screen one if found */
+            if (p6_w_tlogo_drawgrp < -1
+                || (vis && onscr && !(p6_w_tlogo_visible > 0 && p6_w_tlogo_onscreen > 0))) {
+                p6_w_tlogo_drawgrp  = (int32)tl2->drawGroup;
+                p6_w_tlogo_visible  = vis;
+                p6_w_tlogo_onscreen = onscr;
+                p6_w_tlogo_type     = (int32)tl2->type;
+                SpriteFrame *tfr = RSDK.GetFrame(TitleLogo->aniFrames,
+                    tl2->mainAnimator.animationID, tl2->mainAnimator.frameID);
+                p6_w_tlogo_sheetid  = tfr ? (int32)tfr->sheetID : -1;
+                p6_w_tlogo_handle   = tfr ? p6_vdp1_handle_for_surface(tfr->sheetID) : -4;
+            }
+        }
+        /* CP5b.1 per-TYPE diag: which logo pieces are visible / on-screen / bound.
+         * Rebuilt every tick (a snapshot, not a latch) so the capture reflects the
+         * title's CURRENT state. bit T = type T (0=EMBLEM,1=RIBBON,2=GAMETITLE,
+         * 3=POWERLED,4=COPYRIGHT,5=RINGBOTTOM,6=PRESSSTART). */
+        int32 em = 0, vm = 0, om = 0, bm = 0;
+        foreach_all(TitleLogo, tl3) {
+            int32 t = (int32)tl3->type;
+            if (t < 0 || t > 15) continue;
+            int32 bit = 1 << t;
+            em |= bit;
+            if (tl3->visible) {
+                vm |= bit;
+                if (tl3->onScreen) {
+                    om |= bit;
+                    SpriteFrame *fr = RSDK.GetFrame(TitleLogo->aniFrames,
+                        tl3->mainAnimator.animationID, tl3->mainAnimator.frameID);
+                    if (fr && p6_vdp1_handle_for_surface(fr->sheetID) >= 0)
+                        bm |= bit;
+                }
+            }
+        }
+        p6_w_tlogo_existmask = em;
+        p6_w_tlogo_vismask   = vm;
+        p6_w_tlogo_onscrmask = om;
+        p6_w_tlogo_boundmask = bm;
+    }
+    /* which TitleSetup state: tag = a small int per state fn (compared by ptr). The
+     * state field lives on the ENTITY (slot 0, where TitleSetup_StageLoad self-placed
+     * it via ResetEntitySlot(0,...)), not the Object. RSDK_GET_ENTITY_GEN(0) gives it. */
+    {
+        Entity *e0 = RSDK_GET_ENTITY_GEN(0);
+        EntityTitleSetup *ts = (EntityTitleSetup *)e0;
+        if (e0 && TitleSetup && e0->classID == TitleSetup->classID) {
+            void *st = (void *)ts->state;
+            extern void TitleSetup_State_Wait(void);
+            extern void TitleSetup_State_AnimateUntilFlash(void);
+            extern void TitleSetup_State_FlashIn(void);
+            extern void TitleSetup_State_WaitForSonic(void);
+            extern void TitleSetup_State_SetupLogo(void);
+            extern void TitleSetup_State_WaitForEnter(void);
+            extern void TitleSetup_State_FadeToMenu(void);
+            extern void TitleSetup_State_FadeToVideo(void);
+            p6_w_tsetup_statetag =
+                st == (void *)TitleSetup_State_Wait              ? 1 :
+                st == (void *)TitleSetup_State_AnimateUntilFlash ? 2 :
+                st == (void *)TitleSetup_State_FlashIn           ? 3 :
+                st == (void *)TitleSetup_State_WaitForSonic      ? 4 :
+                st == (void *)TitleSetup_State_SetupLogo         ? 5 :
+                st == (void *)TitleSetup_State_WaitForEnter      ? 6 :
+                st == (void *)TitleSetup_State_FadeToMenu        ? 7 :
+                st == (void *)TitleSetup_State_FadeToVideo       ? 8 : 0;
+        }
+    }
 #endif
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;
     {   /* Batch 1: count how many of the 4 clean objects registered (classID>0). */

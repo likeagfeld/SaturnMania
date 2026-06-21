@@ -163,5 +163,9 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     grep -m1 "p6_w_title_objcount$"     game.map || echo "  MISSING p6_w_title_objcount"
     grep -m1 "TitleSetup_Update" "$P6/ovl_ring.map" || echo "  MISSING TitleSetup in overlay"
     grep -m1 "TitleLogo_Update"  "$P6/ovl_ring.map" || echo "  MISSING TitleLogo in overlay"
+    # CP5b.1 (Task #268): the render-diag witnesses (Title-sheet bind chain). MISSING
+    # tlogo_handle == the render-diag block / TLOGO.SHT staging compiled out silently.
+    grep -m1 "p6_w_tlogo_handle$"   game.map || echo "  MISSING p6_w_tlogo_handle (CP5b.1 render-diag compiled out?)"
+    grep -m1 "p6_w_tlogo_shtslot$"  game.map || echo "  MISSING p6_w_tlogo_shtslot (TLOGO.SHT arm-env scan compiled out?)"
 fi
 echo "DONE [shipping image built: game.iso/game.cue + cd/OVLRING.BIN]."

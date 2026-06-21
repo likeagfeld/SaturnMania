@@ -50,13 +50,18 @@ typedef signed int int32;
 // the cart). Map: [[cart-4mb-extram-measured-map]]. The VDP2 0x25E44000 window
 // is the non-cart fallback (kept so a hypothetical non-P6_CART build still
 // links + boots; it stages only the 6 that fit).
-// #247/#181: 9 GHZ content sheets. CP4 (#266): the FRONT-END flavor adds a 10th slot
-// for LOGOS.SHT (Logos.gif splash). KEPT 9 in the DEFAULT (GHZ) build so its s_sheets[]
-// is byte-identical -- the default shipping _end is only ~48 B under the #228 ANIMPAK
-// floor, so the 32 B of an unconditional 10th slot would breach it. Only the
-// P6_FRONTEND_LOGOS build (which gc-drops the large p6_ghz_frame/reload -> ~1.6 KB of
-// headroom) carries the extra slot. NSHEETS=12 (VDP1 bind table) is unchanged either way.
-#if defined(P6_FRONTEND_LOGOS)
+// #247/#181: 9 GHZ content sheets. CP4 (#266): the FRONT-END Logos flavor adds a 10th
+// slot for LOGOS.SHT (Logos.gif splash). CP5b.1 (#268): the FRONT-END TITLE flavor adds
+// an 11th slot for TLOGO.SHT (Title/Logo.gif) -- it ALSO stages LOGOS.SHT (TITLE implies
+// LOGOS, so slot 9 = LOGOS, slot 10 = TLOGO). KEPT 9 in the DEFAULT (GHZ) build so its
+// s_sheets[] is byte-identical -- the default shipping _end is only ~96 B under the #228
+// ANIMPAK floor, so the 32 B/slot of an unconditional extra slot would breach it. Only
+// the front-end builds (which gc-drop the large p6_ghz_frame/reload -> ~1.6 KB of
+// headroom) carry the extra slots. NSHEETS=12 (VDP1 bind table) is unchanged either way
+// (the Title bind demand is the 3 Title surfaces + a few engine surfaces << 12).
+#if defined(P6_FRONTEND_TITLE)
+#define SATURNSHEET_SLOTS     11
+#elif defined(P6_FRONTEND_LOGOS)
 #define SATURNSHEET_SLOTS     10
 #else
 #define SATURNSHEET_SLOTS     9

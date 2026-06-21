@@ -810,6 +810,49 @@ __attribute__((used)) int32 p6_w_logos_surfscope = -9;
 __attribute__((used)) int32 p6_w_logos_surfh0    = 0;
 __attribute__((used)) int32 p6_w_logos_h0        = 0;
 #endif
+#if defined(P6_FRONTEND_TITLE)
+// CP5b.1 (Task #268) RENDER diag: the SONIC-MANIA logo blit chain. Two layers,
+// mirroring the CP4b Logos witnesses exactly:
+//   (A) SURFACE-side truth for Title/Logo.gif (written in p6_ghz_arm_env, same
+//       hash-scan as the Logos block). tlogo_shtslot = SaturnSheet_FindSlot(
+//       "Title/Logo.gif") (>=0 == TLOGO.SHT staged+hashed). tlogo_surfidx = the
+//       gfxSurface[] index whose hash matches (>=0 == TitleLogo's LoadSpriteAnimation
+//       loaded the surface). tlogo_surfslot = that surface's saturnSheetSlot (>=0 ==
+//       resolved the banded slot). tlogo_handle = its bound VDP1 handle (>=0 == the
+//       bind loop bound it == the blit can land; <0 == the CP5a bug).
+//   (B) the first live TitleLogo entity's draw-chain state (written by the overlay
+//       witness each tick, ld -R import; mirrors p6_w_uipic_*). visible/onScreen =
+//       render-gating; sheetid = the resolved frame's sheetID; handle =
+//       p6_vdp1_handle_for_surface(sheetID) (>=0 == bound == GREEN).
+//   (C) tlogo_landed = a snapshot of the GLOBAL p6_w_vdp1_landed at the witness tick
+//       (Title is sprite-only: electricity ring + logo are the ONLY blits, so
+//       landed>0 corroborates the logo reached the framebuffer). The PRIMARY GREEN
+//       evidence remains the screenshot + the pixel measure (field gotcha #4).
+__attribute__((used)) int32 p6_w_tlogo_shtslot   = -9;
+__attribute__((used)) int32 p6_w_tlogo_surfidx   = -9;
+__attribute__((used)) int32 p6_w_tlogo_surfslot  = -9;
+__attribute__((used)) int32 p6_w_tlogo_surfscope = -9;
+__attribute__((used)) int32 p6_w_tlogo_surfh0    = 0;
+__attribute__((used)) int32 p6_w_tlogo_h0        = 0;
+__attribute__((used)) int32 p6_w_tlogo_drawgrp   = -9;
+__attribute__((used)) int32 p6_w_tlogo_visible   = -9;
+__attribute__((used)) int32 p6_w_tlogo_onscreen  = -9;
+__attribute__((used)) int32 p6_w_tlogo_type      = -9;
+__attribute__((used)) int32 p6_w_tlogo_sheetid   = -9;
+__attribute__((used)) int32 p6_w_tlogo_handle    = -9;
+__attribute__((used)) int32 p6_w_tlogo_landed    = -9;
+// CP5b.1 per-TYPE diag: bit T set == a TitleLogo of type T exists. vismask: bit set ==
+// that type's entity has visible!=0. onscrmask: visible AND onScreen. boundmask:
+// visible AND onScreen AND its frame's surface handle>=0 (== it CAN blit). This
+// pinpoints which logo pieces (emblem/ribbon/gametitle/copyright/ringbottom) render vs
+// which are gated off. tsetup_state = (TitleSetup->state low byte proxy via a counter)
+// -- which state the title is in at the witness tick.
+__attribute__((used)) int32 p6_w_tlogo_existmask = 0;
+__attribute__((used)) int32 p6_w_tlogo_vismask   = 0;
+__attribute__((used)) int32 p6_w_tlogo_onscrmask = 0;
+__attribute__((used)) int32 p6_w_tlogo_boundmask = 0;
+__attribute__((used)) int32 p6_w_tsetup_statetag = -9;
+#endif
 // #181 GHZ Bridge witnesses (set by the game-side p6_brg_witness(),
 // p6_wave1_reg.c -- only that TU has the Bridge class type/global). classid>0 +
 // count>0 is the RED->GREEN gate (Bridge ported + registered + instantiated).
@@ -2269,6 +2312,37 @@ static void p6_ghz_arm_env(void)
         }
     }
 #endif
+#if defined(P6_FRONTEND_TITLE)
+    // CP5b.1 (Task #268): SURFACE-side truth for the TITLE logo sheet. Same hash-scan
+    // as the Logos block above but for "Title/Logo.gif" -- pinpoints whether the bind
+    // loop (:2182-2207) bound the TitleLogo surface. tlogo_shtslot>=0 == TLOGO.SHT
+    // staged+hashed; tlogo_surfidx>=0 == TitleLogo's LoadSpriteAnimation loaded the
+    // surface; tlogo_surfslot>=0 == it resolved the banded slot; tlogo_handle>=0 == the
+    // bind loop bound it == the blit CAN land (CP5a RED had tlogo_handle<0 -> the logo
+    // dropped -> uniform-blue title).
+    {
+        RETRO_HASH_MD5(th);
+        GEN_HASH_MD5("Title/Logo.gif", th);
+        p6_w_tlogo_h0      = (int32)th[0];
+        p6_w_tlogo_shtslot = SaturnSheet_FindSlot((const uint32 *)th);
+        int32 tfound = -1;
+        for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+            if (gfxSurface[i].scope != SCOPE_NONE
+                && gfxSurface[i].hash[0] == th[0] && gfxSurface[i].hash[1] == th[1]
+                && gfxSurface[i].hash[2] == th[2] && gfxSurface[i].hash[3] == th[3]) {
+                tfound = i;
+                break;
+            }
+        }
+        p6_w_tlogo_surfidx = tfound;
+        if (tfound >= 0) {
+            p6_w_tlogo_surfslot  = (int32)gfxSurface[tfound].saturnSheetSlot;
+            p6_w_tlogo_surfscope = (int32)gfxSurface[tfound].scope;
+            p6_w_tlogo_surfh0    = (int32)gfxSurface[tfound].hash[0];
+            p6_w_tlogo_handle    = p6_vdp1_handle_for_surface(tfound);
+        }
+    }
+#endif
 }
 
 // =============================================================================
@@ -3179,6 +3253,37 @@ extern "C" void p6_scene_run(void)
                 if (slot >= 0) {
                     RETRO_HASH_MD5(ph);
                     GEN_HASH_MD5("Logos/Logos.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
+                }
+            }
+        }
+#endif
+#if defined(P6_FRONTEND_TITLE)
+        // CP5b.1 (Task #268): stage TLOGO.SHT (Title/Logo.gif, the SONIC-MANIA logo
+        // sheet, 512x512 banded 19,502 B) into the 11th SaturnSheet slot (slot 10;
+        // slot 9 = LOGOS.SHT, staged just above because TITLE implies LOGOS) so
+        // TitleLogo's DrawSprite resolves a banded slot + the p6_ghz_arm_env bind loop
+        // (p6_io_main.cpp:2182-2207, run unconditionally from p6_scene_load_and_arm)
+        // binds Title/Logo.gif's gfxSurface to a VDP1 handle -> the TitleLogo emblem/
+        // ribbon/gametitle pieces actually blit. Path hash = "Title/Logo.gif" (what the
+        // engine LoadSpriteAnimation("Title/Logo.bin") computes for TitleLogo's sheet).
+        // MEASURED RED ROOT CAUSE (CP5a deep capture, frame 90): the Title scene ran
+        // 2923 ticks (past FlashIn) with the logos visible=true, but Title/Logo.gif's
+        // surface had saturnSheetSlot==-1 (no TLOGO.SHT staged) -> the bind loop skipped
+        // it -> handle<0 -> every TitleLogo blit dropped -> uniform-blue title. MIRRORS
+        // the CP4b LOGOS.SHT block above exactly. (Built offline by build_sheet_bands.py
+        // build_one("Title/Logo.gif","TLOGO.SHT").)
+        {
+            int sn = rsdk_storage_load_to_lwram("TLOGO.SHT",
+                                                (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("Title/Logo.gif", ph);
                     SaturnSheet_SetHash(slot, (const uint32 *)ph);
 #ifndef P6_SHT_NO_RESIDENT
                     SaturnSheet_MakeResident(slot);
@@ -4736,6 +4841,19 @@ static void p6_frontend_frame(void)
     }
 
     ProcessInput();
+    // CP5b.1 (Task #268) ROOT-CAUSE FIX: the engine's per-frame "common stuff" reset
+    // of the foreach stack pointer (RetroEngine.cpp:179, `foreachStackPtr =
+    // foreachStackList`) runs at the top of ProcessEngine BEFORE ProcessObjects. The
+    // lean p6_frontend_frame calls ProcessObjects DIRECTLY (it bypasses ProcessEngine),
+    // so without this the pointer stays at its NULL static-init -> the FIRST
+    // GetAllEntities does `foreachStackPtr++` on NULL (a wild pointer) and EVERY
+    // foreach_all in the Title state machine iterates wrong. MEASURED SYMPTOM: only the
+    // EMBLEM (the first TitleLogo entity) ever flipped visible in AnimateUntilFlash/
+    // FlashIn -- the RIBBON/GAMETITLE/COPYRIGHT/RINGBOTTOM stayed invisible and POWERLED
+    // was never destroyed (vismask = EMBLEM|POWERLED only, per qa_title_logo per-type
+    // diag). Resetting the stack each frame (verbatim the engine) makes every
+    // foreach_all iterate the full TitleLogo set -> all logo pieces flip visible + blit.
+    foreachStackPtr = foreachStackList;
     ProcessObjects();
     ProcessSceneTimer();
     // CP4c BLUE-SCREEN FIX: arm the VDP1 sprite layer (SPRON) for the UI scene.

@@ -51,7 +51,24 @@
  * relocated off .bss to a verified-free cart window in the FRONT-END build
  * (192*96*2 = 36 KB would breach the ~1.2 KB WRAM-H headroom under ANIMPAK);
  * the GHZ build keeps them as the original 64x64 .bss arrays. */
-#if defined(P6_FRONTEND_LOGOS)
+#if defined(P6_FRONTEND_TITLE)
+/* CP5b.1 (Task #268): the TITLE logo frames are TALLER than the Logos splash
+ * frames -- MEASURED from Title/Logo.bin (convert_ring_sprite.parse_spr): the
+ * EMBLEM (anim 0 "Logo Wings") is 144x144, the Ribbon Center (anim 3) is 176x52,
+ * the Game Title (anim 4) 137x46, the Ribbon Wave (anim 2, shown after FlashIn)
+ * 56x72. MAX frame = 176x144. The CP4b 192x96 Logos box would DROP the 144-tall
+ * emblem (p6_slot_for: `h > P6_SPR_MAXH` -> oversize drop -> the ring never blits
+ * -> the iconic SONIC-MANIA emblem missing). So the TITLE flavor uses a 192x160
+ * box (176->192 mult-8 width per jo-sgl-sprite-width-mult8-shear; 144->160 height).
+ * A single VDP1 sprite supports 504(W,mult-8)x255(H) per ST-013-R3 sec 6.6, so
+ * 176x144 fits ONE sprite each. 8 * 192*160 = 245,760 px < JO_VDP1_USER_AREA_SIZE
+ * (0x71D38 = 466,232 B). Same 8 slots (the Title working set = ~6 logo pieces +
+ * the electricity ring, below 8 -> no eviction). The DEFAULT (GHZ) build is
+ * BYTE-IDENTICAL (64x64x40); a Logos-only build keeps 192x96. */
+#define P6_SPR_MAXW     192 /* Title: widest frame 176 -> mult-8 pad 192 */
+#define P6_SPR_MAXH     160 /* Title: tallest frame 144 (emblem) -> 160 */
+#define P6_VDP1_NSLOTS  8   /* Title working set = ~6 logo pieces + ring; no eviction */
+#elif defined(P6_FRONTEND_LOGOS)
 #define P6_SPR_MAXW     192 /* Logos: widest frame 187 -> mult-8 pad 192 */
 #define P6_SPR_MAXH     96  /* Logos: tallest frame 89 -> 96 */
 #define P6_VDP1_NSLOTS  8   /* Logos working set = 4 logo frames; no eviction */
@@ -189,7 +206,18 @@ static int s_useclock = 0;
  * read by jo's DMA into VDP1 VRAM; no coherency purge needed (the existing GHZ
  * staging copies have the same producer/consumer and rely on the same property).
  * The DEFAULT (GHZ) build keeps the original 64x64 .bss arrays (byte-identical). */
-#if defined(P6_FRONTEND_LOGOS)
+#if defined(P6_FRONTEND_TITLE)
+/* CP5b.1 (Task #268): the 192x160 TITLE box makes each buffer 30,720 B (0x7800);
+ * 61,440 B total -- relocate them to the SAME verified-free cart window the Logos
+ * flavor used (0x226E0000, past the highest cart structure 0x226D4000, before the
+ * GFS windows 0x22700000). s_fetch follows s_stage by 0x7800; both end at
+ * 0x226EF000, 0x11000 (68 KB) below the GFS windows -- disjoint. Cache-through alias
+ * (written by SH-2, DMA'd into VDP1 VRAM by jo; same producer/consumer property as
+ * the GHZ staging copies -> no coherency purge). The front-end build never loads
+ * GHZ so the pool structures at 0x226D4000 are inert regardless. */
+static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 30,720 B */
+static unsigned char *const s_fetch = (unsigned char *)0x226E7800u; /* 30,720 B */
+#elif defined(P6_FRONTEND_LOGOS)
 static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 18,432 B */
 static unsigned char *const s_fetch = (unsigned char *)0x226E4800u; /* 18,432 B */
 #else
