@@ -51,6 +51,16 @@ export P6_NOSCAN="${P6_NOSCAN-1}"
 # NOT set this, so it stays byte-identical (no re-validation of its gate sweep).
 export P6_CART_TMP="${P6_CART_TMP-1}"
 
+# CP5c (Task #270): the front-end FLOW CHAIN flavor IMPLIES the TITLE flavor (which
+# implies LOGOS, just below). The chain reuses every shared front-end thread (the
+# Title overlay objects, the SaturnSheet 12-slot store, the VDP1 box); the only
+# chain-specific bit is the make knob P6_FRONTEND_CHAIN=1 + the -DP6_FRONTEND_CHAIN
+# the pack build self-implies for p6_io_main.cpp + the chain witness grep. Set this
+# FIRST so the title self-imply below then sets LOGOS -> the full cascade fires.
+# Default GHZ leaves all three unset.
+if [ -n "${P6_FRONTEND_CHAIN:-}" ]; then
+    export P6_FRONTEND_TITLE=1
+fi
 # CP5a (Task #267): the TITLE front-end flavor IMPLIES the LOGOS flavor (it reuses
 # every shared #if defined(P6_FRONTEND_LOGOS) machinery -- frontend_frame, the VDP1
 # box in p6_vdp1.c, p6_vdp2_arm_sprites_only, the SaturnSheet slot bump). Setting
@@ -82,7 +92,7 @@ cd /work
 # hybrid-image rule).
 rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
       tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
 LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
@@ -132,7 +142,7 @@ cd /work
 
 echo "[4/5] re-master the ISO with the overlay on disc ..."
 rm -f game.iso
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[5/5] sanity: _end + lean-boot entry + flavor flag + overlay entry ..."
 grep " _end = " game.map
@@ -176,5 +186,15 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     grep -m1 "p6_w_tsonic_handle$"  game.map || echo "  MISSING p6_w_tsonic_handle (CP5b.2 render-diag compiled out?)"
     grep -m1 "p6_w_tsonic_shtslot$" game.map || echo "  MISSING p6_w_tsonic_shtslot (TSONIC.SHT arm-env scan compiled out?)"
     grep -m1 "TitleSonic_Update" "$P6/ovl_ring.map" || echo "  MISSING TitleSonic in overlay (Game_TitleSonic.o not linked?)"
+fi
+# CP5c (Task #270): in the CHAIN flavor, confirm the chain witnesses landed in
+# game.map (build_p6scene_objs.sh SWALLOWS compile errors -> a stale p6_io_main.o
+# leaves the -DP6_FRONTEND_CHAIN advance compiled out + the witnesses ABSENT; this
+# grep is the trip-wire). The Title witnesses + overlay objects are already checked
+# by the [5c] block above (CHAIN implies TITLE).
+if [ -n "${P6_FRONTEND_CHAIN:-}" ]; then
+    echo "[5d] CP5c front-end CHAIN symbol presence:"
+    grep -m1 "p6_w_chain_fired$"      game.map || echo "  MISSING p6_w_chain_fired (the Logos->Title advance compiled out -- stale p6_io_main.o?)"
+    grep -m1 "p6_w_chain_folder_pre$" game.map || echo "  MISSING p6_w_chain_folder_pre"
 fi
 echo "DONE [shipping image built: game.iso/game.cue + cd/OVLRING.BIN]."

@@ -298,6 +298,45 @@ int p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
     return s_sheet_count++;
 }
 
+#if defined(P6_FRONTEND_CHAIN)
+/* CP5c (Task #270) CRAM-PALETTE FIX -- MEASURED root cause of the wrong Title
+ * colors after the Logos->Title chain transition (savestate _title_chain.mcs vs
+ * the direct-boot golden _title_sonic.mcs): the engine's active Title palette in
+ * fullPalette[0] (WorkRAM-L 0x002FAC00) was BYTE-IDENTICAL in both states, but
+ * VDP2 CRAM bank 1 (the SPRITE palette VDP1 reads, 0x05F00200) differed in 144 of
+ * 256 entries -- the chain's bank 1 held the stale LOGOS palette. CAUSE:
+ * p6_pal_mirror (the only writer of CRAM bank 1) runs ONLY when s_sheet_count==0
+ * (the very first bind of the WHOLE run). On the direct Title boot, Title is the
+ * first scene -> its first bind has s_sheet_count==0 -> the Title palette mirrors
+ * correctly. In the CHAIN, the LOGOS scene binds FIRST (s_sheet_count 0->1, mirrors
+ * Logos's palette), so when the Logos->Title fire re-binds Title's surfaces
+ * s_sheet_count is already >=1 -> p6_pal_mirror is NEVER re-run -> bank 1 keeps the
+ * Logos palette -> every Title sprite hue-shifts (the SAME #250-class "loaded once"
+ * guard the VDP1-handle-table reset already fixed for GEOMETRY -- this is its CRAM
+ * twin, in a SEPARATE static this TU owns).
+ *
+ * FIX: the front-end CHAIN calls this on the Logos->Title fire (p6_io_main.cpp,
+ * alongside the p6_vdp1HandleBySurface[] reset it already does). Resetting
+ * s_sheet_count to 0 makes the Title's FIRST re-bind satisfy s_sheet_count==0 ->
+ * p6_pal_mirror re-runs with Title's fullPalette[0] -> CRAM bank 1 carries the
+ * correct Title sprite palette. The slot rect-cache + sheet table are cleared too
+ * (the surfaces re-bind fresh from index 0, matching the handle-table reset). The
+ * GHZ same-folder reload never reaches this (front-end CHAIN only); the default
+ * GHZ build does not compile it (byte-identical). */
+void p6_vdp1_frontend_pal_reset(void)
+{
+    int i;
+    s_sheet_count   = 0;
+    p6_w_vdp1_slots = 0;
+    s_useclock      = 0;
+    for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
+        s_slots[i].jo_id   = -1;
+        s_slots[i].sheet   = -1;
+        s_slots[i].lastUse = 0;
+    }
+}
+#endif
+
 /* Find (or upload) the VDP1 residency slot for a (sheet, rect).
  *
  * Task #241 (was the "characters blink in and out" bug -- MEASURED: a saturated

@@ -1311,6 +1311,13 @@ int  p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
 void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy);
 void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
                           int flipX, int flipY);
+#if defined(P6_FRONTEND_CHAIN)
+/* CP5c CRAM-palette fix: re-arm the sheet/slot state (s_sheet_count=0) so the next
+ * surface bind re-runs p6_pal_mirror with the NEW scene's fullPalette[0] -> CRAM
+ * bank 1 carries the destination scene's sprite palette across a front-end folder
+ * change. See the definition in p6_vdp1.c for the MEASURED root cause. */
+void p6_vdp1_frontend_pal_reset(void);
+#endif
 }
 // W12b: surfaceID -> vdp1 sheet handle (filled at bind time; -1 = unbound).
 static int8 p6_vdp1HandleBySurface[SURFACE_COUNT];
@@ -4411,6 +4418,28 @@ extern "C" void p6_scene_run(void)
 // qa_p6_transition). A scene-load triggered by an object (Zone sets
 // sceneInfo.state = ENGINESTATE_LOAD via RSDK.LoadScene) bumps this.
 __attribute__((used)) int32 p6_w_transitions = 0;
+#if defined(P6_FRONTEND_CHAIN)
+// CP5c (Task #270): the FRONT-END FLOW chain witnesses. p6_w_chain_fired latches 1
+// the single time the Logos->Title advance fires in p6_frontend_frame (the engine's
+// ENGINESTATE_LOAD from LogoSetup auto-advance, dispatched to p6_title_reload instead
+// of swallowed). p6_w_chain_folder_pre records the active folder tag at the moment of
+// the fire (should be 0x4C6F 'Lo' -- Logos -- proving the advance fired FROM Logos, not
+// some later scene). Guarded under P6_FRONTEND_CHAIN (NOT unconditional) so the default
+// GHZ _end stays exactly 0x060B6BA0 (the #228 ANIMPAK budget) -- mirrors the CP5a Title
+// witnesses' flag-guard, NOT p6_w_transitions' unconditional decl. Read by qa_title_chain.
+__attribute__((used)) int32 p6_w_chain_fired      = 0;
+__attribute__((used)) int32 p6_w_chain_folder_pre = 0;
+// CP5c: the MEASURED scene-list order (risk #1 report). At the Logos->Title fire,
+// p6_w_chain_listpos_adv = sceneInfo.listPos AFTER LogoSetup's ++ (= the engine's
+// adjacency destination, i.e. Logos listPos + 1); p6_w_chain_listpos_title =
+// sceneInfo.listPos AFTER p6_title_reload's by-NAME scan resolved "Title". If these
+// DIFFER, the explicit-select is doing real work (Title is NOT simply Logos+1); if
+// they match, Title happens to be adjacent -- either way the by-name select is correct
+// and order-independent. Latched once at the fire. (Logos itself is category0/scene0
+// per LogoSetup.c:53, so its listPos is 0 and the adjacency destination is 1.)
+__attribute__((used)) int32 p6_w_chain_listpos_adv   = -1;
+__attribute__((used)) int32 p6_w_chain_listpos_title = -1;
+#endif
 // P6.8 Step F.2 diag: post-load runtime GetTile probes at the loaded scene's
 // spawn column (x tile 16). For GHZ2 the offline FG Low has solid ground at
 // ty=90 (0x2001) and FG High a platform at ty=86 (0x7413); if the windowed
@@ -4935,6 +4964,69 @@ static void p6_frontend_frame(void)
     // the advance FIRED (p6_w_transitions) so the chain readiness is measurable.
     if (sceneInfo.state == ENGINESTATE_LOAD) {
         ++p6_w_transitions;
+#if defined(P6_FRONTEND_CHAIN)
+        // CP5c (Task #270): the FLOW chain. When the auto-advance fires FROM the
+        // Logos scene, do NOT swallow -- carry the front-end to the Title screen by
+        // an EXPLICIT folder-select + load+arm of "Title" (p6_title_reload), the
+        // robust path that does not depend on the Logos/Title scene-list adjacency.
+        // Once (static guard) -- a later advance toward the (unported) Menu still
+        // swallows (currentSceneFolder != "Logos" below).
+        //
+        // MEASURED ROOT CAUSE (CP5c first build, savestate _title_chain.mcs): the
+        // discriminator MUST be currentSceneFolder, NOT sceneInfo.listData[listPos].
+        // LogoSetup_State_NextLogos (LogoSetup.c:130-131) does `++SceneInfo->listPos`
+        // BEFORE `RSDK.LoadScene()`, so at this ENGINESTATE_LOAD point listPos already
+        // points at the NEXT scene (the destination) -- listData[listPos].folder is the
+        // destination, not "Logos". The first build checked listData[listPos] and never
+        // fired (transitions=8951, chain_fired=0, folder stayed 'Lo'). currentSceneFolder
+        // still holds the CURRENTLY-LOADED scene's folder ("Logos") -- it is only
+        // re-strcpy'd inside LoadSceneFolder (Scene.cpp:148), which runs LATER, during the
+        // p6_title_reload load. So "we are leaving Logos" == currentSceneFolder=="Logos".
+        // This is also the order-independent test the design requires: p6_title_reload
+        // then scans for folder "Title" by NAME and OVERWRITES the engine's ++listPos.
+        static int32 s_chain_fired = 0;
+        const char  *fnow = currentSceneFolder; // the CURRENTLY-LOADED folder (still "Logos")
+        if (!s_chain_fired && !strcmp(fnow, "Logos")) {
+            s_chain_fired         = 1;
+            p6_w_chain_folder_pre = (int32)(((uint32)(uint8)fnow[0] << 8)
+                                            | (uint32)(uint8)(fnow[0] ? fnow[1] : 0));
+            // RESIDENCY FIX (chain-specific, MEASURED hazard -- see cp5c checklist):
+            // the VDP1 surface->handle map is init-once (p6_vdp1HandlesInit) and is
+            // NEVER reset on a folder change; the arm_env bind loop SKIPS any surface
+            // whose handle is already >=0 (the #250 same-folder-persist guard). On
+            // THIS Logos->Title FOLDER CHANGE, LoadSceneFolder runs ClearGfxSurfaces
+            // (scope->NONE) and Title's LoadSceneAssets re-populates the SAME surface
+            // indices the Logos UIPicture used -- but their stale "bound" handle would
+            // make the bind loop skip them -> the Title logo/Sonic surfaces stay
+            // UNBOUND -> the title renders blank. Clear the map (and re-arm the
+            // init flag) HERE, the one moment the front-end changes folder, so the
+            // arm_env loop inside p6_title_reload re-binds Title's surfaces fresh.
+            // Front-end CHAIN only: a same-folder GHZ reload never reaches this.
+            for (int32 i = 0; i < SURFACE_COUNT; ++i)
+                p6_vdp1HandleBySurface[i] = -1;
+            p6_vdp1HandlesInit = false; // arm_env re-inits + re-binds every surface
+            // CP5c CRAM-PALETTE FIX (MEASURED: chain CRAM bank1 held the Logos
+            // palette in 144/256 entries vs the golden direct-boot Title; fullPalette[0]
+            // was byte-identical -- the engine palette was right, only the CRAM mirror
+            // was stale). p6_pal_mirror (the sole CRAM-bank-1 writer, p6_vdp1.c) runs
+            // ONLY on the first-ever bind (s_sheet_count==0); the Logos bind already
+            // consumed that, so Title's re-bind never re-mirrored its palette. Re-arm
+            // the sheet/slot state HERE so the Title's first re-bind below (forced by
+            // the handle-table reset above) re-runs p6_pal_mirror with Title's
+            // fullPalette[0] -> CRAM bank 1 carries the correct Title sprite palette.
+            // This is the CRAM twin of the VDP1-handle reset (geometry was already
+            // fixed; this fixes the COLORS). Front-end CHAIN only.
+            p6_vdp1_frontend_pal_reset();
+            p6_w_chain_fired       = 1;
+            p6_w_chain_listpos_adv = (int32)sceneInfo.listPos; // engine's ++ destination (Logos+1)
+            p6_title_reload();          // select + load+arm "Title" (re-binds surfaces)
+            p6_w_chain_listpos_title = (int32)sceneInfo.listPos; // Title listPos from the by-name scan
+            // p6_title_reload set sceneInfo.state = ENGINESTATE_REGULAR via InitObjects;
+            // RETURN so this frame does NOT also run the (now-Title) ProcessObjects
+            // pass on a half-swapped state -- the NEXT p6_frontend_frame ticks Title.
+            return;
+        }
+#endif
         sceneInfo.state = ENGINESTATE_REGULAR; // hold the splash; do not load Title (unported)
     }
 
@@ -5228,7 +5320,20 @@ extern "C" void p6_scene_tick(void)
     // frame. Subsequent ticks take the armed fast path below. Gated on
     // p6_lean_boot so the diag tick is unchanged.
     if (p6_lean_boot && !p6_ghz_continuous_armed) {
-#if defined(P6_FRONTEND_TITLE)
+#if defined(P6_FRONTEND_CHAIN)
+        // CP5c (Task #270): the front-end FLOW chain boots the LOGOS scene first
+        // (NOT Title) -- it plays the SEGA/RSDK logos, then the decomp LogoSetup
+        // auto-advance (RSDK.LoadScene) is caught in p6_frontend_frame and routed
+        // to p6_title_reload (the explicit Logos->Title fire). PRECEDENCE over the
+        // plain P6_FRONTEND_TITLE branch below: P6_FRONTEND_CHAIN implies TITLE
+        // (which implies LOGOS) so all three macros are defined here; without this
+        // #if first, the Title-direct-boot branch would steal the boot. Same lean-
+        // tick shape as the CP4 Logos boot (select + load+arm, then the UI frame).
+        p6_logos_reload();
+        if (p6_ghz_continuous_armed)
+            p6_frontend_frame();
+        return;
+#elif defined(P6_FRONTEND_TITLE)
         // CP5a (Task #267): the TITLE front-end flavor boots the Title scene on
         // the first live tick (select "Title" + load+arm, then run the generic
         // UI-scene frame). Title takes precedence over Logos (it also defines

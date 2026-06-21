@@ -217,6 +217,20 @@ ifeq ($(P6_FRONTEND_TITLE),1)
 CCFLAGS += -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS
 endif
 
+# CP5c (Task #270): the front-end FLOW CHAIN flavor (boot Logos -> play -> auto-
+# advance to Title). P6_FRONTEND_CHAIN IMPLIES P6_FRONTEND_TITLE which IMPLIES
+# P6_FRONTEND_LOGOS -- the chain reuses every shared front-end machinery (Logos +
+# Title registrations, the VDP1 box, the SaturnSheet 12-slot store, the
+# frontend_frame). build_shipping.sh passes P6_FRONTEND_CHAIN=1 (which self-implies
+# TITLE+LOGOS). The DEFAULT (GHZ) build leaves all three unset -> p6_vdp1.c
+# byte-identical. (The jo-side TUs compiled here only need the LOGOS/TITLE box; the
+# -DP6_FRONTEND_CHAIN advance logic lives in the pack TU p6_io_main.cpp, set by
+# build_p6scene_objs.sh -- defining it here too is harmless + keeps the implication
+# self-evident.)
+ifeq ($(P6_FRONTEND_CHAIN),1)
+CCFLAGS += -DP6_FRONTEND_CHAIN -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS
+endif
+
 # --- Our sources ---
 #
 # Phase 0.5 foundation alignment (2026-05-26): the hand-rolled
