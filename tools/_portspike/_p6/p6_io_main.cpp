@@ -852,6 +852,31 @@ __attribute__((used)) int32 p6_w_tlogo_vismask   = 0;
 __attribute__((used)) int32 p6_w_tlogo_onscrmask = 0;
 __attribute__((used)) int32 p6_w_tlogo_boundmask = 0;
 __attribute__((used)) int32 p6_w_tsetup_statetag = -9;
+// CP5b.2 (Task #269) RENDER diag: the SONIC-MANIA ring-center HEAD blit chain, the
+// EXACT mirror of the tlogo block above for Title/Sonic.gif (TitleSonic's sheet).
+//   (A) SURFACE-side truth (written in p6_ghz_arm_env, same hash-scan as tlogo).
+//       tsonic_shtslot = SaturnSheet_FindSlot("Title/Sonic.gif") (>=0 == TSONIC.SHT
+//       staged+hashed). tsonic_surfidx = the gfxSurface[] index whose hash matches
+//       (>=0 == TitleSonic_StageLoad's LoadSpriteAnimation loaded the surface).
+//       tsonic_surfslot = that surface's saturnSheetSlot (>=0 == resolved the banded
+//       slot). tsonic_handle = its bound VDP1 handle (>=0 == the bind loop bound it ==
+//       the head CAN blit; <0 == the CP5b.1 bug: the head dropped -> black ring hole).
+//   (B) the live TitleSonic entity's draw-chain state (written by the overlay witness
+//       each tick, ld -R import). visible/onScreen = render-gating (TitleSetup_State_
+//       FlashIn flips TitleSonic visible=true); sheetid = the resolved frame's sheetID;
+//       handle = p6_vdp1_handle_for_surface(sheetID) (>=0 == bound == GREEN).
+__attribute__((used)) int32 p6_w_tsonic_shtslot   = -9;
+__attribute__((used)) int32 p6_w_tsonic_surfidx   = -9;
+__attribute__((used)) int32 p6_w_tsonic_surfslot  = -9;
+__attribute__((used)) int32 p6_w_tsonic_surfscope = -9;
+__attribute__((used)) int32 p6_w_tsonic_surfh0    = 0;
+__attribute__((used)) int32 p6_w_tsonic_h0        = 0;
+__attribute__((used)) int32 p6_w_tsonic_visible   = -9;
+__attribute__((used)) int32 p6_w_tsonic_onscreen  = -9;
+__attribute__((used)) int32 p6_w_tsonic_sheetid   = -9;
+__attribute__((used)) int32 p6_w_tsonic_handle    = -9;
+__attribute__((used)) int32 p6_w_tsonic_animid    = -9;
+__attribute__((used)) int32 p6_w_tsonic_frameid   = -9;
 #endif
 // #181 GHZ Bridge witnesses (set by the game-side p6_brg_witness(),
 // p6_wave1_reg.c -- only that TU has the Bridge class type/global). classid>0 +
@@ -2342,6 +2367,34 @@ static void p6_ghz_arm_env(void)
             p6_w_tlogo_handle    = p6_vdp1_handle_for_surface(tfound);
         }
     }
+    // CP5b.2 (Task #269): SURFACE-side truth for the TITLE Sonic sheet -- the EXACT
+    // mirror of the tlogo scan above but for "Title/Sonic.gif" (TitleSonic's sheet).
+    // tsonic_shtslot>=0 == TSONIC.SHT staged+hashed; tsonic_surfidx>=0 == TitleSonic_
+    // StageLoad's LoadSpriteAnimation loaded the surface; tsonic_surfslot>=0 == it
+    // resolved the banded slot; tsonic_handle>=0 == the bind loop bound it == the head
+    // CAN blit (CP5b.1 RED had tsonic ABSENT -> the head dropped -> black ring hole).
+    {
+        RETRO_HASH_MD5(sh);
+        GEN_HASH_MD5("Title/Sonic.gif", sh);
+        p6_w_tsonic_h0      = (int32)sh[0];
+        p6_w_tsonic_shtslot = SaturnSheet_FindSlot((const uint32 *)sh);
+        int32 sfound = -1;
+        for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+            if (gfxSurface[i].scope != SCOPE_NONE
+                && gfxSurface[i].hash[0] == sh[0] && gfxSurface[i].hash[1] == sh[1]
+                && gfxSurface[i].hash[2] == sh[2] && gfxSurface[i].hash[3] == sh[3]) {
+                sfound = i;
+                break;
+            }
+        }
+        p6_w_tsonic_surfidx = sfound;
+        if (sfound >= 0) {
+            p6_w_tsonic_surfslot  = (int32)gfxSurface[sfound].saturnSheetSlot;
+            p6_w_tsonic_surfscope = (int32)gfxSurface[sfound].scope;
+            p6_w_tsonic_surfh0    = (int32)gfxSurface[sfound].hash[0];
+            p6_w_tsonic_handle    = p6_vdp1_handle_for_surface(sfound);
+        }
+    }
 #endif
 }
 
@@ -3288,6 +3341,51 @@ extern "C" void p6_scene_run(void)
 #ifndef P6_SHT_NO_RESIDENT
                     SaturnSheet_MakeResident(slot);
 #endif
+                }
+            }
+        }
+        // CP5b.2 (Task #269): stage TSONIC.SHT (Title/Sonic.gif, the ring-center head
+        // sheet) into the 12th SaturnSheet slot (slot 11; slots 9/10 = LOGOS/TLOGO,
+        // staged above because TITLE implies LOGOS) so TitleSonic's DrawSprite resolves
+        // a banded slot + the p6_ghz_arm_env bind loop binds Title/Sonic.gif's
+        // gfxSurface to a VDP1 handle -> Sonic's head + finger blit into the gold ring
+        // center. Path hash = "Title/Sonic.gif" (what LoadSpriteAnimation("Title/
+        // Sonic.bin") computes for TitleSonic's sheet[0]). MEASURED RED ROOT CAUSE
+        // (CP5b.1): the logo rendered but Title/Sonic.gif's surface had
+        // saturnSheetSlot==-1 (no TSONIC.SHT staged) -> the bind loop skipped it ->
+        // handle<0 -> the head dropped -> black ring interior. MIRRORS the TLOGO.SHT
+        // block above EXCEPT the load buffer: TSONIC.SHT is 121,090 B (1024x1024, 4x
+        // the Logo's area), which EXCEEDS the 0x10000 (64 KB) buffer TLOGO uses -- load
+        // with 0x20000 (128 KB) into P6_LW_ENTITYLIST (region 0x6CC00 = 445,440 B ->
+        // 128 KB fits with huge margin). MakeResident inflates the 64 bands (raw band
+        // 16,384 B = 0x4000, boundary-exact for the rsz>0x4000 reject + the 0x8000
+        // LAYSCRATCH window) into 1 MB of the 3.64 MB cart RES store.
+        {
+            int sn = rsdk_storage_load_to_lwram("TSONIC.SHT",
+                                                (void *)P6_LW_ENTITYLIST, 0x20000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("Title/Sonic.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                    // CP5b.2 (Task #269): DELIBERATELY do NOT MakeResident TSONIC.
+                    // MEASURED: SaturnSheet_MakeResident on the 1024x1024 sheet (64
+                    // bands, raw band rsz = 16*1024 = 0x4000 exactly, 1 MB inflated to
+                    // the wait-stated cart) HANGS the boot (cont_frames=0 stuck at
+                    // load_step=18 through t=240s). The NORES build (skip MakeResident)
+                    // boots clean: cont_frames=480, tsonic_handle=1 (BOUND), tsonic_
+                    // visible=1 -- the head binds + renders via the per-frame banded
+                    // FetchRect inflate path. The Title scene inflates only the head's
+                    // 1-2 rects/frame (NOT GHZ's full sheet set), so the per-frame band
+                    // cost is negligible + the title is not perf-critical. The 512x512
+                    // LOGOS/TLOGO sheets stay resident (they MakeResident fine -- their
+                    // raw band is 16*512 = 0x2000, well under the 0x4000 scratch split;
+                    // the 1024-wide TSONIC band is the boundary-exact case that breaks).
+                    // Leaving TSONIC banded ALSO keeps the resident store at its 11-sheet
+                    // high-water (~0x225E8000), so the VDP1 staging buffers at 0x226E0000
+                    // stay clear (a resident TSONIC pushed the store to 0x226E8000 and
+                    // collided with them -- the other half of the original hang).
                 }
             }
         }

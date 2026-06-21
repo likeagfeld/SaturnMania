@@ -115,7 +115,9 @@ fi
 # ADDITIVE to the Logos objects (P6_FRONTEND_TITLE implies P6_FRONTEND_LOGOS, so the
 # Logos objects compile + register too -- inert on the Title scene, no placements).
 if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
-    OVL_FE="$OVL_FE Game_TitleSetup.o Game_TitleLogo.o"
+    # CP5b.2 (#269): + Game_TitleSonic.o (the ring-center head + finger-wave). Links
+    # into the overlay against game.elf via -R like every other overlay obj.
+    OVL_FE="$OVL_FE Game_TitleSetup.o Game_TitleLogo.o Game_TitleSonic.o"
 fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
@@ -167,5 +169,12 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     # tlogo_handle == the render-diag block / TLOGO.SHT staging compiled out silently.
     grep -m1 "p6_w_tlogo_handle$"   game.map || echo "  MISSING p6_w_tlogo_handle (CP5b.1 render-diag compiled out?)"
     grep -m1 "p6_w_tlogo_shtslot$"  game.map || echo "  MISSING p6_w_tlogo_shtslot (TLOGO.SHT arm-env scan compiled out?)"
+    # CP5b.2 (Task #269): the TitleSonic render-diag witnesses + the registered object.
+    # MISSING tsonic_handle == the render-diag block / TSONIC.SHT staging compiled out;
+    # MISSING TitleSonic_Update in the overlay == Game_TitleSonic.o not linked (stale .o
+    # / OVL_FE miss). Either silent-fails the head; this grep is the trip-wire.
+    grep -m1 "p6_w_tsonic_handle$"  game.map || echo "  MISSING p6_w_tsonic_handle (CP5b.2 render-diag compiled out?)"
+    grep -m1 "p6_w_tsonic_shtslot$" game.map || echo "  MISSING p6_w_tsonic_shtslot (TSONIC.SHT arm-env scan compiled out?)"
+    grep -m1 "TitleSonic_Update" "$P6/ovl_ring.map" || echo "  MISSING TitleSonic in overlay (Game_TitleSonic.o not linked?)"
 fi
 echo "DONE [shipping image built: game.iso/game.cue + cd/OVLRING.BIN]."

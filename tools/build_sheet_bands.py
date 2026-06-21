@@ -94,6 +94,21 @@ SHEETS = [
     # handle<0 -> every TitleLogo blit dropped -> uniform-blue title). MIRRORS the
     # CP4b LOGOS.SHT path exactly.
     ("Title/Logo.gif", "TLOGO.SHT"),
+    # CP5b.2 (Task #269): the TITLE Sonic sheet (TitleSonic's Title/Sonic.gif,
+    # 1024x1024, 8bpp -- 4x the Logo's 512x512). LoadSpriteAnimation("Title/Sonic.bin")
+    # -> this sheet; its 2 anims hold the head/body pop-up (anim 0 "Sonic", 49 frames,
+    # MAX frame 241x137) + the finger-wave (anim 1, 12 frames, MAX 50x63). Staged ONLY
+    # by the P6_FRONTEND_TITLE boot into its 12th SaturnSheet slot (slot 11; slots 9/10
+    # = LOGOS/TLOGO, also staged because TITLE implies LOGOS). The GHZ + Logos-only
+    # shipping builds never load it. Once staged + hashed, the p6_ghz_arm_env bind loop
+    # binds Title/Sonic.gif's gfxSurface to a VDP1 handle -> Sonic's head + finger blit
+    # into the gold ring center (CP5b.1 had it UNBOUND -> handle<0 -> the head dropped
+    # -> black ring interior). MIRRORS the TLOGO.SHT path. MEASURED TSONIC.SHT = 121,090
+    # B (118.3 KB, BAND_ROWS=16, 64 bands); raw band = 16,384 B = 0x4000 (boundary-exact
+    # for SaturnSheet_MakeResident's rsz>0x4000 reject + the 0x8000 LAYSCRATCH window);
+    # inflated resident = 1 MB in the 3.64 MB cart RES store. The 121 KB blob EXCEEDS
+    # the 64 KB load buffer TLOGO uses -> the stage block loads with a 0x20000 buffer.
+    ("Title/Sonic.gif", "TSONIC.SHT"),
 ]
 
 # CP4c _end-leak FIX (Task #266): sheets that ONLY a FRONT-END boot stages. Their
@@ -113,7 +128,11 @@ SHEETS = [
 # the Logos-only probe table clean too). The generator emits one #if/#endif block per
 # distinct guard so the row counts + the const initializer stay regeneration-stable.
 FRONTEND_ONLY_SHEETS = {"LOGOS.SHT": "P6_FRONTEND_LOGOS",
-                        "TLOGO.SHT": "P6_FRONTEND_TITLE"}
+                        "TLOGO.SHT": "P6_FRONTEND_TITLE",
+                        # CP5b.2 (Task #269): TSONIC.SHT is staged ONLY by the Title
+                        # flavor (slot 11), SAME guard as TLOGO.SHT. Both ride the
+                        # single P6_FRONTEND_TITLE group in the generated probes .inc.
+                        "TSONIC.SHT": "P6_FRONTEND_TITLE"}
 
 
 def djb2(data):

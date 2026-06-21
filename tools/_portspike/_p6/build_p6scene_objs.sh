@@ -349,8 +349,11 @@ fi
 # knob matches the other game TUs. The MANIA_USE_PLUS=0 / RETRO_REV02 simple branch
 # compiles (preprocessor-confirmed; the Plus cheat/SetupPlusLogo + State_* fns drop).
 if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
+    # CP5b.2 (#269): + Title_TitleSonic (the ring-center head + finger-wave, verbatim
+    # SonicMania_Objects_Title_TitleSonic.c -- 69 L, fully self-contained).
     for wft in Title_TitleSetup:Game_TitleSetup \
-               Title_TitleLogo:Game_TitleLogo; do
+               Title_TitleLogo:Game_TitleLogo \
+               Title_TitleSonic:Game_TitleSonic; do
         src_tu="${wft%%:*}"; out_tu="${wft##*:}"
         "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
             $GAME_DEFS -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS -I"$GINC" -I"$NEWLIB" \
@@ -525,6 +528,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_shtslot -u _p6_w_tlogo_surfidx -u _p6_w_tlogo_surfslot -u _p6_w_tlogo_surfscope -u _p6_w_tlogo_surfh0 -u _p6_w_tlogo_h0} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_drawgrp -u _p6_w_tlogo_visible -u _p6_w_tlogo_onscreen -u _p6_w_tlogo_type -u _p6_w_tlogo_sheetid -u _p6_w_tlogo_handle -u _p6_w_tlogo_landed} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_existmask -u _p6_w_tlogo_vismask -u _p6_w_tlogo_onscrmask -u _p6_w_tlogo_boundmask -u _p6_w_tsetup_statetag} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_shtslot -u _p6_w_tsonic_surfidx -u _p6_w_tsonic_surfslot -u _p6_w_tsonic_surfscope -u _p6_w_tsonic_surfh0 -u _p6_w_tsonic_h0} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_visible -u _p6_w_tsonic_onscreen -u _p6_w_tsonic_sheetid -u _p6_w_tsonic_handle -u _p6_w_tsonic_animid -u _p6_w_tsonic_frameid} \
     -u _p6_w_sign_crossed \
     -u _p6_w_sign_count -u _p6_w_sign_type -u _p6_w_sign_posx \
     -u _p6_w_cart_ok -u _p6_w_cart_rb0 -u _p6_w_cart_rb1 \

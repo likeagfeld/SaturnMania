@@ -363,6 +363,39 @@
           "hash": "0x674C227E"
         }
       ]
+    },
+    {
+      "sheet": "Title/Sonic.gif",
+      "file": "TSONIC.SHT",
+      "width": 1024,
+      "height": 1024,
+      "band_rows": 16,
+      "bands": 64,
+      "bytes": 121090,
+      "file_hash": "0x9BC6EE56",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x2B5C95CB"
+        },
+        {
+          "sx": 960,
+          "sy": 504,
+          "w": 64,
+          "h": 64,
+          "hash": "0xA1DF1505"
+        },
+        {
+          "sx": 16,
+          "sy": 984,
+          "w": 48,
+          "h": 40,
+          "hash": "0xDACC6305"
+        }
+      ]
     }
   ]
 }

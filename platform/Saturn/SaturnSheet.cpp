@@ -52,15 +52,17 @@ typedef signed int int32;
 // links + boots; it stages only the 6 that fit).
 // #247/#181: 9 GHZ content sheets. CP4 (#266): the FRONT-END Logos flavor adds a 10th
 // slot for LOGOS.SHT (Logos.gif splash). CP5b.1 (#268): the FRONT-END TITLE flavor adds
-// an 11th slot for TLOGO.SHT (Title/Logo.gif) -- it ALSO stages LOGOS.SHT (TITLE implies
-// LOGOS, so slot 9 = LOGOS, slot 10 = TLOGO). KEPT 9 in the DEFAULT (GHZ) build so its
-// s_sheets[] is byte-identical -- the default shipping _end is only ~96 B under the #228
-// ANIMPAK floor, so the 32 B/slot of an unconditional extra slot would breach it. Only
-// the front-end builds (which gc-drop the large p6_ghz_frame/reload -> ~1.6 KB of
-// headroom) carry the extra slots. NSHEETS=12 (VDP1 bind table) is unchanged either way
-// (the Title bind demand is the 3 Title surfaces + a few engine surfaces << 12).
+// an 11th slot for TLOGO.SHT (Title/Logo.gif). CP5b.2 (#269): the TITLE flavor adds a
+// 12th slot for TSONIC.SHT (Title/Sonic.gif, the ring-center head) -- it ALSO stages
+// LOGOS + TLOGO (TITLE implies LOGOS, so slot 9 = LOGOS, slot 10 = TLOGO, slot 11 =
+// TSONIC). KEPT 9 in the DEFAULT (GHZ) build so its s_sheets[] is byte-identical -- the
+// default shipping _end is only ~96 B under the #228 ANIMPAK floor, so the 32 B/slot of
+// an unconditional extra slot would breach it. Only the front-end builds (which gc-drop
+// the large p6_ghz_frame/reload -> ~1.6 KB of headroom) carry the extra slots.
+// NSHEETS=12 (VDP1 bind table) is unchanged either way (the Title bind demand is the 3
+// Title surfaces -- logo + sonic + electricity -- + a few engine surfaces << 12).
 #if defined(P6_FRONTEND_TITLE)
-#define SATURNSHEET_SLOTS     11
+#define SATURNSHEET_SLOTS     12
 #elif defined(P6_FRONTEND_LOGOS)
 #define SATURNSHEET_SLOTS     10
 #else
@@ -71,6 +73,35 @@ typedef signed int int32;
                                  // overlap that corrupts the GFS GfsMng ptr (boot trap 0x06000956).
                                  // Explosions/Animals keep their stock resident-pixel decode path.
 #if defined(P6_CART)
+// CP5b.2 (Task #269): the FRONT-END TITLE flavor stages a 12th sheet TSONIC.SHT
+// (Title/Sonic.gif, 121,090 B -- the 1024x1024 head sheet). The 11 prior sheets
+// (9 GHZ + LOGOS + TLOGO) already consume 331,032 B of the DEFAULT 384 KB band
+// store (0x227A0000..0x22800000), so adding TSONIC needs 452,122 B and OVERFLOWS
+// by 58,906 B -> SaturnSheet_Stage returns -1 -> TSONIC never stages -> the head's
+// surface stays UNBOUND (handle<0) -> the head drops (MEASURED via the savestate:
+// sht_staged=11 not 12, tsonic_shtslot=-1, tsonic_handle=-1, the ring interior
+// black). FIX (front-end only -- the GHZ build's cart layout is BYTE-IDENTICAL):
+// lower the band-store base to 0x22720000 (the GFS read windows end -- p6_gfs.c
+// P6_CART_GFSWIN_BASE 0x22700000 + 2*64 KB = 0x22720000), giving the band store
+// 0x22800000-0x22720000 = 0xE0000 = 917,504 B (896 KB >> 452 KB needed). TSONIC is
+// staged BANDED here but DELIBERATELY NOT made resident (MEASURED: the 1024-wide
+// MakeResident boundary-case -- raw band rsz = 16*1024 = 0x4000 exactly -- HANGS the
+// boot; the NORES build boots clean with tsonic_handle=1, the head binds + renders
+// via the per-frame banded FetchRect inflate path). So the resident store holds only
+// the 11 prior sheets (1.998 MB, ending ~0x225E8000); RES_END at 0x22700000 (the GFS
+// windows base) is a 3 MB region with huge room. SAFE: the front-end Title scene
+// never mounts SaturnLayout (the only other 0x22600000..0x227A0000 cart user) and
+// never loads the GHZ tileset/TMP cart -- so 0x22720000..0x227A0000 is free in this
+// flavor. The GFS windows (0x22700000..0x22720000) sit BETWEEN the two stores, used
+// only DURING the scene-load reads (no collision: resident bump-alloc reaches
+// ~0x225E8000, far below 0x22700000). TSONIC's banded blob (121 KB) lives in the band
+// store; FetchRect inflates its head rects per-frame (cheap on the title).
+#if defined(P6_FRONTEND_TITLE)
+#define SATURNSHEET_VRAM_BASE 0x22720000u // front-end: above the GFS windows (0x22720000); 896 KB band store
+#define SATURNSHEET_VRAM_END  0x22800000u // top of the 4MB cart
+#define SATURNSHEET_RES_BASE  0x22400000u
+#define SATURNSHEET_RES_END   0x22700000u // ends at the GFS windows base (3 MB resident store)
+#else
 #define SATURNSHEET_VRAM_BASE 0x227A0000u // 4MB cart, after STG(3MB)+TMP(640KB)
 #define SATURNSHEET_VRAM_END  0x22800000u // top of the 4MB cart (384 KB store)
 // Task #243 Lever 1 (render perf): the per-frame miniz band-inflate in
@@ -83,6 +114,7 @@ typedef signed int int32;
 // that doesn't fit falls back to the banded inflate path (resident == 0).
 #define SATURNSHEET_RES_BASE  0x22400000u
 #define SATURNSHEET_RES_END   0x227A0000u
+#endif
 #else
 #define SATURNSHEET_VRAM_BASE 0x25E44000u // VDP2 B0 tail (non-cart fallback)
 #define SATURNSHEET_VRAM_END  0x25E80000u // top of B1

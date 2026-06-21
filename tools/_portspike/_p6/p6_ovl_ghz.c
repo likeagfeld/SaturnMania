@@ -98,19 +98,25 @@ extern int32 p6_w_tlogo_drawgrp, p6_w_tlogo_visible, p6_w_tlogo_onscreen,
 extern int32 p6_w_tlogo_existmask, p6_w_tlogo_vismask, p6_w_tlogo_onscrmask,
              p6_w_tlogo_boundmask, p6_w_tsetup_statetag;
 extern int p6_w_vdp1_landed; /* global VDP1 landed-blit counter (p6_vdp1.c) */
+/* CP5b.2 (Task #269): TitleSonic is now a REGISTERED, overlay-resident object (its
+ * verbatim Game_TitleSonic.o links into this overlay), no longer a NULL closure stub.
+ * Its global is provided by Game_TitleSonic.o (Game.h declares the extern). The
+ * render-diag witnesses (the live head's draw-chain state) are DEFINED in p6_io_main
+ * (main image, ld -R import). handle = the resolved frame's surface ->
+ * p6_vdp1_handle_for_surface; >=0 == Title/Sonic.gif bound == the head blit CAN land. */
+extern ObjectTitleSonic *TitleSonic;
+extern int32 p6_w_tsonic_visible, p6_w_tsonic_onscreen, p6_w_tsonic_sheetid,
+             p6_w_tsonic_handle, p6_w_tsonic_animid, p6_w_tsonic_frameid;
 /* CLOSURE EDGE (overlay-resident, flat-TU rule): symbols TitleSetup.c references
- * that no other linked TU provides, all inert at the CP5a capture frame (90, inside
- * State_Wait -- timer 1024 -> -1024 by 16/frame = ~128 frames before the first
- * foreach_all/SetupFX/advance fires). Stubbed here under the flag so they LINK; none
- * is CALLED before the title would auto-advance, so they are runtime-safe for CP5a.
- *   - TitleSonic: foreach_all(TitleSonic) in State_FlashIn -- never deref'd at f90.
- *   - TitleBG_SetupFX: called in State_FlashIn (TitleBG is CP5b).
+ * that no other linked TU provides. (TitleSonic is NO LONGER stubbed here -- CP5b.2
+ * registers the real object.) These remain stubbed under the flag so they LINK; none
+ * is CALLED before the title would auto-advance, so they are runtime-safe.
+ *   - TitleBG_SetupFX: called in State_FlashIn (TitleBG is CP5b.3).
  *   - TimeAttackData_Clear: TitleSetup_StageLoad (no .c cached); a clear of save
  *     tables that are unused on Saturn -> inert no-op is correct.
  *   - APICallback_ClearPrerollErrors: TitleSetup_StageLoad (API_ClearPrerollErrors
  *     macro -> this under !PLUS/REV02); the removed-at-REV02 preroll-error surface,
  *     a no-op on Saturn. */
-ObjectTitleSonic *TitleSonic = NULL;
 void TitleBG_SetupFX(void) {}
 void TimeAttackData_Clear(void) {}
 void APICallback_ClearPrerollErrors(void) {}
@@ -257,6 +263,15 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityTitleLogo), (unsigned)sizeof(ObjectTitleLogo),
                               TitleLogo_Update, TitleLogo_LateUpdate, TitleLogo_StaticUpdate,
                               TitleLogo_Draw, TitleLogo_Create, TitleLogo_StageLoad, TitleLogo_Serialize);
+    /* CP5b.2 (Task #269): TitleSonic -- the ring-center head + finger-wave. Verbatim
+     * decomp (SonicMania_Objects_Title_TitleSonic.c). TitleSonic_StageLoad loads
+     * Title/Sonic.bin (sheet Title/Sonic.gif, staged as TSONIC.SHT); Create sets the
+     * head/finger animators + visible=false (TitleSetup_State_FlashIn flips it visible).
+     * NULL editor callbacks (the verbatim RSDK_REGISTER_OBJECT non-editor arm). */
+    api->register_object_full((void **)&TitleSonic, "TitleSonic",
+                              (unsigned)sizeof(EntityTitleSonic), (unsigned)sizeof(ObjectTitleSonic),
+                              TitleSonic_Update, TitleSonic_LateUpdate, TitleSonic_StaticUpdate,
+                              TitleSonic_Draw, TitleSonic_Create, TitleSonic_StageLoad, TitleSonic_Serialize);
 #endif
     /* MASS-PORT BATCH 1 (verified-CLEAN drop-ins; closure self-confirmed: only
      * Zone/Player/SceneInfo/DebugMode/Zone_RotateOnPivot, all ported). Decoration =
@@ -469,6 +484,26 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         p6_w_tlogo_vismask   = vm;
         p6_w_tlogo_onscrmask = om;
         p6_w_tlogo_boundmask = bm;
+    }
+    /* CP5b.2 (Task #269) RENDER diag: the live TitleSonic entity's draw-chain state --
+     * the exact links p6_vdp1_blit needs for the head (mirrors the tlogo block). The
+     * head's resolved frame (animatorSonic.animationID/frameID) -> GetFrame -> sheetID
+     * -> p6_vdp1_handle_for_surface is the load-bearing link: handle<0 == Title/
+     * Sonic.gif UNBOUND == the head drops (the CP5b.1 RED). visible flips true at
+     * TitleSetup_State_FlashIn. There is ONE TitleSonic entity (Scene1.bin places it
+     * once); take the first live one. */
+    if (TitleSonic && TitleSonic->classID) {
+        foreach_all(TitleSonic, ts2) {
+            p6_w_tsonic_visible  = (int32)ts2->visible;
+            p6_w_tsonic_onscreen = (int32)ts2->onScreen;
+            p6_w_tsonic_animid   = (int32)ts2->animatorSonic.animationID;
+            p6_w_tsonic_frameid  = (int32)ts2->animatorSonic.frameID;
+            SpriteFrame *sfr = RSDK.GetFrame(TitleSonic->aniFrames,
+                ts2->animatorSonic.animationID, ts2->animatorSonic.frameID);
+            p6_w_tsonic_sheetid  = sfr ? (int32)sfr->sheetID : -1;
+            p6_w_tsonic_handle   = sfr ? p6_vdp1_handle_for_surface(sfr->sheetID) : -4;
+            break; /* one TitleSonic entity */
+        }
     }
     /* which TitleSetup state: tag = a small int per state fn (compared by ptr). The
      * state field lives on the ENTITY (slot 0, where TitleSetup_StageLoad self-placed

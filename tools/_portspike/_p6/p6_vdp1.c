@@ -52,22 +52,27 @@
  * (192*96*2 = 36 KB would breach the ~1.2 KB WRAM-H headroom under ANIMPAK);
  * the GHZ build keeps them as the original 64x64 .bss arrays. */
 #if defined(P6_FRONTEND_TITLE)
-/* CP5b.1 (Task #268): the TITLE logo frames are TALLER than the Logos splash
- * frames -- MEASURED from Title/Logo.bin (convert_ring_sprite.parse_spr): the
- * EMBLEM (anim 0 "Logo Wings") is 144x144, the Ribbon Center (anim 3) is 176x52,
- * the Game Title (anim 4) 137x46, the Ribbon Wave (anim 2, shown after FlashIn)
- * 56x72. MAX frame = 176x144. The CP4b 192x96 Logos box would DROP the 144-tall
- * emblem (p6_slot_for: `h > P6_SPR_MAXH` -> oversize drop -> the ring never blits
- * -> the iconic SONIC-MANIA emblem missing). So the TITLE flavor uses a 192x160
- * box (176->192 mult-8 width per jo-sgl-sprite-width-mult8-shear; 144->160 height).
- * A single VDP1 sprite supports 504(W,mult-8)x255(H) per ST-013-R3 sec 6.6, so
- * 176x144 fits ONE sprite each. 8 * 192*160 = 245,760 px < JO_VDP1_USER_AREA_SIZE
- * (0x71D38 = 466,232 B). Same 8 slots (the Title working set = ~6 logo pieces +
- * the electricity ring, below 8 -> no eviction). The DEFAULT (GHZ) build is
- * BYTE-IDENTICAL (64x64x40); a Logos-only build keeps 192x96. */
-#define P6_SPR_MAXW     192 /* Title: widest frame 176 -> mult-8 pad 192 */
-#define P6_SPR_MAXH     160 /* Title: tallest frame 144 (emblem) -> 160 */
-#define P6_VDP1_NSLOTS  8   /* Title working set = ~6 logo pieces + ring; no eviction */
+/* CP5b.1 (Task #268): the TITLE logo frames are taller than the Logos splash --
+ * the EMBLEM (anim 0) is 144x144, Ribbon Center 176x52 -> needs a 192x160 box.
+ * CP5b.2 (Task #269): TitleSonic (the ring-center head, Title/Sonic.bin) is WIDER
+ * still -- MEASURED (convert_ring_sprite.parse_spr): anim 0 "Sonic" (the head/body
+ * pop-up, 49 frames) sweeps up to 241x137 (f30 = 241 wide; f15/f17 = 137 tall;
+ * the leaning mid-poses are wide), anim 1 "Finger Wave" (12 frames) up to 50x63.
+ * OVERALL MAX frame (logo emblem + sonic head) = 241x137. The CP5b.1 192x160 box
+ * would DROP the 241-wide head (p6_slot_for: `w > P6_SPR_MAXW` -> oversize drop ->
+ * the head never blits -> black ring interior, the CP5b.1 logo class). So the TITLE
+ * flavor grows to a 248x160 box (241->248 mult-8 width per jo-sgl-sprite-width-mult8-
+ * shear; 137 fits the 160 that already covered the 144 emblem). A single VDP1 sprite
+ * supports 504(W,mult-8)x255(H) per ST-013-R3 sec 6.6 (CMDSIZE), so 241x137 fits ONE
+ * sprite each. 10 * 248*160 = 396,800 px < JO_VDP1_USER_AREA_SIZE (0x71D38 = 466,232
+ * B). NSLOTS 8->10: the Title working set is now ~6 logo pieces + the electricity ring
+ * + the Sonic head + finger (~9 distinct rects); 10 keeps them resident with no
+ * eviction (the LRU path still handles any overflow gracefully per
+ * ghz-vdp1-sprite-residency-lru). The DEFAULT (GHZ) build is BYTE-IDENTICAL (64x64x40);
+ * a Logos-only build keeps 192x96. */
+#define P6_SPR_MAXW     248 /* Title: widest frame 241 (sonic head) -> mult-8 pad 248 */
+#define P6_SPR_MAXH     160 /* Title: tallest frame 144 (emblem) / 137 (head) -> 160 */
+#define P6_VDP1_NSLOTS  10  /* Title working set = ~6 logo + ring + head + finger; no eviction */
 #elif defined(P6_FRONTEND_LOGOS)
 #define P6_SPR_MAXW     192 /* Logos: widest frame 187 -> mult-8 pad 192 */
 #define P6_SPR_MAXH     96  /* Logos: tallest frame 89 -> 96 */
@@ -207,16 +212,21 @@ static int s_useclock = 0;
  * staging copies have the same producer/consumer and rely on the same property).
  * The DEFAULT (GHZ) build keeps the original 64x64 .bss arrays (byte-identical). */
 #if defined(P6_FRONTEND_TITLE)
-/* CP5b.1 (Task #268): the 192x160 TITLE box makes each buffer 30,720 B (0x7800);
- * 61,440 B total -- relocate them to the SAME verified-free cart window the Logos
- * flavor used (0x226E0000, past the highest cart structure 0x226D4000, before the
- * GFS windows 0x22700000). s_fetch follows s_stage by 0x7800; both end at
- * 0x226EF000, 0x11000 (68 KB) below the GFS windows -- disjoint. Cache-through alias
- * (written by SH-2, DMA'd into VDP1 VRAM by jo; same producer/consumer property as
- * the GHZ staging copies -> no coherency purge). The front-end build never loads
- * GHZ so the pool structures at 0x226D4000 are inert regardless. */
-static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 30,720 B */
-static unsigned char *const s_fetch = (unsigned char *)0x226E7800u; /* 30,720 B */
+/* CP5b.1 (Task #268): the 192x160 TITLE box made each buffer 30,720 B at 0x226E0000.
+ * CP5b.2 (Task #269): the 248x160 box makes each buffer P6_SPR_MAXW*P6_SPR_MAXH =
+ * 248*160 = 39,680 B (0x9B00); 79,360 B total (8bpp, 1 byte/px -- these are PADDED
+ * paletted upload copies, NOT 2 bytes/px). KEPT at the CP5b.1 0x226E0000 window:
+ * TSONIC.SHT is staged BANDED but NOT made resident (the 1024-wide MakeResident
+ * boundary-case HANGS -- see p6_io_main.cpp's TSONIC stage block), so the cart
+ * resident-sheet store stays at its 11-sheet high-water ~0x225E8000, well BELOW these
+ * buffers; and the front-end band store is relocated DOWN to 0x22720000 (SaturnSheet.
+ * cpp), so 0x226E0000 is clear of it too. s_stage @ 0x226E0000 (0xA000 reserved,
+ * covers 39,680), s_fetch @ 0x226EA000 (0xA000) -> ends 0x226F4000, below the GFS
+ * windows (0x22700000) and the resident-store END (also 0x22700000) -- disjoint.
+ * Cache-through alias (written by SH-2, DMA'd into VDP1 VRAM by jo; same producer/
+ * consumer property as the GHZ staging copies -> no coherency purge). */
+static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 39,680 B */
+static unsigned char *const s_fetch = (unsigned char *)0x226EA000u; /* 39,680 B */
 #elif defined(P6_FRONTEND_LOGOS)
 static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 18,432 B */
 static unsigned char *const s_fetch = (unsigned char *)0x226E4800u; /* 18,432 B */
