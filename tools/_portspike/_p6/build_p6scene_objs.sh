@@ -80,7 +80,11 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # #181: P6_WARP_BRIDGE builds the bridge-warp diag variant (pin the player onto
 # the first GHZ1 bridge for a rendered-plank screenshot). Mutually exclusive with
 # P6_WARP/P6_XTEST (build_diag.sh picks exactly one); shipping leaves all unset.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} $CORE_INC \
+# CP4 (Task #265): P6_FRONTEND_LOGOS=1 builds the FRONT-END flavor whose lean
+# tick boots the Logos splash scene instead of GHZ (p6_logos_reload +
+# p6_frontend_frame). Mutually independent of the GHZ diag knobs; the default
+# shipping build leaves it unset -> boots GHZ unchanged.
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -303,6 +307,20 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
         -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
 done
+# CP4 (Task #266): the FRONT-END Logos splash objects, compiled VERBATIM from the
+# cached decomp (SonicMania_Objects_Menu_{LogoSetup,UIPicture}.c) the same w4 way.
+# Only built in the front-end flavor; they link into the OVERLAY (build_shipping.sh
+# [3b]), NOT the pack -- so they are gc-dropped from the pack link regardless. The
+# -Os census knob matches the other game TUs.
+if [ -n "${P6_FRONTEND_LOGOS:-}" ]; then
+    for wfe in Menu_LogoSetup:Game_LogoSetup \
+               Menu_UIPicture:Game_UIPicture; do
+        src_tu="${wfe%%:*}"; out_tu="${wfe##*:}"
+        "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+            $GAME_DEFS -DP6_FRONTEND_LOGOS -I"$GINC" -I"$NEWLIB" \
+            -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
+    done
+fi
 # Integer-only vsprintf shim (rationale in-file: newlib's float closure is
 # 10.2 KB and breached the 0x060C0000 floor by 2,856 B -- MEASURED).
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
@@ -322,7 +340,7 @@ echo "[7l2] p6_ovl_ghz.o (O1 GHZ overlay entry -- Ring + Spring multi-class) ...
 # compile-stripped from the SHIPPING build, the same way the pack's census is. Without
 # this the #ifndef in the overlay never engages -> the scan ships -> fps halves.
 $CC -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} -I"$GINC" -I"$P6" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} -I"$GINC" -I"$P6" -I"$NEWLIB" \
     -c -o "$P6/p6_ovl_ghz.o" "$P6/p6_ovl_ghz.c"
 
 echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding windows; miniz inflate decoder) ..."
@@ -337,7 +355,7 @@ echo "[7o] SaturnSheet.o (P6.7 W12 sprite-sheet band stores; Task #241: P6_CART 
 # invisible). Hardcoded (not ${P6_CART:+...}) because build_shipping.sh never set
 # P6_CART, so shipping silently used the small store. Storage/Scene stay WRAM
 # (env-gated) -- the cart's first 3.64 MB is unused here, so 0x227A0000 is free.
-$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART -I"$DEPS" -I"$NEWLIB" \
+$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnSheet.o" "$PLAT/SaturnSheet.cpp"
 
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
@@ -457,6 +475,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_ac_objcid -u _p6_w_sign_state -u _p6_w_ring_cid \
     -u _p6_w_ac_laststate -u _p6_w_listpos_max \
     -u _p6_w_mount_tag -u _p6_w_mount_listpos \
+    -u _p6_w_frontend_folder_tag -u _p6_w_logosetup_classid \
+    -u _p6_w_uipicture_classid -u _p6_w_logos_objcount \
+    ${P6_FRONTEND_LOGOS:+-u _p6_w_uipicture_aniframes -u _p6_w_uipicture_framesNN} \
     -u _p6_w_sign_crossed \
     -u _p6_w_sign_count -u _p6_w_sign_type -u _p6_w_sign_posx \
     -u _p6_w_cart_ok -u _p6_w_cart_rb0 -u _p6_w_cart_rb1 \

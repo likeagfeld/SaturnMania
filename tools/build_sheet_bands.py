@@ -77,6 +77,12 @@ SHEETS = [
     # 0x06000956). REVERTED to the 9-sheet staged set; the badnik fix is solely
     # P6_VDP1_NSHEETS 9->12 (binds GHZ/Objects.gif = surf 16). Explosions/Animals keep
     # their stock resident-pixel decode (Sprite.cpp:994) -- which already renders.
+    # CP4 (#266): the FRONT-END Logos splash sheet (UIPicture's Logos.gif, 512x256,
+    # ~6.4 KB banded). Staged only by the P6_FRONTEND_LOGOS boot into its 10th
+    # SaturnSheet slot (build_p6scene_objs.sh -DP6_FRONTEND_LOGOS -> SATURNSHEET_SLOTS
+    # 10); the GHZ shipping build never loads it. Emitted here so the front-end asset
+    # is part of the normal offline asset build (cd/ is .gitignored = regenerated).
+    ("Logos/Logos.gif", "LOGOS.SHT"),
 ]
 
 

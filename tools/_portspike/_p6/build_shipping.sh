@@ -91,11 +91,19 @@ cd "$P6"   # ovl_ring.ld names input objects by basename (the build_diag rule)
 # (set after the overlay entry runs), the #258b Ring_LoseRings pattern verbatim. The
 # badniks' Player_CheckBadnik*/ProjectileHurt refs import from game.elf via -R (pack,
 # -u rooted). Explosion/Animals register from the overlay entry (overlay-resident).
+# CP4 (Task #266): the front-end flavor adds the Logos splash objects to the
+# overlay so they link against game.elf via -R (same as every other overlay obj).
+# Default (GHZ) flavor leaves OVL_FE empty -> the overlay is byte-identical.
+OVL_FE=""
+if [ -n "${P6_FRONTEND_LOGOS:-}" ]; then
+    OVL_FE="Game_LogoSetup.o Game_UIPicture.o"
+fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
     Game_Decoration.o Game_ForceSpin.o Game_SpinBooster.o \
     Game_BadnikHelpers.o Game_Explosion.o Game_Animals.o \
     Game_Newtron.o Game_Crabmeat.o Game_BuzzBomber.o Game_Chopper.o Game_Motobug.o Game_Batbrain.o \
+    $OVL_FE \
     -b coff-sh -R /work/game.elf -o ovl_ring.elf
 $OBJCOPY -O binary "$P6/ovl_ring.elf" /work/cd/OVLRING.BIN
 ls -l /work/cd/OVLRING.BIN
@@ -110,4 +118,17 @@ grep " _end = " game.map
 grep -m1 " _p6_engine_boot_and_run" game.map || true
 grep -m1 " _p6_lean_boot" game.map || true
 grep -m1 "p6_overlay_entry" "$P6/ovl_ring.map" || true
+# CP4 (Task #265/#266): in the front-end flavor, confirm the new witnesses landed
+# in game.map (build_p6scene_objs.sh SWALLOWS compile errors -> a stale .o would
+# leave them ABSENT; that is the silent-fail signature this grep catches) + the
+# Logos objects landed in the overlay.
+if [ -n "${P6_FRONTEND_LOGOS:-}" ]; then
+    echo "[5b] CP4 front-end symbol presence:"
+    grep -m1 "p6_w_frontend_folder_tag$" game.map || echo "  MISSING p6_w_frontend_folder_tag (compile failed silently?)"
+    grep -m1 "p6_w_logosetup_classid$"   game.map || echo "  MISSING p6_w_logosetup_classid"
+    grep -m1 "p6_w_uipicture_classid$"   game.map || echo "  MISSING p6_w_uipicture_classid"
+    grep -m1 "p6_w_logos_objcount$"      game.map || echo "  MISSING p6_w_logos_objcount"
+    grep -m1 "LogoSetup_Update"  "$P6/ovl_ring.map" || echo "  MISSING LogoSetup in overlay"
+    grep -m1 "UIPicture_Update"  "$P6/ovl_ring.map" || echo "  MISSING UIPicture in overlay"
+fi
 echo "DONE [shipping image built: game.iso/game.cue + cd/OVLRING.BIN]."

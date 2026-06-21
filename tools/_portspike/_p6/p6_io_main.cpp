@@ -722,6 +722,29 @@ __attribute__((used)) int32 p6_w_cont_frames    = 0;  // ++ per p6_ghz_frame() c
 __attribute__((used)) int32 p6_w_cont_plr_x     = 0;  // SLOT_PLAYER1 position, continuous
 __attribute__((used)) int32 p6_w_cont_plr_y     = 0;
 __attribute__((used)) int32 p6_w_cont_animid    = -1; // SLOT_PLAYER1 animator.animationID
+// CP4 FRONT-END KEYSTONE (Task #265/#266, qa_engine_logos.py E1-E4): prove the
+// engine LoadScene + run path serves a NON-GHZ UI scene (the Logos splash) via
+// the SAME chain that runs GHZ -- behind -DP6_FRONTEND_LOGOS so the default
+// shipping build still boots GHZ. frontend_folder_tag = a 2-char tag ('L'<<8|'o')
+// of the loaded scene's folder, set in p6_logos_reload where the GHZ select
+// otherwise runs (E1: != 0 == a non-GHZ folder is the active scene). logosetup/
+// uipicture_classid = the overlay-registered classIDs (written by the overlay
+// witness via -R; E2/E3 > 0 == the port linked + resolved). logos_objcount = the
+// live-classID scene-entity census after InitObjects for the Logos scene
+// (E4: > 0 == the 4 UIPicture placements instantiated through the generic chain).
+__attribute__((used)) int32 p6_w_frontend_folder_tag = 0;
+__attribute__((used)) int32 p6_w_logosetup_classid   = 0;
+__attribute__((used)) int32 p6_w_uipicture_classid   = 0;
+__attribute__((used)) int32 p6_w_logos_objcount      = 0;
+#if defined(P6_FRONTEND_LOGOS)
+// CP4b render diag (front-end only): UIPicture->aniFrames (LoadSpriteAnimation
+// ("Logos/Logos.bin") result; -1 == load FAILED == the anim half of the render
+// chain is the gap; >= 0 == anim loaded so the gap is downstream (sheet bind /
+// palette / position)). + the first live UIPicture entity's animator.frames!=NULL
+// (0 == SetSpriteAnimation found no frame table = sprite can't draw).
+__attribute__((used)) int32 p6_w_uipicture_aniframes = -2;
+__attribute__((used)) int32 p6_w_uipicture_framesNN  = -1;
+#endif
 // #181 GHZ Bridge witnesses (set by the game-side p6_brg_witness(),
 // p6_wave1_reg.c -- only that TU has the Bridge class type/global). classid>0 +
 // count>0 is the RED->GREEN gate (Bridge ported + registered + instantiated).
@@ -3046,6 +3069,30 @@ extern "C" void p6_scene_run(void)
                 }
             }
         }
+#if defined(P6_FRONTEND_LOGOS)
+        // CP4 (Task #266): stage LOGOS.SHT (Logos/Logos.gif, the 4-logo splash sheet,
+        // 512x256 banded ~6.4 KB) into the 10th SaturnSheet slot so UIPicture's
+        // DrawSprite resolves a banded slot + the p6_ghz_arm_env bind loop binds it
+        // to VDP1 -> the logos actually blit. Path hash = "Logos/Logos.gif" (what the
+        // engine LoadSpriteSheet computes for UIPicture's sheet). Front-end only; the
+        // GHZ flavor never reaches this. (Built offline by tools/build_sheet_bands.py
+        // build_one("Logos/Logos.gif","LOGOS.SHT").)
+        {
+            int sn = rsdk_storage_load_to_lwram("LOGOS.SHT",
+                                                (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("Logos/Logos.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
+                }
+            }
+        }
+#endif
 
 #include "p6_sheet_probes.inc"
         // W12b: fixed-window scratch (P6_HW_GROUPWIN tail), was 4 KB .bss
@@ -4192,6 +4239,26 @@ static void p6_scene_load_and_arm(void)
     int32 p6_folderReload =
         (strcmp(currentSceneFolder, sceneInfo.listData[sceneInfo.listPos].folder) == 0
          && !forceHardReset);
+    // CP4 (Task #265): the GHZ-tilemap-specific arm steps (cell upload, the
+    // 0x060E0000 collision-pack hash, the camera-local pool scan-index/compact,
+    // the resident layout pre-inflate, the stage BGM) only apply to a gameplay
+    // tilemap scene. A non-GHZ UI scene (the Logos splash) is UIPicture sprites
+    // over a fade with NO gameplay FG layer + NO <TAG>LAYT.BIN band store, so
+    // those steps are skipped for it (the band mount below already no-ops safely
+    // when the LAYT.BIN is absent). Guard on folder == "GHZ" -- the only tilemap
+    // gameplay folder this build loads today. p6_scene_load_and_arm thus serves
+    // BOTH the GHZ load+arm and a generic UI scene load.
+    // COMPILE-TIME CONSTANT in the DEFAULT (GHZ) build (always 1 -> the runtime
+    // strcmp + the !p6_isGHZ branches fold away to ZERO code) so the shipping GHZ
+    // image stays byte-identical (the #228 _end<ANIMPAK budget is only ~48 B; a
+    // live strcmp + census would breach it). Only the front-end flavor pays the
+    // runtime test + the UI-scene skips.
+#if defined(P6_FRONTEND_LOGOS)
+    int32 p6_isGHZ =
+        (strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "GHZ") == 0);
+#else
+    const int32 p6_isGHZ = 1; // DEFAULT build only ever loads GHZ here
+#endif
     // F.2: (re)mount the windowed band store for the zone being loaded BEFORE
     // LoadSceneFolder's SaturnLayout_Bind (Scene.cpp:439/444). No-op on a same-
     // zone reload (tag match); swaps GHZ1<->GHZ2 on a cross-zone act advance.
@@ -4219,7 +4286,10 @@ static void p6_scene_load_and_arm(void)
     // re-decoding the tileset, so tilesetPixels is stale and the first load's cells
     // are still resident in NBG1 VRAM. Uploading here would garble the FG.
     p6_w_load_step = 32; // #251 phase-2: VDP2 cell upload
-    if (!p6_folderReload)
+    // CP4: skip for a non-GHZ UI scene -- the Logos placeholder tileset is a
+    // 1731 B no-content GIF, and the UI scene draws via UIPicture VDP1 sprites,
+    // not NBG1 cells. (The GHZ same-folder reload skip is unchanged.)
+    if (!p6_folderReload && p6_isGHZ)
         p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
     p6_w_load_step = 33; // #251 phase-2: LoadSceneAssets (sprite sheets)
     LoadSceneAssets();
@@ -4259,6 +4329,24 @@ static void p6_scene_load_and_arm(void)
     // the first tick) so the phantom never executes an Update -> shared buffers stay
     // clean. ResetEntity(.,0,.) == destroyEntity (memset + classID=TYPE_BLANK=0).
     p6_purge_scene_players();
+    // CP4 (Task #266, qa_engine_logos E4): census the live-classID scene entities
+    // the generic InitObjects chain just instantiated for the LOGOS scene (the 4
+    // UIPicture placements). LATCH on the Logos folder + never overwrite -- the
+    // decomp LogoSetup auto-advances (RSDK.LoadScene -> ++listPos -> Title) after
+    // the logos play, which would re-enter this with the NEXT scene's count (0,
+    // since Title objects aren't registered yet) and clobber the measurement. The
+    // first Logos load's count is the E4 evidence. > 0 proves the Logos Scene1.bin
+    // placements created through the SAME LoadScene path GHZ uses.
+#if defined(P6_FRONTEND_LOGOS)
+    if (p6_w_logos_objcount == 0
+        && !strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "Logos")) {
+        int32 nf = 0;
+        for (int32 s = 0; s < SCENEENTITY_COUNT; ++s)
+            if (RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + s)->classID)
+                ++nf;
+        p6_w_logos_objcount = nf;
+    }
+#endif
     p6_i2_selfcheck(); // P6.8 I2: assert slot->pool indirection is 1:1 (byte-identical)
     p6_scan_index_build(); // P6.8 I3c: sorted-by-x scene-entity index for the loop1 spatial cull
     // I3b SHRINK measurement (read-only, one-shot): walk the full scene region, count populated +
@@ -4278,7 +4366,10 @@ static void p6_scene_load_and_arm(void)
     // guard); first arm = GHZ1. p6_scan_index_build (above) built the sorted index p6_scan_update_near
     // needs. LOAD-ONLY for now -> qa_p6_pool_shrink GREEN (pool shrunk) but R0-R16 RED (far entities the
     // camera later reaches stay dormant); Build 2's per-frame materialize/dormant turns R0-R16 GREEN.
-    {
+    // CP4: the camera-local pool COMPACT relocates the scene region into a dense
+    // physical pool for the GHZ scan/fps win -- it is gameplay-pool machinery and
+    // is skipped for a non-GHZ UI scene (the 4 Logos entities don't need it).
+    if (p6_isGHZ) {
         static int s_compact_done = 0;
         if (!s_compact_done && s_ovl.compact_fn) {
             s_compact_done = 1;
@@ -4303,7 +4394,10 @@ static void p6_scene_load_and_arm(void)
     // cart resident store before the first p6_ghz_frame Refill. No-op when the
     // resident path is disabled or scratch is unarmed. (Declared file-scope above.)
     p6_w_load_step = 36; // #251 phase-2: resident layout pre-inflate (538KB into cart)
-    SaturnLayout_PreInflateResident();
+    // CP4: no band store is mounted for a non-GHZ UI scene (Logos has no
+    // <TAG>LAYT.BIN) so the pre-inflate would no-op anyway; skip it explicitly.
+    if (p6_isGHZ)
+        SaturnLayout_PreInflateResident();
     p6_w_load_step = 37; // #251 phase-2: done (first p6_ghz_frame imminent)
     // #182: trigger the STAGE BGM now that the scene is live. The continuous-GHZ
     // shipping boot never called PlayStream (p6_w_str_track stayed -1) -> the level
@@ -4418,6 +4512,94 @@ static void p6_ghz_reload(void)
     p6_scene_load_and_arm();
     p6_ghz_continuous_armed = 1;
 }
+
+#if defined(P6_FRONTEND_LOGOS)
+// =============================================================================
+// CP4 (Task #265): p6_logos_reload -- the FRONT-END mirror of p6_ghz_reload.
+// Selects the Logos scene (folder "Logos") the SAME way the GHZ reload selects
+// GHZ -- scan every category range for the folder name (no listPos assumption;
+// the engine GameConfig orders it) -- then load+arm through the generic
+// p6_scene_load_and_arm (its GHZ-tilemap steps no-op for the non-GHZ scene).
+// Sets p6_w_frontend_folder_tag to a 2-char tag of the loaded folder (gate E1).
+// Behind -DP6_FRONTEND_LOGOS: the default shipping build never compiles this and
+// boots GHZ unchanged. =============================================================
+static void p6_logos_reload(void)
+{
+    int32 found = 0;
+    for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
+        SceneListInfo *cat = &sceneInfo.listCategory[c];
+        for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+            if (!strcmp(sceneInfo.listData[i].folder, "Logos")) {
+                sceneInfo.activeCategory = c;
+                sceneInfo.listPos        = i;
+                found                    = 1;
+                break;
+            }
+        }
+    }
+    if (!found)
+        return;
+    // E1: tag the loaded folder's first two chars ('L'<<8 | 'o' = 0x4C6F).
+    {
+        const char *f = sceneInfo.listData[sceneInfo.listPos].folder;
+        p6_w_frontend_folder_tag =
+            (int32)(((uint32)(uint8)f[0] << 8) | (uint32)(uint8)(f[0] ? f[1] : 0));
+    }
+    p6_scene_load_and_arm();
+    p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
+}
+
+// =============================================================================
+// CP4 (Task #265): p6_frontend_frame -- the GENERIC per-frame tick for a non-GHZ
+// UI scene. p6_ghz_frame is GHZ-FG-present-specific (p6_present_kick/join the
+// VDP2 NBG1 band store, the dual-SH2 fork, the band-crossing logic) -- none of
+// which applies to a UI scene with no FG layer. This runs only the engine's own
+// per-frame core: ProcessInput -> ProcessObjects -> ProcessObjectDrawLists (the
+// latter emits the UIPicture VDP1 sprite commands jo's loop then swaps), plus the
+// Ring->overlay global rewire seam and the overlay witness call (so the front-end
+// classID witnesses get written). Bumps p6_w_cont_frames (gate E5 == reached
+// ENGINESTATE_REGULAR + ticking). The ENGINESTATE_LOAD dispatch is also handled
+// so LogoSetup_State_NextLogos' RSDK.LoadScene() (advance to Title) re-arms.
+// =============================================================================
+static void p6_frontend_frame(void)
+{
+    currentScreen = &screens[0];
+    for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
+        engine.drawGroupVisible[g] = true;
+    // Point the pack Ring/Animals globals at the overlay's registered objects
+    // (the F.3/#235 seam) -- harmless on the UI scene (no Ring/Animals placed).
+    if (s_ovl.staticvars_slot && *(void **)s_ovl.staticvars_slot)
+        Ring = *(void **)s_ovl.staticvars_slot;
+    if (s_ovl.animals_slot && *(void **)s_ovl.animals_slot)
+        Animals = *(void **)s_ovl.animals_slot;
+
+    // CP4 SCOPE: LogoSetup auto-advances (RSDK.LoadScene -> ++listPos -> Title)
+    // once all 4 logos have displayed. The Title scene's objects are NOT ported
+    // yet, so advancing there would just blank the screen. For the CP4 keystone +
+    // splash screenshot we HOLD on the Logos scene: swallow the transition request
+    // (reset state back to REGULAR so the scene keeps ticking + the last logo stays
+    // on screen). When Title/Menu are ported, this guard lifts and the front-end
+    // chains Logos -> Title by the same p6_scene_load_and_arm path the GHZ
+    // transition already uses (proven by F.1/F.2). The witness still records that
+    // the advance FIRED (p6_w_transitions) so the chain readiness is measurable.
+    if (sceneInfo.state == ENGINESTATE_LOAD) {
+        ++p6_w_transitions;
+        sceneInfo.state = ENGINESTATE_REGULAR; // hold the splash; do not load Title (unported)
+    }
+
+    ProcessInput();
+    ProcessObjects();
+    ProcessSceneTimer();
+    ProcessObjectDrawLists(); // emits the UIPicture VDP1 sprite list (jo swaps it)
+
+    ++p6_w_cont_frames; // E5: engine reached ENGINESTATE_REGULAR + is ticking
+
+    // Write the front-end classID witnesses (E2/E3) -- the overlay's witness fn
+    // latches LogoSetup/UIPicture->classID via the -R import (p6_ghz_ovl_witness).
+    if (s_ovl.witness_fn)
+        s_ovl.witness_fn(RSDK_ENTITY_AT(P6_OBJ_RING_SLOT));
+}
+#endif // P6_FRONTEND_LOGOS
 
 // =============================================================================
 // P6.8 Step B (Task #211): p6_engine_boot_and_run -- the LEAN engine SHIPPING
@@ -4675,16 +4857,39 @@ extern "C" void p6_scene_tick(void)
     // frame. Subsequent ticks take the armed fast path below. Gated on
     // p6_lean_boot so the diag tick is unchanged.
     if (p6_lean_boot && !p6_ghz_continuous_armed) {
+#if defined(P6_FRONTEND_LOGOS)
+        // CP4 (Task #265): the FRONT-END flavor boots the Logos splash scene
+        // instead of GHZ -- same lean-tick shape (select + load+arm on the first
+        // live tick, then run the scene frame), routed to the front-end fns.
+        p6_logos_reload();
+        if (p6_ghz_continuous_armed)
+            p6_frontend_frame();
+        return;
+#else
         p6_ghz_reload();
         if (p6_ghz_continuous_armed)
             p6_ghz_frame();
         return;
+#endif
     }
     // P6.8 Step A (Task #211): once GHZ is the final live scene, drive the
     // engine GHZ frame every jo frame and RETURN -- the legacy Ring block is
     // skipped while armed (it stays reachable for the pre-switch legacy frames
     // so the Ring-proof gates capture their witnesses first).
     if (p6_ghz_continuous_armed) {
+#if defined(P6_FRONTEND_LOGOS)
+        // CP4 (Task #265): the front-end flavor runs the generic UI-scene frame
+        // every armed tick (it handles the ENGINESTATE_LOAD advance-to-Title
+        // internally). The GHZ-specific transition tests + FG-present below + the
+        // legacy-Ring tail are NOT COMPILED in this flavor -- that drops the large
+        // p6_ghz_frame/p6_ghz_reload + Ring-proof code from the gc, reclaiming the
+        // WRAM-H the front-end fns + guards added (the #228 _end<ANIMPAK budget).
+        p6_frontend_frame();
+        return;
+    }
+    return; // front-end: the lean-boot first tick already armed; no legacy path.
+}
+#else
 #if defined(P6_TRANSITION_TEST)
         // P6.8 Step F.2 RED gate: inject a ONE-SHOT ACT ADVANCE (GHZ1 -> GHZ2)
         // at a fixed continuous-frame count to exercise the full cross-zone
@@ -4802,6 +5007,7 @@ extern "C" void p6_scene_tick(void)
             s_ovl.witness_fn(RSDK_ENTITY_AT(P6_OBJ_RING_SLOT));
     }
 }
+#endif // !P6_FRONTEND_LOGOS (the GHZ-armed body + legacy-Ring tail)
 #endif // P6_SCENE_TEST
 
 // ---- Path 2 (io-jo): the file-I/O body jo_main() calls AFTER jo_core_init ----

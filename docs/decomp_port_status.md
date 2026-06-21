@@ -873,3 +873,110 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/Unused/WallCrawl.c | NOT_STARTED | src/mania/Objects/Unused/WallCrawl.c | Phase Z: unused / cut content |
 | SonicMania/Objects/Unused/Wisp.c | NOT_STARTED | src/mania/Objects/Unused/Wisp.c | Phase Z: unused / cut content |
 
+---
+
+## CP4 FRONT-END KEYSTONE PLAN (2026-06-20) — engine LoadScene of a non-GHZ (Logos) scene
+
+**Goal.** Prove the P6.8 engine LoadScene + run path serves a NON-gameplay
+UI scene (the Logos Sega/RSDK splash), through the SAME chain that runs GHZ.
+Once GREEN, Title/Menu/intro/transitions all load by the same path (just a
+different folder). Behind a NEW compile flag `P6_FRONTEND_LOGOS` so the
+DEFAULT shipping build still boots GHZ unchanged (qa_p6_ghz_regression must
+stay GREEN).
+
+**Gate.** `tools/_portspike/qa_engine_logos.py` (E1-E5). RED baseline
+confirmed 2026-06-20 (4/5 witnesses absent from game.map).
+
+**Docs consulted (skill methodology §1-3).** complete-doc-index.md (whole);
+VDP1 = ST-013-R3 + vdp1-reference.md (UIPicture DrawSprite->VDP1 sprite);
+VDP2 = ST-058-R2 (backdrop/cell — the Logos scene has NO real FG tilemap, so
+the cell upload is a no-op for it); SGL = ST-238-R1 (slDispSprite contract).
+
+**Asset facts (MEASURED on disk).**
+- `extracted/Data/Stages/Logos/`: Scene1.bin 362 B, 16x16Tiles.gif 1731 B
+  (placeholder), StageConfig.bin 203 B, TileConfig.bin 110 B. This is NOT a
+  tilemap-driven scene -- it is UIPicture sprites over a FillScreen fade.
+- `docs/scene_census.json` Logos/Scene1.bin: object_count 3
+  (`875e224b` unmapped@0 instances, LogoSetup@0, UIPicture@4), entity_total 4.
+  UIPicture placements: frameID 0 @ (256,120); 1 @ (164,316); 2 @ (364,312);
+  3 @ (252,412). The 4 logos stack vertically; LogoSetup scrolls the screen
+  down through them with a fade.
+- `extracted/Data/Sprites/Logos/Logos.gif` = the 4 logos: SEGA / PagodaWest /
+  Christian Whitehead / HeadCannon. `Logos.bin` is the sprite animation
+  LogoSetup_StageLoad + UIPicture_StageLoad both load ("Logos/Logos.bin").
+
+**Decomp closure (CLEAN).** LogoSetup.c (158 L) only object dep is UIPicture
+(no CreateEntity of others). Engine deps all implemented: GetSfx/LoadSprite-
+Animation/PlaySfx/LoadScene/ResetEntitySlot, globals playerID/sku_region,
+ControllerInfo, ScreenInfo/SceneInfo. FillScreen is a NO-OP stub in this port
+(p6_stubs.cpp:204) -> the fade is not drawn, but the UIPicture logo SPRITES
+render via DrawSprite->VDP1 (the implemented GHZ-ring/Sonic path). LoadImage
+(CESA, JP-only) is not reached (sku_region != REGION_JP). UIPicture.c (114 L):
+ProcessAnimation + DrawSprite + (CopyPalette only when zonePalette set; the
+Logos placements leave it 0 -> skipped).
+
+### CP4a (the keystone): boot + run Logos on the engine
+- New flag `P6_FRONTEND_LOGOS` threaded through build_p6scene_objs.sh like the
+  existing P6_GHZ2_BOOT/P6_STREAM_PROOF env knobs (-> -DP6_FRONTEND_LOGOS).
+- `p6_scene_tick` first lean tick: under the flag call `p6_logos_reload()`
+  (select folder "Logos" via the category scan, the GHZ-select mirror) instead
+  of `p6_ghz_reload()`; then run `p6_frontend_frame()` (a generic ProcessInput
+  -> ProcessObjects -> ProcessObjectDrawLists -> present loop that bumps
+  p6_w_cont_frames) instead of the GHZ-FG-present `p6_ghz_frame`.
+- `p6_scene_load_and_arm` GHZ-tilemap steps GUARDED for the UI scene via a
+  `folder=="GHZ"` test: skip the 0x060E0000 collision-hash, the resident
+  pre-inflate, the GHZ scan-index/pool-compact, and the GHZ BGM. The band-store
+  mount (`p6_layout_mount_for_scene`) already no-ops safely when <TAG>LAYT.BIN
+  is absent (Logos has none -> rsdk_storage_load_to_lwram returns <=0 -> the
+  `if(b>0 && Mount>0)` guard skips). The VDP2 cell upload is harmless (1731 B
+  placeholder) but also skipped for non-GHZ.
+- Witnesses added (pack `__attribute__((used)) int32`, -u-rooted): 
+  `p6_w_frontend_folder_tag` (2-char tag of the selected folder, e.g. 'L'<<8|'o'),
+  `p6_w_logosetup_classid`, `p6_w_uipicture_classid`, `p6_w_logos_objcount`.
+- Gate target: E1 (folder_tag != 0) + E5 (cont_frames > 0).
+
+### CP4b (the render): port LogoSetup + UIPicture into the overlay
+- Port both decomp files VERBATIM as Game_LogoSetup.o / Game_UIPicture.o (the
+  w4 build-loop pattern), link into OVLRING.BIN, register via
+  register_object_full from p6_ovl_ghz.c's entry. classIDs resolve in
+  registration order.
+- The overlay witness fn writes p6_w_logosetup_classid / p6_w_uipicture_classid
+  (the p6_w_spring_classid pattern). p6_w_logos_objcount set in
+  p6_scene_load_and_arm after InitObjects (live-classID scene-entity census,
+  the GHZ entcount mirror).
+- Gate target: E2/E3 (classids > 0) + E4 (objcount > 0) + a SCREENSHOT of the
+  splash (>=1 logo sprite rendered).
+
+**Acceptance.** qa_engine_logos.py E1-E5 all GREEN on a P6_FRONTEND_LOGOS
+capture; qa_p6_mapoverlap.py GREEN (_end < ANIMPAK 0x060B6C00) on that build;
+qa_p6_ghz_regression.py R0-R16 GREEN on the DEFAULT (no-flag) build; splash
+screenshot saved.
+
+### RESULT (2026-06-20) — measured
+
+- **CP4a keystone: DONE, all GREEN.** Front-end flavor (P6_FRONTEND_LOGOS):
+  - qa_engine_logos.py E1 folder_tag=19567 ('Lo'), E2 logosetup_classid=2,
+    E3 uipicture_classid=3, E4 logos_objcount=4, E5 cont_frames=1216 — ALL GREEN.
+  - qa_p6_mapoverlap.py GREEN: _end 0x060B6640 < ANIMPAK 0x060B6C00 (1472 B headroom).
+- **DEFAULT (GHZ) shipping build: NOT regressed.** qa_p6_ghz_regression.py
+  R0-R16 all GREEN (boot health, Bridge/Spring/SpikeLog/PlaneSwitch reg + anim
+  loads + VDP1 binds + no alloc-fails). qa_p6_mapoverlap GREEN: _end 0x060B6BA0
+  < ANIMPAK (96 B headroom). The CP4 code is compile-isolated to the front-end
+  flavor (`#if defined(P6_FRONTEND_LOGOS)`); the GHZ build is byte-near-identical.
+- **CP4b render (splash PIXELS): REMAINING GAP, root cause narrowed.** The 4
+  UIPicture entities load + instantiate (E4=4), the Logos.bin animation loads
+  (UIPicture->aniFrames=0, not -1), and a live UIPicture entity has a frame table
+  (animator.frames != NULL). LOGOS.SHT (Logos.gif, 512x256, 6.4 KB banded) is
+  built + staged into the 10th SaturnSheet slot with the path hash "Logos/Logos.gif"
+  (verified = the exact path string inside Logos.bin). BUT the sprite pixels still
+  do NOT blit -- the screen stays uniform blue (tools/_portspike/_logos_splash.png).
+  Every render-chain link is confirmed GREEN EXCEPT the final VDP1 sheet bind/draw:
+  the surface->banded-slot->VDP1-handle resolution for the Logos sheet (and/or the
+  Logos palette into fullPalette[0]) is the unresolved link. Leading hypothesis:
+  the Logos gfxSurface's saturnSheetSlot isn't resolving to the staged slot at
+  bind time, OR the active palette is the GHZ one. NEXT: witness the Logos
+  surface's saturnSheetSlot + p6_vdp1HandleBySurface[] after p6_ghz_arm_env, and
+  the active palette djb2, to localise which of the two it is.
+- LOGOS.SHT added to tools/build_sheet_bands.py SHEETS so the asset regenerates
+  (cd/ is .gitignored).
+

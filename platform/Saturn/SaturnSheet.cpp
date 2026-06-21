@@ -50,7 +50,17 @@ typedef signed int int32;
 // the cart). Map: [[cart-4mb-extram-measured-map]]. The VDP2 0x25E44000 window
 // is the non-cart fallback (kept so a hypothetical non-P6_CART build still
 // links + boots; it stages only the 6 that fit).
-#define SATURNSHEET_SLOTS     9 // #247/#181: +GHZOBJ (GHZ/Objects.gif) = the GHZ content sheet.
+// #247/#181: 9 GHZ content sheets. CP4 (#266): the FRONT-END flavor adds a 10th slot
+// for LOGOS.SHT (Logos.gif splash). KEPT 9 in the DEFAULT (GHZ) build so its s_sheets[]
+// is byte-identical -- the default shipping _end is only ~48 B under the #228 ANIMPAK
+// floor, so the 32 B of an unconditional 10th slot would breach it. Only the
+// P6_FRONTEND_LOGOS build (which gc-drops the large p6_ghz_frame/reload -> ~1.6 KB of
+// headroom) carries the extra slot. NSHEETS=12 (VDP1 bind table) is unchanged either way.
+#if defined(P6_FRONTEND_LOGOS)
+#define SATURNSHEET_SLOTS     10
+#else
+#define SATURNSHEET_SLOTS     9
+#endif
                                  // BADNIK-VIS: kept at 9 (NOT grown for EXPLODE/ANIMALS) -- growing
                                  // it AND P6_VDP1_NSHEETS together tripped the #228 orphan-.bss
                                  // overlap that corrupts the GFS GfsMng ptr (boot trap 0x06000956).

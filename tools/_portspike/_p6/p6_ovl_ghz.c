@@ -64,6 +64,17 @@ extern ObjectBuzzBomber *BuzzBomber;
 extern ObjectChopper *Chopper;
 extern ObjectMotobug *Motobug;
 extern ObjectBatbrain *Batbrain;
+/* CP4 FRONT-END KEYSTONE (Task #265/#266): the Logos splash objects. Registered
+ * only in the -DP6_FRONTEND_LOGOS overlay flavor (their Game_*.o are linked into
+ * the overlay only in that build) -- guarded so the default GHZ overlay does not
+ * reference them. LogoSetup_StageLoad loads "Logos/Logos.bin" (the 4-logo sheet)
+ * + spawns itself at slot 0; UIPicture draws each logo via DrawSprite->VDP1. */
+#if defined(P6_FRONTEND_LOGOS)
+extern ObjectLogoSetup *LogoSetup;
+extern ObjectUIPicture *UIPicture;
+extern int32 p6_w_logosetup_classid, p6_w_uipicture_classid; /* pack witnesses, ld -R */
+extern int32 p6_w_uipicture_aniframes, p6_w_uipicture_framesNN; /* CP4b render diag */
+#endif
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
 extern int32 p6_w_explosion_aniframes; /* Explosion->aniFrames (load-status latch) */
 extern int32 p6_w_animals_aniframes;   /* Animals->aniFrames */
@@ -171,6 +182,20 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntitySpikes), (unsigned)sizeof(ObjectSpikes),
                               Spikes_Update, Spikes_LateUpdate, Spikes_StaticUpdate,
                               Spikes_Draw, Spikes_Create, Spikes_StageLoad, Spikes_Serialize);
+#if defined(P6_FRONTEND_LOGOS)
+    /* CP4: the Logos splash objects. Register order is irrelevant (the engine
+     * LoadGameConfig matches by md5(name)); these resolve their classIDs the same
+     * registration-time way Spring/Ring do. NULL editor callbacks (GAME_INCLUDE_
+     * EDITOR off) -- matches the verbatim RSDK_REGISTER_OBJECT non-editor arm. */
+    api->register_object_full((void **)&LogoSetup, "LogoSetup",
+                              (unsigned)sizeof(EntityLogoSetup), (unsigned)sizeof(ObjectLogoSetup),
+                              LogoSetup_Update, LogoSetup_LateUpdate, LogoSetup_StaticUpdate,
+                              LogoSetup_Draw, LogoSetup_Create, LogoSetup_StageLoad, LogoSetup_Serialize);
+    api->register_object_full((void **)&UIPicture, "UIPicture",
+                              (unsigned)sizeof(EntityUIPicture), (unsigned)sizeof(ObjectUIPicture),
+                              UIPicture_Update, UIPicture_LateUpdate, UIPicture_StaticUpdate,
+                              UIPicture_Draw, UIPicture_Create, UIPicture_StageLoad, UIPicture_Serialize);
+#endif
     /* MASS-PORT BATCH 1 (verified-CLEAN drop-ins; closure self-confirmed: only
      * Zone/Player/SceneInfo/DebugMode/Zone_RotateOnPivot, all ported). Decoration =
      * GHZ scenery; ForceSpin/ForceUnstick/SpinBooster = player-state trigger regions
@@ -287,6 +312,20 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * (int16)-cast so a -1 (0xFFFF) load failure reads as -1, not 65535. */
     if (Ring) p6_w_ring_aniframes = (int32)(int16)Ring->aniFrames;
     if (Ring && Ring->classID) p6_w_ring_classid = (int32)Ring->classID;
+#if defined(P6_FRONTEND_LOGOS)
+    /* CP4 (E2/E3): latch the front-end classIDs once they resolve. Called from
+     * p6_frontend_frame each tick (the api->witness_fn seam). */
+    if (LogoSetup && LogoSetup->classID) p6_w_logosetup_classid = (int32)LogoSetup->classID;
+    if (UIPicture && UIPicture->classID) p6_w_uipicture_classid = (int32)UIPicture->classID;
+    /* CP4b render diag: did UIPicture's Logos.bin animation load + does a live
+     * UIPicture entity have a frame table? (int16-cast so -1 reads as -1.) */
+    if (UIPicture) p6_w_uipicture_aniframes = (int32)(int16)UIPicture->aniFrames;
+    {
+        EntityUIPicture *up = NULL;
+        foreach_all(UIPicture, e) { up = e; break; }
+        if (up) p6_w_uipicture_framesNN = (up->animator.frames != NULL) ? 1 : 0;
+    }
+#endif
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;
     {   /* Batch 1: count how many of the 4 clean objects registered (classID>0). */
         int32 b1 = 0;
