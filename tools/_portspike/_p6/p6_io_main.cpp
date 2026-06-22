@@ -1119,6 +1119,17 @@ __attribute__((used)) int32 p6_w_perf_v1_busy = 0;  // frames VDP1 still drawing
 __attribute__((used)) int32 p6_w_perf_v1_copr = 0;  // last COPR when busy (cmd-list progress)
 __attribute__((used)) int32 p6_w_perf_v1_lopr = 0;  // last LOPR when busy (cmd-list end)
 __attribute__((used)) int32 p6_w_perf_v1_edsr = 0;  // last raw EDSR (sanity)
+// CP5b.7 VDP1 DUTY CYCLE -- the fill-bound-vs-cadence discriminator. The title
+// frame is MEASURED 103ms (6 vbl) while master compute is only 8ms, so ~92% of
+// the frame is the jo-body/slSynch/VDP1 wait. The compute-done EDSR sample (above)
+// says VDP1-draw-bound, but its timing relative to slSynch is subtle. The vblank
+// ISR (p6_perf.c) samples EDSR.CEF EVERY vblank while the title ticks (cont_frames
+// > 5) -> busyvbl/totvbl = the fraction of ALL vblanks VDP1 is mid-draw, timing-
+// independent. ~0.83 (busy 5 of 6 vbl) => VDP1 is genuinely fill-bound (big title
+// sprites) -> the lever is DRAW REDUCTION. ~0.2 (mostly idle) => VDP1 is NOT the
+// wait -> the 5 vbl is swap-cadence/audio -> a different lever. DECISIVE.
+__attribute__((used)) int32 p6_w_perf_v1_busyvbl = 0; // vblanks VDP1 busy (CEF=0) while ticking
+__attribute__((used)) int32 p6_w_perf_v1_totvbl  = 0; // total vblanks counted while ticking
 // Dual-SH2 phase STEP 1 (#246/#243): slave-CPU liveness witness. The jo-side
 // slave callback p6_slave_probe() increments this via the CACHE-THROUGH alias
 // (addr | 0x20000000) each frame, so the slave's write reaches WRAM (a cached
@@ -5324,7 +5335,35 @@ static void p6_frontend_frame(void)
         sceneInfo.state = ENGINESTATE_REGULAR; // hold the splash; do not load Title (unported)
     }
 
+    // CP5b.7 (Task #271 follow-up): TITLE FRAME-TIME ATTRIBUTION. The user reports the
+    // title is "stupid slow" + "VDP2 flickering in and out". p6_frontend_frame (NOT
+    // p6_ghz_frame) drives the title, and ONLY the GHZ frame carried the FRT section
+    // brackets -- so the title's per-section cost was never measured (the pre-compaction
+    // band-inflate hypothesis was a fetch COUNT, not a TIMED cost; 2.32 fetches/frame x
+    // GHZ's ~0.02ms/fetch ~= 0.05ms, nowhere near the 148ms/frame measured). Mirror the
+    // proven p6_ghz_frame brackets here verbatim (SAME witnesses, read by qa_p6_perf.py):
+    //   - vbl_frame vs vbl_jo  -> compute-bound (these 4 sections) vs jo-body/slSynch
+    //     (VDP1 still drawing / swap wait) -- the discriminator that picks the fix class.
+    //   - the 4 cyc_*          -> the dominant section (Input/Objects/present/DrawLists).
+    //   - EDSR.CEF at compute-done -> VDP1 draw-bound (huge sprite list) vs CPU-bound.
+    // FRT reads are ~6 instr each (interrupt-masked), negligible vs a 148ms frame.
+    // Front-end ONLY (the GHZ shipping flavor never compiles p6_frontend_frame).
+    unsigned short fe_frame_t0 = p6_perf_frt_get();
+    unsigned int   fe_vbl_start = p6_perf_vbl_count;
+    {
+        int32 jo_gap = (int32)(fe_vbl_start - p6_perf_vbl_prev);
+        p6_w_perf_vbl_jo = jo_gap;
+        if (jo_gap > p6_w_perf_vbl_jo_max) p6_w_perf_vbl_jo_max = jo_gap;
+    }
+    unsigned short fe_t0, fe_t1;
+    unsigned int   fe_v0, fe_v1;
+
+    fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
     ProcessInput();
+    fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
+    p6_w_perf_cyc_input = P6_FRT_DELTA(fe_t0, fe_t1);
+    p6_w_perf_vbl_input = (int32)(fe_v1 - fe_v0);
+
     // CP5b.1 (Task #268) ROOT-CAUSE FIX: the engine's per-frame "common stuff" reset
     // of the foreach stack pointer (RetroEngine.cpp:179, `foreachStackPtr =
     // foreachStackList`) runs at the top of ProcessEngine BEFORE ProcessObjects. The
@@ -5337,15 +5376,20 @@ static void p6_frontend_frame(void)
     // was never destroyed (vismask = EMBLEM|POWERLED only, per qa_title_logo per-type
     // diag). Resetting the stack each frame (verbatim the engine) makes every
     // foreach_all iterate the full TitleLogo set -> all logo pieces flip visible + blit.
+    fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
     foreachStackPtr = foreachStackList;
     ProcessObjects();
     ProcessSceneTimer();
+    fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
+    p6_w_perf_cyc_obj = P6_FRT_DELTA(fe_t0, fe_t1);
+    p6_w_perf_vbl_obj = (int32)(fe_v1 - fe_v0);
     // CP4c BLUE-SCREEN FIX: arm the VDP1 sprite layer (SPRON) for the UI scene.
     // p6_vdp2_blank() (slScrAutoDisp(0)) in the lean load disabled ALL VDP2 layers;
     // a UI scene runs no GHZ present to re-enable SPRON, so without this the
     // UIPicture sprites blit to the framebuffer (p6_w_vdp1_landed>0) but VDP2 never
     // composites them (MEASURED BGON=0 -> uniform-blue splash). Idempotent; armed
     // each tick (cheap, mirrors how the GHZ frame re-arms SPRON via its present).
+    fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
 #if defined(P6_FRONTEND_TITLE)
     // CP5b.3 (Task #272): when the Title BACKDROP is up (NBG1 island+clouds), arm
     // NBG1ON|SPRON + drift the backdrop instead of SPRON-only (which would disable
@@ -5358,9 +5402,59 @@ static void p6_frontend_frame(void)
 #else
     p6_vdp2_arm_sprites_only();
 #endif
+    fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
+    p6_w_perf_cyc_present = P6_FRT_DELTA(fe_t0, fe_t1);
+    p6_w_perf_vbl_present = (int32)(fe_v1 - fe_v0);
+
+    fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
+#ifndef P6_TITLE_NODRAW
     ProcessObjectDrawLists(); // emits the UIPicture VDP1 sprite list (jo swaps it)
+#else
+    // CP5b.7 A/B: skip ALL title VDP1 sprite emit (no sprites added to the SGL sort
+    // list) to isolate whether slSynch's measured ~90ms/frame jo-body wait is the
+    // draw-sort/transfer of the title sprites (fps jumps if so -> fix = cut draw) or
+    // a draw-INDEPENDENT cadence/audio stall (fps unchanged -> different lever).
+#endif
+    fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
+    p6_w_perf_cyc_draw = P6_FRT_DELTA(fe_t0, fe_t1);
+    p6_w_perf_vbl_draw = (int32)(fe_v1 - fe_v0);
+
+    p6_w_perf_cyc_total = p6_w_perf_cyc_input + p6_w_perf_cyc_obj
+                        + p6_w_perf_cyc_draw + p6_w_perf_cyc_present;
 
     ++p6_w_cont_frames; // E5: engine reached ENGINESTATE_REGULAR + is ticking
+
+    // CP5b.7: frame-end true-vblank tally + compute-full bracket (mirrors
+    // p6_ghz_frame:3033-3085). vbl_frame = vblanks consumed INSIDE p6_frontend_frame
+    // (the master compute cost); fps = 60*frames/vblanks; cks -> ticks->us at the gate.
+    {
+        unsigned int vnow = p6_perf_vbl_count;
+        int32 slip = (int32)(vnow - p6_perf_vbl_prev);
+        p6_w_perf_vbl_frame = (int32)(vnow - fe_vbl_start);
+        p6_perf_vbl_prev    = vnow;
+        p6_w_perf_vblanks   = (int32)vnow;
+        p6_w_perf_frames    = p6_w_cont_frames;
+        if (slip > p6_w_perf_vbl_max) p6_w_perf_vbl_max = slip;
+        if (p6_w_perf_cks < 0) p6_w_perf_cks = p6_perf_frt_cks();
+        unsigned short fe_frame_t1 = p6_perf_frt_get();
+        p6_perf_frt_prev_end = fe_frame_t1;
+        p6_w_perf_full_frt   = P6_FRT_DELTA(fe_frame_t0, fe_frame_t1);
+        if (p6_w_perf_full_frt > p6_w_perf_full_max) p6_w_perf_full_max = p6_w_perf_full_frt;
+        // EDSR.CEF (bit1) at compute-done -- the LATEST point before the implicit
+        // slSynch. CEF=0 => VDP1 still rasterizing the PRIOR frame's sprite list =>
+        // the title is VDP1-DRAW-BOUND (a huge sprite command list -> the fix is
+        // draw reduction, NOT resident sheets); CEF=1 => VDP1 idle => CPU/compute-
+        // bound (the 4 cyc_* sections name the cut). Read-only VDP1 reg peek.
+        unsigned short edsr = p6_perf_vdp1_edsr();
+        p6_w_perf_v1_edsr = (int32)edsr;
+        if (edsr & 0x0002u) {
+            ++p6_w_perf_v1_done;
+        } else {
+            ++p6_w_perf_v1_busy;
+            p6_w_perf_v1_copr = (int32)p6_perf_vdp1_copr();
+            p6_w_perf_v1_lopr = (int32)p6_perf_vdp1_lopr();
+        }
+    }
 
     // Write the front-end classID witnesses (E2/E3) -- the overlay's witness fn
     // latches LogoSetup/UIPicture->classID via the -R import (p6_ghz_ovl_witness).

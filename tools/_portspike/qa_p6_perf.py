@@ -90,11 +90,27 @@ OPT_SYMS = ["_p6_w_scan_divergence", "_p6_w_scan_divmax",
 
 
 def main(argv):
-    mcs = _scene._as_path(argv[1]) if len(argv) > 1 else MCS_DEFAULT
-    mp = _scene._as_path(argv[2]) if len(argv) > 2 else _scene.MAP_DEFAULT
+    # CP5b.7 Phase 1: UNIVERSAL per-scene perf gate. `--scene {ghz,title,ui}` picks the
+    # don't-regress fps FLOOR + which scene-specific checks apply. M4 (present) / M5
+    # (collision-inflate) are GHZ-only -- their witnesses are 0 on a UI/title scene, so
+    # they would false-RED a title capture; SKIPPED for non-ghz. The fps FLOOR is the
+    # "solid foundation moving forward" teeth: it RED's if future content drops a scene
+    # below its banked floor. Floors rise as each perf phase lands (title 12->17->24->28).
+    SCENE_FLOOR = {"ghz": 45.0, "title": 12.0, "ui": 25.0}
+    args = list(argv[1:])
+    scene = "ghz"
+    if "--scene" in args:
+        i = args.index("--scene")
+        if i + 1 < len(args):
+            scene = args[i + 1]
+            del args[i:i + 2]
+    fps_floor = SCENE_FLOOR.get(scene, 15.0)
+    is_ghz = (scene == "ghz")
+    mcs = _scene._as_path(args[0]) if len(args) > 0 else MCS_DEFAULT
+    mp = _scene._as_path(args[1]) if len(args) > 1 else _scene.MAP_DEFAULT
 
     print("=" * 72)
-    print("PERF PHASE 1 BASELINE: true fps + per-section cost attribution")
+    print("PERF PHASE 1 BASELINE: true fps + per-section cost attribution  [scene=%s]" % scene)
     print("=" * 72)
 
     if not os.path.isfile(mp):
@@ -145,6 +161,16 @@ def main(argv):
     ct = v["_p6_w_perf_cyc_total"]
     cks = v["_p6_w_perf_cks"]
 
+    # CP5b.7 Phase 1: steady fps (drop the single worst frame = the one-time scene-load
+    # spike) -- computed early so the per-scene M-FPS floor can gate it. Same formula
+    # the baseline block prints below.
+    fps_steady = 0.0
+    if (frames is not None and frames > 1 and vbl is not None and vbl > 0):
+        _svbl = vbl - (vbl_max if (vbl_max and vbl_max > 0) else 0)
+        _sfr = frames - 1
+        fps_steady = (60.0 * _sfr / _svbl) if (_svbl > 0 and _sfr > 0) else (60.0 * frames / vbl)
+    m_fps = (fps_steady >= fps_floor)
+
     m2 = (frames is not None and frames > 0 and vbl is not None and vbl > 0
           and ct is not None and ct > 0)
     m3 = (vbl is not None and frames is not None and vbl >= frames
@@ -162,6 +188,12 @@ def main(argv):
     # once the N-way window cache lets the two positions co-reside and SWAP.
     objr = v.get("_p6_w_obj_refills")
     m5 = (objr is not None and objr == 0)
+    # CP5b.7 Phase 1: M4 (GHZ FG present cache) + M5 (GHZ collision-window cache) are
+    # GHZ-only -- their witnesses are 0 on a UI/title scene (no FG present, no collision
+    # band), so they false-RED a non-GHZ capture. SKIP them off-GHZ.
+    if not is_ghz:
+        m4 = True
+        m5 = True
     # M6 (Phase 1b #243): VDP1 draw-completion sampled. RED while uninstrumented
     # (witnesses absent); GREEN once done+busy frames were counted. This is the
     # measurement that localizes the 2-vblank lock (draw-bound vs swap cadence).
@@ -204,6 +236,12 @@ def main(argv):
     tail_ms_now = (tl * _tick_us / 1000.0) if tl is not None else None
     m8 = compute_full_ms is not None and compute_full_ms <= COMPUTE_CEIL_MS
     m9 = tail_ms_now is not None and tail_ms_now <= TAIL_CEIL_MS
+    # CP5b.7 Phase 1: M8 (compute-full <= the 2-vblank cliff) is the GHZ compute-
+    # overrun don't-regress -- it's the fps determinant ONLY for a compute-bound scene.
+    # The title is DRAW-bound (the cost is in slSynch, OUTSIDE the bracket; compute-full
+    # is a noisy per-frame sample there), so M8 is GHZ-only; M-FPS is the title's floor.
+    if not is_ghz:
+        m8 = True
 
     checks = [
         ("M2 instrumentation measuring (frames>0, vblanks>0, cyc_total>0)", m2,
@@ -222,6 +260,8 @@ def main(argv):
          "compute_full=%.1f ms (ceiling %.1f)" % (compute_full_ms if compute_full_ms else -1.0, COMPUTE_CEIL_MS)),
         ("M9 DON'T-REGRESS shipping diag tail <= %.1fms (no diagnostic in hot loop)" % TAIL_CEIL_MS, m9,
          "tail=%.1f ms (ceiling %.1f)" % (tail_ms_now if tail_ms_now else -1.0, TAIL_CEIL_MS)),
+        ("M-FPS DON'T-REGRESS steady fps >= %.0f (scene=%s floor)" % (fps_floor, scene), m_fps,
+         "fps_steady=%.2f (floor %.1f)" % (fps_steady, fps_floor)),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:

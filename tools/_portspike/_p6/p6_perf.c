@@ -39,11 +39,27 @@
  * frame callback. */
 volatile unsigned int p6_perf_vbl_count = 0;
 
+/* CP5b.7: VDP1 DUTY-CYCLE witnesses (pack-side, p6_io_main.cpp). Master-only
+ * writes (this ISR runs on the master), so master + savestate read directly. */
+extern int p6_w_cont_frames;
+extern int p6_w_perf_v1_busyvbl;
+extern int p6_w_perf_v1_totvbl;
+
 /* Registered via jo_core_add_vblank_callback (main.c, both engine boot
- * branches). Increments once per hardware V-blank. */
+ * branches). Increments once per hardware V-blank. CP5b.7: ALSO samples VDP1
+ * EDSR.CEF (0x05d00010 bit1) every vblank while the title ticks (cont_frames>5,
+ * past the load) -> busyvbl/totvbl = the fraction of ALL vblanks VDP1 is mid-
+ * draw, the timing-independent fill-bound-vs-swap-cadence discriminator. EDSR
+ * is an A-Bus I/O reg (not cached) -> a plain volatile read in the ISR is
+ * coherent. Read-only (never writes VDP1). */
 void p6_perf_vblank(void)
 {
     ++p6_perf_vbl_count;
+    if (p6_w_cont_frames > 5) {
+        ++p6_w_perf_v1_totvbl;
+        if (!((*(volatile unsigned short *)0x05d00010u) & 0x0002u))
+            ++p6_w_perf_v1_busyvbl;   /* CEF=0 -> VDP1 still drawing this vblank */
+    }
 }
 
 /* Coherent 16-bit FRC read with interrupts masked for the paired byte read

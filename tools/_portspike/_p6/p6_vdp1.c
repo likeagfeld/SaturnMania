@@ -191,12 +191,32 @@ static struct {
 } s_sheets[P6_VDP1_NSHEETS];
 static int s_sheet_count = 0;
 
-static struct {
+typedef struct {
     int sheet;        /* W12b: bind handle joins the cache key */
     int sx, sy, w, h; /* cache key: sheet rect */
     int jo_id;        /* jo sprite id of the uploaded rect */
     int lastUse;      /* Task #241: LRU stamp (s_useclock at last hit/fill) */
-} s_slots[P6_VDP1_NSLOTS];
+} P6Vdp1Slot;
+static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MAXH */
+#if defined(P6_FRONTEND_TITLE)
+/* CP5b.7 PERF (MEASURED): the title was VDP1-DRAW-BOUND. A/B (P6_TITLE_NODRAW)
+ * moved fps 8.6 -> 26.5 -- the ~90 ms/frame slSynch stall IS the VDP1 sprite
+ * draw, NOT compute (8 ms) and NOT VDP1 raster of a small list. Cause: EVERY
+ * sprite was padded into the fixed 248x160 LARGE box, of which 77% is TRANSPARENT
+ * (content 0.79 screens vs the 3.47 screens drawn -- p6_w_vdp1_boxpx/contentpx).
+ * MOST title sprites are small (Finger Wave 50x63, ribbon/copyright/ringbottom);
+ * only the head/emblem need the 248-wide box. A SECOND uniform 64x64 pool holds
+ * the small ones at 4,096 px instead of 39,680 px (9.7x less fill per small
+ * sprite). UNIFORM size per pool -> jo_sprite_replace's same-size LRU reuse holds
+ * (jo's VDP1 allocator is append-only; mixing sizes in one pool would leak).
+ * VRAM: 10*39,680 (large) + 14*4,096 (small) = 454,144 B < JO_VDP1_USER_AREA_SIZE
+ * 466,232 (line ~67) -- fits with 12 KB margin; the large pool capacity is
+ * UNCHANGED so big-sprite residency cannot regress. */
+#define P6_SPR_SM_BOX     64
+#define P6_VDP1_NSLOTS_SM 14
+static P6Vdp1Slot s_slots_sm[P6_VDP1_NSLOTS_SM]; /* SMALL box: 64 x 64 */
+static int s_slots_sm_n = 0;                     /* small-pool cold-fill count */
+#endif
 /* Task #241: monotonic LRU clock; the slot with the smallest lastUse is the
  * eviction victim when the cache is full and a new rect misses. */
 static int s_useclock = 0;
@@ -334,6 +354,15 @@ void p6_vdp1_frontend_pal_reset(void)
         s_slots[i].sheet   = -1;
         s_slots[i].lastUse = 0;
     }
+#if defined(P6_FRONTEND_TITLE)
+    /* CP5b.7: reset the SMALL pool too (CHAIN implies TITLE, so it exists here). */
+    s_slots_sm_n = 0;
+    for (i = 0; i < P6_VDP1_NSLOTS_SM; ++i) {
+        s_slots_sm[i].jo_id   = -1;
+        s_slots_sm[i].sheet   = -1;
+        s_slots_sm[i].lastUse = 0;
+    }
+#endif
 }
 #endif
 
@@ -352,7 +381,15 @@ void p6_vdp1_frontend_pal_reset(void)
  * P6_VDP1_NSLOTS, so the player's hot frames stay resident and only cold rects
  * churn through the victim slot. jo_sprite_add still runs at most NSLOTS times
  * total (cold-fill only), so the #189 sprite-table overflow class cannot recur. */
-static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
+/* CP5b.7: the slot lookup/stage/upload, PARAMETERIZED by the pool + its box size
+ * so the same proven LRU logic serves BOTH the large (248x160) and the small
+ * (64x64) title pools. Returns the slot INDEX into `slots` (or -1). Each pool is
+ * uniform-box, so jo_sprite_replace's same-size in-place VRAM reuse is preserved
+ * (no append-only leak). Body is the verbatim pre-CP5b.7 p6_slot_for with
+ * s_slots->slots, p6_w_vdp1_slots->*coldn, P6_VDP1_NSLOTS->n_max, P6_SPR_MAXW/H->
+ * boxw/boxh. */
+static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
+                       int boxw, int boxh, int sheet, int sx, int sy, int w, int h)
 {
     int i, x, y, victim;
     const unsigned char *srcPx;
@@ -362,16 +399,16 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
 #if defined(P6_FRONTEND_LOGOS)
     p6_w_vdp1_lastwh = (w << 16) | (h & 0xFFFF);
 #endif
-    for (i = 0; i < p6_w_vdp1_slots; ++i) {
-        if (s_slots[i].sheet == sheet &&
-            s_slots[i].sx == sx && s_slots[i].sy == sy &&
-            s_slots[i].w == w && s_slots[i].h == h) {
-            s_slots[i].lastUse = ++s_useclock; /* LRU touch on hit */
+    for (i = 0; i < *coldn; ++i) {
+        if (slots[i].sheet == sheet &&
+            slots[i].sx == sx && slots[i].sy == sy &&
+            slots[i].w == w && slots[i].h == h) {
+            slots[i].lastUse = ++s_useclock; /* LRU touch on hit */
             return i;
         }
     }
-    /* A fixed P6_SPR_MAXW x P6_SPR_MAXH slot cannot hold an oversize frame. */
-    if (w > P6_SPR_MAXW || h > P6_SPR_MAXH) {
+    /* A fixed boxw x boxh slot cannot hold an oversize frame. */
+    if (w > boxw || h > boxh) {
         ++p6_w_vdp1_drops;
 #if defined(P6_FRONTEND_LOGOS)
         p6_w_vdp1_dropreason = 1;
@@ -408,26 +445,27 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
         srcStride = w;
     }
 
-    /* Stage into a FIXED 64x64 box: content top-left, the rest transparent
+    /* Stage into the FIXED boxw x boxh box: content top-left, the rest transparent
      * (palette index 0 -- VDP1 sprite transparent-pixel processing skips it).
-     * jo_sprite_replace re-DMAs exactly width*height bytes, so the staged box
-     * dimensions MUST equal the pre-allocated slot's (64x64). */
-    for (y = 0; y < P6_SPR_MAXH; ++y) {
-        unsigned char *dst = s_stage + y * P6_SPR_MAXW;
+     * jo_sprite_replace re-DMAs exactly boxw*boxh bytes, so the staged box
+     * dimensions MUST equal the pre-allocated slot's (boxw x boxh -- guaranteed:
+     * same pool = same box). s_stage is 248x160 = big enough for either box. */
+    for (y = 0; y < boxh; ++y) {
+        unsigned char *dst = s_stage + y * boxw;
         if (y < h) {
             const unsigned char *src = srcPx + y * srcStride;
             for (x = 0; x < w; ++x) dst[x] = src[x];
-            for (; x < P6_SPR_MAXW; ++x) dst[x] = 0;
+            for (; x < boxw; ++x) dst[x] = 0;
         }
         else {
-            for (x = 0; x < P6_SPR_MAXW; ++x) dst[x] = 0;
+            for (x = 0; x < boxw; ++x) dst[x] = 0;
         }
     }
-    img.width  = P6_SPR_MAXW;
-    img.height = P6_SPR_MAXH;
+    img.width  = boxw;
+    img.height = boxh;
     img.data   = s_stage;
 
-    if (p6_w_vdp1_slots < P6_VDP1_NSLOTS) {
+    if (*coldn < n_max) {
         /* Cold-fill: allocate a fresh fixed-size jo sprite. */
         int id = jo_sprite_add_8bits_image(&img);
         if (id < 0) {
@@ -437,35 +475,61 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
 #endif
             return -1;
         }
-        victim = p6_w_vdp1_slots++;
-        s_slots[victim].jo_id = id;
+        victim = (*coldn)++;
+        slots[victim].jo_id = id;
     }
     else {
         /* Cache full: evict the least-recently-used slot, reuse its VRAM. */
-        int oldest = s_slots[0].lastUse;
+        int oldest = slots[0].lastUse;
         victim = 0;
-        for (i = 1; i < P6_VDP1_NSLOTS; ++i) {
-            if (s_slots[i].lastUse < oldest) {
-                oldest = s_slots[i].lastUse;
+        for (i = 1; i < n_max; ++i) {
+            if (slots[i].lastUse < oldest) {
+                oldest = slots[i].lastUse;
                 victim = i;
             }
         }
-        if (s_slots[victim].jo_id < 0) { /* defensive: never cold-filled */
+        if (slots[victim].jo_id < 0) { /* defensive: never cold-filled */
             ++p6_w_vdp1_drops;
             return -1;
         }
-        jo_sprite_replace(&img, s_slots[victim].jo_id);
+        jo_sprite_replace(&img, slots[victim].jo_id);
         ++p6_w_vdp1_evicts;
     }
 
-    s_slots[victim].sheet   = sheet;
-    s_slots[victim].sx      = sx;
-    s_slots[victim].sy      = sy;
-    s_slots[victim].w       = w;
-    s_slots[victim].h       = h;
-    s_slots[victim].lastUse = ++s_useclock;
-    p6_w_vdp1_lastkey       = (sx << 20) | (sy << 12) | (w << 6) | h;
+    slots[victim].sheet   = sheet;
+    slots[victim].sx      = sx;
+    slots[victim].sy      = sy;
+    slots[victim].w       = w;
+    slots[victim].h       = h;
+    slots[victim].lastUse = ++s_useclock;
+    p6_w_vdp1_lastkey     = (sx << 20) | (sy << 12) | (w << 6) | h;
     return victim;
+}
+
+/* CP5b.7 ROUTER: pick the SMALLEST box pool that holds (w,h). Returns the jo
+ * sprite ID (NOT a slot index) + sets s_last_box_w/h for the blit's box-center
+ * placement. TITLE only -- the GHZ/Logos build has a single pool (byte-identical:
+ * the small-pool branch is #if'd out and the large call mirrors the old code). */
+static int s_last_box_w = P6_SPR_MAXW, s_last_box_h = P6_SPR_MAXH;
+static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
+{
+    int s;
+#if defined(P6_FRONTEND_TITLE)
+    if (w <= P6_SPR_SM_BOX && h <= P6_SPR_SM_BOX) {
+        s = p6_pool_for(s_slots_sm, P6_VDP1_NSLOTS_SM, &s_slots_sm_n,
+                        P6_SPR_SM_BOX, P6_SPR_SM_BOX, sheet, sx, sy, w, h);
+        if (s < 0) return -1;
+        s_last_box_w = P6_SPR_SM_BOX;
+        s_last_box_h = P6_SPR_SM_BOX;
+        return s_slots_sm[s].jo_id;
+    }
+#endif
+    s = p6_pool_for(s_slots, P6_VDP1_NSLOTS, &p6_w_vdp1_slots,
+                    P6_SPR_MAXW, P6_SPR_MAXH, sheet, sx, sy, w, h);
+    if (s < 0) return -1;
+    s_last_box_w = P6_SPR_MAXW;
+    s_last_box_h = P6_SPR_MAXH;
+    return s_slots[s].jo_id;
 }
 
 #if defined(P6_FRONTEND_TITLE)
@@ -530,15 +594,21 @@ void p6_vdp1_set_ink(int half)
  * Returns 1 to draw (box fully in [0,512)), 0 to cull. Title flavor only (GHZ
  * p6_vdp1.o is byte-identical -- its object set draws within-screen). */
 #define P6_VDP1_FB_STRIDE 512  /* 320-mode VDP1 framebuffer line width (px) */
-static int p6_box_in_stride(int x, int flipX, int w)
+static int p6_box_in_stride(int x, int flipX, int w, int h)
 {
     int box_left;
+    /* CP5b.7: the box width is now the ROUTED pool box (64 for a small sprite,
+     * P6_SPR_MAXW for a large one) -- a small sprite must be stride-checked against
+     * its 64-box, not the 248-box, or a small sprite near the right edge would be
+     * wrongly culled (box-right = x+248 > 512 while its real 64-box fits). Mirrors
+     * the p6_slot_for routing below. */
+    int boxw = (w <= P6_SPR_SM_BOX && h <= P6_SPR_SM_BOX) ? P6_SPR_SM_BOX : P6_SPR_MAXW;
     /* Box-left in the framebuffer for the content-at-box-left staging:
-     *   FLIP_NONE: box center FB = x + P6_SPR_MAXW/2  -> box-left = x.
-     *   FLIP_X:    box center FB = x + w - P6_SPR_MAXW/2 + JO_TV_WIDTH_2 ... reduces
-     *              to box-left = x + w - P6_SPR_MAXW. */
-    box_left = flipX ? (x + w - P6_SPR_MAXW) : x;
-    return (box_left >= 0 && box_left + P6_SPR_MAXW <= P6_VDP1_FB_STRIDE);
+     *   FLIP_NONE: box center FB = x + boxw/2  -> box-left = x.
+     *   FLIP_X:    box center FB = x + w - boxw/2 + JO_TV_WIDTH_2 ... reduces
+     *              to box-left = x + w - boxw. */
+    box_left = flipX ? (x + w - boxw) : x;
+    return (box_left >= 0 && box_left + boxw <= P6_VDP1_FB_STRIDE);
 }
 #endif
 
@@ -550,7 +620,7 @@ static int p6_box_in_stride(int x, int flipX, int w)
  * engine [x, x+w) x [y, y+h). */
 void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
 {
-    int slot;
+    int jid;
 
     if (sheet < 0 || sheet >= s_sheet_count) {
         ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
@@ -558,28 +628,30 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
         return;
     }
 #if defined(P6_FRONTEND_TITLE)
-    /* EDGE-GLITCH FIX: cull a sprite whose fixed box would cross the 512 px VDP1
+    /* EDGE-GLITCH FIX: cull a sprite whose ROUTED box would cross the 512 px VDP1
      * framebuffer line stride (the off-screen wrap). See p6_box_in_stride. */
-    if (!p6_box_in_stride(x, 0, w))
+    if (!p6_box_in_stride(x, 0, w, h))
         return;
 #endif
-    slot = p6_slot_for(sheet, sx, sy, w, h);
-    if (slot < 0)
+    /* CP5b.7: p6_slot_for routes to the small/large pool by (w,h) and returns the
+     * jo sprite id + sets s_last_box_w/h (the chosen box). */
+    jid = p6_slot_for(sheet, sx, sy, w, h);
+    if (jid < 0)
         return;
 
     ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
-    /* STEP B: per-frame VDP1 workload (box-as-drawn vs content-ideal). */
-    ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += P6_SPR_MAXW * P6_SPR_MAXH;
+    /* STEP B: per-frame VDP1 workload (ROUTED box-as-drawn vs content-ideal). */
+    ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += s_last_box_w * s_last_box_h;
     p6_w_vdp1_contentpx += w * h;
     if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
     if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
     jo_sprite_set_palette(1);
-    /* Task #241: the slot is a fixed P6_SPR_MAXW x P6_SPR_MAXH box with content
-     * in the top-left corner; the box CENTER sits at content-top-left + 32, so
-     * placing the center there lands the content at engine top-left (x,y). */
-    jo_sprite_draw3D(s_slots[slot].jo_id,
-                     x + P6_SPR_MAXW / 2 - JO_TV_WIDTH_2,
-                     y + P6_SPR_MAXH / 2 - JO_TV_HEIGHT_2, 450);
+    /* Task #241 + CP5b.7: the slot is a fixed s_last_box_w x s_last_box_h box with
+     * content in the top-left corner; the box CENTER sits at content-top-left +
+     * box/2, so placing the center there lands the content at engine top-left (x,y). */
+    jo_sprite_draw3D(jid,
+                     x + s_last_box_w / 2 - JO_TV_WIDTH_2,
+                     y + s_last_box_h / 2 - JO_TV_HEIGHT_2, 450);
 }
 
 /* W14c (Task #227): flipped draw -- the DrawSprite FX_FLIP arm. VDP1 HF/VF
@@ -597,7 +669,7 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
 void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
                           int flipX, int flipY)
 {
-    int slot;
+    int jid;
 
     if (sheet < 0 || sheet >= s_sheet_count) {
         ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
@@ -606,27 +678,28 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
     }
 #if defined(P6_FRONTEND_TITLE)
     /* EDGE-GLITCH FIX (this is the REAL Saturn draw path -- p6_draw_flipped always
-     * calls THIS, never p6_vdp1_blit). CULL a sprite whose fixed P6_SPR_MAXW box
-     * would cross the 512 px VDP1 framebuffer line stride: the verbatim decomp
-     * TitleBG_Update scrolls + wraps the TitleBG parallax band for a wider PC screen,
-     * so on Saturn's 320 px screen those wide sprites land off both edges (MEASURED
-     * via the per-blit ring: x=-67 left, x=293 right) and their box crosses the
-     * stride -> the crossing columns WRAP to the opposite edge as the visible
-     * fragment. Culling the box-crossing sprite drops only the distant-mountain
-     * band's few edge pixels (imperceptible) and -- unlike re-staging a clipped
-     * sub-rect -- touches neither the source rect nor the 10-slot LRU cache (which a
-     * per-scroll-position rect would thrash into stale-slot garbage). See
-     * p6_box_in_stride. The centred FG sprites (EMBLEM/RIBBON/Sonic/logo, MEASURED
-     * box within [0,512)) are never culled. */
-    if (!p6_box_in_stride(x, flipX, w))
+     * calls THIS, never p6_vdp1_blit). CULL a sprite whose ROUTED box would cross
+     * the 512 px VDP1 framebuffer line stride: the verbatim decomp TitleBG_Update
+     * scrolls + wraps the TitleBG parallax band for a wider PC screen, so on
+     * Saturn's 320 px screen those wide sprites land off both edges (MEASURED via
+     * the per-blit ring: x=-67 left, x=293 right) and their box crosses the stride
+     * -> the crossing columns WRAP to the opposite edge as the visible fragment.
+     * Culling the box-crossing sprite drops only the distant-mountain band's few
+     * edge pixels (imperceptible) and -- unlike re-staging a clipped sub-rect --
+     * touches neither the source rect nor the LRU cache (which a per-scroll-position
+     * rect would thrash into stale-slot garbage). See p6_box_in_stride. The centred
+     * FG sprites (EMBLEM/RIBBON/Sonic/logo, MEASURED box within [0,512)) are never
+     * culled. */
+    if (!p6_box_in_stride(x, flipX, w, h))
         return;
 #endif
-    slot = p6_slot_for(sheet, sx, sy, w, h);
-    if (slot < 0)
+    /* CP5b.7: routed jo id + s_last_box_w/h (small or large pool). */
+    jid = p6_slot_for(sheet, sx, sy, w, h);
+    if (jid < 0)
         return;
 
     ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
-    ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += P6_SPR_MAXW * P6_SPR_MAXH;
+    ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += s_last_box_w * s_last_box_h;
     p6_w_vdp1_contentpx += w * h;
     if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
     if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
@@ -635,9 +708,9 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
         jo_sprite_enable_horizontal_flip();
     if (flipY)
         jo_sprite_enable_vertical_flip();
-    jo_sprite_draw3D(s_slots[slot].jo_id,
-                     (flipX ? x + w - P6_SPR_MAXW / 2 : x + P6_SPR_MAXW / 2) - JO_TV_WIDTH_2,
-                     (flipY ? y + h - P6_SPR_MAXH / 2 : y + P6_SPR_MAXH / 2) - JO_TV_HEIGHT_2, 450);
+    jo_sprite_draw3D(jid,
+                     (flipX ? x + w - s_last_box_w / 2 : x + s_last_box_w / 2) - JO_TV_WIDTH_2,
+                     (flipY ? y + h - s_last_box_h / 2 : y + s_last_box_h / 2) - JO_TV_HEIGHT_2, 450);
     if (flipX)
         jo_sprite_disable_horizontal_flip();
     if (flipY)
