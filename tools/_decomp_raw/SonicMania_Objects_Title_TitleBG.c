@@ -98,17 +98,38 @@ void TitleBG_SetupFX(void)
 
     TileLayer *cloudLayer        = RSDK.GetTileLayer(2);
     cloudLayer->drawGroup[0]     = 0;
-    cloudLayer->scanlineCallback = TitleBG_Scanline_Clouds;
 
     TileLayer *islandLayer        = RSDK.GetTileLayer(3);
     islandLayer->drawGroup[0]     = 1;
+
+    // CP5b.4 (Task #272/Saturn) SATURN-SAFE: do NOT install the per-row scanline
+    // callbacks on Saturn. MEASURED ROOT CAUSE of the prior "alternating
+    // island/logo frames; head vanishes" destabilization: the engine calls
+    // layer->scanlineCallback(scanlines) every frame in ProcessObjectDrawLists
+    // (Object.cpp:1198-1199), and both TitleBG_Scanline_* bodies call
+    // RSDK.SetClipBounds (Clouds -> y[0,120], Island -> y[168,240]); the Saturn
+    // DrawSprite clip-accept (p6_draw_flipped) REJECTS any FG sprite outside
+    // currentScreen->clipBound_* -> the foreground logo/Sonic-head get clipped
+    // mid-frame. On Saturn the sky/cloud/island BACKDROP is driven natively by
+    // p6_vdp2_present_title_backdrop (reads tileLayers[] -> VDP2 NBG1), so the
+    // scanline deform tables have NO Saturn consumer -- installing the callbacks
+    // is pure harm. The 64-bit affine they compute is fed to VDP2 RBG0+KTBL only
+    // in the Part-4b (live Mode-7) path; until that lands, the static backdrop is
+    // correct and these callbacks stay out. (PC build: verbatim -- installs them.)
+#if !defined(P6_FRONTEND_TITLE)
+    cloudLayer->scanlineCallback  = TitleBG_Scanline_Clouds;
     islandLayer->scanlineCallback = TitleBG_Scanline_Island;
+#endif
 
     foreach_all(TitleBG, titleBG) { titleBG->visible = true; }
     foreach_all(Title3DSprite, title3DSprite) { title3DSprite->visible = true; }
 
     RSDK.SetPaletteEntry(0, 55, 0x00FF00);
     RSDK.SetPaletteMask(0x00FF00);
+    // CP5b.4 (Task #272/Saturn): SetDrawGroupProperties(2, true, ...) keeps the
+    // engine's zdepth SORT on drawgroup 2 (the Title3DSprite billboards) -- that
+    // is the back-to-front ordering Audit 1 relies on, and it is Saturn-safe
+    // (a pure DrawList flag, no scanline/clip side effect). Kept verbatim.
     RSDK.SetDrawGroupProperties(2, true, StateMachine_None);
 }
 

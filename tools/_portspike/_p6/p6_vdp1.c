@@ -468,6 +468,80 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
     return victim;
 }
 
+#if defined(P6_FRONTEND_TITLE)
+/* CP5b.4 (Task #272): VDP1 half-transparency for the TitleBG INK_BLEND (Mountain2)
+ * + INK_ADD (Reflection/WaterSparkle, alpha 0x80) sprites. jo's effect bits OR into
+ * cmd->pmod (sprites.c:363: pmod = 0x0080 | effect); effect 0x3 == SGL CL_Trans
+ * translucent color-calc (SL_DEF.H:194; ST-013-R3 sec 5.5.4 PMOD bits 2:0).
+ * HARDWARE TRUTH (REPORTED): VDP1 PMOD half-transparency blends with what is
+ * already in the VDP1 FRAMEBUFFER (other sprites), NOT the VDP2 backdrop -- so a
+ * mountain's translucency over the VDP2 island is NOT reproduced by PMOD alone
+ * (that needs VDP2 color-calc CCRTL on the sprite layer, ST-058-R2 sec 12). Set
+ * before the blit, clear after (sticky jo attribute -- same pattern as the flips).
+ * Title flavor only (GHZ p6_vdp1.o byte-identical). */
+__attribute__((used)) int p6_w_ink_half_blits = 0;
+void p6_vdp1_set_ink(int half)
+{
+    if (half) { jo_sprite_enable_half_transparency(); ++p6_w_ink_half_blits; }
+    else      { jo_sprite_disable_half_transparency(); }
+}
+#endif
+
+#if defined(P6_FRONTEND_TITLE)
+/* EDGE-GLITCH FIX (this session): the TitleBG parallax band (MountainTop1/2,
+ * Reflection, WaterSparkle -- Title/BG.gif, 176-192 px wide) is scrolled +
+ * horizontally wrapped by the verbatim decomp TitleBG_Update
+ * (position.x -= 0x10000; if (position.x < -0x800000) position.x += 0x3000000)
+ * for a band that spans a WIDER PC screen. On Saturn's 320 px screen those wide
+ * sprites land (MEASURED via the per-blit ring on a settled-title savestate:
+ * x=283 content [283,475], and x=-77 content [-77,115]) so their drawn box
+ * extends far past both screen edges. The Saturn VDP1 path stages each sprite
+ * into a FIXED P6_SPR_MAXW(248)-wide box (content at the box top-left) and
+ * slDispSprite-places the box CENTER at framebuffer x + 124. For an off-screen
+ * sprite the box CROSSES the 512 px VDP1 framebuffer LINE STRIDE (e.g. x=283 ->
+ * box [283,531]; 531 > 512), and the part past 512 WRAPS to the next line's
+ * left columns -- the "fragment at the opposite edge". The PC engine never sees
+ * this because DrawSpriteFlipped (Drawing.cpp:2882-2905) clips the sprite to
+ * currentScreen->clipBound_* PER PIXEL; the Saturn VDP1 has no such per-pixel
+ * clip on a normal-sprite command. MIRROR that clip here: clip the source rect
+ * to the on-screen span [0, JO_TV_WIDTH) so only the visible columns are staged
+ * + drawn and the box can never cross the framebuffer boundary. Title flavor
+ * only (default GHZ p6_vdp1.o stays byte-identical -- the GHZ object set draws
+ * within-screen and never triggers this).
+ *
+ * The VDP1 stages every sprite into a FIXED P6_SPR_MAXW-wide box (content at the
+ * box top-left) and slDispSprite-places the box CENTER at framebuffer x + 124, so
+ * the box spans framebuffer [x, x + P6_SPR_MAXW]. When a sprite is positioned so
+ * its box crosses the 320-mode VDP1 framebuffer LINE STRIDE (512 px) -- box-left
+ * < 0 (a sprite scrolled off the LEFT) or box-right > 512 (off the RIGHT) -- the
+ * crossing columns WRAP to the opposite edge as a visible "duplicate fragment".
+ * MEASURED root cause of the title edge glitch: the verbatim decomp TitleBG_Update
+ * scrolls + horizontally wraps the TitleBG parallax band (MountainTop1/2, Reflection,
+ * WaterSparkle) for a WIDER PC screen; on Saturn's 320 px screen those wide sprites
+ * land off both edges and their box crosses the stride.
+ *
+ * The engine clips partly-off-screen sprites per-pixel (DrawSpriteFlipped clipBound),
+ * but the Saturn VDP1 normal-sprite command has no per-pixel clip, and re-staging a
+ * clipped sub-rect would thrash the 10-slot LRU cache (the per-scroll-position rects
+ * explode the key space -> evictions -> stale-slot garbage). So instead CULL any
+ * sprite whose fixed box would cross the stride. The culled content is only the few
+ * pixels of the DISTANT-mountain band right at the screen edge -- imperceptible vs a
+ * wrapped duplicate, and the cull touches neither the source rect nor the cache.
+ * Returns 1 to draw (box fully in [0,512)), 0 to cull. Title flavor only (GHZ
+ * p6_vdp1.o is byte-identical -- its object set draws within-screen). */
+#define P6_VDP1_FB_STRIDE 512  /* 320-mode VDP1 framebuffer line width (px) */
+static int p6_box_in_stride(int x, int flipX, int w)
+{
+    int box_left;
+    /* Box-left in the framebuffer for the content-at-box-left staging:
+     *   FLIP_NONE: box center FB = x + P6_SPR_MAXW/2  -> box-left = x.
+     *   FLIP_X:    box center FB = x + w - P6_SPR_MAXW/2 + JO_TV_WIDTH_2 ... reduces
+     *              to box-left = x + w - P6_SPR_MAXW. */
+    box_left = flipX ? (x + w - P6_SPR_MAXW) : x;
+    return (box_left >= 0 && box_left + P6_SPR_MAXW <= P6_VDP1_FB_STRIDE);
+}
+#endif
+
 /* Draw a sheet rect with its TOP-LEFT at engine screen px (x,y) -- the
  * coordinate DrawSpriteFlipped receives (Drawing.cpp:2785: pos + pivot).
  * jo_sprite_draw3D positions the sprite CENTER in screen-centered coords;
@@ -483,6 +557,12 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
         p6_w_vdp1_lastdrop_h = sheet;
         return;
     }
+#if defined(P6_FRONTEND_TITLE)
+    /* EDGE-GLITCH FIX: cull a sprite whose fixed box would cross the 512 px VDP1
+     * framebuffer line stride (the off-screen wrap). See p6_box_in_stride. */
+    if (!p6_box_in_stride(x, 0, w))
+        return;
+#endif
     slot = p6_slot_for(sheet, sx, sy, w, h);
     if (slot < 0)
         return;
@@ -524,6 +604,23 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
         p6_w_vdp1_lastdrop_h = sheet;
         return;
     }
+#if defined(P6_FRONTEND_TITLE)
+    /* EDGE-GLITCH FIX (this is the REAL Saturn draw path -- p6_draw_flipped always
+     * calls THIS, never p6_vdp1_blit). CULL a sprite whose fixed P6_SPR_MAXW box
+     * would cross the 512 px VDP1 framebuffer line stride: the verbatim decomp
+     * TitleBG_Update scrolls + wraps the TitleBG parallax band for a wider PC screen,
+     * so on Saturn's 320 px screen those wide sprites land off both edges (MEASURED
+     * via the per-blit ring: x=-67 left, x=293 right) and their box crosses the
+     * stride -> the crossing columns WRAP to the opposite edge as the visible
+     * fragment. Culling the box-crossing sprite drops only the distant-mountain
+     * band's few edge pixels (imperceptible) and -- unlike re-staging a clipped
+     * sub-rect -- touches neither the source rect nor the 10-slot LRU cache (which a
+     * per-scroll-position rect would thrash into stale-slot garbage). See
+     * p6_box_in_stride. The centred FG sprites (EMBLEM/RIBBON/Sonic/logo, MEASURED
+     * box within [0,512)) are never culled. */
+    if (!p6_box_in_stride(x, flipX, w))
+        return;
+#endif
     slot = p6_slot_for(sheet, sx, sy, w, h);
     if (slot < 0)
         return;

@@ -838,6 +838,12 @@ __attribute__((used)) int32 p6_w_tbg_surfslot = -9;
 __attribute__((used)) int32 p6_w_tbg_handle   = -9;
 __attribute__((used)) int32 p6_w_titlebg_classid = -9; // TitleBG->classID (registered)
 __attribute__((used)) int32 p6_w_title3d_classid = -9; // Title3DSprite->classID
+// CP5b.4 (Task #272): count of TitleBG/Title3DSprite entities flipped VISIBLE by
+// TitleBG_SetupFX (the V2 RED->GREEN signal). 0 while gated off (bed5bac baseline);
+// 9 TitleBG + up to 58 Title3DSprite once SetupFX's foreach_all(...){visible=true}
+// runs. Written each tick by the overlay witness fn (p6_ghz_ovl_witness, ld -R).
+__attribute__((used)) int32 p6_w_titlebg_vis = 0;
+__attribute__((used)) int32 p6_w_title3d_vis = 0;
 // CP5b.1 (Task #268) RENDER diag: the SONIC-MANIA logo blit chain. Two layers,
 // mirroring the CP4b Logos witnesses exactly:
 //   (A) SURFACE-side truth for Title/Logo.gif (written in p6_ghz_arm_env, same
@@ -1338,6 +1344,11 @@ int  p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
 void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy);
 void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
                           int flipX, int flipY);
+#if defined(P6_FRONTEND_TITLE)
+// CP5b.4 (Task #272): set/clear VDP1 half-transparency (CL_Trans) for INK_BLEND/
+// INK_ADD title sprites. Defined in p6_vdp1.c (jo-side). Title flavor only.
+void p6_vdp1_set_ink(int half);
+#endif
 #if defined(P6_FRONTEND_CHAIN)
 /* CP5c CRAM-palette fix: re-arm the sheet/slot state (s_sheet_count=0) so the next
  * surface bind re-runs p6_pal_mirror with the NEW scene's fullPalette[0] -> CRAM
@@ -1582,9 +1593,27 @@ static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
         if (hh < 0 && frame->sheetID < 16)
             ++p6_w_dropbysheet[frame->sheetID]; /* W18 unbound-surface drop histogram */
     }
+#if defined(P6_FRONTEND_TITLE) && defined(P6_TITLE_INK)
+    // CP5b.4 (Task #272): map INK_BLEND (Mountain2) + INK_ADD (Reflection/Water-
+    // Sparkle, alpha 0x80) to VDP1 CL_Trans half-transparency. The blit inherits the
+    // sticky jo attribute; clear it after so opaque sprites (logo/Sonic) are
+    // unaffected. INK_MASKED already early-returns; INK_ALPHA/SUB/TINT unused by the
+    // Title objects (opaque fallback). GHZ compiles this out (byte-identical).
+    // Behind P6_TITLE_INK while A/B-isolating whether the sticky jo half-transparency
+    // attribute leaks onto the FG (the head) -- the measured head regression.
+    int32 p6_inkHalf = 0;
+    if (sceneInfo.entity) {
+        int32 ie = sceneInfo.entity->inkEffect;
+        p6_inkHalf = (ie == INK_BLEND || ie == INK_ADD) ? 1 : 0;
+    }
+    if (p6_inkHalf) p6_vdp1_set_ink(1);
+#endif
     p6_vdp1_blit_flipped(p6_vdp1HandlesInit ? p6_vdp1HandleBySurface[frame->sheetID] : -1,
                          x, y, frame->width, frame->height, frame->sprX, frame->sprY,
                          (dir & FLIP_X) ? 1 : 0, (dir & FLIP_Y) ? 1 : 0);
+#if defined(P6_FRONTEND_TITLE) && defined(P6_TITLE_INK)
+    if (p6_inkHalf) p6_vdp1_set_ink(0);
+#endif
     p6_w_draw_xy      = ((x & 0xFFFF) << 16) | (y & 0xFFFF);
     p6_w_draw_rect    = ((int32)frame->sprX << 16) | (int32)frame->sprY;
     p6_w_draw_sheetid = (int32)frame->sheetID;

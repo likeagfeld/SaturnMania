@@ -128,14 +128,15 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     # CP5b.2 (#269): + Game_TitleSonic.o (the ring-center head + finger-wave). Links
     # into the overlay against game.elf via -R like every other overlay obj.
     OVL_FE="$OVL_FE Game_TitleSetup.o Game_TitleLogo.o Game_TitleSonic.o"
-    # CP5b.3 (#272): Game_TitleBG.o (mountains/water/wing-shine + island/cloud scanline
-    # FX) + Game_Title3DSprite.o (perspective billboards) link ONLY under
-    # P6_TITLEBG_SPRITES. Their verbatim TitleBG_SetupFX (SetPaletteMask + per-frame
-    # scanline clip writes) destabilizes the title on Saturn (MEASURED -- see
-    # p6_ovl_ghz.c), so by default they are NOT linked and TitleBG_SetupFX is the no-op
-    # stub in p6_ovl_ghz.c. The VDP2 sky+cloud+island backdrop is independent (it reads
-    # tileLayers[] directly, NOT these objects), so it renders without them.
-    if [ -n "${P6_TITLEBG_SPRITES:-}" ]; then
+    # CP5b.4 (#272): Game_TitleBG.o (mountains/water/wing-shine) + Game_Title3DSprite.o
+    # (the MountainL/M/S/Tree/Bush perspective billboards) now link BY DEFAULT in the
+    # Title flavor. The MEASURED destabilizer was the per-frame scanline-callback
+    # INSTALL in TitleBG_SetupFX (SetClipBounds corrupted the Saturn FG sprite clip);
+    # that install is now #if-guarded OUT on the Saturn/Title build (verbatim TitleBG.c,
+    # P6_FRONTEND_TITLE). The VDP2 sky+cloud+island backdrop stays independent; these
+    # objects add the island mountains/water/billboards via the proven DrawSprite path.
+    # P6_TITLEBG_SPRITES_OFF restores the gated-off state (A/B bisect).
+    if [ -z "${P6_TITLEBG_SPRITES_OFF:-}" ]; then
         OVL_FE="$OVL_FE Game_TitleBG.o Game_Title3DSprite.o"
     fi
 fi
