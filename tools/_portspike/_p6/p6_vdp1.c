@@ -72,7 +72,14 @@
  * a Logos-only build keeps 192x96. */
 #define P6_SPR_MAXW     248 /* Title: widest frame 241 (sonic head) -> mult-8 pad 248 */
 #define P6_SPR_MAXH     160 /* Title: tallest frame 144 (emblem) / 137 (head) -> 160 */
-#define P6_VDP1_NSLOTS  10  /* Title working set = ~6 logo + ring + head + finger; no eviction */
+/* Phase 2 (Task #279): with the content-size N-bucket below, s_slots[] is now ONLY
+ * bucket 3 -- the 248x160 catch-all for w>160 frames, which is JUST the Sonic body
+ * (241x137; every other title sprite + the <=160-wide ring frames route to the
+ * smaller buckets). 4 slots cover the body's play-once twirl (LRU). Shrinking 10->4
+ * frees 6*sizeof(P6Vdp1Slot)=168 B of .bss so the N-bucket arrays (s_buck0/1/2) are a
+ * NET-NEGATIVE WRAM-H change -- the +120 B naive version tripped the #228 boot trap
+ * (master PC 0x06000956), the title flavor's ceiling being far tighter than GHZ's. */
+#define P6_VDP1_NSLOTS  4   /* Title BIG bucket (Sonic body catch-all); buckets carry the rest */
 #elif defined(P6_FRONTEND_LOGOS)
 #define P6_SPR_MAXW     192 /* Logos: widest frame 187 -> mult-8 pad 192 */
 #define P6_SPR_MAXH     96  /* Logos: tallest frame 89 -> 96 */
@@ -199,23 +206,55 @@ typedef struct {
 } P6Vdp1Slot;
 static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MAXH */
 #if defined(P6_FRONTEND_TITLE)
-/* CP5b.7 PERF (MEASURED): the title was VDP1-DRAW-BOUND. A/B (P6_TITLE_NODRAW)
- * moved fps 8.6 -> 26.5 -- the ~90 ms/frame slSynch stall IS the VDP1 sprite
- * draw, NOT compute (8 ms) and NOT VDP1 raster of a small list. Cause: EVERY
- * sprite was padded into the fixed 248x160 LARGE box, of which 77% is TRANSPARENT
- * (content 0.79 screens vs the 3.47 screens drawn -- p6_w_vdp1_boxpx/contentpx).
- * MOST title sprites are small (Finger Wave 50x63, ribbon/copyright/ringbottom);
- * only the head/emblem need the 248-wide box. A SECOND uniform 64x64 pool holds
- * the small ones at 4,096 px instead of 39,680 px (9.7x less fill per small
- * sprite). UNIFORM size per pool -> jo_sprite_replace's same-size LRU reuse holds
- * (jo's VDP1 allocator is append-only; mixing sizes in one pool would leak).
- * VRAM: 10*39,680 (large) + 14*4,096 (small) = 454,144 B < JO_VDP1_USER_AREA_SIZE
- * 466,232 (line ~67) -- fits with 12 KB margin; the large pool capacity is
- * UNCHANGED so big-sprite residency cannot regress. */
-#define P6_SPR_SM_BOX     64
-#define P6_VDP1_NSLOTS_SM 14
-static P6Vdp1Slot s_slots_sm[P6_VDP1_NSLOTS_SM]; /* SMALL box: 64 x 64 */
-static int s_slots_sm_n = 0;                     /* small-pool cold-fill count */
+/* CP5b.7 -> Phase 2 (Task #279): CONTENT-SIZE N-BUCKET VDP1 pool.
+ *
+ * MEASURED ROOT CAUSE (qa_p6_perf --scene title, per-section FRT): the title is
+ * COMPUTE-bound, not VDP1-fill-bound -- DrawLists 42.3 ms dominates the 48.9 ms
+ * master frame; jo-body/slSynch wait = 0.00 ms (the master never waits on VDP1).
+ * The DrawLists cost is the per-sprite STAGING (a CPU byte-copy of the fixed box
+ * into s_stage) + jo_sprite_replace DMA on every cache MISS. Every sprite paid the
+ * one 248x160 box (39,680 B) regardless of content, so a churning animation
+ * (ribbon-wave tails, electricity ring, unfurl) re-staged 39,680 B per cycle frame.
+ * The earlier "VDP1-fill-bound" read of the P6_TITLE_NODRAW A/B was wrong: skipping
+ * the emit also skips this CPU staging. CP5b.7's single 64x64 second pool (8.6 ->
+ * 13.3 fps) cut it for tiny sprites; Phase 2 generalises to N content-size buckets
+ * so EVERY sprite stages only the smallest box that holds it.
+ *
+ * Bucket boundaries from the MEASURED Title frame dims (parse_spr on
+ * extracted/Data/Sprites/Title/{Logo,Sonic,Electricity}.bin):
+ *   b0 64x80   : finger 50x63, ribbon-WAVE tails 56x72, copyright 45x8, small ring
+ *   b1 192x64  : ribbon-center 176x52, wordmark 137x46, ring-bottom 120x25,
+ *                press-start 174x14
+ *   b2 160x160 : emblem 144x144, ribbon-UNFURL 118x85, mid electricity-ring frames
+ *   b3 248x160 : Sonic BODY 241x137 + CATCH-ALL (w>160). Box UNCHANGED from the old
+ *                large pool, so nothing that drew before can newly drop (every ring
+ *                frame is <=160 wide; >160-tall frames already dropped at 248x160).
+ * Smallest-first: a sprite takes the first bucket whose box holds BOTH (w,h). Each
+ * bucket is UNIFORM-box so jo_sprite_replace's same-size in-place LRU reuse holds
+ * (jo's VDP1 allocator is append-only -- mixing sizes in one pool would leak). VRAM
+ * (1 B/px, 8bpp paletted): 6*5,120 + 6*12,288 + 6*25,600 + 4*39,680 = 416,768 B <
+ * JO_VDP1_USER_AREA_SIZE 466,232 (49,464 B margin). b3 reuses the existing s_slots[]
+ * (n_max capped at 4) + the p6_w_vdp1_slots coldn, so the GHZ/Logos builds (no
+ * P6_FRONTEND_TITLE) keep the single-pool path byte-identical. */
+#define P6_NB 4
+static P6Vdp1Slot s_buck0[6];                    /* 64x80   */
+static P6Vdp1Slot s_buck1[6];                    /* 192x64  */
+static P6Vdp1Slot s_buck2[6];                    /* 160x160 */
+/* bucket 3 (248x160 catch-all) reuses s_slots[] + p6_w_vdp1_slots. */
+static int s_buck0n = 0, s_buck1n = 0, s_buck2n = 0;
+static const struct { int bw, bh; } P6_BUCK[P6_NB] = {
+    { 64, 80 }, { 192, 64 }, { 160, 160 }, { P6_SPR_MAXW, P6_SPR_MAXH }
+};
+/* smallest-first bucket select; shared by the router AND the stride cull so the
+ * box used for placement and the box used for the off-screen-wrap check agree. */
+static int p6_bucket_for(int w, int h)
+{
+    int i;
+    for (i = 0; i < P6_NB; ++i)
+        if (w <= P6_BUCK[i].bw && h <= P6_BUCK[i].bh)
+            return i;
+    return -1;
+}
 #endif
 /* Task #241: monotonic LRU clock; the slot with the smallest lastUse is the
  * eviction victim when the cache is full and a new rect misses. */
@@ -355,12 +394,18 @@ void p6_vdp1_frontend_pal_reset(void)
         s_slots[i].lastUse = 0;
     }
 #if defined(P6_FRONTEND_TITLE)
-    /* CP5b.7: reset the SMALL pool too (CHAIN implies TITLE, so it exists here). */
-    s_slots_sm_n = 0;
-    for (i = 0; i < P6_VDP1_NSLOTS_SM; ++i) {
-        s_slots_sm[i].jo_id   = -1;
-        s_slots_sm[i].sheet   = -1;
-        s_slots_sm[i].lastUse = 0;
+    /* Phase 2: reset the content-size buckets too (CHAIN implies TITLE). */
+    {
+        P6Vdp1Slot *bk[3];
+        int bn, j;
+        bk[0] = s_buck0; bk[1] = s_buck1; bk[2] = s_buck2;
+        s_buck0n = s_buck1n = s_buck2n = 0;
+        for (bn = 0; bn < 3; ++bn)
+            for (j = 0; j < 6; ++j) {
+                bk[bn][j].jo_id   = -1;
+                bk[bn][j].sheet   = -1;
+                bk[bn][j].lastUse = 0;
+            }
     }
 #endif
 }
@@ -515,21 +560,43 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
 {
     int s;
 #if defined(P6_FRONTEND_TITLE)
-    if (w <= P6_SPR_SM_BOX && h <= P6_SPR_SM_BOX) {
-        s = p6_pool_for(s_slots_sm, P6_VDP1_NSLOTS_SM, &s_slots_sm_n,
-                        P6_SPR_SM_BOX, P6_SPR_SM_BOX, sheet, sx, sy, w, h);
-        if (s < 0) return -1;
-        s_last_box_w = P6_SPR_SM_BOX;
-        s_last_box_h = P6_SPR_SM_BOX;
-        return s_slots_sm[s].jo_id;
+    /* Phase 2: route to the smallest content-size bucket (see P6_BUCK above). */
+    switch (p6_bucket_for(w, h)) {
+        case 0:
+            s = p6_pool_for(s_buck0, 6, &s_buck0n, 64, 80, sheet, sx, sy, w, h);
+            if (s < 0) return -1;
+            s_last_box_w = 64; s_last_box_h = 80;
+            return s_buck0[s].jo_id;
+        case 1:
+            s = p6_pool_for(s_buck1, 6, &s_buck1n, 192, 64, sheet, sx, sy, w, h);
+            if (s < 0) return -1;
+            s_last_box_w = 192; s_last_box_h = 64;
+            return s_buck1[s].jo_id;
+        case 2:
+            s = p6_pool_for(s_buck2, 6, &s_buck2n, 160, 160, sheet, sx, sy, w, h);
+            if (s < 0) return -1;
+            s_last_box_w = 160; s_last_box_h = 160;
+            return s_buck2[s].jo_id;
+        case 3:
+            /* BIG catch-all (w>160): reuse s_slots[] capped at 4 slots. */
+            s = p6_pool_for(s_slots, 4, &p6_w_vdp1_slots,
+                            P6_SPR_MAXW, P6_SPR_MAXH, sheet, sx, sy, w, h);
+            if (s < 0) return -1;
+            s_last_box_w = P6_SPR_MAXW; s_last_box_h = P6_SPR_MAXH;
+            return s_slots[s].jo_id;
+        default:
+            /* oversize (w>248 or h>160) -- same reject as the old large box. */
+            ++p6_w_vdp1_drops;
+            return -1;
     }
-#endif
+#else
     s = p6_pool_for(s_slots, P6_VDP1_NSLOTS, &p6_w_vdp1_slots,
                     P6_SPR_MAXW, P6_SPR_MAXH, sheet, sx, sy, w, h);
     if (s < 0) return -1;
     s_last_box_w = P6_SPR_MAXW;
     s_last_box_h = P6_SPR_MAXH;
     return s_slots[s].jo_id;
+#endif
 }
 
 #if defined(P6_FRONTEND_TITLE)
@@ -597,12 +664,12 @@ void p6_vdp1_set_ink(int half)
 static int p6_box_in_stride(int x, int flipX, int w, int h)
 {
     int box_left;
-    /* CP5b.7: the box width is now the ROUTED pool box (64 for a small sprite,
-     * P6_SPR_MAXW for a large one) -- a small sprite must be stride-checked against
-     * its 64-box, not the 248-box, or a small sprite near the right edge would be
-     * wrongly culled (box-right = x+248 > 512 while its real 64-box fits). Mirrors
-     * the p6_slot_for routing below. */
-    int boxw = (w <= P6_SPR_SM_BOX && h <= P6_SPR_SM_BOX) ? P6_SPR_SM_BOX : P6_SPR_MAXW;
+    /* Phase 2: the box width is the ROUTED content-size bucket -- MUST match the
+     * p6_slot_for routing exactly, or a sprite near the right edge is wrongly
+     * culled/passed (box-right = x+boxw vs the 512 px stride). p6_bucket_for(-1)
+     * (oversize) -> the big box; p6_slot_for drops it anyway. */
+    int b    = p6_bucket_for(w, h);
+    int boxw = (b < 0) ? P6_SPR_MAXW : P6_BUCK[b].bw;
     /* Box-left in the framebuffer for the content-at-box-left staging:
      *   FLIP_NONE: box center FB = x + boxw/2  -> box-left = x.
      *   FLIP_X:    box center FB = x + w - boxw/2 + JO_TV_WIDTH_2 ... reduces
