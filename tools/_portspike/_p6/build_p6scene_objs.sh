@@ -71,6 +71,15 @@ fi
 # GHZ build leaves both unset -> byte-identical.
 if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     export P6_FRONTEND_LOGOS=1
+    # CP5b.5 (Task #275): default the TitleBG parallax VDP1 sprites OFF (they thrash
+    # the 10-slot Title VDP1 cache -> the FG breaks up in 25/40 settled frames,
+    # MEASURED qa_title_fg_stable.py). p6_ovl_ghz.o then compiles with
+    # -DP6_TITLEBG_SPRITES_OFF (line 404 thread) so its TitleBG registration is
+    # #if'd out, matching build_shipping.sh excluding Game_TitleBG.o from OVL_FE.
+    # build_shipping.sh exports the same default before calling this script; set it
+    # here too so a standalone P6_FRONTEND_TITLE=1 invocation is self-consistent.
+    # A/B re-enable: P6_TITLEBG_SPRITES_OFF="" (explicit empty).
+    export P6_TITLEBG_SPRITES_OFF="${P6_TITLEBG_SPRITES_OFF-1}"
 fi
 
 CC=/work/jo-engine/Compiler/LINUX/bin/sh-none-elf-gcc-8.2.0

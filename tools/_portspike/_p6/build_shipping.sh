@@ -71,6 +71,19 @@ fi
 # the Title witness grep) are added explicitly. Default GHZ leaves both unset.
 if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     export P6_FRONTEND_LOGOS=1
+    # CP5b.5 (Task #275): default the verbatim TitleBG parallax VDP1 sprites
+    # (Mountain1/2, Reflection, WaterSparkle, WingShine) OFF. They THRASH the 10-slot
+    # Title VDP1 cache (FG ~9 distinct rects + the TitleBG on-screen rects exceed
+    # P6_VDP1_NSLOTS=10 -> LRU evicts the FG slots -> the Sonic/logo foreground breaks
+    # up). MEASURED: 25/40 settled frames had a broken FG (qa_title_fg_stable.py),
+    # savestate p6_w_vdp1_evicts=273. The title backdrop stays the Saturn-native VDP2
+    # NBG1 sky+cloud+island present (zero VDP1 slot cost), so the FG keeps all 10
+    # slots in every frame. Re-enable the TitleBG sprites for an A/B bisect by setting
+    # P6_TITLEBG_SPRITES_OFF="" (explicit empty). This MUST be set BEFORE step [1/5]
+    # so build_p6scene_objs.sh compiles p6_ovl_ghz.o with -DP6_TITLEBG_SPRITES_OFF
+    # (else its TitleBG registration links while Game_TitleBG.o is excluded from
+    # OVL_FE below -> undefined reference).
+    export P6_TITLEBG_SPRITES_OFF="${P6_TITLEBG_SPRITES_OFF-1}"
 fi
 
 echo "[1/5] proof pack (engine TUs, ld -r gc-pack; -u p6_engine_boot_and_run root) ..."
