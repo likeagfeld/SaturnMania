@@ -428,6 +428,15 @@ __attribute__((used)) int32 p6_w_pack_used      = 0; // 1 == scene LoadFile rode
 __attribute__((used)) int32 p6_w_gif_loaded = 0; // 1 == LoadStageGIF + hash completed
 __attribute__((used)) int32 p6_w_gif_hash   = 0; // djb2-xor over tilesetPixels[0x40000]
 __attribute__((used)) int32 p6_w_gif_b0     = 0; // tilesetPixels[0] (offline model 0x01)
+// LOAD-FIX EXPERIMENT (#271): skip the 262,144-px tileset LZW decode (the MEASURED
+// ~4.4s S8 cost, cache-thrashing on the SH-2). 1 in the front-end build only ->
+// LoadStageGIF early-returns. CONFIRMS the decode is the lever (spike 7.9->~3.5s)
+// before the real pre-decode fix replaces the skip. GHZ build = 0 (untouched).
+#if defined(P6_FRONTEND_TITLE)
+extern "C" { __attribute__((used)) int p6_skip_gif_decode = 1; }
+#else
+extern "C" { __attribute__((used)) int p6_skip_gif_decode = 0; }
+#endif
 // P6.5b1 (Task #208, qa_p6_vdp2.py): VDP2 present witness.
 __attribute__((used)) int32 p6_w_vdp2_done  = 0; // 1 == engine layer presented on NBG1
 // p6_vdp2.c (C TU): presents the engine-decoded Island layer through NBG1.
@@ -2069,8 +2078,16 @@ __attribute__((used)) int32 p6_w_lt_masked_vbl = 0; // total vblanks across the 
 __attribute__((used)) int32 p6_w_lt_ph2_fills  = 0; // total fills in phase-2 (ground-truth ms/fill numerator helper)
 __attribute__((used)) int32 p6_w_lt_ph2_vbl    = 0; // total vblanks in phase-2 (-> ms/fill = vbl*16.67/fills)
 __attribute__((used)) int32 p6_w_lt_sfx_savedopen = 0; // Task #271 fix: SFX file-opens the early-out SKIPPED (was wasted seeks)
+// SEEK-LOCALIZER (#271 load fix): cumulative GFS seek-count at marks 7-10 (index slot-7).
+// Per-step seeks = consecutive deltas -> pins which LoadScene sub-step owns the title's ~105
+// CD-seeks (the dominant load cost). [0]=end-of-masked(S7), [1]=S8 LoadSceneFolder, [2]=S9
+// LoadSceneAssets, [3]=S10 InitObjects. 16 B; a TITLE-only -u root (build_p6scene_objs.sh)
+// keeps it. The GHZ shipping build's no-op p6_lt_mark never references it -> gc-sections
+// strips it there -> GHZ WRAM-H is UNTOUCHED (title _end +16 B = 80 B trap margin).
+__attribute__((used)) int32 p6_w_p2seeks[4] = { 0, 0, 0, 0 };
 // Running state for the marker (NOT witnesses).
-extern "C" int p6_w_gfs_fills;   // p6_gfs.c windowed + storage.c single-shot fill count
+extern "C" int p6_w_gfs_fills;        // p6_gfs.c windowed + storage.c single-shot fill count
+extern "C" int p6_w_gfs_seeks_real;   // p6_gfs.c cumulative GFS_Seek count (seek-localizer)
 extern "C" int p6_w_gfs_bytes;   // p6_gfs.c + storage.c total bytes read
 static unsigned short p6_lt_prev_frt   = 0;
 static unsigned int   p6_lt_prev_vbl   = 0;
@@ -2105,6 +2122,10 @@ static void p6_lt_mark(int slot)
         p6_w_lt_fills[slot] = fil - p6_lt_prev_fills;
         p6_w_lt_kb[slot]    = (byt - p6_lt_prev_bytes) / 1024;
     }
+    if (slot >= 7 && slot <= 10)
+        p6_w_p2seeks[slot - 7] = (int32)vbl; // LOAD-localizer: cumulative phase-2 VBL at this mark
+                                             // (per-step total time; subtract the seek-I/O for compute).
+                                             // Seek split already captured: masked 6 / S8 2 / S9 1 / S10 6.
     p6_lt_prev_frt   = frt;
     p6_lt_prev_vbl   = vbl;
     p6_lt_prev_fills = fil;

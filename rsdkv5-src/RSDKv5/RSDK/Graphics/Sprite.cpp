@@ -15,6 +15,14 @@ const int32 NO_SUCH_CODE  = 4098;
 
 int32 codeMasks[] = { 0, 1, 3, 7, 15, 31, 63, 127, 255, 511, 1023, 2047, 4095 };
 
+#if RETRO_PLATFORM != RETRO_SATURN
+// #271: the GIF LZW decoder (InitGifDecoder / ReadGif* / TraceGifPrefix /
+// ImageGIF::Load) is DEAD on Saturn -- every sprite sheet is a staged .SHT and
+// every stage tileset is a pre-decoded .TIL (LoadStageGIF + LoadSpriteSheet are
+// both gated to skip it). The per-TU build does NOT --gc-sections, so removing the
+// CALLS alone leaves the bodies in Sprite.o; omitting the DEFINITIONS here reclaims
+// ~1-2 KB .text -- funding the pre-decode helper under the frozen WRAM-H #228
+// ceiling (_end must stay ~64 B below the anim-pack base, PC=0x06000956 on overflow).
 int32 ReadGifCode(ImageGIF *image);
 uint8 ReadGifByte(ImageGIF *image);
 uint8 TraceGifPrefix(uint32 *prefix, int32 code, int32 clearCode);
@@ -265,6 +273,7 @@ bool32 ImageGIF::Load(const char *fileName, bool32 loadHeader)
     }
     return false;
 }
+#endif // RETRO_PLATFORM != RETRO_SATURN -- GIF LZW decoder omitted on Saturn (#271)
 
 #if RETRO_PLATFORM == RETRO_ANDROID
 #define _REDOFF   0
@@ -971,6 +980,17 @@ uint16 RSDK::LoadSpriteSheet(const char *filename, uint8 scope)
     }
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN
+    // Unmatched sheet = DECLARED gap (not staged as .SHT). The GIF LZW decoder is
+    // NOT compiled in on Saturn: every sheet is a staged .SHT (resolved above) and
+    // every tileset is a pre-decoded .TIL (#271, LoadStageGIF). Return unbound (-1)
+    // -- the gap stays visible via the residency bind-table. This leaves
+    // ImageGIF::Load + ReadGif* unreferenced so the linker strips them (~1-2 KB
+    // .text), funding the #271 pre-decode helper under the WRAM-H #228 ceiling.
+    // (Pre-#271 the fallback LZW-decoded then alloc-failed on the full STG pool ->
+    // the SAME gap, just after wasting the decode.)
+    return -1;
+#else
     ImageGIF image;
 
     if (image.Load(fullFilePath, true)) {
@@ -1022,6 +1042,7 @@ uint16 RSDK::LoadSpriteSheet(const char *filename, uint8 scope)
         image.Close();
         return -1;
     }
+#endif
 }
 
 bool32 RSDK::LoadImage(const char *filename, double displayLength, double fadeSpeed, bool32 (*skipCallback)())

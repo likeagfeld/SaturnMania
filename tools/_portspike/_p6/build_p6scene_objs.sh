@@ -569,6 +569,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_CHAIN:+-u _p6_w_chain_fired -u _p6_w_chain_folder_pre -u _p6_w_chain_listpos_adv -u _p6_w_chain_listpos_title} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_vbl -u _p6_w_lt_fills -u _p6_w_lt_kb -u _p6_w_lt_frt} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_cks -u _p6_w_lt_masked_vbl -u _p6_w_lt_ph2_fills -u _p6_w_lt_ph2_vbl -u _p6_w_lt_sfx_savedopen} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_p2seeks} ${P6_FRONTEND_LOGOS:+-u _p6_w_p2seeks} \
     -u _p6_w_sign_crossed \
     -u _p6_w_sign_count -u _p6_w_sign_type -u _p6_w_sign_posx \
     -u _p6_w_cart_ok -u _p6_w_cart_rb0 -u _p6_w_cart_rb1 \

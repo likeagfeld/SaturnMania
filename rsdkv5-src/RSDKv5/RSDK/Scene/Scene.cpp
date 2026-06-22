@@ -1144,8 +1144,97 @@ void RSDK::LoadTileConfig(char *filepath)
 }
 #undef P6_CM
 
+#if RETRO_PLATFORM == RETRO_SATURN
+// LOAD-FIX (#271): replace the 262,144-px tileset LZW decode (MEASURED ~4.4 s on the
+// 26.8 MHz SH-2 -- the dominant cost of S8 LoadSceneFolder, the single largest chunk
+// of the front-end's 7.9 s phase-2 load) with a memcpy of an offline pre-decoded raw
+// index plane + palette: tools/build_predecoded_tilesets.py -> cd/<TAG>{TIL,PAL}.BIN.
+// The pre-decode is byte-identical to ReadGifPictureData (proven by the qa_p6_gif.py
+// gate W2). Universal: every scene with pre-decoded assets skips its LZW decode; a
+// scene without them falls through to the decode below (so nothing breaks).
+extern "C" int rsdk_storage_load_to_lwram(const char *iso9660_name, void *dst, unsigned int max_bytes);
+extern "C" {
+extern int32 p6_w_gif_b0;   // repurposed: 1 == pre-decode path served the tileset (0 == LZW fallback)
+extern int32 p6_w_gif_hash; // repurposed: bytes loaded from <TAG>TIL.BIN
+}
+
+// Build "<TAG><suffix>" (TAG = uppercase(currentSceneFolder) truncated to 5 chars)
+// into out. MUST match tag_for() in tools/build_predecoded_tilesets.py. The names
+// "<TAG>TIL.BIN"/"<TAG>PAL.BIN" stay <= 12 chars -- the SGL GFS 8.3 filename limit
+// [[sgl-gfs-fname-len-12-limit]]; verified collision-free across all 42 folders.
+static void p6_til_name(char *out, const char *suffix)
+{
+    int32 n = 0;
+    for (const char *p = currentSceneFolder; *p && n < 5; ++p) {
+        char ch = *p;
+        if (ch >= 'a' && ch <= 'z')
+            ch = (char)(ch - 32); // uppercase
+        out[n++] = ch;
+    }
+    for (const char *p = suffix; *p; ++p)
+        out[n++] = *p;
+    out[n] = 0;
+}
+
+// Returns 1 if the pre-decoded raw tileset for currentSceneFolder was found and
+// loaded into tilesetPixels + fullPalette[0] (caller skips the LZW decode); 0 if
+// absent (caller falls back to the decode).
+static int32 p6_load_predecoded_tileset(void)
+{
+    char fn[16];
+
+    // 1) palette: 256 x big-endian uint32 (0x00RRGGBB) -> load into the HEAD of
+    //    tilesetPixels as scratch. NO new .bss (the WRAM-H #228 ceiling is frozen
+    //    64 B under 0x060B6600). Convert with the SAME active-row masking +
+    //    rgb32To16 path the decode runs (mirrors the loop in LoadStageGIF below).
+    p6_til_name(fn, "PAL.BIN");
+    if (rsdk_storage_load_to_lwram(fn, tilesetPixels, 0x800) < 0x400)
+        return 0; // palette absent/short -> fall back to LZW decode
+    {
+        const uint32 *pal = (const uint32 *)tilesetPixels;
+        for (int32 r = 0; r < 0x10; ++r) {
+            // only overwrite inactive rows (identical to the decode path)
+            if (!(activeStageRows[0] >> r & 1) && !(activeGlobalRows[0] >> r & 1)) {
+                for (int32 c = 0; c < 0x10; ++c) {
+                    uint32 clr  = pal[(r << 4) + c];
+                    uint8 red   = (clr >> 0x10);
+                    uint8 green = (clr >> 0x08);
+                    uint8 blue  = (clr >> 0x00);
+                    fullPalette[0][(r << 4) + c] = rgb32To16_B[blue] | rgb32To16_G[green] | rgb32To16_R[red];
+                }
+            }
+        }
+    }
+
+    // 2) indices: the (trailing-zero-tile-trimmed) raw index plane straight into
+    //    tilesetPixels, then zero the trimmed suffix. Byte-identical to a full
+    //    decode: the trailing unused tiles the tool dropped were all index 0.
+    p6_til_name(fn, "TIL.BIN");
+    int32 b = (int32)rsdk_storage_load_to_lwram(fn, tilesetPixels, TILESET_SIZE);
+    if (b <= 0)
+        return 0; // index plane absent -> fall back (the decode resets the palette too)
+    if (b < (int32)TILESET_SIZE)
+        memset(&tilesetPixels[b], 0, (size_t)((int32)TILESET_SIZE - b));
+
+    p6_w_gif_b0   = 1;
+    p6_w_gif_hash = b;
+    return 1;
+}
+#endif
+
 void RSDK::LoadStageGIF(char *filepath)
 {
+#if RETRO_PLATFORM == RETRO_SATURN
+    // LOAD-FIX (#271): the tileset is served EXCLUSIVELY from the offline
+    // pre-decoded raw assets (cd/<TAG>{TIL,PAL}.BIN). The ~4.4 s SH-2 LZW decoder
+    // is NOT compiled in on Saturn -- every shipping scene ships its TIL/PAL pair
+    // (tools/build_predecoded_tilesets.py), so the decode is dead here and omitting
+    // it RECLAIMS its .text (the WRAM-H #228 ceiling is frozen 64 B under
+    // 0x060B6600 -- this change must not net-grow code). If the raw assets are ever
+    // absent the tileset simply stays as-is; no scene without them ships.
+    (void)filepath;
+    p6_load_predecoded_tileset();
+#else
     ImageGIF tileset;
 
     if (tileset.Load(filepath, true) && tileset.width == TILE_SIZE && tileset.height <= TILE_COUNT * TILE_SIZE) {
@@ -1213,6 +1302,7 @@ void RSDK::LoadStageGIF(char *filepath)
 #endif
         tileset.pixels  = NULL;
     }
+#endif
 }
 
 void RSDK::ProcessParallaxAutoScroll()
