@@ -436,6 +436,16 @@ __attribute__((used)) int32 p6_w_vdp2_done  = 0; // 1 == engine layer presented 
 void p6_vdp2_upload_cells(const unsigned char *tilesetPx);
 void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
                             const unsigned short *pal565);
+#if defined(P6_FRONTEND_TITLE)
+// CP5b.3 (Task #272): the Mania title BACKDROP (green island + clouds) on NBG1.
+// Cells uploaded separately (p6_vdp2_upload_cells, in the load gap); this builds
+// the composite map + CRAM + display AFTER LoadSceneAssets (palette/layout final).
+void p6_vdp2_present_title_backdrop(const unsigned char *tilesetPx,
+                                    const unsigned short *islandLay, int islandWShift,
+                                    const unsigned short *cloudLay, int cloudWShift,
+                                    const unsigned short *pal565);
+void p6_vdp2_title_backdrop_scroll(int frame); // per-frame cloud/island drift
+#endif
 // P6.7 W16 (Task #228): GHZ FG Low -> NBG1 via the W11a sliding-window
 // accessor, scroll registers anchored to screens[0].position.
 void p6_vdp2_present_ghz_camera(int layer, int scroll_x, int scroll_y,
@@ -811,6 +821,23 @@ __attribute__((used)) int32 p6_w_logos_surfh0    = 0;
 __attribute__((used)) int32 p6_w_logos_h0        = 0;
 #endif
 #if defined(P6_FRONTEND_TITLE)
+// CP5b.3 (Task #272) BACKDROP witnesses (qa_title_backdrop V2): the VDP2 island/
+// cloud present armed. backdrop_done==1 => p6_vdp2_present_title_backdrop ran
+// (NBG1 island+cloud map + CRAM + display). backdrop_armed packs (islandWShift<<8
+// | cloudWShift) (=0x0604 for island 64-wide shift6 + cloud 16-wide shift4) ==
+// the layouts were present + non-NULL. RED baseline: ABSENT (no backdrop code).
+__attribute__((used)) int32 p6_w_title_backdrop_done  = 0;
+__attribute__((used)) int32 p6_w_title_backdrop_armed = -9;
+// CP5b.3 (Task #272) BIND witnesses for the TitleBG sheet (Title/BG.gif -> TBG.SHT):
+// the mountains/water/billboard VDP1 sprites' surface bind chain (the TLOGO/TSONIC
+// mirror). tbg_shtslot>=0 == TBG.SHT staged+hashed; tbg_surfidx>=0 == TitleBG_
+// StageLoad's LoadSpriteAnimation loaded the surface; tbg_handle>=0 == bound.
+__attribute__((used)) int32 p6_w_tbg_shtslot  = -9;
+__attribute__((used)) int32 p6_w_tbg_surfidx  = -9;
+__attribute__((used)) int32 p6_w_tbg_surfslot = -9;
+__attribute__((used)) int32 p6_w_tbg_handle   = -9;
+__attribute__((used)) int32 p6_w_titlebg_classid = -9; // TitleBG->classID (registered)
+__attribute__((used)) int32 p6_w_title3d_classid = -9; // Title3DSprite->classID
 // CP5b.1 (Task #268) RENDER diag: the SONIC-MANIA logo blit chain. Two layers,
 // mirroring the CP4b Logos witnesses exactly:
 //   (A) SURFACE-side truth for Title/Logo.gif (written in p6_ghz_arm_env, same
@@ -1568,6 +1595,20 @@ void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
 {
     if (animator && animator->frames) {
         SpriteFrame *frame = &animator->frames[animator->frameID]; // Drawing.cpp:2673
+#if defined(P6_FRONTEND_TITLE)
+        // CP5b.3 (Task #272): INK_MASKED is a chroma-KEY REVEAL (Drawing.cpp:
+        // DrawSpriteMasked draws ONLY pixels where the framebuffer already holds
+        // maskColor) -- it CANNOT render on the opaque Saturn VDP1 CLUT path, and
+        // drawing it OPAQUE produces solid garbage rectangles. The only INK_MASKED
+        // user in the Title scene is TitleBG WINGSHINE (the diagonal purple/blue
+        // stripe sheet, anim 4) -- which the user explicitly rejected as "the purple
+        // and blue striped boxes". SKIPPING it is both correct (an unrenderable
+        // effect) AND matches the user's directive. GUARDED to P6_FRONTEND_TITLE so
+        // the DEFAULT (GHZ) DrawSprite stays byte-identical (#228 _end budget).
+        // (INK_BLEND/INK_ADD still draw opaque -- reported.)
+        if (sceneInfo.entity && sceneInfo.entity->inkEffect == INK_MASKED)
+            return;
+#endif
         Vector2 pos;
         if (!position)
             pos = sceneInfo.entity->position; // Drawing.cpp:2676
@@ -2490,6 +2531,31 @@ static void p6_ghz_arm_env(void)
             p6_w_tsonic_surfh0    = (int32)gfxSurface[sfound].hash[0];
             p6_w_tsonic_handle    = p6_vdp1_handle_for_surface(sfound);
         }
+    }
+    // CP5b.3 (Task #272): SURFACE-side truth for the TitleBG sheet (Title/BG.gif).
+    // tbg_shtslot>=0 == TBG.SHT staged+hashed; tbg_surfidx>=0 == TitleBG_StageLoad's
+    // LoadSpriteAnimation loaded the surface; tbg_handle>=0 == bound == the mountains/
+    // water/billboard sprites CAN blit. Also latch the registered classIDs.
+    {
+        RETRO_HASH_MD5(bh);
+        GEN_HASH_MD5("Title/BG.gif", bh);
+        p6_w_tbg_shtslot = SaturnSheet_FindSlot((const uint32 *)bh);
+        int32 bfound = -1;
+        for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+            if (gfxSurface[i].scope != SCOPE_NONE
+                && gfxSurface[i].hash[0] == bh[0] && gfxSurface[i].hash[1] == bh[1]
+                && gfxSurface[i].hash[2] == bh[2] && gfxSurface[i].hash[3] == bh[3]) {
+                bfound = i;
+                break;
+            }
+        }
+        p6_w_tbg_surfidx = bfound;
+        if (bfound >= 0) {
+            p6_w_tbg_surfslot = (int32)gfxSurface[bfound].saturnSheetSlot;
+            p6_w_tbg_handle   = p6_vdp1_handle_for_surface(bfound);
+        }
+        // (TitleBG/Title3DSprite classIDs are latched from the overlay witness fn --
+        // their object globals are overlay-resident symbols, not nameable here.)
     }
 #endif
 }
@@ -3490,6 +3556,34 @@ extern "C" void p6_scene_run(void)
             }
         }
         P6_LT_MARK(4); // Task #271 S4: TSONIC.SHT (1024x1024, 121,090 B) load+stage -- the CP5b.2 suspect
+        // CP5b.3 (Task #272): stage TBG.SHT (Title/BG.gif, the TitleBG +
+        // Title3DSprite mountains/water/billboard sheet) into the 13th SaturnSheet
+        // slot (slot 12; slots 9/10/11 = LOGOS/TLOGO/TSONIC) so TitleBG's +
+        // Title3DSprite's DrawSprite resolve a banded slot + the p6_ghz_arm_env bind
+        // loop binds Title/BG.gif's gfxSurface to a VDP1 handle -> the mountains/
+        // water/wing-shine + billboard sprites blit. Path hash = "Title/BG.gif"
+        // (what LoadSpriteAnimation("Title/Background.bin") computes for the sheet[0]).
+        // 256x256 = 65,536 B decoded; the banded .SHT fits the 0x10000 (64 KB) load
+        // buffer with margin. MakeResident is SAFE here (256-wide -> raw band 16*256
+        // = 0x1000, well under the 0x4000 scratch-split that breaks the 1024-wide
+        // TSONIC) so the sprites serve from the resident cart store (no per-frame
+        // band inflate). MIRRORS the TLOGO.SHT block.
+        {
+            int sn = rsdk_storage_load_to_lwram("TBG.SHT",
+                                                (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("Title/BG.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
+                }
+            }
+        }
+        P6_LT_MARK(5); // Task #272 S5: TBG.SHT (256x256, 65,536 B) load+stage
 #endif
 
 #include "p6_sheet_probes.inc"
@@ -4729,6 +4823,20 @@ static void p6_scene_load_and_arm(void)
     // not NBG1 cells. (The GHZ same-folder reload skip is unchanged.)
     if (!p6_folderReload && p6_isGHZ)
         p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+#if defined(P6_FRONTEND_TITLE)
+    // CP5b.3 (Task #272): the TITLE scene's 16x16Tiles (the green island + cloud
+    // tiles) -> NBG1 cells NOW, while tilesetPixels is the live W11b transient
+    // (post-LoadSceneFolder GIF decode, pre-LoadSceneAssets memset). The map +
+    // CRAM + display half runs AFTER arm_env (palette final). Unlike the Logos
+    // placeholder tileset (a 1731 B no-content GIF), the Title tileset has the
+    // real island/cloud content, so the GHZ-only guard above must NOT gate it.
+    {
+        int32 p6_isTitle =
+            (strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "Title") == 0);
+        if (p6_isTitle && !p6_folderReload)
+            p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+    }
+#endif
     p6_w_load_step = 33; // #251 phase-2: LoadSceneAssets (sprite sheets)
     LoadSceneAssets();
     P6_LT_MARK(9); // Task #271 S9: LoadSceneAssets (sprite-sheet GIF decode/stage for the scene)
@@ -4843,6 +4951,27 @@ static void p6_scene_load_and_arm(void)
     p6_w_load_step = 35; // #251 phase-2: arm VDP1 sheet binds
     p6_ghz_arm_env();
     P6_LT_MARK(10); // Task #271 S10: InitObjects (entity Create/StageLoad) + arm_env VDP1 binds
+#if defined(P6_FRONTEND_TITLE)
+    // CP5b.3 (Task #272): present the Mania title BACKDROP on NBG1. The cells were
+    // uploaded above (load gap); now build the composite map (island layer 3 +
+    // clouds layer 2) + CRAM + display. Runs AFTER LoadSceneAssets so fullPalette[0]
+    // + the layouts are final. tileLayers[2]=Clouds (16x16), tileLayers[3]=Island
+    // (64x64) per the Title/Scene1.bin parse. The VDP1 logo/Sonic composite on top
+    // (NBG1 priority 1 < VDP1 sprite priority). MEASURED RED ROOT CAUSE: the front-
+    // end frame only armed SPRON (p6_vdp2_arm_sprites_only) -> the entire VDP2
+    // backdrop stayed black (no NBG present). This is the fix.
+    if (!strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "Title")
+        && tileLayers[3].layout && tileLayers[2].layout) {
+        p6_w_title_backdrop_armed =
+            (int32)(((uint32)tileLayers[3].widthShift << 8) | (uint32)tileLayers[2].widthShift);
+        p6_vdp2_present_title_backdrop(
+            (const unsigned char *)tilesetPixels,
+            (const unsigned short *)tileLayers[3].layout, (int)tileLayers[3].widthShift,
+            (const unsigned short *)tileLayers[2].layout, (int)tileLayers[2].widthShift,
+            (const unsigned short *)fullPalette[0]);
+        p6_w_title_backdrop_done = 1;
+    }
+#endif
 #if defined(P6_FRONTEND_LOGOS)
     // Task #271: phase-2 totals -> the ground-truth ms-per-fill for converting the
     // masked-core I/O fills (S2/S5) to ms. ms/fill = ph2_vbl*16.67/ph2_fills.
@@ -5044,6 +5173,22 @@ static void p6_title_reload(void)
         p6_w_frontend_folder_tag =
             (int32)(((uint32)(uint8)f[0] << 8) | (uint32)(uint8)(f[0] ? f[1] : 0));
     }
+    // CP5b.3 (Task #272) PREREQUISITE: allocate `scanlines` on Saturn BEFORE the
+    // Title loads. MEASURED FINDING: RSDK::scanlines (Scene.cpp:13) is NULL on
+    // Saturn -- it is allocated ONLY by the desktop RenderDevice (DX11/EGL/...),
+    // and there is NO Saturn RenderDevice. The engine's ProcessObjectDrawLists
+    // (Object.cpp:1198-1199) calls `layer->scanlineCallback(scanlines)` UNGATED
+    // on Saturn, so the moment TitleBG_SetupFX registers Scanline_Island/_Clouds
+    // on tileLayers 2/3, those callbacks write `scanlines->deform.x` etc. With
+    // scanlines==NULL that is a WILD WRITE -> crash. Point it at a front-end-only
+    // cart buffer (SCREEN_YSIZE=240 entries x 16 B = 3,840 B) so the callbacks
+    // run safely. The callbacks fill scanlines[] but NOTHING on Saturn consumes
+    // it into VDP2 (the software DrawLayer* rasterizer that reads it is Saturn-
+    // gated off, Object.cpp:1203); the VDP2 backdrop is driven by
+    // p6_vdp2_present_title_backdrop instead. Cart 0x22400000 = the front-end
+    // free cart head (no SaturnLayout / GHZ tileset / pool in this flavor).
+    scanlines = (ScanlineInfo *)0x22400000u;
+    memset((void *)scanlines, 0, (size_t)SCREEN_YSIZE * sizeof(ScanlineInfo));
     p6_scene_load_and_arm();
     p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
 }
@@ -5172,7 +5317,18 @@ static void p6_frontend_frame(void)
     // UIPicture sprites blit to the framebuffer (p6_w_vdp1_landed>0) but VDP2 never
     // composites them (MEASURED BGON=0 -> uniform-blue splash). Idempotent; armed
     // each tick (cheap, mirrors how the GHZ frame re-arms SPRON via its present).
+#if defined(P6_FRONTEND_TITLE)
+    // CP5b.3 (Task #272): when the Title BACKDROP is up (NBG1 island+clouds), arm
+    // NBG1ON|SPRON + drift the backdrop instead of SPRON-only (which would disable
+    // NBG1 and blank the backdrop). Falls back to SPRON-only before the backdrop
+    // is presented (the early load frames) so the logo still composites.
+    if (p6_w_title_backdrop_done)
+        p6_vdp2_title_backdrop_scroll(p6_w_cont_frames);
+    else
+        p6_vdp2_arm_sprites_only();
+#else
     p6_vdp2_arm_sprites_only();
+#endif
     ProcessObjectDrawLists(); // emits the UIPicture VDP1 sprite list (jo swaps it)
 
     ++p6_w_cont_frames; // E5: engine reached ENGINESTATE_REGULAR + is ticking

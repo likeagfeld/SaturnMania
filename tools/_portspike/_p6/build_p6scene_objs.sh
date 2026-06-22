@@ -149,8 +149,14 @@ echo "[7c/9] p6_vdp2.o (P6.5b1 present: engine Island layer -> NBG1 2-word-PND c
 # the flag to p6_vdp1.c do NOT reach it -- without this, the front-end link fails
 # (undefined reference to p6_vdp2_arm_sprites_only). DEFAULT build: the :+ expands
 # to nothing -> the definition stays compiled out -> p6_vdp2.o byte-identical.
+# CP5b.3 (#272): ALSO thread P6_FRONTEND_TITLE so the Title-backdrop present
+# (p6_vdp2_present_title_backdrop + p6_vdp2_title_backdrop_scroll, gated in
+# p6_vdp2.c, called by the gated frontend frame + load in p6_io_main.cpp) is
+# COMPILED IN for the Title build (same reason as the LOGOS thread above --
+# p6_vdp2.c is built here, not by jo-make). DEFAULT/Logos builds: the :+ expands
+# to nothing -> the Title definitions stay compiled out -> p6_vdp2.o unchanged.
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} \
+    ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} \
     -I"$SGLINC" -I"$NEWLIB" \
     -c -o "$P6/p6_vdp2.o" "$P6/p6_vdp2.c"
 # NOTE: p6_vdp1.c (P6.5b2 sprite half) is NOT built here -- it includes
@@ -362,9 +368,14 @@ fi
 if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     # CP5b.2 (#269): + Title_TitleSonic (the ring-center head + finger-wave, verbatim
     # SonicMania_Objects_Title_TitleSonic.c -- 69 L, fully self-contained).
+    # CP5b.3 (#272): + Title_TitleBG (mountains/water/wing-shine + island/cloud
+    # scanline FX) + Title_Title3DSprite (the perspective billboards). Both verbatim
+    # decomp, fully self-contained; they link into the overlay (build_shipping.sh [3b]).
     for wft in Title_TitleSetup:Game_TitleSetup \
                Title_TitleLogo:Game_TitleLogo \
-               Title_TitleSonic:Game_TitleSonic; do
+               Title_TitleSonic:Game_TitleSonic \
+               Title_TitleBG:Game_TitleBG \
+               Title_Title3DSprite:Game_Title3DSprite; do
         src_tu="${wft%%:*}"; out_tu="${wft##*:}"
         "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
             $GAME_DEFS -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS -I"$GINC" -I"$NEWLIB" \
@@ -541,6 +552,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_existmask -u _p6_w_tlogo_vismask -u _p6_w_tlogo_onscrmask -u _p6_w_tlogo_boundmask -u _p6_w_tsetup_statetag} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_shtslot -u _p6_w_tsonic_surfidx -u _p6_w_tsonic_surfslot -u _p6_w_tsonic_surfscope -u _p6_w_tsonic_surfh0 -u _p6_w_tsonic_h0} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_visible -u _p6_w_tsonic_onscreen -u _p6_w_tsonic_sheetid -u _p6_w_tsonic_handle -u _p6_w_tsonic_animid -u _p6_w_tsonic_frameid} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_title_backdrop_done -u _p6_w_title_backdrop_armed} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_tbg_shtslot -u _p6_w_tbg_surfidx -u _p6_w_tbg_surfslot -u _p6_w_tbg_handle} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_titlebg_classid -u _p6_w_title3d_classid} \
     ${P6_FRONTEND_CHAIN:+-u _p6_w_chain_fired -u _p6_w_chain_folder_pre -u _p6_w_chain_listpos_adv -u _p6_w_chain_listpos_title} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_vbl -u _p6_w_lt_fills -u _p6_w_lt_kb -u _p6_w_lt_frt} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_cks -u _p6_w_lt_masked_vbl -u _p6_w_lt_ph2_fills -u _p6_w_lt_ph2_vbl -u _p6_w_lt_sfx_savedopen} \

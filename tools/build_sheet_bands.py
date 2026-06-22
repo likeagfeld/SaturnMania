@@ -109,6 +109,17 @@ SHEETS = [
     # inflated resident = 1 MB in the 3.64 MB cart RES store. The 121 KB blob EXCEEDS
     # the 64 KB load buffer TLOGO uses -> the stage block loads with a 0x20000 buffer.
     ("Title/Sonic.gif", "TSONIC.SHT"),
+    # CP5b.3 (Task #272): the TITLE Background sheet (TitleBG + Title3DSprite's
+    # Title/BG.gif, 256x256, 8bpp). LoadSpriteAnimation("Title/Background.bin") ->
+    # this sheet; its 6 anims hold MOUNTAIN1 (176x16), MOUNTAIN2 (192x16),
+    # REFLECTION (176x16), WATERSPARKLE (192x16), WINGSHINE (64x128), and the
+    # billboards (anim 5, 5 frames max 16x30). Staged ONLY by the P6_FRONTEND_TITLE
+    # boot into its 13th SaturnSheet slot (slot 12); the GHZ + Logos-only shipping
+    # builds never load it. Once staged + hashed, the p6_ghz_arm_env bind loop binds
+    # Title/BG.gif's gfxSurface to a VDP1 handle -> the mountains/water/billboard
+    # sprites blit. MIRRORS the TLOGO/TSONIC path. 256x256 = 65,536 B decoded;
+    # banded .SHT (BAND_ROWS=16, 16 bands) ~well under the 64 KB load buffer.
+    ("Title/BG.gif", "TBG.SHT"),
 ]
 
 # CP4c _end-leak FIX (Task #266): sheets that ONLY a FRONT-END boot stages. Their
@@ -132,7 +143,10 @@ FRONTEND_ONLY_SHEETS = {"LOGOS.SHT": "P6_FRONTEND_LOGOS",
                         # CP5b.2 (Task #269): TSONIC.SHT is staged ONLY by the Title
                         # flavor (slot 11), SAME guard as TLOGO.SHT. Both ride the
                         # single P6_FRONTEND_TITLE group in the generated probes .inc.
-                        "TSONIC.SHT": "P6_FRONTEND_TITLE"}
+                        "TSONIC.SHT": "P6_FRONTEND_TITLE",
+                        # CP5b.3 (Task #272): TBG.SHT (Title/BG.gif) staged ONLY by the
+                        # Title flavor (slot 12), SAME P6_FRONTEND_TITLE guard.
+                        "TBG.SHT": "P6_FRONTEND_TITLE"}
 
 
 def djb2(data):

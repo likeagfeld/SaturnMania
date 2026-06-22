@@ -90,6 +90,8 @@ extern int32 p6_w_uipic_drawgrp, p6_w_uipic_active, p6_w_uipic_visible,
 extern ObjectTitleSetup *TitleSetup;
 extern ObjectTitleLogo  *TitleLogo;
 extern int32 p6_w_titlesetup_classid, p6_w_titlelogo_classid, p6_w_title_objcount;
+/* CP5b.3 (Task #272): TitleBG/Title3DSprite classID witnesses (pack globals, ld -R). */
+extern int32 p6_w_titlebg_classid, p6_w_title3d_classid;
 /* CP5b.1 (Task #268) RENDER diag: the first live TitleLogo entity's draw-chain state
  * (mirrors the CP4c p6_w_uipic_* witnesses). handle = the resolved frame's surface ->
  * p6_vdp1_handle_for_surface; >=0 == Title/Logo.gif bound == the logo blit CAN land. */
@@ -108,16 +110,27 @@ extern ObjectTitleSonic *TitleSonic;
 extern int32 p6_w_tsonic_visible, p6_w_tsonic_onscreen, p6_w_tsonic_sheetid,
              p6_w_tsonic_handle, p6_w_tsonic_animid, p6_w_tsonic_frameid;
 /* CLOSURE EDGE (overlay-resident, flat-TU rule): symbols TitleSetup.c references
- * that no other linked TU provides. (TitleSonic is NO LONGER stubbed here -- CP5b.2
- * registers the real object.) These remain stubbed under the flag so they LINK; none
- * is CALLED before the title would auto-advance, so they are runtime-safe.
- *   - TitleBG_SetupFX: called in State_FlashIn (TitleBG is CP5b.3).
+ * that no other linked TU provides.
+ *   - TitleBG_SetupFX: called in TitleSetup_State_FlashIn. CP5b.3 (Task #272):
+ *     the VDP2 sky+cloud+island BACKDROP is driven Saturn-natively by
+ *     p6_vdp2_present_title_backdrop (independent of TitleBG), so SetupFX stays a
+ *     no-op stub by default. MEASURED: linking the verbatim TitleBG (real SetupFX
+ *     = SetPaletteMask(0x00FF00) + per-frame Scanline_Island/_Clouds clip writes)
+ *     DESTABILIZED the title -- it alternated island-frame vs logo-frame, never a
+ *     stable pose (30-frame fine capture: island + gold-logo NEVER coincide). The
+ *     real port lives behind P6_TITLEBG_SPRITES (CP5b.4 = port SetupFX's palette
+ *     mask + scanline FX to RBG0 + line-scroll first). Default = the stub no-op.
  *   - TimeAttackData_Clear: TitleSetup_StageLoad (no .c cached); a clear of save
  *     tables that are unused on Saturn -> inert no-op is correct.
  *   - APICallback_ClearPrerollErrors: TitleSetup_StageLoad (API_ClearPrerollErrors
  *     macro -> this under !PLUS/REV02); the removed-at-REV02 preroll-error surface,
  *     a no-op on Saturn. */
+#if !defined(P6_TITLEBG_SPRITES)
 void TitleBG_SetupFX(void) {}
+#else
+extern ObjectTitleBG       *TitleBG;
+extern ObjectTitle3DSprite *Title3DSprite;
+#endif
 void TimeAttackData_Clear(void) {}
 void APICallback_ClearPrerollErrors(void) {}
 /* TitleSetup_State_WaitForEnter (reached only on a button-press, ~256+ frames in --
@@ -272,6 +285,35 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityTitleSonic), (unsigned)sizeof(ObjectTitleSonic),
                               TitleSonic_Update, TitleSonic_LateUpdate, TitleSonic_StaticUpdate,
                               TitleSonic_Draw, TitleSonic_Create, TitleSonic_StageLoad, TitleSonic_Serialize);
+    /* CP5b.3 (Task #272): TitleBG (the mountains/water/wing-shine sprites + the
+     * island/cloud scanline FX) + Title3DSprite (the perspective billboards:
+     * MountainL/M/S, Tree, Bush). Verbatim decomp (SonicMania_Objects_Title_
+     * TitleBG.c / Title3DSprite.c). Both StageLoad load Title/Background.bin (sheet
+     * Title/BG.gif, staged as TBG.SHT) so their DrawSprite blits resolve a banded
+     * slot. TitleBG_SetupFX (called from TitleSetup_State_FlashIn) flips them
+     * visible + installs the cloud/island scanlineCallbacks + SetPaletteMask.
+     *
+     * GATED OFF by default (P6_TITLEBG_SPRITES) -- MEASURED DESTABILIZER: registering
+     * these makes TitleBG_SetupFX run, whose SetPaletteMask(0x00FF00) + the per-frame
+     * Scanline_Island/_Clouds (which SetClipBounds 168 / SCREEN_YSIZE/2) interact with
+     * the Saturn render path so the title NEVER reaches a stable pose -- it ALTERNATES
+     * between an island-showing frame and a logo-showing frame (30-frame fine capture:
+     * island and gold-logo NEVER coincide; the foreground emblem/Sonic-head vanish
+     * intermittently). The VDP2 sky+cloud+island BACKDROP (p6_vdp2_present_title_
+     * backdrop) is INDEPENDENT of this registration -- it reads tileLayers[] directly,
+     * so the backdrop renders WITHOUT these objects. Keeping the registration compiled
+     * but OFF preserves the work for a follow-on that ports the SetupFX palette-mask +
+     * scanline FX to a Saturn-native (RBG0 + line-scroll) path (CP5b.4). */
+#if defined(P6_TITLEBG_SPRITES)
+    api->register_object_full((void **)&TitleBG, "TitleBG",
+                              (unsigned)sizeof(EntityTitleBG), (unsigned)sizeof(ObjectTitleBG),
+                              TitleBG_Update, TitleBG_LateUpdate, TitleBG_StaticUpdate,
+                              TitleBG_Draw, TitleBG_Create, TitleBG_StageLoad, TitleBG_Serialize);
+    api->register_object_full((void **)&Title3DSprite, "Title3DSprite",
+                              (unsigned)sizeof(EntityTitle3DSprite), (unsigned)sizeof(ObjectTitle3DSprite),
+                              Title3DSprite_Update, Title3DSprite_LateUpdate, Title3DSprite_StaticUpdate,
+                              Title3DSprite_Draw, Title3DSprite_Create, Title3DSprite_StageLoad, Title3DSprite_Serialize);
+#endif /* P6_TITLEBG_SPRITES */
 #endif
     /* MASS-PORT BATCH 1 (verified-CLEAN drop-ins; closure self-confirmed: only
      * Zone/Player/SceneInfo/DebugMode/Zone_RotateOnPivot, all ported). Decoration =
@@ -433,6 +475,13 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * p6_frontend_frame. */
     if (TitleSetup && TitleSetup->classID) p6_w_titlesetup_classid = (int32)TitleSetup->classID;
     if (TitleLogo  && TitleLogo->classID)  p6_w_titlelogo_classid  = (int32)TitleLogo->classID;
+#if defined(P6_TITLEBG_SPRITES)
+    /* CP5b.3 (Task #272): latch the TitleBG + Title3DSprite classIDs (registered ==
+     * classID>0). Their object globals are overlay-resident (in scope here), the
+     * witnesses are pack globals (ld -R import). */
+    if (TitleBG       && TitleBG->classID)       p6_w_titlebg_classid = (int32)TitleBG->classID;
+    if (Title3DSprite && Title3DSprite->classID) p6_w_title3d_classid = (int32)Title3DSprite->classID;
+#endif
     /* CP5b.1 (Task #268) RENDER diag: latch the first live VISIBLE TitleLogo entity's
      * draw-chain state -- the exact links p6_vdp1_blit needs (mirrors the CP4c
      * p6_w_uipic_* block). Prefer a visible+on-screen piece (the emblem/ribbon/

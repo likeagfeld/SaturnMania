@@ -186,6 +186,201 @@ void p6_vdp2_arm_sprites_only(void)
 }
 #endif
 
+#if defined(P6_FRONTEND_TITLE)
+/* ============================================================================
+ * CP5b.3 (Task #272): the Mania TITLE BACKDROP on VDP2 NBG1 cell-mode.
+ *
+ * The engine Title scene (P6_FRONTEND_TITLE) renders ONLY the VDP1 foreground
+ * (SONIC MANIA logo + Sonic head/finger) on a BLACK VDP2 backdrop. This puts
+ * the green floating ISLAND (the Sonic-head-shaped landmass in water, Title
+ * Scene1.bin tileLayer 3) + the CLOUDS (tileLayer 2) behind Sonic.
+ *
+ * SOURCE = the engine's OWN decoded Title data (no extra asset, no boot delay):
+ *   tilesetPx  = engine tilesetPixels (LZW-decoded Title/16x16Tiles.gif, 1024
+ *                16x16 tiles), uploaded to NBG1 cells A0+A1 by p6_vdp2_upload_cells
+ *                during the load (front-end-gated call added in p6_scene_load_and_arm).
+ *   islandLay  = tileLayers[3].layout (64x64; the green island sits in plane
+ *                tiles (24,24)-(40,40) = px (384,384)-(640,640) per the Scene1.bin
+ *                parse -- the visible bbox is 256x256).
+ *   cloudLay   = tileLayers[2].layout (16x16 = 256x256 px; white clouds on the
+ *                magenta-key sky -- the cloud puffs are the non-empty cells).
+ *
+ * RENDER MODEL (one NBG1 PL_SIZE_2x2 1024x1024 plane, B0 map, the proven
+ * p6_vdp2_present_layout geometry: cells A0, charno=tile*8, 2-word PND, CRAM
+ * bank 0, 4 pages 32x32):
+ *   - The ISLAND layer's 64x64 layout is written 1:1 into the plane (its bbox
+ *     holds the island; the rest is empty -> blank/transparent -> back-color sky).
+ *   - The CLOUDS layer (16x16) is TILED across the plane rows ABOVE the island
+ *     bbox (plane tile rows 0..23) so the sky region behind/above Sonic shows
+ *     cloud puffs instead of a flat color. Cloud empty cells (magenta key) ->
+ *     blank char -> the sky-blue back-color shows through.
+ *   - The back-color is set to Mania sky-blue (0x?? BGR555) so every transparent
+ *     cell renders as sky, not black.
+ *   - Scroll: the island bbox top-left (px 384,384) is parked so the island sits
+ *     in the lower-center of the 320x240 view (island top near screen y~96) and
+ *     the cloud/sky band fills the upper rows.
+ *   - NBG1 priority 1 (BELOW the VDP1 sprites at pri 7) so the logo + Sonic stay
+ *     composited IN FRONT of the backdrop. SPRON kept on (the FG sprites).
+ *
+ * Per the decomp (TitleBG_SetupFX) the island is a Mode-7 ROTATING ground and
+ * the clouds a per-line scroll; on Saturn that maps to RBG0 + coefficient table
+ * (ST-058-R2 §6.4 / DEMOCOEF) + line-scroll (§5.3). This first cut lands the
+ * STATIC composited island+clouds (the recognizable Mania backdrop content);
+ * the live Mode-7 rotation is reported as the remaining stretch (CP5b.4).
+ *
+ * Magenta-key handling: Title/16x16Tiles.gif uses palette index 0 = magenta
+ * (255,0,255) as the transparency placeholder (MEASURED: BG.gif + tiles GCT
+ * slot 0). The engine's fullPalette[0][0] carries whatever color index 0 maps
+ * to; cell pixels with index 0 are TRANSPARENT on VDP2 (color-bank 0, the
+ * standard VDP2 transparent-code-0 behavior, ST-058-R2 §10.2) so the back-color
+ * shows through. So no extra keying is needed -- index-0 cells are see-through.
+ * ========================================================================== */
+
+/* Sky-blue back-color (Mania title sky). MEASURED from the Horizon layer render
+ * (_dbg_horizon.png): the upper sky is ~(0,96,224) RGB. Saturn BGR555 MSB-set:
+ * r5=0>>3=0, g5=96>>3=12, b5=224>>3=28 -> 0x8000 | (28<<10) | (12<<5) | 0 = 0xF180. */
+#define P6_TITLE_SKY_COL  0xF180u
+
+/* Park the island so its bbox (plane px 384..640) sits low-center in 320x240.
+ * island top px 384 -> screen y ~96 => scroll_y = 384 - 96 = 288.
+ * island center x 512 -> screen center x 160 => scroll_x = 512 - 160 = 352. */
+#define P6_TITLE_SCROLL_X  352
+#define P6_TITLE_SCROLL_Y  288
+
+/* The island's visible content lives in plane tile rows >= 24 (px>=384). The
+ * cloud band is tiled into plane tile rows [0,24) so the sky above the island
+ * (screen rows above ~96) carries cloud puffs. */
+#define P6_TITLE_ISLAND_TILE_TOP  24
+
+void p6_vdp2_present_title_backdrop(const unsigned char *tilesetPx,
+                                    const unsigned short *islandLay, int islandWShift,
+                                    const unsigned short *cloudLay, int cloudWShift,
+                                    const unsigned short *pal565)
+{
+    volatile Uint16 *cel  = (volatile Uint16 *)P6_VDP2_CEL;
+    volatile Uint16 *map  = (volatile Uint16 *)P6_VDP2_MAP;
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    int t, c, x, y;
+    int icols = 1 << islandWShift;   /* island layer width in tiles (64) */
+    int ccols = 1 << cloudWShift;    /* cloud  layer width in tiles (16) */
+    int crows;                       /* cloud layer height in tiles (16) */
+
+    /* 1) Cells are uploaded SEPARATELY (p6_vdp2_upload_cells) during the load
+     *    gap -- BEFORE LoadSceneAssets' memset reclaims the transient
+     *    tilesetPixels window. This function runs AFTER LoadSceneAssets (so the
+     *    palette + layouts are final) and only builds the map + CRAM + display.
+     *    tilesetPx is accepted for signature symmetry but not re-read here. */
+    (void)tilesetPx;
+
+    /* cloud layer rows = same as cols for the 16x16 Clouds layer; derive from a
+     * conservative 16 (its on-disk ysize). The caller passes the wshift; assume
+     * square (Clouds is 16x16). */
+    crows = ccols;
+
+    /* 2) Blank char = a tile index neither layer references, zeroed so empties
+     *    render transparent. (Same rule as p6_vdp2_present_layout.) */
+    static unsigned char used[1024];
+    for (t = 0; t < 1024; ++t) used[t] = 0;
+    for (t = 0; t < icols * icols; ++t) {            /* island is 64x64 square */
+        unsigned short e = islandLay[t];
+        if (e != 0xFFFF) used[e & 0x3FF] = 1;
+    }
+    for (t = 0; t < ccols * crows; ++t) {
+        unsigned short e = cloudLay[t];
+        if (e != 0xFFFF) used[e & 0x3FF] = 1;
+    }
+    int blank = 0;
+    while (blank < 1024 && used[blank]) ++blank;
+    {
+        volatile Uint16 *dst = cel + blank * 128;
+        for (c = 0; c < 128; ++c) dst[c] = 0;
+    }
+
+    /* 3) Build the 64x64 PND map (2-word PNDs; high word flips at lower addr,
+     *    low word charno=tile*8 at +2 -- big-endian bus, as present_layout). For
+     *    each plane tile (y,x): use the ISLAND cell if non-empty; ELSE in the top
+     *    band (y < ISLAND_TILE_TOP) use the CLOUD cell (tiled mod cloud dims);
+     *    ELSE blank (-> sky-blue back-color). */
+    for (y = 0; y < 64; ++y) {
+        for (x = 0; x < 64; ++x) {
+            unsigned short e = islandLay[(y << islandWShift) + x];
+            if (e == 0xFFFF && y < P6_TITLE_ISLAND_TILE_TOP) {
+                /* Tile the cloud layer across the sky band. */
+                int cx = x % ccols;
+                int cy = y % crows;
+                e = cloudLay[(cy << cloudWShift) + cx];
+            }
+            unsigned long pnd;
+            if (e == 0xFFFF)
+                pnd = (unsigned long)blank * 8u;
+            else
+                pnd = ((unsigned long)(e & 0x800) << 20)   /* fy bit11 -> 31 */
+                    | ((unsigned long)(e & 0x400) << 20)   /* fx bit10 -> 30 */
+                    | ((unsigned long)(e & 0x3FF) * 8u);
+            int page = ((y >> 5) << 1) + (x >> 5);
+            volatile Uint16 *p = map + page * 2048 + (((y & 31) << 5) + (x & 31)) * 2;
+            p[0] = (Uint16)(pnd >> 16);
+            p[1] = (Uint16)(pnd & 0xFFFF);
+        }
+    }
+
+    /* 4) CRAM bank 0: engine RGB565 -> Saturn BGR555 (MSB set). Same as the
+     *    proven presents; the Title palette's grass-greens + sky + cloud-whites
+     *    land here. */
+    for (c = 0; c < 256; ++c) {
+        unsigned short v = pal565[c];
+        unsigned short r5 = (v >> 11) & 0x1F;
+        unsigned short g5 = ((v >> 5) & 0x3F) >> 1;
+        unsigned short b5 = v & 0x1F;
+        cram[c] = (Uint16)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
+    }
+
+    /* 5) NBG1 config + park scroll + display. Priority 1 (below VDP1 sprites at
+     *    pri 7) so the logo + Sonic composite in front. SPRON kept (FG sprites).
+     *    Sky-blue back-color so transparent cells render as sky, not black. */
+    slCharNbg1(COL_TYPE_256, CHAR_SIZE_2x2);
+    slPageNbg1((void *)P6_VDP2_CEL, 0, PNB_2WORD);
+    slPlaneNbg1(PL_SIZE_2x2);
+    slMapNbg1((void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP,
+              (void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP);
+    slScrPosNbg1(toFIXED(P6_TITLE_SCROLL_X), toFIXED(P6_TITLE_SCROLL_Y));
+    slPriorityNbg1(1);
+    /* CP5b.3 FIX (MEASURED): the front-end lean boot leaves the VDP1 sprite layer
+     * priority below NBG1's opaque cells -> the island/cloud cells OCCLUDED the
+     * logo emblem/wings/Sonic head (peach muzzle 3204->0, gold ring 462->0 MEASURED).
+     * Raise ALL 8 sprite priority banks to 7 (> NBG1 pri 1) so EVERY VDP1 sprite --
+     * regardless of which priority bank its color-bank bits select -- composites IN
+     * FRONT of the backdrop. (jo_set_layer_priority sets all 8 banks, core.c:320-327;
+     * the GHZ scene_ghz.c:598 sets only bank 0 because its sprites all use bank 0,
+     * but the Title logo/Sonic sprites may use others -> set them all.) */
+    slPrioritySpr0(7);
+    slBack1ColSet((void *)P6_VDP2_BAK, P6_TITLE_SKY_COL); /* sky-blue backdrop */
+    slScrAutoDisp(NBG1ON | SPRON);
+}
+
+/* CP5b.3: per-frame cloud drift. The decomp Scanline_Clouds rolls the cloud
+ * band horizontally (sine-driven) each frame; TitleBG_StaticUpdate accumulates
+ * TitleBG->timer += 0x8000 = +0.5 px/frame Y. This is the cheap Saturn analog:
+ * scroll the WHOLE NBG1 plane slowly (the island rides along, which on a flat
+ * plane reads as a gentle drift -- not the per-layer Mode-7/line-scroll, but it
+ * animates the backdrop). Called each front-end frame; pure register write. */
+void p6_vdp2_title_backdrop_scroll(int frame)
+{
+    /* Slow horizontal drift (~0.25 px/frame) + the decomp's 0.5 px/frame Y on the
+     * cloud band. Keep the island roughly parked: drift only a few px so the
+     * composite stays centered. Use a small sine-ish wobble via frame & mask. */
+    int dx = (frame >> 2) & 0x1F;          /* 0..31 px slow horizontal pan */
+    slScrPosNbg1(toFIXED(P6_TITLE_SCROLL_X + dx), toFIXED(P6_TITLE_SCROLL_Y));
+    /* Re-arm NBG1ON|SPRON + the sprite>backdrop priority every frame (idempotent).
+     * The front-end frame would otherwise call p6_vdp2_arm_sprites_only (SPRON only)
+     * which DISABLES NBG1 -> the backdrop would vanish. Keeping NBG1 + the FG
+     * sprites-in-front here is the Title-flavor replacement for arm_sprites_only. */
+    slPrioritySpr0(7);
+    slBack1ColSet((void *)P6_VDP2_BAK, P6_TITLE_SKY_COL);
+    slScrAutoDisp(NBG1ON | SPRON);
+}
+#endif /* P6_FRONTEND_TITLE */
+
 /* ============================================================================
  * P6.7 W16 (Task #228): present the ENGINE-loaded GHZ1 FOREGROUND on NBG1,
  * anchored to the LIVE camera. Same VRAM/PND geometry as the Title present

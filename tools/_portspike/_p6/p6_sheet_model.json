@@ -396,6 +396,39 @@
           "hash": "0xDACC6305"
         }
       ]
+    },
+    {
+      "sheet": "Title/BG.gif",
+      "file": "TBG.SHT",
+      "width": 256,
+      "height": 256,
+      "band_rows": 16,
+      "bands": 16,
+      "bytes": 4251,
+      "file_hash": "0xB3C904AC",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0xB9C4316A"
+        },
+        {
+          "sx": 192,
+          "sy": 120,
+          "w": 64,
+          "h": 64,
+          "hash": "0x24F71505"
+        },
+        {
+          "sx": 16,
+          "sy": 216,
+          "w": 48,
+          "h": 40,
+          "hash": "0x07A09D05"
+        }
+      ]
     }
   ]
 }

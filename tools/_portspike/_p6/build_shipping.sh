@@ -128,6 +128,16 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     # CP5b.2 (#269): + Game_TitleSonic.o (the ring-center head + finger-wave). Links
     # into the overlay against game.elf via -R like every other overlay obj.
     OVL_FE="$OVL_FE Game_TitleSetup.o Game_TitleLogo.o Game_TitleSonic.o"
+    # CP5b.3 (#272): Game_TitleBG.o (mountains/water/wing-shine + island/cloud scanline
+    # FX) + Game_Title3DSprite.o (perspective billboards) link ONLY under
+    # P6_TITLEBG_SPRITES. Their verbatim TitleBG_SetupFX (SetPaletteMask + per-frame
+    # scanline clip writes) destabilizes the title on Saturn (MEASURED -- see
+    # p6_ovl_ghz.c), so by default they are NOT linked and TitleBG_SetupFX is the no-op
+    # stub in p6_ovl_ghz.c. The VDP2 sky+cloud+island backdrop is independent (it reads
+    # tileLayers[] directly, NOT these objects), so it renders without them.
+    if [ -n "${P6_TITLEBG_SPRITES:-}" ]; then
+        OVL_FE="$OVL_FE Game_TitleBG.o Game_Title3DSprite.o"
+    fi
 fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \

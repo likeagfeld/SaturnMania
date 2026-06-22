@@ -62,7 +62,11 @@ typedef signed int int32;
 // NSHEETS=12 (VDP1 bind table) is unchanged either way (the Title bind demand is the 3
 // Title surfaces -- logo + sonic + electricity -- + a few engine surfaces << 12).
 #if defined(P6_FRONTEND_TITLE)
-#define SATURNSHEET_SLOTS     12
+// CP5b.3 (#272): the TITLE flavor adds a 13th slot for TBG.SHT (Title/BG.gif, the
+// TitleBG + Title3DSprite mountains/water/billboard sheet) -- slot 12 (slots 9/10/11
+// = LOGOS/TLOGO/TSONIC). The front-end builds gc-drop the large p6_ghz_frame/reload
+// (~1.6 KB headroom), so the extra slot fits under the #228 ANIMPAK floor.
+#define SATURNSHEET_SLOTS     13
 #elif defined(P6_FRONTEND_LOGOS)
 #define SATURNSHEET_SLOTS     10
 #else
