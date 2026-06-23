@@ -255,6 +255,47 @@ static int p6_bucket_for(int w, int h)
             return i;
     return -1;
 }
+
+/* CP5b.7 content-size step (Task #277): EAGER PRE-ALLOCATION of every bucket slot
+ * at its full BOX size, ONCE, before any draw.
+ *
+ * THE FILL FIX: the N-bucket above cut the single-box waste (3.47 -> 0.92 screens)
+ * but each sprite still drew its WHOLE bucket box -- MEASURED 39% of the on-hardware
+ * VDP1 fill is transparent padding (e.g. ring-bottom 120x25 in a 192x64 box). VDP1
+ * rasterises every pixel of a sprite's CMDSIZE bbox (transparent texels read+skipped),
+ * so the fill cost == the drawn CMDSIZE area. jo registers each sprite's CMDSIZE in
+ * __jo_sprite_def[id] {width=Hsize, height=Vsize, adr=CGadr, size=HVsize} -- the SGL
+ * TEXTURE table fed to slInitSystem (core.c:192 casts __jo_sprite_def to TEXTURE*).
+ * slDispSprite (jo SGL path, sprites.c:447, scale 1.0) draws the sprite at that
+ * registered hardware size. So to draw a sprite at CONTENT (w mult-8, h) instead of
+ * the box, p6_title_restage_content (below) DMAs the content packed at content-width
+ * STRIDE into the slot's reserved VRAM and OVERWRITES the slot's __jo_sprite_def
+ * width/height/size to content -- exactly the TEXDEF a content-sized add would produce
+ * (ST-238-R1 sec, TEXDEF(h,v,presize) HVsize = ((h&0x1f8)<<5)|v == jo
+ * __internal_jo_sprite_add:212). VDP1 then rasterises ONLY the content rows/cols.
+ *
+ * WHY EAGER PRE-ALLOC: jo's VDP1 allocator (__jo_get_next_sprite_address,
+ * sprites.c:74) is APPEND-ONLY and computes the NEXT sprite's VRAM address from the
+ * PREVIOUS sprite's __jo_sprite_def width*height. If a cold-fill shrank a slot's
+ * width/height to content, the next cold-fill would place its sprite into this slot's
+ * box tail (overlap) -- and a later eviction restaging a LARGER content into this slot
+ * would corrupt the neighbour. Reserving EVERY slot at the BOX footprint up front
+ * (contiguously, all jo_sprite_add calls done before any restage) makes the allocator
+ * never run again for the buckets, so freely mutating each slot's width/height/size to
+ * content per (re)stage is safe -- the reserved box region (boxw*boxh) always holds the
+ * content (content fits its bucket). This is jo-pool-stale-core-o-gotcha-clean (no
+ * post-init jo_sprite_add) and #189-clean (__jo_sprite_id is bounded by the 22 slots).
+ * TITLE flavor only; the GHZ/Logos p6_vdp1.o is byte-identical (this block is #if'd). */
+typedef struct { P6Vdp1Slot *slots; int n; int bw, bh; } P6Bucket;
+static P6Bucket s_buckets[P6_NB];
+static int s_buckets_prealloc = 0;
+/* Defined below the s_stage/s_fetch cart-buffer declarations (they DMA through s_stage):
+ *   p6_title_alloc_box     -- reserve one box-sized jo sprite (permanent slot VRAM).
+ *   p6_title_restage_content -- DMA content packed at content-width stride + set the
+ *                              slot's __jo_sprite_def CMDSIZE to content (the fill fix). */
+static int p6_title_alloc_box(int bw, int bh);
+static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
+                                    int srcStride, int w, int h);
 #endif
 /* Task #241: monotonic LRU clock; the slot with the smallest lastUse is the
  * eviction victim when the cache is full and a new rect misses. */
@@ -294,6 +335,51 @@ static unsigned char s_stage[P6_SPR_MAXW * P6_SPR_MAXH]; /* padded upload copy *
 static unsigned char s_fetch[P6_SPR_MAXW * P6_SPR_MAXH]; /* banded-miss fetch */
 #endif
 
+#if defined(P6_FRONTEND_TITLE)
+/* CP5b.7 content-size (#277): allocate one box-sized jo sprite from a zeroed staging
+ * buffer; returns the jo id (the slot's PERMANENT VRAM reservation) or -1. Called only
+ * by p6_title_ensure_prealloc -- after prealloc the buckets never jo_sprite_add again,
+ * so the append-only allocator (sprites.c:74) runs a fixed 22 times total. */
+static int p6_title_alloc_box(int bw, int bh)
+{
+    jo_img_8bits img;
+    int n = bw * bh, i;
+    for (i = 0; i < n; ++i) s_stage[i] = 0;   /* transparent box */
+    img.width = bw; img.height = bh; img.data = s_stage;
+    return jo_sprite_add_8bits_image(&img);
+}
+
+/* Restage a slot's jo sprite to draw at CONTENT size: pack the content rows at content-
+ * width (mult-8) STRIDE into s_stage, DMA into the slot's reserved VRAM, and set the
+ * slot's __jo_sprite_def {width=Hsize, height=Vsize, size=HVsize} to the content TEXDEF.
+ * The slot's adr (CGadr, VRAM base) is unchanged -- the box reservation (boxw*boxh) holds
+ * the smaller content (content fits its bucket). VDP1 then rasterises ONLY content rows/
+ * cols (the 39% box padding is gone). Returns the mult-8 padded width (the drawn width). */
+static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
+                                    int srcStride, int w, int h)
+{
+    int pw = (w + 7) & ~7;          /* content width padded to the VDP1 mult-8 unit */
+    int x, y;
+    for (y = 0; y < h; ++y) {
+        unsigned char *dst = s_stage + y * pw;
+        const unsigned char *src = srcPx + y * srcStride;
+        for (x = 0; x < w; ++x) dst[x] = src[x];
+        for (; x < pw; ++x) dst[x] = 0;        /* mult-8 right pad transparent */
+    }
+    __jo_sprite_def[jo_id].width  = (unsigned short)pw;
+    __jo_sprite_def[jo_id].height = (unsigned short)h;
+    /* HVsize TEXDEF (== jo __internal_jo_sprite_add:212 / SGL ST-238-R1 TEXDEF macro):
+     * the hardware CMDSIZE VDP1 rasterises. pw is mult-8 so (pw & 0x1f8) == pw (pw<=504). */
+    __jo_sprite_def[jo_id].size   = (unsigned short)(JO_MULT_BY_32(pw & 0x1f8) | (h & 0xff));
+    /* DMA the content-packed bytes (pw*h, 8bpp = 1 B/px) into the slot's reserved VRAM
+     * base (mirrors jo_sprite_replace's copy, sprites.c:172-174, COL_256). */
+    jo_dma_copy(s_stage,
+                (void *)(JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[jo_id].adr)),
+                (unsigned int)(pw * h));
+    return pw;
+}
+#endif
+
 /* Mirror the 256-color stage palette into CRAM bank 1 once (engine RGB565,
  * same conversion as p6_vdp2.c bank 0). All Mania global sprites share the
  * stage palette, so the first bind owns the bank. */
@@ -310,23 +396,40 @@ static void p6_pal_mirror(const unsigned short *pal565)
     }
 }
 
+#if defined(P6_FRONTEND_TITLE)
+static int p6_title_ensure_prealloc(void); /* fwd: eager bucket VRAM reservation */
+/* CP5b.7 content-size (#277): the TITLE first-bind init -- mirror the sprite palette
+ * then reserve the bucket slots ONCE via the eager prealloc (NOT the per-bind jo_id=-1
+ * reset, which would orphan the permanent VRAM reservations and leak jo's append-only
+ * allocator). TITLE flavor only; the GHZ/Logos binds keep their verbatim inline reset
+ * below (#if'd) so the GHZ p6_vdp1.o stays byte-identical. */
+#define P6_VDP1_FIRST_BIND_INIT(pal) do {        \
+        p6_pal_mirror(pal);                       \
+        s_useclock = 0;                           \
+        p6_title_ensure_prealloc();               \
+    } while (0)
+#else
+#define P6_VDP1_FIRST_BIND_INIT(pal) do {        \
+        int i;                                    \
+        p6_pal_mirror(pal);                       \
+        p6_w_vdp1_slots = 0;                      \
+        s_useclock = 0;                           \
+        for (i = 0; i < P6_VDP1_NSLOTS; ++i) {    \
+            s_slots[i].jo_id   = -1;              \
+            s_slots[i].sheet   = -1;              \
+            s_slots[i].lastUse = 0;               \
+        }                                         \
+    } while (0)
+#endif
+
 /* Bind a RESIDENT engine surface. Returns the sheet handle (or -1). */
 int p6_vdp1_sheet_bind(const unsigned char *sheetPixels, int sheetWidth,
                        const unsigned short *pal565)
 {
     if (s_sheet_count >= P6_VDP1_NSHEETS)
         return -1;
-    if (s_sheet_count == 0) {
-        int i;
-        p6_pal_mirror(pal565);
-        p6_w_vdp1_slots = 0;
-        s_useclock = 0;
-        for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
-            s_slots[i].jo_id   = -1;
-            s_slots[i].sheet   = -1;
-            s_slots[i].lastUse = 0;
-        }
-    }
+    if (s_sheet_count == 0)
+        P6_VDP1_FIRST_BIND_INIT(pal565);
     s_sheets[s_sheet_count].px      = sheetPixels;
     s_sheets[s_sheet_count].w       = sheetWidth;
     s_sheets[s_sheet_count].shtSlot = -1;
@@ -340,17 +443,8 @@ int p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
 {
     if (s_sheet_count >= P6_VDP1_NSHEETS || shtSlot < 0)
         return -1;
-    if (s_sheet_count == 0) {
-        int i;
-        p6_pal_mirror(pal565);
-        p6_w_vdp1_slots = 0;
-        s_useclock = 0;
-        for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
-            s_slots[i].jo_id   = -1;
-            s_slots[i].sheet   = -1;
-            s_slots[i].lastUse = 0;
-        }
-    }
+    if (s_sheet_count == 0)
+        P6_VDP1_FIRST_BIND_INIT(pal565);
     s_sheets[s_sheet_count].px      = 0;
     s_sheets[s_sheet_count].w       = sheetWidth;
     s_sheets[s_sheet_count].shtSlot = shtSlot;
@@ -384,28 +478,37 @@ int p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
  * GHZ build does not compile it (byte-identical). */
 void p6_vdp1_frontend_pal_reset(void)
 {
-    int i;
     s_sheet_count   = 0;
-    p6_w_vdp1_slots = 0;
     s_useclock      = 0;
-    for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
-        s_slots[i].jo_id   = -1;
-        s_slots[i].sheet   = -1;
-        s_slots[i].lastUse = 0;
-    }
 #if defined(P6_FRONTEND_TITLE)
-    /* Phase 2: reset the content-size buckets too (CHAIN implies TITLE). */
+    /* CP5b.7 content-size (#277): the bucket slots are PERMANENTLY VRAM-reserved by the
+     * eager prealloc -- NEVER reset their jo_id (re-allocating would leak jo's append-only
+     * VDP1 allocator on every chain transition). Only clear the rect KEYS so each surface
+     * re-stages content fresh after the Logos->Title re-bind; keep s_buckets_prealloc so
+     * the allocator is not re-run. (CHAIN implies TITLE.) */
     {
-        P6Vdp1Slot *bk[3];
-        int bn, j;
-        bk[0] = s_buck0; bk[1] = s_buck1; bk[2] = s_buck2;
-        s_buck0n = s_buck1n = s_buck2n = 0;
-        for (bn = 0; bn < 3; ++bn)
-            for (j = 0; j < 6; ++j) {
-                bk[bn][j].jo_id   = -1;
+        P6Vdp1Slot *bk[P6_NB];
+        int bn, j, n;
+        bk[0] = s_buck0; bk[1] = s_buck1; bk[2] = s_buck2; bk[3] = s_slots;
+        for (bn = 0; bn < P6_NB; ++bn) {
+            n = (bn == 3) ? P6_VDP1_NSLOTS : 6;
+            for (j = 0; j < n; ++j) {
                 bk[bn][j].sheet   = -1;
+                bk[bn][j].sx = bk[bn][j].sy = bk[bn][j].w = bk[bn][j].h = -1;
                 bk[bn][j].lastUse = 0;
             }
+        }
+        /* keep p6_w_vdp1_slots / s_buck*n at the prealloc'd "full" marks */
+    }
+#else
+    {
+        int i;
+        p6_w_vdp1_slots = 0;
+        for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
+            s_slots[i].jo_id   = -1;
+            s_slots[i].sheet   = -1;
+            s_slots[i].lastUse = 0;
+        }
     }
 #endif
 }
@@ -551,6 +654,109 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
     return victim;
 }
 
+#if defined(P6_FRONTEND_TITLE)
+/* CP5b.7 content-size step (Task #277): the TITLE content-tight pool. Every bucket
+ * slot is pre-reserved at box size (p6_title_ensure_prealloc), so this never calls
+ * jo_sprite_add -- a MISS LRU-evicts a victim slot and RESTAGES it at CONTENT size via
+ * p6_title_restage_content (DMA content-packed + set the slot's CMDSIZE to content).
+ * VDP1 then rasterises ONLY the sprite's content (w mult-8, h) -- the 39%-padding the
+ * box-draw paid is gone. Returns the slot index into b->slots (or -1); sets *out_pw to
+ * the drawn mult-8 width (the blit centres on (pw,h), not the box). The HIT path is
+ * unchanged (the slot already carries its content TEXDEF from its last restage). */
+static int p6_title_ensure_prealloc(void);
+static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int h,
+                             int *out_pw, int *out_ph)
+{
+    int i, victim;
+    const unsigned char *srcPx;
+    int srcStride, pw;
+
+    if (!p6_title_ensure_prealloc()) { ++p6_w_vdp1_drops; return -1; }
+
+    for (i = 0; i < b->n; ++i) {            /* HIT: same rect already content-staged */
+        if (b->slots[i].sheet == sheet &&
+            b->slots[i].sx == sx && b->slots[i].sy == sy &&
+            b->slots[i].w == w && b->slots[i].h == h) {
+            b->slots[i].lastUse = ++s_useclock;
+            *out_pw = (w + 7) & ~7; *out_ph = h;
+            return i;
+        }
+    }
+    if (w > b->bw || h > b->bh) { ++p6_w_vdp1_drops; return -1; } /* oversize for bucket */
+
+    if (s_sheets[sheet].px) {
+        srcPx     = s_sheets[sheet].px + sy * s_sheets[sheet].w + sx;
+        srcStride = s_sheets[sheet].w;
+    }
+    else {
+        if (!s_fetchFn
+            || !s_fetchFn(s_sheets[sheet].shtSlot, sx, sy, w, h, s_fetch)) {
+            ++p6_w_vdp1_drops;
+            return -1;
+        }
+        srcPx     = s_fetch;
+        srcStride = w;
+    }
+
+    /* LRU victim among this bucket's pre-allocated slots (all jo_id >= 0). */
+    {
+        int oldest = b->slots[0].lastUse;
+        victim = 0;
+        for (i = 1; i < b->n; ++i)
+            if (b->slots[i].lastUse < oldest) { oldest = b->slots[i].lastUse; victim = i; }
+    }
+    if (b->slots[victim].jo_id < 0) { ++p6_w_vdp1_drops; return -1; } /* prealloc failed */
+    if (b->slots[victim].sheet >= 0) ++p6_w_vdp1_evicts;             /* reuse of a live slot */
+
+    pw = p6_title_restage_content(b->slots[victim].jo_id, srcPx, srcStride, w, h);
+
+    b->slots[victim].sheet   = sheet;
+    b->slots[victim].sx      = sx;
+    b->slots[victim].sy      = sy;
+    b->slots[victim].w       = w;
+    b->slots[victim].h       = h;
+    b->slots[victim].lastUse = ++s_useclock;
+    p6_w_vdp1_lastkey        = (sx << 20) | (sy << 12) | (w << 6) | h;
+    *out_pw = pw; *out_ph = h;
+    return victim;
+}
+
+/* Reserve every bucket slot's VRAM (box footprint) exactly once, before any draw.
+ * Returns 1 on success. Builds s_buckets[] (binding each P6Bucket to its slot array +
+ * box dims) and content-stages NOTHING yet (the slots start empty: sheet=-1). After
+ * this runs, jo_sprite_add is never called again for the buckets (see the eager-
+ * prealloc rationale above), so per-(re)stage __jo_sprite_def mutation is safe. */
+static int p6_title_ensure_prealloc(void)
+{
+    int bi, si, id;
+    P6Vdp1Slot *arr[P6_NB];
+    int cnt[P6_NB];
+
+    if (s_buckets_prealloc) return 1;
+    arr[0] = s_buck0; arr[1] = s_buck1; arr[2] = s_buck2; arr[3] = s_slots;
+    cnt[0] = 6; cnt[1] = 6; cnt[2] = 6; cnt[3] = P6_VDP1_NSLOTS; /* P6_VDP1_NSLOTS==4 */
+    for (bi = 0; bi < P6_NB; ++bi) {
+        s_buckets[bi].slots = arr[bi];
+        s_buckets[bi].n     = cnt[bi];
+        s_buckets[bi].bw    = P6_BUCK[bi].bw;
+        s_buckets[bi].bh    = P6_BUCK[bi].bh;
+        for (si = 0; si < cnt[bi]; ++si) {
+            id = p6_title_alloc_box(P6_BUCK[bi].bw, P6_BUCK[bi].bh);
+            if (id < 0) { ++p6_w_vdp1_joaddfail; return 0; }
+            arr[bi][si].jo_id   = id;
+            arr[bi][si].sheet   = -1;     /* empty: no rect staged yet */
+            arr[bi][si].sx = arr[bi][si].sy = arr[bi][si].w = arr[bi][si].h = -1;
+            arr[bi][si].lastUse = 0;
+        }
+    }
+    /* p6_w_vdp1_slots tracks bucket-3 occupancy in the witnesses; the slots are now all
+     * reserved, so mark it full (the LRU victim path -- not cold-fill -- serves it). */
+    s_buck0n = 6; s_buck1n = 6; s_buck2n = 6; p6_w_vdp1_slots = P6_VDP1_NSLOTS;
+    s_buckets_prealloc = 1;
+    return 1;
+}
+#endif
+
 /* CP5b.7 ROUTER: pick the SMALLEST box pool that holds (w,h). Returns the jo
  * sprite ID (NOT a slot index) + sets s_last_box_w/h for the blit's box-center
  * placement. TITLE only -- the GHZ/Logos build has a single pool (byte-identical:
@@ -560,35 +766,16 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
 {
     int s;
 #if defined(P6_FRONTEND_TITLE)
-    /* Phase 2: route to the smallest content-size bucket (see P6_BUCK above). */
-    switch (p6_bucket_for(w, h)) {
-        case 0:
-            s = p6_pool_for(s_buck0, 6, &s_buck0n, 64, 80, sheet, sx, sy, w, h);
-            if (s < 0) return -1;
-            s_last_box_w = 64; s_last_box_h = 80;
-            return s_buck0[s].jo_id;
-        case 1:
-            s = p6_pool_for(s_buck1, 6, &s_buck1n, 192, 64, sheet, sx, sy, w, h);
-            if (s < 0) return -1;
-            s_last_box_w = 192; s_last_box_h = 64;
-            return s_buck1[s].jo_id;
-        case 2:
-            s = p6_pool_for(s_buck2, 6, &s_buck2n, 160, 160, sheet, sx, sy, w, h);
-            if (s < 0) return -1;
-            s_last_box_w = 160; s_last_box_h = 160;
-            return s_buck2[s].jo_id;
-        case 3:
-            /* BIG catch-all (w>160): reuse s_slots[] capped at 4 slots. */
-            s = p6_pool_for(s_slots, 4, &p6_w_vdp1_slots,
-                            P6_SPR_MAXW, P6_SPR_MAXH, sheet, sx, sy, w, h);
-            if (s < 0) return -1;
-            s_last_box_w = P6_SPR_MAXW; s_last_box_h = P6_SPR_MAXH;
-            return s_slots[s].jo_id;
-        default:
-            /* oversize (w>248 or h>160) -- same reject as the old large box. */
-            ++p6_w_vdp1_drops;
-            return -1;
-    }
+    /* Phase 2 + content-size (#277): route to the smallest bucket, then DRAW at content
+     * size. s_last_box_w/h become the drawn (mult-8 w, h) so the blit centres the
+     * content -- NOT the box -- and the fill witnesses sum the real CMDSIZE area. */
+    int bk = p6_bucket_for(w, h);
+    int pw = (w + 7) & ~7, ph = h;
+    if (bk < 0) { ++p6_w_vdp1_drops; return -1; } /* oversize (w>248 or h>160) */
+    s = p6_title_pool_for(&s_buckets[bk], sheet, sx, sy, w, h, &pw, &ph);
+    if (s < 0) return -1;
+    s_last_box_w = pw; s_last_box_h = ph;
+    return s_buckets[bk].slots[s].jo_id;
 #else
     s = p6_pool_for(s_slots, P6_VDP1_NSLOTS, &p6_w_vdp1_slots,
                     P6_SPR_MAXW, P6_SPR_MAXH, sheet, sx, sy, w, h);

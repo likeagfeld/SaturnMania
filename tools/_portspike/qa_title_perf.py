@@ -48,6 +48,18 @@ SCREEN_PX = 320 * 224                 # one NTSC 320x224 screen of VDP1 fill
 FPS_FLOOR = 15.0                      # RED 8.6 -> GREEN ~17 (the user symptom)
 BOX_CEIL_SCREENS = 1.5               # RED 3.47 -> GREEN ~0.86 (the mechanism)
 MIN_FRAMES = 50                      # the title must be ticking (not load phase)
+# CP5b.7 content-size step (#277): with the N-bucket buckets already cutting the
+# single-box waste (box-fill 3.47 -> 0.92 screens), the REMAINING lever is the
+# per-bucket PADDING -- each sprite still drew its whole bucket box (e.g. ribbon-
+# center 176x52 in a 192x64 box, ring-bottom 120x25 in a 192x64 box), MEASURED 39%
+# of the drawn VDP1 fill is transparent padding. The fix makes the VDP1 command's
+# CMDSIZE = the sprite's content (w mult-8, h) so VDP1 rasterises ONLY content rows/
+# cols. T4 gates that on-hardware fill efficiency: boxpx (the REAL fill summed per
+# landed cmd, == s_last_box_w*s_last_box_h) must come within PAD_CEIL of contentpx
+# (the ideal w*h). RED on the current build (39% > 12%); GREEN after the content-tight
+# draw (only the mult-8 width rounding remains, ~a few %). Both witnesses are the
+# real on-hardware fill the engine accumulates in p6_vdp1_blit*, not a code proxy.
+PAD_CEIL_PCT = 12.0                  # RED 39% padding -> GREEN ~few% (mult-8 only)
 
 
 def _peek(mod, sec, mp, perm, name):
@@ -103,9 +115,11 @@ def main(argv):
               % (100.0 * (box_per - cont_per) / box_per))
     print("-" * 72)
 
+    waste_pct = (100.0 * (box_per - cont_per) / box_per) if box_per else 100.0
     t3 = (cf is not None and cf > MIN_FRAMES and cmds_per > 0.0)
     t1 = (fps >= FPS_FLOOR)
     t2 = (box_per > 0.0 and box_scr <= BOX_CEIL_SCREENS)
+    t4 = (box_per > 0.0 and waste_pct <= PAD_CEIL_PCT)
     checks = [
         ("T1 fps >= %.0f (the user symptom)" % FPS_FLOOR, t1,
          "fps=%.2f" % fps),
@@ -113,6 +127,8 @@ def main(argv):
          "box=%.2f screens" % box_scr),
         ("T3 title ticking + drawing (cont_frames>%d, sprites>0)" % MIN_FRAMES, t3,
          "cont_frames=%s sprites/frame=%.1f" % (cf, cmds_per)),
+        ("T4 VDP1 fill padding waste <= %.0f%% (draw content-tight, #277)" % PAD_CEIL_PCT, t4,
+         "padding=%.0f%% (box %d px vs content %d px)" % (waste_pct, box_per, cont_per)),
     ]
     ok = all(c for _, c, _ in checks)
     for title, passed, detail in checks:
