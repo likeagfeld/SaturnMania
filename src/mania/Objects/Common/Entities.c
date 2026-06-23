@@ -1234,5 +1234,13 @@ void entities_load_assets(void)
         extern void Bridge_load_assets(void);
         Bridge_load_assets();
     }
+    /* Phase 2.4k — StarPost checkpoint post. cd/STARPOST.SP2 + .MET built
+     * from extracted/Data/Sprites/Global/StarPost.bin via build_entity_atlas.
+     * Soft-fail per the established per-class pattern. Forward-declared
+     * (header pulls Game.h). */
+    {
+        extern void StarPost_load_assets(void);
+        StarPost_load_assets();
+    }
     entities_load_sfx(); /* Phase 2.3 SFX (~67 KB scratch during load) */
 }

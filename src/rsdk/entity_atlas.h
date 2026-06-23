@@ -248,6 +248,11 @@ extern entity_atlas_t g_bridge_atlas;
  * 4 anims / 36 frames: Decorations(2), Name Letters(27, per-frame unicode
  * A-Z+space), Zone Letters(4), Act Numbers(3). */
 extern entity_atlas_t g_titlecard_atlas;
+/* Phase 2.4k — StarPost checkpoint pole+ball+stars atlas
+ * (cd/STARPOST.SP2 + cd/STARPOST.MET built from
+ * extracted/Data/Sprites/Global/StarPost.bin).
+ * 4 anims: 0=pole(static), 1=ball-idle, 2=ball-spin, 3=stars(4 frames). */
+extern entity_atlas_t g_starpost_atlas;
 
 #ifdef __cplusplus
 }
