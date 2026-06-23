@@ -3510,7 +3510,31 @@ extern "C" void p6_scene_run(void)
                      * P6_SHT_NO_RESIDENT toggle builds the A/B RED variant (the
                      * old per-frame inflate path) for measured before/after. */
 #ifndef P6_SHT_NO_RESIDENT
+#if defined(P6_FRONTEND_TITLE)
+                    /* TWIRL-RESIDENT FIX (this session, MEASURED): the FRONT-END
+                     * TITLE scene draws TitleLogo/TitleSonic/TitleBG/Title3DSprite
+                     * -- it NEVER draws any of these 9 GHZ gameplay sheets
+                     * (SONIC1/2/3, ITEMS, DISPLAY, SHIELDS, TAILS1, GLOBJ, GHZOBJ).
+                     * They are staged BANDED above only so their hashes resolve
+                     * (harmless), but making them RESIDENT here would consume
+                     * 1,373,696 B of the 3 MB cart RES store (0x22400000..0x22700000)
+                     * on content the title never fetches -- leaving < 947 KB free,
+                     * too little for TSONIC's 1,048,576 B (1024x1024) decoded sheet.
+                     * That overflow is exactly why the CP5b.2 note had to leave
+                     * TSONIC banded (the head's play-once twirl then re-inflated the
+                     * body sheet ~3.4x/frame = the user's "slide show", MEASURED via
+                     * qa_title_twirl_resident.py sht_fetches delta 231->272 over 12
+                     * frames). SKIP the GHZ-sheet resident inflate on the TITLE
+                     * flavor so the RES store has room for the title's OWN big
+                     * play-once sheet (TSONIC, made resident below). The GHZ flavor
+                     * (no P6_FRONTEND_TITLE) is BYTE-IDENTICAL -- it still makes all
+                     * 9 resident (essential there: 3.07x in-motion fps,
+                     * ghz-resident-sheets-render-perf.md). The skipped sheets stay
+                     * banded on the title (never fetched -> zero cost). */
+                    (void)slot;
+#else
                     SaturnSheet_MakeResident(slot);
+#endif
 #endif
                 }
             }
@@ -3596,23 +3620,42 @@ extern "C" void p6_scene_run(void)
                     RETRO_HASH_MD5(ph);
                     GEN_HASH_MD5("Title/Sonic.gif", ph);
                     SaturnSheet_SetHash(slot, (const uint32 *)ph);
-                    // CP5b.2 (Task #269): DELIBERATELY do NOT MakeResident TSONIC.
-                    // MEASURED: SaturnSheet_MakeResident on the 1024x1024 sheet (64
-                    // bands, raw band rsz = 16*1024 = 0x4000 exactly, 1 MB inflated to
-                    // the wait-stated cart) HANGS the boot (cont_frames=0 stuck at
-                    // load_step=18 through t=240s). The NORES build (skip MakeResident)
-                    // boots clean: cont_frames=480, tsonic_handle=1 (BOUND), tsonic_
-                    // visible=1 -- the head binds + renders via the per-frame banded
-                    // FetchRect inflate path. The Title scene inflates only the head's
-                    // 1-2 rects/frame (NOT GHZ's full sheet set), so the per-frame band
-                    // cost is negligible + the title is not perf-critical. The 512x512
-                    // LOGOS/TLOGO sheets stay resident (they MakeResident fine -- their
-                    // raw band is 16*512 = 0x2000, well under the 0x4000 scratch split;
-                    // the 1024-wide TSONIC band is the boundary-exact case that breaks).
-                    // Leaving TSONIC banded ALSO keeps the resident store at its 11-sheet
-                    // high-water (~0x225E8000), so the VDP1 staging buffers at 0x226E0000
-                    // stay clear (a resident TSONIC pushed the store to 0x226E8000 and
-                    // collided with them -- the other half of the original hang).
+                    // TWIRL-RESIDENT FIX (this session): MakeResident TSONIC so the
+                    // TitleSonic BODY twirl (anim 0, Title/Sonic.bin, 49 frames,
+                    // PLAY-ONCE) is served from the pre-inflated cart with ZERO
+                    // per-frame miniz inflate -- the user's "slide show" (the play-
+                    // once frames each MISS the VDP1 rect cache and re-inflated the
+                    // banded body sheet). MEASURED on the banded build during the
+                    // ACTUAL twirl (savestate frame 26->31): p6_w_sht_fetches climbed
+                    // 231->272 over 12 title frames = ~3.42 inflate/frame on the
+                    // wait-stated A-Bus cart (qa_title_twirl_resident.py RED). The GHZ
+                    // resident-sheet fix (ghz-resident-sheets-render-perf.md) is the
+                    // proven pattern: FetchRect then serves each body rect by a direct
+                    // resident memcpy (S->resident != 0 fast path, SaturnSheet.cpp:305).
+                    //
+                    // WHY THIS NO LONGER HANGS (the CP5b.2 blocker, MEASURED + resolved
+                    // above): the original hang was a cart RES-store OVERFLOW, not the
+                    // 1024-wide inflate. With the 9 GHZ gameplay sheets already resident
+                    // (1,373,696 B) + LOGOS+TLOGO+TBG, the resident bump cursor reached
+                    // ~0x225E8000 and TSONIC's 1,048,576 B pushed it to ~0x226E8000 --
+                    // colliding with the VDP1 staging buffers at 0x226E0000 (which sit
+                    // INSIDE the RES store range 0x22400000..0x22700000) and writing
+                    // bands past RES_END into live load memory = the corruption-hang.
+                    // The TITLE flavor now SKIPS the 9 GHZ-sheet resident inflate (just
+                    // above, #if P6_FRONTEND_TITLE) -- the title never draws them -- so
+                    // the cursor before TSONIC is only LOGOS+TLOGO = ~0x22470000 and
+                    // TSONIC ends at ~0x22570000, ~1.5 MB clear of the 0x226E0000
+                    // staging buffers and far below RES_END 0x22700000. No overflow ->
+                    // no corruption -> no hang. The inflate scratch is fine: the 64
+                    // bands are rsz=16*1024=0x4000 each, copied to scratch[0x4000..
+                    // 0x8000) = exactly the 0x8000 LAYSCRATCH window (not OVER it; the
+                    // reject is rsz>0x4000, and 0x4000 is not >). STEP-2 verifies _end
+                    // stays under the #228 ANIMPAK ceiling + cont_frames>0 (no hang) +
+                    // qa_title_twirl_resident.py RED->GREEN. GHZ flavor byte-identical
+                    // (no P6_FRONTEND_TITLE -> this whole TSONIC block is #if'd out).
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
                 }
             }
         }
