@@ -358,6 +358,229 @@ void p6_vdp2_present_title_backdrop(const unsigned char *tilesetPx,
     slScrAutoDisp(NBG1ON | SPRON);
 }
 
+/* ============================================================================
+ * SUB2 (#276 clouds-coexist): restore the CLOUD backdrop on NBG1, reading from
+ * VRAM bank B1, COEXISTING with the rotating RBG0 island (A0 char / A1 coeff /
+ * B0 pattern-name).
+ *
+ * THE COEXISTENCE PROOF (ST-058-R2, re-read 2026-06-23): VDP2_Manual.txt:1030
+ * "The normal scroll screen can be displayed simultaneously with ONE rotation
+ * scroll screen." So NBG1 + RBG0 DO coexist (the prior memory's "they can't"
+ * was a misreading). The real constraint (:6449-6452): "VRAM cycle pattern
+ * register settings of the VRAM bank selected in RAM used for the rotational
+ * scroll are IGNORED" -- so NBG1 cannot read from A0/A1/B0 (RBG0's banks). It
+ * MUST read from B1. RAMCTL=0x1327 (jo core.c:213) low byte 0x27: bits7,6 (B1)
+ * = 00 = "Not used as RBG0" (Table at :6437-6441) -> B1's cycle pattern IS
+ * honored -> NBG1 can read its char + pattern-name from B1.
+ *
+ * B1 layout (0x25E60000..0x25E7FFFF, 128 KB; the back-color word at 0x25E7FFFE
+ * is preserved): cloud CELLS compacted at 0x25E60000 (a RUNTIME REMAP -- the
+ * cloud layer references only a subset of the 1024 tiles, so collect the
+ * distinct tiles, copy their 256-B cell blocks compactly, and rewrite the map
+ * charno to the compact index; this fits B1 even if all 256 cloud tiles are
+ * distinct = 64 KB), cloud MAP at 0x25E78000 (one 32x32 page = 4 KB).
+ *
+ * NBG1 reads char + map from B1 only (slCharNbg1/slPageNbg1/slMapNbg1 all point
+ * at B1); SGL's slScrAutoDisp(NBG1ON|RBG0ON|SPRON) schedules the NBG1 cycle in
+ * B1 (the only normal-scroll-eligible bank). The clouds park in the UPPER band
+ * (above the island), priority 1 (below RBG0 island pri 2, below VDP1 sprites
+ * pri 7). Index-0 cloud cells are transparent -> the sky back-color shows.
+ * ========================================================================== */
+#define P6_CLOUD_CEL  0x25E60000u  /* B1: compacted cloud cells (<= 64 KB)       */
+#define P6_CLOUD_MAP  0x25E78000u  /* B1: cloud pattern-name map (1 page, 4 KB)  */
+
+/* ROOT-CAUSE FIX (#276 clouds, 2026-06-23, PROVEN via ST-058-R2 + LIBSGL disasm):
+ * the VDP2 character number IS the VRAM byte address / 0x20 from the VRAM BASE
+ * (0x25E00000), NOT bank-relative -- "The character number designates the address
+ * of the character pattern (VRAM). The boundary ... is always 20H" (VDP2_Manual.txt
+ * :3615-3617). There is NO per-bank character-base register in cell mode. The prior
+ * code copied cloud cells to B1 (P6_CLOUD_CEL, VRAM-rel 0x60000) but wrote map
+ * charno = slot*8 -> HW fetched char data at (slot*8)*0x20 = VRAM-rel ~0 = bank A0
+ * (the island/blank cells), NOT B1 -> clouds blank (index-0 -> transparent sky).
+ * The island RBG0 path works precisely BECAUSE its cells live in A0 (VRAM-rel 0)
+ * so its charno=tile*8 is self-consistent; the clouds put cells in B1 but kept an
+ * A0-relative charno -- the asymmetry IS the bug. FIX: add the B1 base charno so the
+ * charno indexes B1: a 256-color tile is 256 B = 8 charno units (each 0x20 B), so
+ * the B1 base (0x60000 B) = 0x60000/0x20 = 0x3000 charno units. Each cloud cell's
+ * charno = P6_CLOUD_CHARNO_BASE + slot*8 -> char addr = 0x60000 + slot*256 = the
+ * exact B1 byte where the cell was copied. Derived generically from P6_CLOUD_CEL so
+ * it tracks the address. Fits the 2-word PND 15-bit charno (max 0x3000+255*8=0x37F8
+ * < 0x8000, VDP2_Manual.txt:3401 Table 4.6). */
+#define P6_CLOUD_CHARNO_BASE  (((P6_CLOUD_CEL) - 0x25E00000u) / 0x20u)  /* = 0x3000 */
+
+/* SESSION 2026-06-23g ISSUE 2 FIX (clouds double-layer): the decomp clouds are an
+ * UPPER-HALF band ONLY -- TitleBG_Scanline_Clouds (TitleBG.c:136-138) sets clip
+ * y[0, SCREEN_YSIZE/2] = y[0,120]. The prior code tiled the 16x16 cloud layout
+ * across the FULL 32x32 cloud map page -> the clouds filled the entire 1024x1024
+ * NBG1 plane = a dense full-screen white-wisp field the user read as a "static
+ * cloud background" (+ its slow scroll = the "moving layer" -> the double-layer
+ * perception). With the cloud config scroll_y=0 (p6_frontend_frame:5648), plane
+ * tile row N maps 1:1 to screen tile row N, so screen y<120 = plane tile rows 0..7.
+ * Restrict cloud tiles to rows < P6_CLOUD_BAND_ROWS; the rest -> blank/transparent
+ * -> the flat sky-blue back-color shows in the lower band (a single upper cloud
+ * band, matching the decomp clip). 8 rows = screen y 0..127 (just past the y=120
+ * clip, so the band's lower edge is off-screen-soft, not a hard tile cut). */
+#define P6_CLOUD_BAND_ROWS  8u   /* plane tile rows 0..7 = screen y 0..127 (decomp y[0,120]) */
+
+__attribute__((used)) int p6_w_title_clouds_armed = 0; /* 1 once clouds armed */
+__attribute__((used)) int p6_w_title_clouds_ntiles = 0; /* distinct cloud tiles remapped */
+/* NBG1 cloud char-base witness (#276 charno fix) -- NO new .bss: the resolved HW char
+ * address for compact slot 1 = (P6_CLOUD_CHARNO_BASE + 8) * 0x20 is a COMPILE-TIME
+ * CONSTANT (it depends only on P6_CLOUD_CEL), so it is folded into the existing
+ * p6_w_title_clouds_cellsum's sibling region via the macro below -- the gate reads
+ * P6_CLOUD_CHARNO_BASE from this source. GREEN target == ((BASE+8)*0x20) in
+ * B1 [0x60000,0x80000); the pre-fix bug had charno=slot*8 -> 8*0x20=0x100 in bank A0
+ * -> the B1-scheduled N1CG cycle fetched A0 (index-0 transparent) -> blank clouds. */
+#define P6_CLOUD_CHARADDR_SLOT1  (((P6_CLOUD_CHARNO_BASE) + 8u) * 0x20u) /* = 0x60100 (in B1) */
+
+/* MEASURED witness (#276 clouds, 2026-06-23): djb2 over the B1 cloud cell block
+ * actually written. RED root cause was clouds_cellsum==compile-time-blank (all
+ * zeros) because the cell-copy read tilesetPx AFTER LoadSceneAssets reclaimed it;
+ * a non-trivial sum proves real cloud pixels reached B1. */
+__attribute__((used)) int p6_w_title_clouds_cellsum = 0;
+
+/* Build the clouds-only NBG1 on bank B1. cloudLay = tileLayers[2].layout (16x16).
+ *
+ * #276 ROOT-CAUSE FIX (MEASURED 2026-06-23 via a savestate VRAM peek: B1 cloud
+ * cells @0x25E60000 were ALL ZERO while A0 island cells @0x25E00000 were valid):
+ * the cloud cells are copied from the ALREADY-RESIDENT A0 VRAM cells (P6_VDP2_CEL,
+ * uploaded by p6_vdp2_upload_cells), NOT from the volatile `tilesetPx` transient.
+ * WHY: the Title scene enters via a FOLDER-RELOAD, so the load-gap clouds arm
+ * (io_main.cpp:5059, gated `!p6_folderReload`) is SKIPPED, and the fallback arm
+ * (io_main.cpp:5215) runs AFTER LoadSceneAssets memset-reclaimed tilesetPixels
+ * (the W11b entityList-window alias) -> the cell-copy read zeros. The A0 cells
+ * are uploaded by an UNGUARDED call (io_main.cpp:4466) so they are reliably
+ * resident; tile i's 256-B block is packed identically at A0 + i*128 words, so a
+ * VRAM->VRAM word copy reproduces the exact cloud cell bytes regardless of when
+ * this arm runs or whether the transient survived. tilesetPx is now unused
+ * (kept in the signature for call-site symmetry; the A0 source is canonical). */
+void p6_vdp2_title_clouds_b1_arm(const unsigned char *tilesetPx,
+                                 const unsigned short *cloudLay, int cloudWShift)
+{
+    volatile Uint16 *cel  = (volatile Uint16 *)P6_CLOUD_CEL;
+    volatile Uint16 *map  = (volatile Uint16 *)P6_CLOUD_MAP;
+    volatile Uint16 *a0   = (volatile Uint16 *)P6_VDP2_CEL; /* resident island+cloud cells */
+    int ccols = 1 << cloudWShift;        /* cloud layer width in tiles (16) */
+    int crows = ccols;                   /* Clouds is 16x16 square */
+    int x, y, c, r;
+    unsigned int csum = 5381u;
+    (void)tilesetPx;                     /* A0 VRAM is the source now (see note above) */
+    (void)r;
+
+    /* 1) Collect the distinct cloud tile indices + assign each a COMPACT charno in
+     *    B1. remap[tile] = compact slot (+1; 0 = unused). Slot 0 is the BLANK char
+     *    (zeroed cells -> transparent) for empty (0xFFFF) cloud cells. */
+    static unsigned short remap[1024];
+    int i;
+    for (i = 0; i < 1024; ++i) remap[i] = 0;
+    int nslots = 1;                      /* slot 0 reserved = blank/transparent */
+    for (i = 0; i < ccols * crows; ++i) {
+        unsigned short e = cloudLay[i];
+        if (e == 0xFFFF) continue;
+        int tile = e & 0x3FF;
+        if (!remap[tile]) {
+            if (nslots < 256) remap[tile] = (unsigned short)nslots++;  /* cap 256 -> 64 KB */
+        }
+    }
+    p6_w_title_clouds_ntiles = nslots - 1;
+
+    /* 2) Zero slot 0 (blank/transparent) + copy each distinct cloud tile's 256-B
+     *    cell block from the RESIDENT A0 cells (already packed 2x2-cell TL,TR,BL,BR,
+     *    8bpp, 2 px/word by p6_vdp2_upload_cells) into its compact B1 slot. A pure
+     *    VRAM->VRAM word copy: A0 block for tile i is at a0 + i*128, the B1 compact
+     *    slot at cel + remap[i]*128. djb2 the bytes written -> clouds_cellsum
+     *    witness (proves non-zero pixels reached B1). */
+    {
+        volatile Uint16 *dst0 = cel; /* slot 0 = blank */
+        for (c = 0; c < 128; ++c) dst0[c] = 0;
+    }
+    for (i = 0; i < 1024; ++i) {
+        if (!remap[i]) continue;
+        volatile Uint16 *src = a0  + i * 128;             /* resident A0 cell block */
+        volatile Uint16 *dst = cel + (int)remap[i] * 128; /* 256 B = 128 words */
+        for (c = 0; c < 128; ++c) {
+            Uint16 w = src[c];
+            dst[c]   = w;
+            csum = ((csum << 5) + csum) ^ (unsigned int)w;
+        }
+    }
+    p6_w_title_clouds_cellsum = (int)csum;
+
+    /* 3) Build the cloud pattern-name map (one 32x32-tile page; the 16x16 cloud
+     *    layout tiled into it). 2-word PND: charno = P6_CLOUD_CHARNO_BASE + slot*8
+     *    (8bpp 16x16 tile spans 8 charno units of 0x20 B; the B1 base = 0x3000 units
+     *    so the HW char address resolves to B1 where the cells were copied -- see the
+     *    P6_CLOUD_CHARNO_BASE root-cause note). Flips from the layout bits. Empty cells
+     *    -> slot 0 (blank/transparent) = charno P6_CLOUD_CHARNO_BASE (B1 slot-0 zeros). */
+    for (y = 0; y < 32; ++y) {
+        for (x = 0; x < 32; ++x) {
+            /* ISSUE 2 FIX: only the UPPER band rows carry clouds (decomp y[0,120]).
+             * Rows >= P6_CLOUD_BAND_ROWS -> force empty so the lower band is flat sky
+             * (no full-screen cloud field). */
+            unsigned short e = (y < (int)P6_CLOUD_BAND_ROWS)
+                             ? cloudLay[((y % crows) << cloudWShift) + (x % ccols)]
+                             : 0xFFFF;
+            unsigned long charno;
+            if (e == 0xFFFF)
+                charno = P6_CLOUD_CHARNO_BASE;          /* B1 slot 0 = zeroed/transparent */
+            else
+                charno = P6_CLOUD_CHARNO_BASE + (unsigned long)remap[e & 0x3FF] * 8u;
+            unsigned long pnd = ((unsigned long)(e == 0xFFFF ? 0 : (e & 0x800)) << 20) /* fy bit11 -> 31 */
+                              | ((unsigned long)(e == 0xFFFF ? 0 : (e & 0x400)) << 20) /* fx bit10 -> 30 */
+                              | charno;
+            volatile Uint16 *p = map + (((y & 31) << 5) + (x & 31)) * 2;
+            p[0] = (Uint16)(pnd >> 16);
+            p[1] = (Uint16)(pnd & 0xFFFF);
+        }
+    }
+    /* (Char-base witness is the compile-time constant P6_CLOUD_CHARADDR_SLOT1 = 0x60100,
+     * proven in-B1; no runtime store -> no new .bss. See the macro's note.) */
+    p6_w_title_clouds_armed = 1;
+}
+
+/* Configure + park NBG1 clouds on B1. MUST be called each frame AFTER the RBG0
+ * island frame (p6_vdp2_title_island_rbg0_frame) so NBG1's plane/map registers are
+ * the LAST writes that survive into the vblank register DMA -- the island frame's
+ * slScrAutoDisp(RBG0ON|NBG1ON|SPRON) + RBG0 plane setup otherwise leaves NBG1's
+ * MPABN1 at its default (MEASURED 2026-06-23: MPABN1=0x0000 when this ran BEFORE
+ * the island frame -> NBG1 plane base resolved off the cloud map -> blank).
+ *
+ * USE THE PROVEN GEOMETRY (PL_SIZE_2x2, 4 planes = same page) identical to the
+ * flat backdrop p6_vdp2_present_title_backdrop that rendered NBG1 correctly; the
+ * cloud map at P6_CLOUD_MAP is plane-aligned in B1 and all 4 plane pointers
+ * replicate the one 32x32 cloud page across the 64x64 plane (the clouds tile). The
+ * earlier PL_SIZE_1x1 variant was untested and resolved the wrong plane base.
+ * NBG1 reads char + map from B1 ONLY (B1's cycle is honored -- not RBG0-claimed). */
+void p6_vdp2_title_clouds_b1_config(int scroll_x, int scroll_y)
+{
+    slCharNbg1(COL_TYPE_256, CHAR_SIZE_2x2);
+    slPageNbg1((void *)P6_CLOUD_CEL, 0, PNB_2WORD); /* cell base = B1 (RBG0 banks ignored) */
+    slPlaneNbg1(PL_SIZE_2x2);                        /* proven geometry (= flat backdrop) */
+    slMapNbg1((void *)P6_CLOUD_MAP, (void *)P6_CLOUD_MAP,
+              (void *)P6_CLOUD_MAP, (void *)P6_CLOUD_MAP); /* map base = B1, all 4 planes */
+    slScrPosNbg1(toFIXED(scroll_x), toFIXED(scroll_y));
+    slPriorityNbg1(1);                               /* below RBG0 island (2) + sprites (7) */
+
+    /* MPOFN (NBG1 map-offset) IS handled by slMapNbg1 -- DISASSEMBLY-PROVEN, do NOT
+     * patch it (2026-06-23, sh-elf-objdump of LIBSGL sglB032.o _slMapNbg1):
+     *   slMapNbg1 computes, for a 2-word/2x2-cell NBG1, the 9-bit map-select
+     *   value = (planeAddr - 0x25E00000)/0x1000 and writes its low 6 bits to N1MPA
+     *   (image+0x44) AND its high 3 bits to MPOFN N1 (image low-byte 0x060FFCFD,
+     *   GBR+253). For P6_CLOUD_MAP=0x25E78000 -> sel9=0x78 -> N1MPA=0x38, MPOFN_N1=1
+     *   -> plane base resolves to VRAM-rel 0x78000 = the cloud map. CROSS-CHECKED
+     *   against the WORKING GHZ NBG1 (map 0x25E40000, MPOFN_N1 also auto-set by SGL,
+     *   NO patch) -- if SGL didn't set MPOFN, GHZ (which needs N1=1 for its 0x40000
+     *   map) would be blank too, and it renders. The SGL 144-byte register-image DMA
+     *   (slInitSystem insc_01, size 0x90) carries image bytes 0x00..0x8F = MPOFN(0x3C)
+     *   + N1MPAB(0x44) every flush, so the value persists to VDP2.
+     *
+     * The PRIOR manual patch wrote 0x060FFD20 = image+0x60 = MPABRB (Rotation
+     * Parameter B plane-A/B map, VDP2_Manual.txt:4343) -- a register RBG0 (param A)
+     * never uses, so it was a genuine NO-OP that touched NOTHING relevant. Removed.
+     * The REAL clouds-blank cause was the cloud-cell CHARNO missing the B1 base
+     * (P6_CLOUD_CHARNO_BASE; fixed in p6_vdp2_title_clouds_b1_arm), not the offset. */
+}
+
 /* CP5b.3: per-frame cloud drift. The decomp Scanline_Clouds rolls the cloud
  * band horizontally (sine-driven) each frame; TitleBG_StaticUpdate accumulates
  * TitleBG->timer += 0x8000 = +0.5 px/frame Y. This is the cheap Saturn analog:
@@ -366,18 +589,559 @@ void p6_vdp2_present_title_backdrop(const unsigned char *tilesetPx,
  * animates the backdrop). Called each front-end frame; pure register write. */
 void p6_vdp2_title_backdrop_scroll(int frame)
 {
-    /* Slow horizontal drift (~0.25 px/frame) + the decomp's 0.5 px/frame Y on the
-     * cloud band. Keep the island roughly parked: drift only a few px so the
-     * composite stays centered. Use a small sine-ish wobble via frame & mask. */
-    int dx = (frame >> 2) & 0x1F;          /* 0..31 px slow horizontal pan */
-    slScrPosNbg1(toFIXED(P6_TITLE_SCROLL_X + dx), toFIXED(P6_TITLE_SCROLL_Y));
-    /* Re-arm NBG1ON|SPRON + the sprite>backdrop priority every frame (idempotent).
-     * The front-end frame would otherwise call p6_vdp2_arm_sprites_only (SPRON only)
-     * which DISABLES NBG1 -> the backdrop would vanish. Keeping NBG1 + the FG
-     * sprites-in-front here is the Title-flavor replacement for arm_sprites_only. */
+    /* CP5b.6 (#276): the island is now a ROTATING RBG0 plane, NOT a flat NBG1 cell
+     * plane (the RBG0 island map lives in bank B0 per RAMCTL, the same bank NBG1's
+     * map used -- so NBG1 can no longer render the backdrop; see p6_vdp2_title_island
+     * _rbg0_frame). So this function NO LONGER arms NBG1 or the display flags --
+     * p6_vdp2_title_island_rbg0_frame (called right after this) does the final
+     * slScrAutoDisp(RBG0ON|SPRON) + back-color + sprite priority. This is kept only
+     * as the (now no-op) per-frame hook; the sprite>backdrop priority is re-asserted
+     * so a stray SGL call cannot drop the FG sprites in front of the island. */
+    (void)frame;
     slPrioritySpr0(7);
+}
+
+/* ============================================================================
+ * CP5b.6 (Task #276): the title island MODE-7 ROTATION via VDP2 RBG0 + a per-line
+ * coefficient table. The decomp (TitleBG_Scanline_Island, TitleBG.c:159-178) draws
+ * the island as a perspective-rotated GROUND (RSDK ScanlineInfo deform/position per
+ * the engine's texel-walk DrawLayer): a per-line (deform.x/y) texture step + a
+ * per-line (position.x/y) texture START, driven by TitleBG->angle (+1/frame, 10-bit).
+ * The user's "flat island" complaint = we render it as a STATIC NBG1 cell plane.
+ *
+ * SATURN MAPPING (ST-058-R2 VDP2 §6, screen-coord formula :6343-6349):
+ *   X = kx(Xsp + dX*Hcnt) + Xp ;  Y = ky(Ysp + dY*Hcnt) + Yp
+ * RBG0 rotation-scroll with Rotation Parameter A + a per-line coefficient table
+ * (Coefficient Data Mode 0: kx=ky=coeff[line], read 1 entry/line via K_LINE):
+ *   - The coeff per line carries the decomp deform.x magnitude (= -cos*id>>7, the
+ *     per-pixel texture X-step). dX=1.0 -> kx*dX*Hcnt = coeff*Hcnt = the per-pixel
+ *     walk, mirroring the decomp lx += deform.x.
+ *   - The RPT matrix + screen-start carry the rotation/translation so kx*Xsp + Xp
+ *     reproduces the per-line texture origin (position.x).
+ *
+ * THE RPTA WIRE-UP (the prior blocker, now data-proven via LIBSGL disassembly +
+ * savestate peeks):  SGL keeps a 144-byte VDP2-register MIRROR at WRAM 0x060FFCC0
+ * (== VDP2 reg base 0x25F80000) and DMAs it to the registers every vblank in its
+ * _BlankIn handler (LIBSGL sglI00.o:0x9e). The RPTA register (VDP2 offset 0xBC)
+ * is mirrored at 0x060FFCC0+0xBC = 0x060FFD7C. MEASURED (p6_ghz.mcs, RBG0 off):
+ * the SGL DEFAULT mirror already holds RPTA = 0x0001FF80 -> RPT base = 0x3FF00 ->
+ * VRAM 0x05E3FF00 == the SGL RBG_PARA_ADR == our P6_RBG0_RPT. So RPTA is ALREADY
+ * VALID + already points HERE -- we must NOT disturb it. The prior failures
+ * (RPTA=0x92140 / 0x78000) came from CALLING slRparaInitSet / slScrMatSet, which
+ * RELOCATE the RPT (and slScrMatSet zeroes our KAst + sets RotTransFlag bit0 ->
+ * the vblank then DMAs SGL's zeroed WRAM ROTSCROLL OVER our VRAM RPT). So:
+ *   - We write the RPT matrix + KAst + screen-start DIRECTLY to 0x05E3FF00.
+ *   - We do NOT call slRparaInitSet (RPTA stays at the working SGL default 0x3FF00).
+ *   - We do NOT call slScrMatSet/slScrMatConv/slZrotR (RotTransFlag 0x060FFCCC stays
+ *     0 -- MEASURED -- so the vblank SKIPS its WRAM-ROTSCROLL->VRAM matrix DMA and
+ *     leaves our manual RPT intact; the gate at sglI00.o:0xd0 tests RotTransFlag&1).
+ *   - KTCTL is driven via the SGL API slKtableRA (it lands in the mirror + is DMA'd;
+ *     MEASURED KTCTL=0x0061 lived when slKtableRA ran -- raw KTCTL writes get
+ *     overwritten by the same vblank flush, so the API is mandatory here).
+ * Net: zero SGL rotation-matrix calls; RBG0 enabled via slScrAutoDisp(RBG0ON) +
+ * KTCTL via slKtableRA; everything else is our direct VRAM writes -> RPTA valid.
+ *
+ * The existing NBG1 sky+cloud+flat-island backdrop is KEPT (no regression). RBG0
+ * draws the rotating island at a HIGHER VDP2 priority over the lower band; where
+ * RBG0 samples a transparent (index-0) island texel, the NBG1 backdrop shows
+ * through. The FG VDP1 sprites (logo/Sonic) stay at sprite priority 7 (in front).
+ * ========================================================================== */
+
+/* RBG0 VRAM banks -- DICTATED by the live RAMCTL (jo sets RAMCTL=0x1327 at boot,
+ * core.c:213). The low byte 0x27 = the rotation-data-bank-select bits (ST-058-R2
+ * RDBSA/RDBSB @ 18000EH, VDP2_Manual.txt:6432-6441):
+ *   RDBSA bits1,0 (A0) = 0b11 -> A0 = RBG0 CHARACTER pattern  (island cells live here)
+ *   RDBSA bits3,2 (A1) = 0b01 -> A1 = RBG0 COEFFICIENT table  (per-line kx)
+ *   RDBSB bits5,4 (B0) = 0b10 -> B0 = RBG0 PATTERN-NAME table (the island map)
+ *   RDBSB bits7,6 (B1) = 0b00 -> B1 = NOT used by RBG0
+ * So the hardware reads the RBG0 island map from B0, the cells from A0, the coeff
+ * from A1 -- these addresses are NOT free choices, they MUST match RAMCTL.
+ *
+ * ROOT CAUSE of the blank island (#276, MEASURED 2026-06-23 via the RAMCTL decode +
+ * a savestate peek of the RBG0 map): the prior code wrote the island map to B1
+ * (0x25E60000), but RAMCTL designates B0 for the RBG0 pattern-name read -- so the HW
+ * read RBG0 PN from B0 (stale/unrelated data) and NEVER from B1. Moving the map to
+ * B0 (the RAMCTL-designated RBG0-PN bank) is THE fix. (The savestate confirmed the
+ * island layer references only tiles 5..428 -> all < 512 -> all cells fit A0 alone,
+ * so the A1 coeff bank never collides with a referenced island cell.) */
+#define P6_RBG0_RPT   0x25E3FF00u  /* = RBG_PARA_ADR (A1+0x1FF00); RPTA default points here */
+#define P6_RBG0_KTBL  0x25E20000u  /* = KTBL0_RAM (A1); RDBSA1=01 -> A1 is the coeff bank      */
+#define P6_RBG0_MAP   0x25E40000u  /* = RBG0_MAP (B0); RDBSB0=10 -> B0 is the RBG0 PN bank.
+                                    * (The HW reads RBG0 pattern-name from B0, NOT B1.)        */
+#define P6_RBG0_KAST  0x00008000u  /* KAst integer = (P6_RBG0_KTBL & 0x7FFFF) >> 2 (2-word=4H) */
+
+/* The island band on screen. The decomp clips y[168,240) on its 240-line screen
+ * (SetClipBounds 0,0,168,size.x,SCREEN_YSIZE=240); the perspective loop i=16..87
+ * maps to scanlines 168..239 with the NEAR/foreground line i=87 at y239 = screen
+ * bottom. BUT the Saturn ENGINE compiles SCREEN_YSIZE=224 (build_p6scene_objs.sh:95)
+ * and VDP2 RBG0 renders 224 PHYSICAL scanlines -- so the decomp's coeff[224..239]
+ * (band lines i=72..87, the near/foreground = the LARGEST head detail) are below
+ * the visible screen and never read. THAT cut the head's foreground -> the user's
+ * "appears small / only part of the head" symptom (#276, fresh-context root cause).
+ * FIX: place the full 72-line band at the BOTTOM of the 224-line display --
+ * foreground i=87 at y(152+71)=223 = screen bottom, horizon i=16 at y152. This is
+ * the platform-correct equivalent of the decomp's y239-foreground placement.
+ * MEASURED (sim_island_decomp.py render224 @224 lines): LINE0=168 = 5157 land px
+ * (foreground CUT); LINE0=152 = 6653 (full island fits). */
+#define P6_ISLAND_LINE0   152      /* 224-line display: band y[152,224) (decomp was 168 on 240) */
+#define P6_ISLAND_NLINES  72       /* i in 16..88 -> 72 lines */
+
+/* The texel the screen-center dot samples = the landmass CENTER. The decomp
+ * (TitleBG.c:174-175) centers the rotation on texel 512.0 (the +0x2000000 term);
+ * the island TileLayer's occupied bbox is x[384..639] y[384..639], center
+ * (511,511) -- MEASURED via render_scene.py TileLayer 3 + sim_island_decomp.py.
+ * So the screen-center MUST sample 512 = the head's geometric center. A prior 448
+ * "green-bulk" value (a green-centroid gate over-fit) shifted sampling onto the
+ * quills -> only a LEFT SLIVER of the head showed (the user's "1/4 island /
+ * appears small"). sim_island_decomp.py proves the Saturn RBG0 formula at 512 ==
+ * the decomp scanline band EXACTLY (band mean|diff| 0.00 at EVERY angle). */
+#define P6_ISLAND_CTR_TEXEL  256u  /* head SHIFTED into page 0: new center = texel 256
+                                    * (was decomp 512 = page boundary -> 1-of-4 quadrant) */
+
+/* Witnesses (read by qa_title_island_rot.py from game.map). armed=1 once arm ran;
+ * angle = the live TitleBG->angle the last frame built; kast = the RPT KAst integer
+ * we wrote; coeff0 = the first island line's coeff word; rpta = the live RPTA reg
+ * read back (the RED->GREEN signal -- valid == in-VRAM pointing at the RPT). */
+__attribute__((used)) int p6_w_title_island_armed  = 0;
+__attribute__((used)) int p6_w_title_island_angle  = -1;
+__attribute__((used)) int p6_w_title_island_kast   = 0;
+__attribute__((used)) int p6_w_title_island_coeff0 = 0;
+__attribute__((used)) int p6_w_title_island_rpta   = 0; /* live RPTA reg (RPTAU<<16|RPTAL)<<1 */
+__attribute__((used)) int p6_w_isl_tx = 0; /* MEASURE: HW screen-center sampled texel-X @ mid band line */
+__attribute__((used)) int p6_w_isl_ty = 0; /* MEASURE: HW screen-center sampled texel-Y @ mid band line */
+
+/* 16-page map for the RBG0 island plane (sl16MapRA). FILE-SCOPE so the per-frame
+ * fn can RE-ASSERT it: slScrAutoDisp re-derives RBG0's plane config every frame
+ * and resets it toward a single 512x512 page -> only the head's top-left quadrant
+ * samples (the "1 of 4 pieces"). Populated once in the arm. */
+static unsigned char p6_island_map16[16];
+
+/* Build the RBG0 map for the island layer (64x64 tiles, 2-word PND), reusing the
+ * A0 cells already uploaded by p6_vdp2_upload_cells. Empty cells -> blank char
+ * (transparent -> NBG1 backdrop shows through). One PL_SIZE_2x2 plane (4 pages). */
+static void p6_island_build_map(const unsigned short *islandLay, int islandWShift, int blank)
+{
+    volatile Uint16 *map = (volatile Uint16 *)P6_RBG0_MAP;
+    int x, y;
+    for (y = 0; y < 64; ++y) {
+        for (x = 0; x < 64; ++x) {
+            /* SHIFT the landmass into page 0 (#276 "1 of 4 pieces" ROBUST fix,
+             * user "add the other 3 pieces"). MEASURED: 3 sl16MapRA builds changed
+             * NOTHING -> the RBG0 plane is effectively a single 512x512 page. The
+             * head is a 256x256 block at texels 384..639 (tiles 24..39) CENTERED on
+             * texel 512 = the page boundary, so only its top-left quadrant (384..512)
+             * lands in the one rendered page = the user's "1 of 4". The whole 256x256
+             * head FITS in a 512x512 page -> shift the source read +16 tiles (+256
+             * texels) so the head moves to tiles 8..23 (texels 128..384), entirely
+             * inside page 0. The rotation re-centers on texel 256 (Mx/My base below).
+             * Sidesteps the non-functional multi-page sl16MapRA path entirely. */
+            int icols = 1 << islandWShift;
+            unsigned short e = islandLay[(((y + 16) & (icols - 1)) << islandWShift) + ((x + 16) & (icols - 1))];
+            unsigned long pnd;
+            if (e == 0xFFFF)
+                pnd = (unsigned long)blank * 8u;
+            else
+                pnd = ((unsigned long)(e & 0x800) << 20)   /* fy bit11 -> 31 */
+                    | ((unsigned long)(e & 0x400) << 20)   /* fx bit10 -> 30 */
+                    | ((unsigned long)(e & 0x3FF) * 8u);
+            int page = ((y >> 5) << 1) + (x >> 5);
+            volatile Uint16 *p = map + page * 2048 + (((y & 31) << 5) + (x & 31)) * 2;
+            p[0] = (Uint16)(pnd >> 16);
+            p[1] = (Uint16)(pnd & 0xFFFF);
+        }
+    }
+}
+
+/* One-time RBG0 island arm. islandLay = tileLayers[3].layout (the green island).
+ * Builds the map + the constant RPT fields (KAst/dKAst + viewpoint), enables the
+ * coeff table control (slKtableRA), char/plane/map (slCharRbg0/slPlaneRA/sl1MapRA/
+ * slOverRA), then RBG0ON. The per-line coeff + the angle-dependent matrix/start are
+ * (re)written every frame by p6_vdp2_title_island_rbg0_frame. */
+void p6_vdp2_title_island_rbg0_arm(const unsigned short *islandLay, int islandWShift)
+{
+    volatile unsigned long *rpt = (volatile unsigned long *)P6_RBG0_RPT;
+    int i;
+
+    /* Pick a blank char = a tile index the island layer never references; zero its
+     * A0 cells so empties render transparent (same rule as the NBG1 present). */
+    static unsigned char used[1024];
+    for (i = 0; i < 1024; ++i) used[i] = 0;
+    {
+        int icols = 1 << islandWShift, t;
+        for (t = 0; t < icols * icols; ++t) {
+            unsigned short e = islandLay[t];
+            if (e != 0xFFFF) used[e & 0x3FF] = 1;
+        }
+    }
+    int blank = 0;
+    while (blank < 1024 && used[blank]) ++blank;
+    {
+        volatile Uint16 *cel = (volatile Uint16 *)P6_VDP2_CEL;
+        volatile Uint16 *dst = cel + blank * 128;
+        for (i = 0; i < 128; ++i) dst[i] = 0;
+    }
+
+    p6_island_build_map(islandLay, islandWShift, blank);
+
+    /* RPT constant fields (ST-058 Fig 6.3, ROTSCROLL layout SL_DEF.H:480-512). The
+     * 0x60-byte RPT is laid out as: XST(+0) YST(+4) ZST(+8) dXST(+0xC) dYST(+0x10)
+     * DX(+0x14) DY(+0x18) MATA(+0x1C)..MATF(+0x34) ... KAST(+0x54) dKAST(+0x58)
+     * dKAx(+0x5C). (SGL's ROTSCROLL struct order; the VRAM RPT it DMAs matches.)
+     * Set the angle-INDEPENDENT fields here; the per-frame fn fills the matrix +
+     * screen-start. KAst = coeff base in KAst units; dKAst = +4H/line (2-word,
+     * per-line advance); dKAx = 0 (no per-dot advance). Viewpoint/center = 0. */
+    rpt[0x08 / 4] = 0;                 /* ZST   */
+    rpt[0x0C / 4] = 0;                 /* dXST  (per-line Xst increment; we rewrite Xst/line via the matrix) */
+    rpt[0x10 / 4] = 0;                 /* dYST  */
+    rpt[0x14 / 4] = 0x00010000u;       /* DX = 1.0 (16.16): kx*DX*Hcnt = coeff*Hcnt = per-pixel walk */
+    rpt[0x18 / 4] = 0;                 /* DY = 0 (horizontal scan only steps X; Y per line via Yst) */
+    /* KAST: integer part @ +0x54 (HIGH 16b), fractional @ +0x56 (LOW 16b)
+     * (ST-058 Fig 6.3). KAst_int = 0x8000 = (KTBL & 0x7FFFF)>>2 (2-word coeff,
+     * LSB unit = 4H). So the 32-bit word is (0x8000 << 16). The gate peeks the
+     * 16-bit HIGH half @ +0x54 and expects 0x8000. */
+    rpt[0x54 / 4] = (P6_RBG0_KAST << 16);  /* KAST int 0x8000 in high half | 0 frac */
+    /* dKAST = ONE 2-word coeff entry per screen line. ROOT-CAUSE FIX (#276, MEASURED
+     * via the P6_TITLE_ISLAND_STATIC bisect screenshot): the prior 0x00040000 = integer
+     * part 4 = FOUR entries/line, so screen line L read coeff[L*4]. The island band's
+     * coeff[168..239] was therefore consumed by screen lines 42..60 (a small dark block
+     * at screen y~42, MEASURED in _isl_pixel_shot), and screen lines 168..239 (the
+     * island band) read uninitialised coeff[672..956] -> transparent -> blank island.
+     * Per ST-058 Table 6.3 the 2-word coeff integer LSB = 4H (4 bytes = ONE entry), and
+     * the dKAst integer part = entries-per-line (DEMOCOEF BumpCoeff uses 0xa0<<16 = 160
+     * entries/line for its 1-coeff-per-2-pixels row). For 1 entry/line: dKAst = 1<<16. */
+    rpt[0x58 / 4] = 0x00010000u;       /* dKAST = 1 entry/line (the 2-word stride) */
+    rpt[0x5C / 4] = 0;                 /* dKAx  = 0 (per-line coeff, not per-dot) */
+    p6_w_title_island_kast = (int)(P6_RBG0_KAST & 0xFFFF);
+
+    /* SGL coeff-table control (lands in the mirror, DMA'd each vblank -- the proven
+     * KTCTL path). K_LINE = 1 coeff/line; K_2WORD; K_ON; K_MODE1 = the coeff supplies
+     * kx ONLY (ky from the RPT ky field) so the per-line kx perspective-foreshortens the
+     * HORIZONTAL while the vertical stays a clean linear sweep (see _frame). MEASURED:
+     * mode 0 (kx=ky) drove the sampled texel-Y off the island -> blank. */
+    slKtableRA((void *)P6_RBG0_KTBL, K_LINE | K_2WORD | K_ON | K_MODE1);
+    /* RBG0 cell/plane/map: 256-color 1x1-cell chars, the A0 island cells (charno =
+     * tile*8 via the PND), one PL_SIZE_2x2 plane, the B1 map, SINGLE over-mode (the
+     * single island maps once -- outside the plane shows the NBG1 backdrop; the
+     * Phase 1.31 tile-repeat-seam fix, slOverRA(3) per ST-058 RAOVR=3). */
+    slCharRbg0(COL_TYPE_256, CHAR_SIZE_2x2);
+    slPageRbg0((void *)P6_VDP2_CEL, 0, PNB_2WORD);
+    slPlaneRA(PL_SIZE_2x2);
+    /* THE "1 of 4 pieces" FIX (#276, user-flagged 2026-06-23): the Sonic-head
+     * island is a 1024x1024 texture = a 2x2 grid of 512x512 RBG0 pages (the 4
+     * quadrants the user counted). p6_island_build_map writes all 4 quadrants to
+     * VRAM pages P6_RBG0_MAP + {0,1,2,3}*0x1000 (VERIFIED present: page0/1/2/3
+     * landmass charno 263/271/385/393). BUT sl1MapRA() points ALL plane slots at
+     * page 0 -> only the top-left quadrant renders (the 3 missing pieces).
+     * FIX = sl16MapRA() with the 4 distinct page numbers. Per SGL SCROLL.TXT +
+     * SGLFAQ_F.TXT 2-6: page numbers are counted in units of 0x800 from VRAM
+     * START (NOT 0,4,8 -- the documented sl16MapRA failure mode), and the 16
+     * entries form a 4x4 grid ABCD/EFGH/IJKL/MNOP. Our page size = 32x32 chars *
+     * 4 B (2-word PND, 2x2-cell char) = 0x1000 B = 2 units, base off P6_RBG0_MAP.
+     * Tile the 2x2 texture across the 4x4 grid so the FULL head renders + wraps
+     * cleanly regardless of how PLSZ consumes the grid. */
+    {
+        unsigned long b = (P6_RBG0_MAP - 0x25E00000u) / 0x800u; /* MAPOFFSET = 128 */
+        unsigned char q0 = (unsigned char)(b + 0), q1 = (unsigned char)(b + 2);
+        unsigned char q2 = (unsigned char)(b + 4), q3 = (unsigned char)(b + 6);
+        p6_island_map16[0]=q0; p6_island_map16[1]=q1; p6_island_map16[2]=q0; p6_island_map16[3]=q1;   /* ABCD: TL TR TL TR */
+        p6_island_map16[4]=q2; p6_island_map16[5]=q3; p6_island_map16[6]=q2; p6_island_map16[7]=q3;   /* EFGH: BL BR BL BR */
+        p6_island_map16[8]=q0; p6_island_map16[9]=q1; p6_island_map16[10]=q0; p6_island_map16[11]=q1; /* IJKL */
+        p6_island_map16[12]=q2; p6_island_map16[13]=q3; p6_island_map16[14]=q2; p6_island_map16[15]=q3; /* MNOP */
+    }
+    sl16MapRA(p6_island_map16);
+    slOverRA(3);
+    slPriorityRbg0(2);  /* RBG0 island ABOVE NBG1 backdrop (pri 1), BELOW VDP1 sprites (7) */
+
+    p6_w_title_island_armed = 1;
+}
+
+/* Per-frame: rebuild the per-line coefficient table + the angle-dependent RPT
+ * matrix/screen-start from the live TitleBG->angle. VERBATIM the decomp
+ * TitleBG_Scanline_Island math: the caller passes sine = Sin1024(-angle)>>2 and
+ * cosine = Cos1024(-angle)>>2 (computed engine-side via RSDK::Sin/Cos1024 so the
+ * trig table is the engine's own). For each island line i in [16,88):
+ *   id = 0xA00000/(8*i); sin = sine*id; cos = cosine*id;
+ *   deform.x = -cos>>7 ; deform.y = sin>>7
+ *   position.x = sin - 160*deform.x - 0xA000*sine   + 0x2000000
+ *   position.y = cos - 160*deform.y - 0xA000*cosine + 0x2000000
+ * The coeff word per screen line = deform.x (the per-pixel X step; matches the
+ * qa_title_island_rot.py contract). The RPT screen-start Xst/Yst carries the
+ * line-0 origin; per-line position variation rides the coeff*matrix product. We
+ * also re-arm KTCTL + re-assert RBG0ON each frame (idempotent) so a stray SGL
+ * scroll call cannot drop the coeff/display. NO slScrMatSet (RotTransFlag stays 0
+ * -> the vblank never DMAs over this RPT). */
+void p6_vdp2_title_island_rbg0_frame(int angle, int sine, int cosine)
+{
+    volatile unsigned long *rpt   = (volatile unsigned long *)P6_RBG0_RPT;
+    volatile long          *coeff = (volatile long *)P6_RBG0_KTBL;
+    int i;
+
+#if defined(P6_TITLE_ISLAND_STATIC)
+    /* BISECT PROOF (P6_TITLE_ISLAND_STATIC): write a CONSTANT identity coeff (kx=ky=1.0,
+     * 2-word = 0x00010000 = FIXED1, per DEMOCOEF MAIN.C CurvedCoeff:273) + an IDENTITY
+     * matrix (A=E=1.0, B=D=0, no rotation) + Xst/Yst at the island bbox TOP-LEFT (384,384).
+     * If a STILL, unrotated island APPEARS -> every VDP2 RBG0 register/bank/cell/map is
+     * PROVEN correct and ONLY the rotation+coeff MATH remains (the live-rotation path
+     * stuffs a raw deform_x that does NOT honor the 2-word coeff bit layout, ST-058 §6.4).
+     * If STILL blank with kx=1.0+identity -> a deeper char-base/transparent-palette issue. */
+    (void)angle; (void)sine; (void)cosine;
+    for (i = (int)P6_ISLAND_LINE0; i < (int)(P6_ISLAND_LINE0 + P6_ISLAND_NLINES); ++i)
+        coeff[i] = (long)0x00010000;            /* kx=ky=1.0 every line */
+    rpt[0x00 / 4] = (unsigned long)((long)384 << 16); /* Xst = 384.0 texel (island bbox left) */
+    rpt[0x04 / 4] = (unsigned long)((long)384 << 16); /* Yst = 384.0 texel (island bbox top)  */
+    rpt[0x08 / 4] = 0;                          /* Zst */
+    rpt[0x0C / 4] = 0;                          /* dXst */
+    rpt[0x10 / 4] = 0;                          /* dYst */
+    rpt[0x14 / 4] = 0x00010000u;               /* dX = 1.0 (one texel per screen dot) */
+    rpt[0x18 / 4] = 0;                          /* dY */
+    rpt[0x1C / 4] = 0x00010000u;               /* A = 1.0 */
+    rpt[0x20 / 4] = 0;                          /* B = 0 */
+    rpt[0x24 / 4] = 0;                          /* C = 0 */
+    rpt[0x28 / 4] = 0;                          /* D = 0 */
+    rpt[0x2C / 4] = 0x00010000u;               /* E = 1.0 */
+    rpt[0x30 / 4] = 0;                          /* F = 0 */
+    rpt[0x54 / 4] = (P6_RBG0_KAST << 16);
+    slKtableRA((void *)P6_RBG0_KTBL, K_LINE | K_2WORD | K_ON | K_MODE0);
+    {
+        volatile unsigned char *rotTransFlag = (volatile unsigned char *)0x060FFCCCu;
+        *rotTransFlag &= (unsigned char)~0x01u;
+    }
     slBack1ColSet((void *)P6_VDP2_BAK, P6_TITLE_SKY_COL);
+    slPrioritySpr0(7);
+    slScrAutoDisp(RBG0ON | SPRON);
+    slPriorityRbg0(2);
+    p6_w_title_island_coeff0 = (int)coeff[P6_ISLAND_LINE0];
+    p6_w_title_island_angle  = 0;
+    return;
+#endif
+    /* ===================================================================== *
+     * SUB1 (#276 all-angle): FULL 2D-ROTATION Mode-7 -- coeff = per-line depth
+     * (Mode 0, kx=ky), rotation in the RPT matrix. This DROPS the Mode-1 kx-only
+     * decomposition (which only foreshortened the HORIZONTAL and so DEGENERATED at
+     * cos~=0, where deform.x->0 collapsed the band to vertical streaks/blank).
+     *
+     * THE EXACT DECOMPOSITION (ST-058-R2 §6.3 screen-coord formula,
+     * VDP2_Manual.txt:6343-6353, all viewpoint/center 0):
+     *   X = kx*(Xsp + dX_eff*Hcnt) + Xp,  dX_eff = A*DX + B*DY
+     *   Y = ky*(Ysp + dY_eff*Hcnt) + Yp,  dY_eff = D*DX + E*DY
+     * With DX=1.0, DY=0 -> dX_eff = A, dY_eff = D. So the PER-DOT texel step is
+     * (kx*A, ky*D). The decomp (TitleBG_Scanline_Island:172-173) wants the per-dot
+     * step = (deform.x, deform.y) = (-(cos*id)>>7, (sin*id)>>7), where
+     * id=0xA00000/(8*i), cos=cosine*id... no: cosine=Cos1024(-angle)>>2 (1.0==256),
+     * deform.x = -(cosine*id)>>7, deform.y = (sine*id)>>7.
+     *
+     * MATCH (EXACT, verified arithmetically for angle 0, i=16):
+     *   kx = ky = 2*id   (positive per-line PERSPECTIVE DEPTH; 256>>7 = 2)
+     *   A = -cos_true = -(cosine<<8)   (16.16; cosine/256 -> <<8 makes it 16.16)
+     *   D =  sin_true =  (sine<<8)
+     *   => per-dot-X = kx*A>>16 = (2*id)*(-(cosine<<8))>>16 = -(cosine*id)>>7 = deform.x  EXACT
+     *      per-dot-Y = ky*D>>16 = (2*id)*( (sine<<8))>>16 =  (sine*id)>>7  = deform.y  EXACT
+     * When cos~=0 the X-step vanishes but deform.y (driven by sin~=1) carries the
+     * motion -> the island STAYS present + rotating at EVERY angle. This is the whole
+     * point of restoring the matrix rotation + Mode 0.
+     *
+     * B,E are the rotation partners for the DOWN-SCREEN (Vcnt, via Yst+dYst) axis,
+     * which is perpendicular to the across-dot axis: B = -sin_true, E = -cos_true
+     * (the [[-cos -sin][sin -cos]] reflection-rotation the decomp's (deform.x basis
+     * = (-cos,sin), down-screen basis = (-sin,-cos)) implies). The down-screen sweep
+     * advances the START via dYst=1.0 texel/line through the matrix; Xst/Yst place the
+     * line-0 origin; Mx/My carry the texel-center constant (post-kx, NOT scaled by kx
+     * -- the decomp position's +0x2000000 = texel 512.0 center term, ST-058 Xp=Cx+Mx).
+     * Xst/Yst/Mx/My are TUNED from MEASURED pixels (2-4 builds OK per the methodology).
+     *
+     * Coeff is SIGN-MAGNITUDE 2-word (ST-058 Fig 6.7): bit31=transparency, bit23=sign,
+     * bits22-16 = 7-bit int, bits15-0 = frac. 2*id is POSITIVE in [~0.46,2.5] -> bit31
+     * clear (visible) + fits the 7-bit int. Non-island lines = 0x80000000 (transparent
+     * -> FG/sky show). dKAst=1 entry/line so screen line L reads coeff[L]. */
+    for (i = 0; i < 240; ++i)
+        coeff[i] = (long)0x80000000;            /* transparency bit set (non-island lines) */
+    for (i = 16; i < 88; ++i) {
+        int idv = 0xA00000 / (8 * i);
+        long kx = (long)(2 * idv);             /* per-line perspective depth (16.16, positive) */
+        if (kx > 0x007FFFFFL) kx = 0x007FFFFFL; /* clamp to 7 int + 16 frac (transp clear) */
+        if (kx < 0x00001000L) kx = 0x00001000L; /* floor ~1/16 texel: never a zero-scale line */
+        coeff[P6_ISLAND_LINE0 + (i - 16)] = kx; /* kx=ky for this island screen line (Mode 0) */
+    }
+    {
+        /* True cos/sin in 16.16 (cosine/sine carry 1.0==256, so <<8 -> 1.0==0x10000). */
+        const long cosF = (long)cosine << 8;      /* cos_true in 16.16 */
+        const long sinF = (long)sine   << 8;      /* sin_true in 16.16 */
+        /* EXACT decomp depth model (#276 all-angle, the principled fix): the decomp depth
+         * is id = 0xA00000/(8*i) -- HYPERBOLIC in the line i, NOT linear. A linear dYst
+         * per-line start sweep CANNOT reproduce it. Instead set dXst=dYst=0 (the texel-
+         * space START is the SAME point for every line) and let kx=2*id (already the
+         * coeff) provide the HYPERBOLIC scaling for BOTH the per-dot step AND the per-line
+         * start (X = kx*(A*Xst+B*Yst+A*sx)+Mx -- the whole Xsp rides kx). Then:
+         *   start id-part = kx*(A*Xst+B*Yst) = 2*id*(A*Xst+B*Yst)  -- hyperbolic like the
+         *     decomp's sine*id / -160*deform.x terms (both ~ id).
+         *   per-dot = kx*A*sx = deform.x*sx  (EXACT).
+         * Xst is the texel-space start offset (TUNED so the island bbox texels 384..640
+         * fill the band); Mx/My carry the angle-dependent VIEWPOINT counter-shift the
+         * decomp uses to RE-CENTER the island as it rotates (position.x const term
+         * -0xA000*sine + 0x2000000; -0xA000*cosine + 0x2000000 for Y). */
+        /* PROVEN-BEST baseline (MEASURED 8/24 visible + frame-20 grass strip): STATIC
+         * Mx=My=512, dYst=1.0, Xst=-160, Yst=-200. Every angle-dependent Mx counter-shift
+         * trial made coverage WORSE (0-5/24) -- so the swing IS the correct Mode-7 motion;
+         * the gap is purely that the island's visible window is contiguous (~8 frames) and
+         * needs WIDENING. The witnesses below report the SCREEN-CENTER sampled texel at the
+         * horizon/mid/bottom band lines so the placement can be derived from MEASURED data
+         * (peek p6_w_isl_tx_* at a blank vs a visible frame) instead of blind tuning. */
+        /* DECOMP-EXACT pivot (#276, DERIVED -- replaces the prior hand-TUNED Xst/Yst/Mx
+         * that gave only 8/24 frames + the wrong rotation center the user flagged).
+         * Matching the HW screen formula  X[sx,i] = kx[i]*(A*Xst + B*Yst + A*sx) + Mx
+         * (kx[i]=2*id[i], A=-cos, B=-sin) term-by-term to the decomp
+         * TitleBG_Scanline_Island position.x[i] = id*(sine+1.25*cosine) - 0xA000*sine
+         * + 0x2000000 (and the Y analogue) yields, for EVERY angle, a CONSTANT texel
+         * start + an ANGLE-DEPENDENT center:
+         *   2*(A*Xst + B*Yst) == (sine + 1.25*cosine)  ->  -c*Xst - s*Yst == 128s + 160c
+         *     ->  Xst = -160.0 , Yst = -128.0 (constants), dXst = dYst = 0
+         *   Mx  = 0x2000000 - 0xA000*sine     (the decomp -0xA000*sine + 512.0 viewpoint term)
+         *   My  = 0x2000000 - 0xA000*cosine
+         * The prior "angle counter-shift HURT" note was because the counter-shift was
+         * applied WRONG; the EXACT term is -0xA000*sin (X) / -0xA000*cos (Y) -- the decomp's
+         * own per-angle re-centering, which is what makes the island spin about the right
+         * pivot AND keeps the full landmass in the band (fixes "missing tiles"). */
+        const long dYst = 0;                        /* depth rides kx (2*id), NOT a linear sweep */
+        const long Xst  = (long)(-160) << 16;       /* decomp-exact texel start (was tuned -200) */
+        const long Yst  = (long)(-128) << 16;       /* decomp-exact (was tuned -240)             */
+        /* DECOMP-EXACT viewpoint center (#276 FULL-ISLAND FIX, 2026-06-23 fresh
+         * context). The decomp TitleBG_Scanline_Island (TitleBG.c:174-175) is:
+         *   position.x = sin - center.x*deform.x - 0xA000*sine   + 0x2000000
+         *   position.y = cos - center.x*deform.y - 0xA000*cosine + 0x2000000
+         * Matching the Saturn HW screen formula term-by-term (the -160/+160 deform
+         * terms cancel at screen-center) yields EXACTLY:
+         *   Mx = 0x2000000 - 0xA000*sine   ;  My = 0x2000000 - 0xA000*cosine
+         * (0x2000000 = texel 512.0 = the head's geometric center; the island layer's
+         * occupied bbox is x[384..639] y[384..639] center (511,511), MEASURED via
+         * render_scene.py TileLayer 3). sim_island_decomp.py renders the Saturn
+         * formula with THESE params vs the decomp scanline formula: band mean|diff|
+         * = 0.00 at EVERY angle -> byte-identical, the FULL Sonic-head fills+spins.
+         * The prior 448 center + halved 0x5000 My-swing were a green-centroid-gate
+         * over-fit that biased sampling onto the quills (left sliver) + shrank the
+         * vertical sweep -> the "island appears small / only 1/4 / one eye" symptom.
+         * Restore decomp-exact (the WHOLE head, centered, per TitleBG.c). */
+        const long Mx = (long)((unsigned long)P6_ISLAND_CTR_TEXEL << 16) - (long)0xA000 * sine;
+        const long My = 0x01000000L - (long)0xA000 * cosine;  /* texel-256 center (head shifted into page0) + FULL 0xA000 swing */
+        /* MEASUREMENT witnesses: compute the HW screen-center (sx=160) sampled texel for
+         * the MID band line (kx ~ 2*id at i=42) so I can read WHERE the sampling lands.
+         * texel_X = (kx*(A*Xst + B*Yst + A*160) + Mx) >> 16 (integer texel). Do the 16.16
+         * multiplies the way the HW does (>>16 per multiply). cosF/sinF are 16.16. */
+        {
+            long idmid = 0xA00000L / (8 * 42);     /* mid-band id */
+            long kxm   = 2 * idmid;                /* mid-band kx (16.16) */
+            long Ax = -cosF, Bx = -sinF, Dx = sinF, Ex = -cosF;
+            /* Xsp_center = A*Xst + B*Yst + A*160 ; all 16.16, products >>16 */
+            long xsp = ((Ax * (Xst >> 16)) + (Bx * (Yst >> 16))) + (Ax * 160);
+            long ysp = ((Dx * (Xst >> 16)) + (Ex * (Yst >> 16))) + (Dx * 160);
+            long tx  = (((long long)kxm * xsp) >> 16) + Mx;
+            long ty  = (((long long)kxm * ysp) >> 16) + My;
+            p6_w_isl_tx = (int)(tx >> 16);         /* sampled texel-X (integer) at mid line */
+            p6_w_isl_ty = (int)(ty >> 16);         /* sampled texel-Y (integer) at mid line */
+        }
+        /* RPT field byte-offsets (ST-058-R2 Fig 6.2/6.3 + DEMOCOEF vdp2RotParam
+         * UTIL/VDP2.H:189-191 -- Fixed32 fields: Xst..f at 0x00..0x30, then Uint16
+         * Px..dummy2 at 0x34..0x43, then Mx 0x44, My 0x48, kx 0x4C, ky 0x50, KAst 0x54). */
+        rpt[0x00 / 4] = (unsigned long)Xst;        /* Xst (texel-space, scaled by kx) */
+        rpt[0x04 / 4] = (unsigned long)Yst;        /* Yst (texel-space, scaled by kx) */
+        rpt[0x08 / 4] = 0;                          /* Zst */
+        rpt[0x0C / 4] = 0;                          /* dXst = 0 (depth via kx, not linear) */
+        rpt[0x10 / 4] = (unsigned long)dYst;       /* dYst = 0 (depth via kx, not linear) */
+        rpt[0x14 / 4] = 0x00010000u;               /* DX = 1.0 texel/dot */
+        rpt[0x18 / 4] = 0;                          /* DY = 0 */
+        rpt[0x1C / 4] = (unsigned long)(-cosF);    /* A = -cos  -> per-dot-X = kx*A = deform.x */
+        rpt[0x20 / 4] = (unsigned long)(-sinF);    /* B = -sin */
+        rpt[0x24 / 4] = 0;                          /* C = 0 */
+        rpt[0x28 / 4] = (unsigned long)( sinF);    /* D =  sin  -> per-dot-Y = ky*D = deform.y */
+        rpt[0x2C / 4] = (unsigned long)(-cosF);    /* E = -cos */
+        rpt[0x30 / 4] = 0;                          /* F = 0 */
+        rpt[0x34 / 4] = 0;                          /* Px=0, Py=0 (Uint16 pair) */
+        rpt[0x38 / 4] = 0;                          /* Pz=0, dummy1 */
+        rpt[0x3C / 4] = 0;                          /* Cx=0, Cy=0 */
+        rpt[0x40 / 4] = 0;                          /* Cz=0, dummy2 */
+        rpt[0x44 / 4] = (unsigned long)Mx;         /* Mx (post-kx X: 512 - 0xA000*sine) */
+        rpt[0x48 / 4] = (unsigned long)My;         /* My (post-kx Y: 512 - 0xA000*cosine) */
+        rpt[0x4C / 4] = 0x00010000u;               /* kx field (Mode 0 reads coeff, this is the RPT fallback) */
+        rpt[0x50 / 4] = 0x00010000u;               /* ky field (Mode 0 reads coeff) */
+        p6_w_title_island_coeff0 = (int)coeff[P6_ISLAND_LINE0];
+        p6_w_title_island_kast   = (int)((cosF >> 16) & 0xFFFF); /* witness: A=-cos hi half */
+    }
+
+    /* Re-assert coeff control + KAst each frame (defensive). KAst integer in the HIGH
+     * 16b (+0x54). K_MODE0 = coeff supplies BOTH kx and ky (the per-line depth); the
+     * rotation lives in the RPT matrix above, so the band stays present at all angles. */
+    rpt[0x54 / 4] = (P6_RBG0_KAST << 16);
+    slKtableRA((void *)P6_RBG0_KTBL, K_LINE | K_2WORD | K_ON | K_MODE0);
+
+    /* CRITICAL (MEASURED 2026-06-23): the SGL vblank _BlankIn handler (LIBSGL
+     * sglI00.o:0xca-0xe8) DMAs its WRAM ROTSCROLL_A (0x060FFE1C) OVER our VRAM RPT
+     * whenever BGON bit4/5 (RBG0ON) is set AND RotTransFlag (0x060FFCCC) bit0 is set
+     * -- which clobbered our manual matrix/Xst (peeked Xst became SGL's 0xB0=176 +
+     * an identity matrix instead of our 0x02000000 + rotation). slKtableRA/slPlaneRA/
+     * etc. evidently set RotTransFlag. So we CLEAR RotTransFlag bit0 AFTER our RPT
+     * writes each frame -> the vblank skips its WRAM->VRAM RPT DMA and our matrix +
+     * screen-start survive. (The 144-byte register-mirror DMA that carries RPTA is a
+     * SEPARATE gate -- it still runs, keeping RPTA valid at the SGL default 0x3FF00.) */
+    /* (RotTransFlag clear is now the VERY LAST op -- it was here, but slScrAutoDisp +
+     * slPriorityRbg0 below RE-SET it, so clearing it here left it SET at vblank on some
+     * frames. Moved to the STABILITY FIX block at the end of this function.) */
+    /* Display flags: RBG0 (rotating island) + NBG1 (clouds on B1) + sprites
+     * (logo/Sonic). SUB2 (#276) RESTORES NBG1: ST-058-R2 :1030 "the normal scroll
+     * screen can be displayed simultaneously with ONE rotation scroll screen." The
+     * prior "NBG1 cannot coexist" claim was a MISREADING of :6449 -- that rule only
+     * says NBG1 cannot read from a RBG0-CLAIMED bank (A0/A1/B0). NBG1 reads its
+     * clouds from B1, which RAMCTL (0x1327, bits7,6=00) leaves NON-RBG0 -> B1's VRAM
+     * cycle is honored -> NBG1 renders. (p6_vdp2_title_clouds_b1_config points NBG1
+     * at B1; the arm copied the cloud cells + map there.) A/B knobs: P6_TITLE_NORBG0
+     * = island off (sprites+clouds), P6_TITLE_NOCLOUDS = clouds off (island only). */
+    slBack1ColSet((void *)P6_VDP2_BAK, P6_TITLE_SKY_COL);
+    slPrioritySpr0(7);
+#if defined(P6_TITLE_NORBG0)
     slScrAutoDisp(NBG1ON | SPRON);
+#elif defined(P6_TITLE_NOCLOUDS)
+    slScrAutoDisp(RBG0ON | SPRON);
+#else
+    slScrAutoDisp(RBG0ON | NBG1ON | SPRON);
+#endif
+    /* MEASURED 2026-06-23: the RBG0 priority register (PRIR, VDP2 0x25F80100,
+     * mirror 0x060FFDC0) read back 0 = "layer not displayed" even with RBG0ON set,
+     * because slScrAutoDisp / the arm-once slPriorityRbg0 did not leave it latched.
+     * Re-assert the RBG0 priority EACH frame AFTER slScrAutoDisp so RBG0 composites
+     * (pri 2 = above NBG1 pri 1, below VDP1 sprites pri 7). Without this the matrix +
+     * coeff + RPTA are all correct but nothing draws (PRIR=0). */
+    slPriorityRbg0(2);
+
+    /* "1 of 4 pieces" FIX, per-frame half (#276, user "add the other 3 pieces"):
+     * RE-ASSERT the 2x2 (1024x1024) plane + the 4-page sl16MapRA map EVERY frame.
+     * slScrAutoDisp (above) re-derives RBG0's plane config and resets it toward a
+     * single 512x512 page, so the arm-once sl16MapRA was being clobbered every frame
+     * -> only the head's top-left quadrant (texels 384..512) sampled, the other 3
+     * quadrants (512..640, in pages 1/2/3) never read. (Same per-frame re-assertion
+     * the RPT/coeff need.) Kept BEFORE the RotTransFlag clear so that stays last. */
+    slPlaneRA(PL_SIZE_2x2);
+    sl16MapRA(p6_island_map16);
+    slOverRA(3);
+
+    /* STABILITY FIX (#276, MEASURED garbled-Sonic intermittent corruption -- user-flagged
+     * "Sonic in the ring derezzes"): clear RotTransFlag bit0 as the ABSOLUTE LAST op.
+     * slScrAutoDisp + slPriorityRbg0 (above) RE-SET it (same as slKtableRA), so clearing
+     * it earlier left it SET at the vblank on the frames where _BlankIn lands after these
+     * calls -> the SGL ISR DMAs its identity RPT over ours -> the island band/coeff
+     * mis-indexes -> horizontal-stripe garbage rendered over Sonic in the screen center.
+     * Clearing AFTER every SGL call this frame suppresses that DMA every frame. */
+    {
+        volatile unsigned char *rotTransFlag = (volatile unsigned char *)0x060FFCCCu;
+        *rotTransFlag &= (unsigned char)~0x01u;
+    }
+
+    /* Read back the LIVE RPTA register (VDP2 0x25F800BC/BE) -> the RED->GREEN proof. */
+    {
+        volatile unsigned short *rptau = (volatile unsigned short *)0x25F800BCu;
+        volatile unsigned short *rptal = (volatile unsigned short *)0x25F800BEu;
+        unsigned int rpta = (((unsigned int)(*rptau & 0x7) << 16)
+                             | (unsigned int)(*rptal & 0xFFFE)) << 1;
+        p6_w_title_island_rpta = (int)rpta;
+    }
+    p6_w_title_island_angle = angle & 0x3FF;
 }
 #endif /* P6_FRONTEND_TITLE */
 

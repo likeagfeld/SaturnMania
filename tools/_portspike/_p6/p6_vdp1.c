@@ -378,6 +378,97 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
                 (unsigned int)(pw * h));
     return pw;
 }
+
+/* =============================================================================
+ * TASK 2 (this session): RSDK::FillScreen on Saturn -- the title INTRO fade/flash.
+ *
+ * The decomp TitleSetup_Draw_FadeBlack calls RSDK.FillScreen(0x000000, timer,
+ * timer-128, timer-256) (black fade-in, timer 1024->0) and Draw_Flash calls
+ * RSDK.FillScreen(0xF0F0F0, timer, timer-128, timer-256) (white flash, timer
+ * 0x300->0). The PC FillScreen (Drawing.cpp:586) does a per-channel alpha blend
+ * of `color` over the software framebuffer -- which on Saturn is the 1-element
+ * frameBuffer[1] stub (Drawing.hpp:118) = a NO-OP, so the title pops in with no
+ * intro. This is the Saturn implementation: a FULL-SCREEN VDP1 sprite of the
+ * fill colour composited ON TOP of the title sprites + VDP2 backdrop.
+ *
+ * MECHANISM (ST-013-R3 VDP1 + jo SGL sprite path):
+ *  - A 16x16 SOLID-colour RGB555 sprite (jo_sprite_add COL_32K; MSB=0x8000 set
+ *    so every texel is opaque-visible) is allocated ONCE per colour (black +
+ *    white cover both decomp callers). jo's append-only allocator (sprites.c:74)
+ *    runs these 2 jo_sprite_add calls at most once each (#189-safe).
+ *  - Drawn via jo_sprite_draw3D at Z=450 (the SAME Z the title content draws at,
+ *    p6_title_blit:908 -> ~1:1 screen scale) with UNIFORM scale 20.0 -> 320x320,
+ *    centred at (0,0) -> covers the whole 320x240 frame. Uniform scale takes the
+ *    slDispSprite path (sprites.c:447), avoiding the slDispSpriteHV null-angle bug
+ *    (sprites.c:444-445). FillScreen is called from TitleSetup's Draw (drawGroup
+ *    12 = the LAST drawGroup), so this command is appended AFTER every other title
+ *    sprite -> VDP1 painter's order puts it on top regardless of Z.
+ *  - OPACITY ramp from the decomp's timer-derived alphas (CLAMP 0..255 each, the
+ *    Drawing.cpp:588-590 clamp). avg = (aR+aG+aB)/3:
+ *      avg >= 170 -> OPAQUE (CL_Replace, default) = solid black / solid white
+ *                    (the fade-in start frames + the flash peak = the gate's
+ *                    "near-black early frames" + "bright flash frame").
+ *      avg in [1,170) -> HALF-TRANSPARENT (VDP1 CL_Half via
+ *                    jo_sprite_enable_half_transparency, SL_DEF.H:193) = the fade
+ *                    transition (50% blend toward the revealing content).
+ *      sum <= 0 -> draw NOTHING (fully revealed -> the logo shows through).
+ *    VDP1 half-transparency is a fixed 50% blend (it cannot do arbitrary per-
+ *    channel alpha), so this is a faithful 3-level quantisation of the PC ramp --
+ *    opaque -> 50% -> clear -- which is exactly what the intro pixel-gate asserts
+ *    (black -> fade -> reveal, with a white flash before the logo).
+ *
+ * FRONT-END-ONLY (the whole helper is #if defined(P6_FRONTEND_TITLE)); the GHZ
+ * flavor's FillScreen stays the p6_stubs.cpp no-op (it has no intro). The two
+ * 16x16 sprites cost 2*512 B of VDP1 VRAM, allocated lazily on first fade frame.
+ * ========================================================================== */
+static int            s_fillSprBlack = -2; /* -2 = not yet attempted */
+static int            s_fillSprWhite = -2;
+static unsigned short s_fillPx[16 * 16];
+
+static int p6_fill_make(unsigned short rgb555)
+{
+    jo_img img;
+    int i;
+    for (i = 0; i < 16 * 16; ++i)
+        s_fillPx[i] = rgb555; /* MSB(0x8000) already set by the caller -> opaque */
+    img.width  = 16;
+    img.height = 16;
+    img.data   = s_fillPx;
+    return jo_sprite_add(&img); /* COL_32K RGB direct-colour sprite */
+}
+
+__attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int aG, int aB)
+{
+    int sum, avg, spr;
+
+    if (aR < 0) aR = 0; else if (aR > 255) aR = 255;
+    if (aG < 0) aG = 0; else if (aG > 255) aG = 255;
+    if (aB < 0) aB = 0; else if (aB > 255) aB = 255;
+    sum = aR + aG + aB;
+    if (sum <= 0)
+        return; /* fully transparent -> the content shows through (decomp early-out) */
+
+    /* Lazy-allocate the two solid sprites (once each). 0x8000 = RGB555 visible bit. */
+    if (s_fillSprWhite == -2)
+        s_fillSprWhite = p6_fill_make((unsigned short)(0x8000 | 0x7FFF)); /* white */
+    if (s_fillSprBlack == -2)
+        s_fillSprBlack = p6_fill_make((unsigned short)(0x8000 | 0x0000)); /* black */
+
+    /* Colour select: FadeBlack=0x000000, Flash=0xF0F0F0 -- threshold the red byte. */
+    spr = (((color >> 16) & 0xFF) > 0x80) ? s_fillSprWhite : s_fillSprBlack;
+    if (spr < 0)
+        return; /* alloc failed (VRAM full) -> skip rather than draw garbage */
+
+    avg = sum / 3;
+    /* 16x16 sprite * uniform 20.0 = 320x320 -> covers the 320x240 frame, centred. */
+    jo_sprite_change_sprite_scale(20.0f);
+    if (avg < 170)
+        jo_sprite_enable_half_transparency(); /* mid-fade: VDP1 CL_Half 50% blend */
+    /* avg >= 170 -> opaque (CL_Replace, the default). */
+    jo_sprite_draw3D(spr, 0, 0, 450);
+    jo_sprite_disable_half_transparency();
+    jo_sprite_restore_sprite_scale();
+}
 #endif
 
 /* Mirror the 256-color stage palette into CRAM bank 1 once (engine RGB565,

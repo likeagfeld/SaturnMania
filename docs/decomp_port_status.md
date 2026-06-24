@@ -980,3 +980,105 @@ screenshot saved.
 - LOGOS.SHT added to tools/build_sheet_bands.py SHEETS so the asset regenerates
   (cd/ is .gitignored).
 
+
+---
+
+## CP5b.6 (#276) — Title island Mode-7 RBG0: coefficient sign-magnitude + lower-band placement (2026-06-23)
+
+DOCS CITED (read this session, end-to-end):
+- ST-058-R2 VDP2 §6.4 (VDP2_Manual.txt:7113-7164 Figure 6.7 = the 2-word coefficient
+  bit layout; :7196-7208 = MSB transparency semantics; :7181 = KAst*4H 2-word address).
+- ST-058-R2 §6.1/6.3 (VDP2_Manual.txt:6340-6371 = the X=kx(Xsp+dX*Hcnt)+Xp rotation
+  formula; kx=ky=coeff[line] in mode 0).
+- DEMOCOEF MAIN.C:229-290 (CurvedCoeff = the AUTHORITATIVE 2-word per-line writer:
+  it stores Abs()-positive `d + FIXED1`, NEVER a negative two's-complement value).
+- DEMOCOEF UTIL/VDP2.H:187-192 (vdp2RotParam struct = the VRAM RPT byte layout:
+  Xst+0x00 Yst+0x04 ... A+0x1C..F+0x30 ... KAst+0x54 dKAst+0x58 dKAx+0x5C -- CONFIRMS
+  the offsets already in p6_vdp2.c, cross-checked vs SGL ROTSCROLL SL_DEF.H:481-510).
+- decomp TitleBG.c:159-178 (TitleBG_Scanline_Island = the per-line ground-plane math).
+
+ROOT CAUSE (the SOLE remaining bug, the static bisect P6_TITLE_ISLAND_STATIC already
+PROVED every register/bank/cell/map/priority is correct -> a block rendered):
+  The live `_frame()` writes `coeff[line] = (long)deform_x` where deform_x = -cos>>7
+  is a two's-complement value that is FREQUENTLY NEGATIVE. Per ST-058 Fig 6.7 the
+  2-word coeff is SIGN-MAGNITUDE: high-word bit15 = TRANSPARENCY, bit7 = sign. A
+  negative two's-complement 16.16 (e.g. -0x28000 = 0xFFFD8000) has bit31 SET =
+  bit15-of-high-word = TRANSPARENCY -> the line is forced transparent -> blank island.
+  DEMOCOEF sidesteps this with Abs() (always-positive d+FIXED1). 
+
+FIX (2 parts, data-driven, PIXEL-gated):
+  1. Coeff encoding: write kx = |deform.x| as a POSITIVE 16.16 magnitude (sign+transp
+     bits clear). kx is the per-line magnification (the horizon foreshortening); the
+     rotation DIRECTION rides the A/B/D/E matrix, not the coeff sign. |deform.x| in
+     [~0.46, 2.5] -> 7-bit integer part fits, bit31 stays 0. Per ST-058 §6.4: a
+     positive 16.16 == sign-magnitude positive (integer in bits22-16, fraction bits15-0).
+  2. Placement: from the static-bisect MEASURED origin (Xst=Yst=384<<16 -> screen 0,0),
+     put island texels 384..640 into screen lower band y[168,240] centered in X:
+       Yst = (384-168)<<16 = 0x00D80000 ; Xst = (512-160)<<16 = 0x01600000.
+     Rotation: A=cos,B=-sin,D=sin,E=cos (16.16, from Sin/Cos1024(-angle)>>2 <<8).
+
+ACCEPTANCE (PIXEL gate qa_title_island_pixel.py, RED->GREEN):
+  P1 lower-band green island mass >= 3000 px in >= half the settled frames.
+  P2 the lower-band green column profile differs >= 10% between two rotation angles.
+  Register gate qa_title_island_rot.py is INSUFFICIENT (known false-GREEN trap).
+
+FILES TOUCHED: tools/_portspike/_p6/p6_vdp2.c (the _frame coeff loop + Xst/Yst);
+  build_p6scene_objs.sh + build_shipping.sh (-u roots for the island witnesses so the
+  coeff/Xst/Yst are peekable). NO commit -- user verifies pixels.
+
+SKY/CLOUD TRADEOFF (to MEASURE + REPORT): RBG0 claims bank B0 (RAMCTL 0x1327 RDBSB0=10),
+  the bank NBG1's map used -> NBG1 cannot render alongside cell-mode RBG0; the sky is the
+  back-color (P6_TITLE_SKY_COL), clouds are lost. Report the measured NBG1/back-color state.
+
+### CP5b.6 OUTCOME (2026-06-23) -- BREAKTHROUGH: island RENDERS + ROTATES
+
+PIXEL GATE qa_title_island_pixel.py: P2 ROTATES = PASS (lower-band green column
+profile differs 71% between two rotation angles); lower_green 0->6420 across settled
+frames; 9/24 settled frames green>=3000. Screenshot _isl_18.png: green grass island
+material visible in the lower-left band, FG fully intact, sky = back-color (clouds gone).
+P1 'visible' still RED (needs >=12/24 frames green>=3000; have 9) = a PLACEMENT-coverage
+gap, NOT a rendering failure. _end=0x060b61a0 SAFE. Build exit 0.
+
+TWO ROOT-CAUSE BUGS FIXED (both MEASURED; every prior session mis-blamed RPTA/priority/
+banks/KTCTL/RPMD -- all RED HERRINGS, re-verified correct):
+  BUG 1 (ST-058 Fig 6.7): the 2-word coeff is SIGN-MAGNITUDE (bit31=transparency,
+    bit23=sign). The prior `coeff=deform_x` was NEGATIVE two's-complement -> bit31 set ->
+    line transparent -> blank. FIX: write |deform.x| POSITIVE (p6_vdp2.c ~line 645).
+  BUG 2 (ST-058 Table 6.3): dKAst=0x00040000 = 4 entries/line -> screen line L read
+    coeff[L*4]; the island band coeff[168..239] was consumed by screen lines 42..60 (the
+    small dark block at screen-top that EVERY prior memory called 'the static bisect
+    rendered' -- it was the MIS-INDEXED band all along, never a placement). FIX: dKAst=
+    0x00010000 = 1 entry/line + clear non-island lines to 0x80000000 transparent.
+  Mode-1 coeff (K_MODE1, kx-only, ky=1.0 from RPT) decouples the clean vertical sweep
+    (Yst/dYst place texels 384@line168..640@line239) from the per-line horizontal kx
+    perspective. KTCTL peek 0x0005 = RAKTE+mode1 confirms it latched.
+
+SKY/CLOUD TRADEOFF (MEASURED): RBG0 claims VRAM bank B0 (RAMCTL 0x1327 RDBSB0=10 = the
+RBG0 PN bank), the same bank NBG1's cloud backdrop map used. A bank claimed for RBG0 has
+its cycle pattern ignored (ST-058:6449) so NBG1 cannot coexist -> NBG1 OFF, sky = flat
+back-color, CLOUDS GONE. Documented rotating-island-vs-clouds tradeoff. Coexistence
+follow-up (out of scope): NBG1 on B1 + VDP2 cycle-pattern reconfigure.
+
+REMAINING (next pass, to clear P1 + finish): tune Xst/scale to center+fill the band
+(the green lands lower-left; Xst=571 was the MEASURED best, 1390 was worse); the island
+also VANISHES at cos(angle)~0 angles because mode-1 only rotates the horizontal (kx) --
+a true 2D affine (matrix A=cos,B=-sin,D=sin,E=cos rotating BOTH axes) keeps it present
+at all angles but re-couples placement (tune in one combined pass). NO commit (user
+verifies pixels).
+
+TITLE ISLAND -- FULL FIX (2026-06-23, P6_FRONTEND_TITLE; user pixel-verified). The Mania
+island now renders as a VDP2 RBG0 Mode-7 perspective floor showing the COMPLETE four-quadrant
+Sonic-head, centered, rotating. Two measured root causes, both fixed: (1) decomp-exact pivot
+restored -- Mx/My center on texel 512 with the full 0xA000 viewpoint swing (an earlier
+session's 448 center + halved 0x5000 swing was a green-centroid-gate over-fit that showed only
+a sliver). Proven byte-exact vs an offline decomp simulator (tools/_portspike/sim_island_decomp.py
+reproduces TitleBG_Scanline_Island; band mean|diff|=0.00 at every angle) AND the live hardware
+witness (isl_tx/ty == the hand-computed decomp formula). (2) "only 1 of 4 pieces" -- the RBG0
+plane renders a single 512x512 page and the 256x256 head straddles the texel-512 page boundary,
+so only its top-left quadrant landed in the rendered page (SGL 302j sl16MapRA multi-page is
+non-functional; 3 builds with it changed nothing). FIX = repack: shift the head into one page
+(source read +16 tiles -> texels 128..384) and re-center the rotation on texel 256 -- works WITH
+the single-page render. Gate tools/_portspike/qa_title_island_match.py GREEN (full island present
+100% of settled frames, centered; HW-calibrated land floor); qa_title_sonic_intact.py GREEN (no
+FG regression). Clouds restored on NBG1 bank B1 (still flicker from per-frame slScrAutoDisp cycle-
+pattern churn -- next fix). Mountains + Title3DSprite 3D-rocks remain OFF (VDP1 slot capacity).

@@ -201,7 +201,20 @@ void SetVideoSetting(int32 id, int32 value)
     }
 }
 void SwapDrawListEntries(uint8 drawGroup, uint16 slot1, uint16 slot2, uint16 count) {}
+#if defined(P6_FRONTEND_TITLE)
+// TASK 2 (this session): the title INTRO fade/flash. The PC FillScreen blends
+// `color` over the software framebuffer, which on Saturn is the frameBuffer[1]
+// stub = a no-op. Forward to the real Saturn VDP1 full-screen-overlay impl in
+// p6_vdp1.c (extern "C"; that TU owns <jo/jo.h>). Front-end-only -- the GHZ flavor
+// keeps the no-op below (it has no intro). See p6_vdp1.c p6_fillscreen_saturn.
+extern "C" void p6_fillscreen_saturn(unsigned int color, int alphaR, int alphaG, int alphaB);
+void FillScreen(uint32 color, int32 alphaR, int32 alphaG, int32 alphaB)
+{
+    p6_fillscreen_saturn((unsigned int)color, (int)alphaR, (int)alphaG, (int)alphaB);
+}
+#else
 void FillScreen(uint32 color, int32 alphaR, int32 alphaG, int32 alphaB) {}
+#endif
 #if !defined(P6_SCENE_TEST) // P6.5b3: real Saturn DrawSprite backend in p6_io_main.cpp
 void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative) {}
 #endif

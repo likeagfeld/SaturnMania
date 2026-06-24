@@ -96,3 +96,23 @@
 docs/object_census.json
 docs/scene_census.json
 docs/dropin_census.json
+
+# --- session / build diagnostic scratch (2026-06-23) ---
+/_*.png
+/_*.log
+/_*.txt
+/_*.bin
+/_*.wav
+/c_*.png
+/_title_layers/
+__pycache__/
+tools/_portspike/**/_*.png
+tools/_portspike/_p*/_stage*/
+tools/_portspike/**/*.elf
+tools/_portspike/**/*.iso
+tools/_portspike/**/*.cue
+tools/_portspike/**/*.map
+tools/_portspike/**/*.out
+tools/_portspike/**/_*.txt
+tools/_portspike/_p*/0*.bin
+tools/_portspike/**/*.java

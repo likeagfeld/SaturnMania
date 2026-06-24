@@ -166,6 +166,7 @@ echo "[7c/9] p6_vdp2.o (P6.5b1 present: engine Island layer -> NBG1 2-word-PND c
 # to nothing -> the Title definitions stay compiled out -> p6_vdp2.o unchanged.
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
     ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} \
+    ${P6_TITLE_NORBG0:+-DP6_TITLE_NORBG0} ${P6_TITLE_ISLAND_STATIC:+-DP6_TITLE_ISLAND_STATIC} \
     -I"$SGLINC" -I"$NEWLIB" \
     -c -o "$P6/p6_vdp2.o" "$P6/p6_vdp2.c"
 # NOTE: p6_vdp1.c (P6.5b2 sprite half) is NOT built here -- it includes
@@ -563,6 +564,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_shtslot -u _p6_w_tsonic_surfidx -u _p6_w_tsonic_surfslot -u _p6_w_tsonic_surfscope -u _p6_w_tsonic_surfh0 -u _p6_w_tsonic_h0} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_visible -u _p6_w_tsonic_onscreen -u _p6_w_tsonic_sheetid -u _p6_w_tsonic_handle -u _p6_w_tsonic_animid -u _p6_w_tsonic_frameid} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_title_backdrop_done -u _p6_w_title_backdrop_armed} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_title_island_armed -u _p6_w_title_island_angle -u _p6_w_title_island_kast -u _p6_w_title_island_coeff0 -u _p6_w_title_island_rpta -u _p6_w_isl_tx -u _p6_w_isl_ty -u _p6_w_title_clouds_armed -u _p6_w_title_clouds_ntiles} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tbg_shtslot -u _p6_w_tbg_surfidx -u _p6_w_tbg_surfslot -u _p6_w_tbg_handle} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_titlebg_classid -u _p6_w_title3d_classid} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_titlebg_vis -u _p6_w_title3d_vis} \

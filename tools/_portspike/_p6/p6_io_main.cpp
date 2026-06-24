@@ -454,6 +454,24 @@ void p6_vdp2_present_title_backdrop(const unsigned char *tilesetPx,
                                     const unsigned short *cloudLay, int cloudWShift,
                                     const unsigned short *pal565);
 void p6_vdp2_title_backdrop_scroll(int frame); // per-frame cloud/island drift
+// CP5b.6 (Task #276): the title island MODE-7 ROTATION via VDP2 RBG0 + per-line
+// coefficient table. arm() builds the RBG0 map/RPT/coeff control ONCE at load;
+// frame(angle,sine,cosine) rewrites the per-line coeff + the angle-dependent RPT
+// matrix/screen-start each front-end tick (the decomp TitleBG_Scanline_Island
+// math; sine/cosine = RSDK::Sin/Cos1024(-angle)>>2 computed engine-side here).
+void p6_vdp2_title_island_rbg0_arm(const unsigned short *islandLay, int islandWShift);
+void p6_vdp2_title_island_rbg0_frame(int angle, int sine, int cosine);
+// SUB2 (#276 clouds-coexist): the cloud backdrop on NBG1 reading from bank B1
+// (coexists with the RBG0 island; ST-058:1030). arm() copies the cloud cells +
+// builds the B1 map ONCE while tilesetPixels is live; config() points NBG1 at B1
+// and parks the cloud band each frame (the frame display enables NBG1ON|RBG0ON).
+void p6_vdp2_title_clouds_b1_arm(const unsigned char *tilesetPx,
+                                 const unsigned short *cloudLay, int cloudWShift);
+void p6_vdp2_title_clouds_b1_config(int scroll_x, int scroll_y);
+// The arm() sets this to 1 (defined in p6_vdp2.c); p6_frontend_frame gates the
+// per-frame rotation call on it. Declare it here so the C++ TU sees the C symbol.
+extern "C" int p6_w_title_island_armed;
+extern "C" int p6_w_title_clouds_armed; // SUB2: 1 once the B1 clouds are armed
 #endif
 // P6.7 W16 (Task #228): GHZ FG Low -> NBG1 via the W11a sliding-window
 // accessor, scroll registers anchored to screens[0].position.
@@ -3338,6 +3356,11 @@ extern "C" void p6_scene_run(void)
     //       increment-2 materialize reads this from cart to re-create far entities. Cart
     //       home 0x226C8000 is VERIFIED-FREE (past s_p6_shadow_inrange 0x226C0000+1216 B,
     //       before GFS 0x22700000); cache-through (cart-4mb rule), read raw at materialize.
+#if !defined(P6_FRONTEND_TITLE)
+    // FRONT-END LOAD CUT (this session, MEASURED #228 + load): the GHZ1 DORMANT
+    // placement store is GHZ-gameplay-only -- the TITLE scene never materializes far
+    // GHZ entities. Skip its GFS file-open + 42,084 B read on the TITLE flavor (one of
+    // the 13 GHZ-gameplay chain loads the title never uses). GHZ flavor BYTE-IDENTICAL.
     {
         unsigned char *w = (unsigned char *)0x226C8000u; // cache-through cart, verified-free
         int n = rsdk_storage_load_to_lwram("GHZ1DORM.BIN", (void *)w, 0x10000);
@@ -3347,6 +3370,7 @@ extern "C" void p6_scene_run(void)
             p6_w_dorm_slots = (int32)(*(volatile uint16 *)(w + 6)); // slot_count (header offset 6)
         }
     }
+#endif
 
     // 1.5c) P6.8 I3b increment 2b: the MATERIALIZE WRITE-side proof (p6_materialize_one) is NOT
     //       called here -- the cart DORM store is loaded above, but stageObjectIDs + sceneInfo.
@@ -3363,6 +3387,12 @@ extern "C" void p6_scene_run(void)
     //      (the pointer keeps the base as its address sink; ZERO remaining
     //      Saturn references read or write through it -- the macro seam +
     //      P6_CM arm cover every site, measured).
+#if !defined(P6_FRONTEND_TITLE)
+    // FRONT-END LOAD CUT (this session): the GHZ1 layout BAND STORE + its Mount are
+    // GHZ-gameplay-only (the FG collision/tilemap windows). The TITLE scene has NO
+    // gameplay FG layer (its island/clouds are the VDP2 backdrop), and p6_scene_load_
+    // and_arm's GHZ-tilemap arm steps are already #if'd off for the Title folder. Skip
+    // the 51,094 B GHZ1LAYT.BIN read + Mount on the TITLE flavor. GHZ BYTE-IDENTICAL.
     {
         p6_w_load_step = 3; // #251 layout band store + mount
         int n = rsdk_storage_load_to_lwram("GHZ1LAYT.BIN",
@@ -3392,6 +3422,7 @@ extern "C" void p6_scene_run(void)
             SaturnLayout_Mount((const void *)P6_LW_LAYOUTBANDS);
         }
     }
+#endif // !P6_FRONTEND_TITLE (GHZ1LAYT band store)
 
     // 1.6b) P6.7 W13 (Task #227): chain-load the offline ANIM PACK
     //      (cd/GHZANIM.PAK, build_anim_pack.py -- pre-parsed SH-2-layout
@@ -3400,6 +3431,19 @@ extern "C" void p6_scene_run(void)
     //      freed. Same pre-pack-mount GFS slot rule as the band store.
     //      LoadSpriteAnimation's Saturn arm resolves pack members by path
     //      hash with zero DATASET_STG cost (Animation.cpp).
+#if !defined(P6_FRONTEND_TITLE)
+    // FRONT-END LOAD CUT + #228 BOOT-TRAP FIX (this session, MEASURED): GHZANIM.PAK is
+    // the GHZ PLAYER anim pack and it loads at the FIXED WRAM-H window P6_HW_ANIMPAK
+    // (0x060B6C00). The TITLE flavor's _end sits ABOVE 0x060B6C00 (the front-end
+    // objects/witnesses/uncommitted island code grew WRAM-H), so loading GHZANIM.PAK
+    // here CLOBBERS live .bss above _end -> the GFS callback pointer is corrupted ->
+    // master SH-2 traps at 0x06000956 -> BLUE SCREEN FOREVER, cont_frames=0 (#228,
+    // memory/wram-h-animpak-ceiling-boot-trap). MEASURED on the pre-cut TITLE build:
+    // SH2-M PC=0x06000956, _end=0x060B6D50 (0x150 over the ceiling), every load witness
+    // = its init value. The TITLE never draws GHZ Player sprites, so this pack is pure
+    // waste here -- SKIPPING it both (a) removes the .bss clobber = fixes the boot trap
+    // and (b) cuts the 68,800 B read + GFS file-open. GHZ flavor BYTE-IDENTICAL (it
+    // still loads + uses the pack; its _end is below the ceiling).
     {
         p6_w_load_step = 4; // #251 anim pack
         int n = rsdk_storage_load_to_lwram("GHZANIM.PAK",
@@ -3421,11 +3465,14 @@ extern "C" void p6_scene_run(void)
     //       ZERO DATASET_STG cost -- retiring the STG overflow that failed SpikeLog
     //       (qa_p6_ghz_regression R10-R13 + p6_saturn_anim_allocfail). Same loader
     //       + pre-pack-mount GFS slot rule as GHZANIM.PAK.
+    // FRONT-END LOAD CUT: GHZ-object anims (Ring/Spring/Bridge/...) are never drawn on
+    // the TITLE scene -> skip the 14,176 B read on the TITLE flavor.
     {
         int n = rsdk_storage_load_to_lwram("GHZOBJ.PAK",
                                            (void *)P6_HW_OBJANIMPAK, P6_HW_OBJANIMPAK_CAP);
         p6_w_objapk_bytes = n;
     }
+#endif // !P6_FRONTEND_TITLE (GHZANIM.PAK + GHZOBJ.PAK)
 
     // 1.7) P6.7 W12 (Task #227, qa_p6_sheet.py): stage the Player sheet
     //      band stores into VDP2 VRAM B0-tail/B1 (placement rationale in
@@ -3494,6 +3541,18 @@ extern "C" void p6_scene_run(void)
                                            "Players/Tails1.gif",
                                            "Global/Objects.gif",
                                            "GHZ/Objects.gif" };
+#if defined(P6_FRONTEND_TITLE)
+        // FRONT-END LOAD CUT (this session, MEASURED): the TITLE scene draws
+        // TitleLogo/TitleSonic/TitleBG/Title3DSprite and NONE of these 9 GHZ gameplay
+        // sheets (SONIC1/2/3, ITEMS, DISPLAY, SHIELDS, TAILS1, GLOBJ, GHZOBJ). The old
+        // code STAGED them banded (load + SaturnSheet_Stage) "so their hashes resolve"
+        // -- but no Title object resolves them, so even the STAGE is dead weight. SKIP
+        // the whole 9-sheet load loop on TITLE: removes 9 GFS file-opens + ~231 KB read
+        // (the dominant chunk of the masked-core chain-load cost). The title's OWN
+        // sheets (LOGOS/TLOGO/TSONIC/TBG) load in their own blocks below, unaffected.
+        // GHZ flavor BYTE-IDENTICAL (this #if is compiled out -> the loop runs verbatim).
+        (void)shtFiles; (void)shtPaths;
+#else
         for (int32 i = 0; i < 9; ++i) {
             p6_w_load_step = 10 + i; // #251 per-sheet (10..17 = SONIC1/2/3,ITEMS,DISPLAY,SHIELDS,TAILS1,GLOBJ)
             int sn = rsdk_storage_load_to_lwram(shtFiles[i],
@@ -3539,6 +3598,7 @@ extern "C" void p6_scene_run(void)
                 }
             }
         }
+#endif // P6_FRONTEND_TITLE (skip 9 GHZ sheet loads) / else (GHZ verbatim loop)
         P6_LT_MARK(2); // Task #271 S2: chain loads (OVLRING/DORM/LAYT/ANIMPACK/GHZ Player sheets)
 #if defined(P6_FRONTEND_LOGOS)
         // CP4 (Task #266): stage LOGOS.SHT (Logos/Logos.gif, the 4-logo splash sheet,
@@ -3687,7 +3747,58 @@ extern "C" void p6_scene_run(void)
                 }
             }
         }
-        P6_LT_MARK(5); // Task #272 S5: TBG.SHT (256x256, 65,536 B) load+stage
+        // ELECTRICITY-RING FIX (this session, MEASURED -- user-reported "the intro
+        // shows random sprite-sheet fragments, not the electric animation"): the decomp
+        // TitleSetup_StageLoad does LoadSpriteAnimation("Title/Electricity.bin"), whose
+        // anim 0 ("Electricity", 40 frames, PLAY-ONCE) draws frames from BOTH
+        // Title/Electricity1.gif (sheet 0, the small->large ring build) AND
+        // Title/Electricity2.gif (sheet 1, the final large frames). TitleSetup_Draw_
+        // DrawRing blits this animator twice (FLIP_NONE + FLIP_X). NEITHER sheet was
+        // staged on Saturn -> Electricity1/2.gif's gfxSurface had saturnSheetSlot==-1 ->
+        // the bind loop skipped them -> the per-frame DrawSprite fetch returned STALE
+        // VDP1 slot content -> the user saw "random sprite sheets" cycling during the
+        // ring-build (MEASURED: parse of Electricity.bin = 40 play-once frames, sheets
+        // ['Title/Electricity1.gif','Title/Electricity2.gif']; the staged set was only
+        // LOGOS/TLOGO/TSONIC/TBG -- electricity absent). FIX: stage + MakeResident BOTH
+        // sheets (the proven TLOGO/TSONIC/TBG pattern) so Draw_DrawRing fetches the real
+        // electricity frames by resident memcpy (no per-frame inflate, no slot thrash) --
+        // exactly how the decomp/hardware renders the ring. Path hashes are what
+        // LoadSpriteAnimation("Title/Electricity.bin") computes for sheets[0]/[1].
+        // ELECTR1.SHT 1024x512 banded 46,833 B (fits the 0x10000 load buffer);
+        // ELECTR2.SHT 512x512 banded 5,912 B. RES-store budget OK: the TITLE flavor
+        // skips the 9 GHZ-sheet resident inflates, so LOGOS+TLOGO+TSONIC(1MB)+TBG +
+        // ELECTR1(512KB)+ELECTR2(256KB) ~= 2.1 MB < the 3 MB store (0x22400000.).
+        {
+            int sn = rsdk_storage_load_to_lwram("ELECTR1.SHT",
+                                                (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("Title/Electricity1.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
+                }
+            }
+        }
+        {
+            int sn = rsdk_storage_load_to_lwram("ELECTR2.SHT",
+                                                (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("Title/Electricity2.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
+                }
+            }
+        }
+        P6_LT_MARK(5); // Task #272 S5: TBG.SHT + ELECTR1/ELECTR2.SHT load+stage
 #endif
 
 #include "p6_sheet_probes.inc"
@@ -4937,8 +5048,19 @@ static void p6_scene_load_and_arm(void)
     {
         int32 p6_isTitle =
             (strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "Title") == 0);
-        if (p6_isTitle && !p6_folderReload)
+        if (p6_isTitle && !p6_folderReload) {
             p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+            // SUB2 (#276 clouds-coexist): build the clouds-only NBG1 on bank B1 NOW,
+            // while tilesetPixels is the live W11b transient (the B1 cell copy needs
+            // the decoded tileset; A0 upload above does NOT cover B1). tileLayers[2]
+            // = Clouds (16x16). NBG1 on B1 coexists with the RBG0 island (A0/A1/B0)
+            // per ST-058:1030 (normal + 1 rotation simultaneously).
+            if (tileLayers[2].layout)
+                p6_vdp2_title_clouds_b1_arm(
+                    (const unsigned char *)tilesetPixels,
+                    (const unsigned short *)tileLayers[2].layout,
+                    (int)tileLayers[2].widthShift);
+        }
     }
 #endif
     p6_w_load_step = 33; // #251 phase-2: LoadSceneAssets (sprite sheets)
@@ -5074,6 +5196,25 @@ static void p6_scene_load_and_arm(void)
             (const unsigned short *)tileLayers[2].layout, (int)tileLayers[2].widthShift,
             (const unsigned short *)fullPalette[0]);
         p6_w_title_backdrop_done = 1;
+        // CP5b.6 (Task #276): arm the RBG0 MODE-7 rotating island over the NBG1
+        // backdrop. Uses the SAME A0 island cells (already uploaded) + the SGL
+        // default RPT @ 0x05E3FF00 (RPTA already valid -- MEASURED). Per-frame
+        // rotation in p6_frontend_frame via p6_vdp2_title_island_rbg0_frame.
+        p6_vdp2_title_island_rbg0_arm(
+            (const unsigned short *)tileLayers[3].layout, (int)tileLayers[3].widthShift);
+        // SUB2 (#276 clouds-coexist) -- ROOT-CAUSE FIX (MEASURED p6_w_title_clouds_armed==0
+        // while island_armed==1): the clouds-B1 arm was gated on !p6_folderReload at the
+        // upload_cells site (:5051), but the TITLE scene enters via a FOLDER-RELOAD, so it
+        // never ran. Arm it HERE instead -- this block has NO reload guard (it runs whenever
+        // the backdrop arms, which island_armed==1 proves), tileLayers[2].layout is non-null
+        // (checked above), and tilesetPixels is the same live transient the present() above
+        // just consumed (the backdrop renders -> it is valid here, reload or not). Clouds
+        // NBG1 on bank B1 coexists with the RBG0 island (A0/A1/B0) per ST-058:1030; the
+        // per-frame p6_vdp2_title_clouds_b1_config is already gated on clouds_armed in
+        // p6_frontend_frame, so arming here lights it up.
+        p6_vdp2_title_clouds_b1_arm(
+            (const unsigned char *)tilesetPixels,
+            (const unsigned short *)tileLayers[2].layout, (int)tileLayers[2].widthShift);
     }
 #endif
 #if defined(P6_FRONTEND_LOGOS)
@@ -5117,6 +5258,28 @@ static void p6_scene_load_and_arm(void)
             s_ghzBgmArmed = 1;
         }
     }
+#if defined(P6_FRONTEND_TITLE)
+    // TITLE BGM (this session): mirror the GHZ stage-BGM wiring [[ghz-engine-bgm-wiring]]
+    // for the front-end TITLE scene. The decomp TitleSetup_State_Wait calls
+    // Music_PlayTrack(TRACK_STAGE) -> RSDK.PlayStream(trackNames[0], ...) once the
+    // black fade-in completes (TitleSetup.c:137-150). On Saturn, mirror the proven GHZ
+    // trigger here (scene-load, AFTER every LoadSceneFolder/Assets pack read so the
+    // shared CD block is free -- the 7c ordering hazard) with an explicit
+    // PlayStream("TitleScreen.ogg"). AudioDevice::HandleStreamLoad (:1866) maps
+    // "TitleScreen.ogg" -> CUE audio track 3 -> jo_audio_play_cd_track(3) -> real CD-DA.
+    // This does NOT depend on Music_StageLoad having populated trackNames[0] (the GHZ
+    // memory measured that auto-drive as unreliable on the shipping boot). The decomp's
+    // own Music_PlayTrack may also fire ~1s later when the wait timer expires; the
+    // play-once CD-DA + the static guard below keep this trigger from restarting it.
+    if (!strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "Title")) {
+        static int32 s_titleBgmArmed = 0;
+        if (!s_titleBgmArmed) {
+            engine.streamsEnabled = true; // NO-CTORS TRAP (:1237): set explicitly
+            PlayStream("TitleScreen.ogg", 0, 0, 1, true);
+            s_titleBgmArmed = 1;
+        }
+    }
+#endif
     // F.2 diag: probe the windowed store at the spawn column right after the
     // mount+bind+InitObjects, to witness whether collision reads serve the
     // newly-loaded zone (GHZ2 FG Low ty=90 solid / FG High ty=86) or empty.
@@ -5459,9 +5622,33 @@ static void p6_frontend_frame(void)
     // NBG1ON|SPRON + drift the backdrop instead of SPRON-only (which would disable
     // NBG1 and blank the backdrop). Falls back to SPRON-only before the backdrop
     // is presented (the early load frames) so the logo still composites.
-    if (p6_w_title_backdrop_done)
+    if (p6_w_title_backdrop_done) {
         p6_vdp2_title_backdrop_scroll(p6_w_cont_frames);
-    else
+        // CP5b.6 (Task #276): drive the RBG0 island rotation. The decomp
+        // TitleBG_StaticUpdate (:34-46) advances ++angle &= 0x3FF every frame. We
+        // mirror that with a local +1/frame counter (the cross-overlay TitleBG->angle
+        // is not directly addressable from the pack TU). sine/cosine = the decomp's
+        // RSDK.Sin1024(-angle)>>2 / Cos1024(-angle)>>2 -- computed here via the
+        // engine's OWN Sin/Cos1024 tables so the per-line coeff byte-matches the gate.
+        if (p6_w_title_island_armed) {
+            static int32 s_island_angle = 0;
+            int32 ang  = s_island_angle & 0x3FF;
+            int32 sine   = RSDK::Sin1024((-ang) & 0x3FF) >> 2;
+            int32 cosine = RSDK::Cos1024((-ang) & 0x3FF) >> 2;
+            // SUB2 (#276 clouds): the island frame runs FIRST (its slScrAutoDisp
+            // enables RBG0ON|NBG1ON|SPRON + sets up the RBG0 planes), THEN the cloud
+            // NBG1 config runs LAST so NBG1's plane/map registers (MPABN1 etc.) are
+            // the final writes that survive into the vblank register DMA. MEASURED
+            // ROOT CAUSE of the blank clouds (2026-06-23): config-BEFORE-island left
+            // MPABN1=0x0000 (NBG1 plane base resolved off the cloud map in B1 ->
+            // sky-blue blank top). The cloud band is parked high (above the island
+            // band y[168,240]); a slow horizontal drift mirrors Scanline_Clouds.
+            p6_vdp2_title_island_rbg0_frame((int)ang, (int)sine, (int)cosine);
+            if (p6_w_title_clouds_armed)
+                p6_vdp2_title_clouds_b1_config((int)((s_island_angle >> 1) & 0xFF), 0);
+            ++s_island_angle;
+        }
+    } else
         p6_vdp2_arm_sprites_only();
 #else
     p6_vdp2_arm_sprites_only();

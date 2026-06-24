@@ -100,10 +100,20 @@ slope physics), camera follow, the FG tile layer + tile collision, CD-DA stage
 music + SCSP SFX, the act signpost → GHZ2 advance, and rendered bridges. Spawn
 state correct (0 rings, no shield, ticking timer).
 
+**Front-end (title build, `-e P6_FRONTEND_TITLE=1`):** the engine also runs the
+verbatim **Title** scene — the full SONIC MANIA logo, the animated Sonic head +
+finger-wave + ribbon, the intro electricity-ring build → white flash, and
+TitleScreen CD-DA music. The rotating **Mania island** backdrop is rendered as a
+VDP2 **RBG0 Mode-7** perspective floor driven by a per-line coefficient table —
+the decomp `TitleBG_Scanline_Island` deform/position math reproduced on hardware
+(proven byte-exact vs an offline sim, then gated on the full four-quadrant head).
+
 **In progress / known gaps:** the GHZ object sweep (the census measures 26 GHZ1
 objects still to register — loops via `PlaneSwitch`, collapsing platforms,
 badniks); BG parallax / sky; realtime 60 fps (currently ~30–49 fps; a dual-SH2
-render split is underway); other zones and special stages.
+render split is underway); the title cloud layer flickers (VDP2 cycle-pattern
+churn); the menu → Mania-Mode select + the biplane intro → GHZ hand-off; other
+zones and special stages.
 
 This is multi-year work; progress is one measured, gated port at a time.
 
