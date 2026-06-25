@@ -820,6 +820,11 @@ __attribute__((used)) int32 p6_w_title_objcount      = 0;
 __attribute__((used)) int32 p6_w_menusetup_classid   = 0;
 __attribute__((used)) int32 p6_w_uicontrol_classid   = 0;
 __attribute__((used)) int32 p6_w_menu_objcount       = 0;
+// Saturn-native 320 menu X-compression factor (8-bit fixed: 205/256 = 0.80). The DrawSprite
+// world->screen transform squeezes X toward screen-centre 160 by this so the 424-authored
+// 2-column menu fits the 320 screen. MEASURED-derived (see the DrawSprite use): f<=0.896
+// fits; 0.80 leaves margin. Tunable by the qa_menu_layout RED gate.
+#define P6_MENU_XSQUEEZE 205
 // M1b (qa_engine_menu_render.py): the RENDER half of the Menu checkpoint.
 //   M6 menu_treebuilt: MenuSetup->mainMenu != NULL  -- the auth gate flipped so
 //     MenuSetup_InitAPI returned true (offline no-save path) -> MenuSetup_Initialize
@@ -1806,6 +1811,20 @@ void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
         if (!screenRelative) { // Drawing.cpp:2682-2685
             pos.x -= currentScreen->position.x;
             pos.y -= currentScreen->position.y;
+#if defined(P6_FRONTEND_MENU)
+            // Saturn-native 320 layout (MEASURED, data-driven 2026-06-25): the Mania main
+            // menu is authored 424-wide. On the working build the rows land (world-origin
+            // 692,264) at screen ManiaMode(64,94)/TimeAttack(256,94)/Competition(64,156) --
+            // the right column (x=256) + its ~148px label spills past 320 (qa_menu_layout
+            // L2 RED). A uniform shift can't fix it (trades right-clip for left-clip); the
+            // x-SPREAD must compress. Squeeze X toward screen-centre 160 (= the active
+            // "Main Menu" control's screen origin) by P6_MENU_XSQUEEZE/256. f<=0.896 fits
+            // (160+96f+74<=320); 205/256=0.80 leaves margin (TimeAttack 256->236 label end
+            // 310<=320; ManiaMode 64->83 label start 9>=0). Y unchanged (no vertical clip).
+            // MENU flavor only (boots directly to the Menu scene); NOT the engine scroll
+            // force (that fought UIControl_Draw + was bundled with the crashed plate path).
+            pos.x = 160 + (((pos.x - 160) * P6_MENU_XSQUEEZE) >> 8);
+#endif
         }
 
         // W14c (Task #227): mirror Drawing.cpp:2687-2781 -- the FX_ROTATE

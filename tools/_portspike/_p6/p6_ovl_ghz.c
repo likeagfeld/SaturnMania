@@ -785,7 +785,11 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * position/tag. Fills the pack witnesses (ld -R import). The scroll origin
      * (currentScreen->position) is latched pack-side in p6_menu_layout_scroll_latch()
      * AFTER the draw lists run -- see p6_frontend_frame. */
-#if defined(P6_MENU_LAYOUT320)
+    /* DIAGNOSTIC (always-on for the menu flavor): this block only READS positions + writes
+     * witness ints (incl. p6_w_menu_force_scrx, which the pack force-CONSUMER ignores while
+     * gated off). MEASURED-safe: it ran in the working layout-diagnosis build; the isolated
+     * first-frame crash was the DrawFace plate emitter, not this measurement. Needed to get
+     * the real row positions for the Saturn-native 320 layout design. */
     {
         extern int32 p6_w_menu_scrx, p6_w_menu_scry;
         extern int32 p6_w_menu_modebtn_px[4], p6_w_menu_modebtn_py[4];
@@ -851,7 +855,6 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
             p6_w_menu_ctrl_count = total;
         }
     }
-#endif /* P6_MENU_LAYOUT320 */
 #endif
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;
     {   /* Batch 1: count how many of the 4 clean objects registered (classID>0). */

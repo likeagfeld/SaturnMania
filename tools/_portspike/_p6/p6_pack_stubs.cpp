@@ -64,11 +64,17 @@ extern "C" void p6_drawface_saturn(const int *vx, const int *vy, int count,
                                    int r8, int g8, int b8);
 void DrawFace(Vector2 *vertices, int32 vertCount, int32 r, int32 g, int32 b, int32 alpha, int32 inkEffect)
 {
-#if !defined(P6_MENU_LAYOUT320)
-    // BISECT (recovery): the 320-agent DrawFace->p6_drawface_saturn plate emitter is a
-    // suspect for the first-frame crash (cont_frames=0). No-op it (the working layout-
-    // diagnosis state had DrawFace calls=0) until the emitter is re-verified under
-    // P6_MENU_LAYOUT320.
+#if !defined(P6_MENU_PLATES_ON)
+    // MEASURED ROOT CAUSE (data-driven bisect, isolated build): forwarding DrawFace to
+    // p6_drawface_saturn (slPutPolygon) crashes the FIRST frame (cont_frames=0, calls=2) --
+    // it is the ONLY slPutPolygon use in the P6.8 engine front-end (first exercise here).
+    // The copied _emit_polygon4 ran with _poly_z=0 inside the HAND-PORT's full SGL
+    // perspective/window setup (src/main.c slPushMatrix/slPerspective); the engine front-end
+    // jo-callback only does slUnitMatrix + slDispSprite, so slPutPolygon's polygon/perspective
+    // context is not established -> fault. Plates are deferred (opt-in P6_MENU_PLATES_ON) as
+    // their own RED-gated task: establish the SGL polygon context per ST-238-R1, or emit the
+    // plate as a direct VDP1 polygon command instead of the SGL 3D path. The menu is
+    // recognizable + readable without plates; gating off restores the working render.
     (void)vertices; (void)vertCount; (void)r; (void)g; (void)b; (void)alpha; (void)inkEffect;
     return;
 #endif
