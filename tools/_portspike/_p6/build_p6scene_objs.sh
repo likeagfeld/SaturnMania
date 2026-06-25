@@ -50,6 +50,18 @@
 # =============================================================================
 set -eu
 
+# M1 (qa_engine_menu): the MENU front-end flavor IMPLIES the TITLE flavor (which in
+# turn implies LOGOS, below). The Menu scene reuses EVERY shared front-end thread
+# (the frontend_frame UI tick, the VDP1 box, p6_vdp2_arm_sprites_only, the SaturnSheet
+# slot store, the render-diag witnesses); the only Menu-specific bits are
+# -DP6_FRONTEND_MENU on the io_main + ovl_ghz compiles (the Menu boot-select + the
+# Menu register block + the M1-M4 witnesses), the 7 Menu Game_*.o + p6_menu_closure.o
+# compiles, and the Menu witness -u roots. Set this FIRST so the title self-imply
+# below then sets LOGOS -> the full cascade fires. The default GHZ build leaves all
+# four unset -> byte-identical.
+if [ -n "${P6_FRONTEND_MENU:-}" ]; then
+    export P6_FRONTEND_TITLE=1
+fi
 # CP5c (Task #270): the front-end FLOW CHAIN flavor IMPLIES the TITLE flavor (which
 # in turn implies LOGOS, just below). The chain reuses every shared front-end thread
 # (the Logos + Title overlay objects, the SaturnSheet 12-slot store, the VDP1 box);
@@ -116,7 +128,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # tick boots the Logos splash scene instead of GHZ (p6_logos_reload +
 # p6_frontend_frame). Mutually independent of the GHZ diag knobs; the default
 # shipping build leaves it unset -> boots GHZ unchanged.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -226,11 +238,24 @@ $CC $CXXFLAGS $ENG_DEFS -DRSDK_SKU_GLOBALS_IN_LINK $CORE_INC \
     -c -o "$P6/UserCore_Saturn.o" "$PLAT/UserCore_Saturn.cpp"
 
 echo "[7j] p6_stubs.o (backend entry points Link.cpp's table references that are NOT real in this pack) ..."
-$CC $CXXFLAGS $ENG_DEFS -DP6_PACK_STUBS $CORE_INC \
+# M1b FIX: thread the front-end flags so p6_stubs.cpp's FillScreen forwards to
+# p6_fillscreen_saturn (the #if defined(P6_FRONTEND_TITLE) arm) instead of the no-op
+# #else. MEASURED root cause of the black menu backdrop: without -DP6_FRONTEND_TITLE
+# here, RSDK::FillScreen was the no-op {} -> UIBackground_DrawNormal's FillScreen(gold)
+# did nothing (p6_w_fill_calls==0). The title intro fade needs this too (its FadeBlack/
+# Flash FillScreen). MENU implies TITLE -> LOGOS.
+$CC $CXXFLAGS $ENG_DEFS -DP6_PACK_STUBS ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} $CORE_INC \
     -c -o "$P6/p6_stubs.o" "$P6/p6_stubs.cpp"
 
 echo "[7jb] p6_pack_stubs.o (the measured 43-symbol function-table closure remainder; real TUs replace these P6.7b+) ..."
-$CC $CXXFLAGS $ENG_DEFS $CORE_INC -c -o "$P6/p6_pack_stubs.o" "$P6/p6_pack_stubs.cpp"
+# M3 (Task #295) PLATE FIX: forward -DP6_FRONTEND_MENU so the pack's DrawFace stub compiles
+# its FORWARDING body (p6_pack_stubs.cpp:65-73 -> p6_drawface_saturn), not the #else empty
+# no-op (:75). MEASURED root cause of p6_w_drawface_calls==0: without this flag the empty
+# DrawFace(){} linked into the pack -> RSDK.DrawFace was a valid non-null no-op (no crash, no
+# plate). Mirrors the io_main/ovl_ghz menu compiles which already get this flag. Other front-
+# end flavors (Logos/Title) and the default GHZ build never set P6_FRONTEND_MENU -> the empty
+# #else still links there (byte-identical), so this is additive-only.
+$CC $CXXFLAGS $ENG_DEFS ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} $CORE_INC -c -o "$P6/p6_pack_stubs.o" "$P6/p6_pack_stubs.cpp"
 
 echo "[7k] p6_ring2.o (VERBATIM decomp Ring -- P6.7d.3: OVERLAY member, NOT a pack member; flat TU, bridges into the engine table) ..."
 $CC $CXXFLAGS -DRETRO_SATURN_FILEIO -I"$P6" -I"$NEWLIB" \
@@ -392,6 +417,46 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
             -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
     done
 fi
+# M1 (qa_engine_menu): the FRONT-END MENU scene's min UI set + the closure TU. Built
+# only in the Menu flavor; they link into the OVERLAY (build_shipping.sh [3b]), NOT
+# the pack -- so they are gc-dropped from the pack link regardless. The -Os census
+# knob matches the other game TUs. MenuSetup needs a 1-line REV02 compat patch:
+# MenuSetup_SetupActions:515 uses `GameInfo->platform` directly, but RSDKGameInfo has
+# no `platform` member at RETRO_REV02 (the field moved to RSDKSKUInfo; the build sets
+# SKU::curSKU.platform). sku_platform (== SKU->platform, APICallback.h:43) is the
+# decomp's intent at REV02 and is behavior-IDENTICAL (Saturn != PC/DEV either way ->
+# the same ELSE branch that drops the PC "Exit Game" menu item). The cached decomp is
+# the authoritative source (never edited); patch a BUILD-LOCAL copy with sed, exactly
+# the project's "REV02 compat arm" precedent (APICallback.h:34-45). p6_menu_closure.c
+# resolves the measured 68-symbol UI/API link cone of the 7 TUs (the closure_edge
+# pattern; trial-link verified the residual undefs are all -R-pack + libgcc).
+if [ -n "${P6_FRONTEND_MENU:-}" ]; then
+    sed 's/GameInfo->platform/sku_platform/g' \
+        "/work/tools/_decomp_raw/SonicMania_Objects_Menu_MenuSetup.c" > "$P6/_MenuSetup_rev02.c"
+    "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+        $GAME_DEFS -DP6_FRONTEND_MENU -I"$GINC" -I"$NEWLIB" \
+        -c -o "$P6/Game_MenuSetup.o" "$P6/_MenuSetup_rev02.c"
+    # M1b: + Game_UIModeButton.o (the 4 main-menu rows). UIModeButton.c references
+    # API_GetFilteredInputDeviceID/_ResetInputSlotAssignments/_AssignInputSlotToDevice
+    # (APICallback.h macros) only in UIModeButton_SelectedCB (a press handler -- never
+    # reached at the f90 settled capture); those resolve via the closure (p6_menu_closure
+    # + p6_closure_edge -R import). No REV02 sed needed (it uses no GameInfo->platform).
+    for wfm in Menu_UIControl:Game_UIControl \
+               Menu_UIBackground:Game_UIBackground \
+               Menu_UIButton:Game_UIButton \
+               Menu_UIModeButton:Game_UIModeButton \
+               Menu_UIWidgets:Game_UIWidgets \
+               Menu_UISubHeading:Game_UISubHeading \
+               Menu_UIButtonPrompt:Game_UIButtonPrompt; do
+        src_tu="${wfm%%:*}"; out_tu="${wfm##*:}"
+        "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+            $GAME_DEFS -DP6_FRONTEND_MENU -I"$GINC" -I"$NEWLIB" \
+            -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
+    done
+    "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+        $GAME_DEFS -DP6_FRONTEND_MENU -I"$GINC" -I"$NEWLIB" \
+        -c -o "$P6/p6_menu_closure.o" "$P6/p6_menu_closure.c"
+fi
 # Integer-only vsprintf shim (rationale in-file: newlib's float closure is
 # 10.2 KB and breached the 0x060C0000 floor by 2,856 B -- MEASURED).
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
@@ -411,7 +476,7 @@ echo "[7l2] p6_ovl_ghz.o (O1 GHZ overlay entry -- Ring + Spring multi-class) ...
 # compile-stripped from the SHIPPING build, the same way the pack's census is. Without
 # this the #ifndef in the overlay never engages -> the scan ships -> fps halves.
 $CC -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_TITLEBG_SPRITES_OFF:+-DP6_TITLEBG_SPRITES_OFF} ${P6_TITLE3D_ON:+-DP6_TITLE3D_ON} -I"$GINC" -I"$P6" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_TITLEBG_SPRITES_OFF:+-DP6_TITLEBG_SPRITES_OFF} ${P6_TITLE3D_ON:+-DP6_TITLE3D_ON} -I"$GINC" -I"$P6" -I"$NEWLIB" \
     -c -o "$P6/p6_ovl_ghz.o" "$P6/p6_ovl_ghz.c"
 
 echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding windows; miniz inflate decoder) ..."
@@ -429,7 +494,9 @@ echo "[7o] SaturnSheet.o (P6.7 W12 sprite-sheet band stores; Task #241: P6_CART 
 # CP5b.1 (#268): thread P6_FRONTEND_TITLE so SaturnSheet's SATURNSHEET_SLOTS=11 branch
 # (slot 9=LOGOS, slot 10=TLOGO) compiles for the Title flavor. The Logos flavor keeps
 # 10; the default GHZ build sets neither -> 9 (byte-identical s_sheets[]).
-$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} -I"$DEPS" -I"$NEWLIB" \
+# M1b: thread P6_FRONTEND_MENU so SaturnSheet's SATURNSHEET_SLOTS=16 branch (the 2
+# extra menu sheets MAINICON/TEXTEN) compiles for the Menu flavor.
+$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnSheet.o" "$PLAT/SaturnSheet.cpp"
 
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
@@ -553,6 +620,10 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_frontend_folder_tag -u _p6_w_logosetup_classid \
     -u _p6_w_uipicture_classid -u _p6_w_logos_objcount \
     -u _p6_w_titlesetup_classid -u _p6_w_titlelogo_classid -u _p6_w_title_objcount \
+    ${P6_FRONTEND_MENU:+-u _p6_w_menusetup_classid -u _p6_w_uicontrol_classid -u _p6_w_menu_objcount} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_menu_treebuilt -u _p6_w_menu_modebtn_classid -u _p6_w_menu_vdp1_landed} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_menu_edge_calls -u _p6_w_menu_edge_last} \
+    ${P6_FRONTEND_MENU:+-u _MathHelpers_PointInHitbox} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipicture_aniframes -u _p6_w_uipicture_framesNN} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_drawgrp -u _p6_w_uipic_active -u _p6_w_uipic_visible -u _p6_w_uipic_onscreen} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_posx -u _p6_w_uipic_posy -u _p6_w_uipic_animid -u _p6_w_uipic_frameid} \

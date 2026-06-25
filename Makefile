@@ -231,6 +231,26 @@ ifeq ($(P6_FRONTEND_CHAIN),1)
 CCFLAGS += -DP6_FRONTEND_CHAIN -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS
 endif
 
+# M1b STRIPED-ICON FIX (this session): the MENU front-end flavor MUST also reach the
+# jo-make compile of p6_vdp1.c. P6_FRONTEND_MENU IMPLIES P6_FRONTEND_TITLE -> LOGOS.
+# WITHOUT this define on the jo compile, p6_vdp1.c took the #else (TITLE) bucket-count
+# branch (P6_BK0/1/2 = 6/6/6) instead of the MENU branch (16/16/2). The menu draws
+# ~10 MAINICON icon/shadow rects + ~4-6 mode-text rects PER FRAME -- all 88-148px wide,
+# h<=44 -> ALL route to bucket b1 (192x64). With only 6 b1 slots the per-frame working
+# set (~14-16) overflowed every frame, so the LRU EVICTED + p6_title_restage_content
+# RE-DMA'd a slot's jo_id + mutated its __jo_sprite_def CMDSIZE MID-FRAME, after an
+# earlier same-id draw command was already queued -> VDP1 rasterised the FINAL (wrong)
+# rect for the earlier icon draws = the RED/BLUE/WHITE horizontal-band garble (the text,
+# drawn LAST per row in UIModeButton_Draw, survived as the LRU winner). MEASURED:
+# p6_w_vdp1_evicts = 37,388; qa_menu_icon_clean.py ROW_ALT_SCORE = 148. The MENU branch's
+# 16 b1 slots cover the per-frame demand with NO eviction. build_shipping.sh passes
+# P6_FRONTEND_MENU=1 (which self-implies TITLE+LOGOS). DEFAULT (GHZ) + Title/Logos builds
+# leave it unset -> p6_vdp1.c byte-identical for them (this block + the #if defined(
+# P6_FRONTEND_MENU) bodies compile ONLY in the menu flavor).
+ifeq ($(P6_FRONTEND_MENU),1)
+CCFLAGS += -DP6_FRONTEND_MENU -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS
+endif
+
 # --- Our sources ---
 #
 # Phase 0.5 foundation alignment (2026-05-26): the hand-rolled

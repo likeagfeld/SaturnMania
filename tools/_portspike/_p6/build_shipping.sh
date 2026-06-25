@@ -51,6 +51,15 @@ export P6_NOSCAN="${P6_NOSCAN-1}"
 # NOT set this, so it stays byte-identical (no re-validation of its gate sweep).
 export P6_CART_TMP="${P6_CART_TMP-1}"
 
+# M1 (qa_engine_menu): the MENU front-end flavor IMPLIES the TITLE flavor (which
+# implies LOGOS, below). The Menu scene reuses every shared front-end thread (the
+# frontend_frame UI tick, the SaturnSheet store, the VDP1 box); the only Menu-specific
+# bits are the make knob P6_FRONTEND_MENU=1, the 8 Menu objects in OVL_FE, and the
+# Menu witness grep. Set this FIRST so the title self-imply below then sets LOGOS ->
+# the full cascade fires. Default GHZ leaves all four unset.
+if [ -n "${P6_FRONTEND_MENU:-}" ]; then
+    export P6_FRONTEND_TITLE=1
+fi
 # CP5c (Task #270): the front-end FLOW CHAIN flavor IMPLIES the TITLE flavor (which
 # implies LOGOS, just below). The chain reuses every shared front-end thread (the
 # Title overlay objects, the SaturnSheet 12-slot store, the VDP1 box); the only
@@ -105,7 +114,7 @@ cd /work
 # hybrid-image rule).
 rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
       tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
 LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
@@ -153,6 +162,16 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
         OVL_FE="$OVL_FE Game_TitleBG.o Game_Title3DSprite.o"
     fi
 fi
+# M1 (qa_engine_menu): the Menu flavor adds the 7 Menu UI objects + the closure TU
+# to the overlay so they link against game.elf via -R (same as every other overlay
+# obj). They are ADDITIVE to the Title/Logos objects (P6_FRONTEND_MENU implies
+# P6_FRONTEND_TITLE -> LOGOS, so those compile + register too -- inert on the Menu
+# scene, no placements). p6_menu_closure.o resolves the 68-symbol UI/API link cone.
+if [ -n "${P6_FRONTEND_MENU:-}" ]; then
+    # M1b: + Game_UIModeButton.o (the 4 main-menu rows). Links into the overlay vs
+    # game.elf (-R) like every other Menu UI obj.
+    OVL_FE="$OVL_FE Game_MenuSetup.o Game_UIControl.o Game_UIBackground.o Game_UIButton.o Game_UIModeButton.o Game_UIWidgets.o Game_UISubHeading.o Game_UIButtonPrompt.o p6_menu_closure.o"
+fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
     Game_Decoration.o Game_ForceSpin.o Game_SpinBooster.o \
@@ -166,7 +185,7 @@ cd /work
 
 echo "[4/5] re-master the ISO with the overlay on disc ..."
 rm -f game.iso
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[5/5] sanity: _end + lean-boot entry + flavor flag + overlay entry ..."
 grep " _end = " game.map
@@ -210,6 +229,20 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
     grep -m1 "p6_w_tsonic_handle$"  game.map || echo "  MISSING p6_w_tsonic_handle (CP5b.2 render-diag compiled out?)"
     grep -m1 "p6_w_tsonic_shtslot$" game.map || echo "  MISSING p6_w_tsonic_shtslot (TSONIC.SHT arm-env scan compiled out?)"
     grep -m1 "TitleSonic_Update" "$P6/ovl_ring.map" || echo "  MISSING TitleSonic in overlay (Game_TitleSonic.o not linked?)"
+fi
+# M1 (qa_engine_menu): in the Menu flavor, confirm the Menu witnesses landed in
+# game.map (build_p6scene_objs.sh SWALLOWS compile errors -> a stale p6_io_main.o /
+# Game_MenuSetup.o leaves them ABSENT; this grep is the silent-fail trip-wire) + the
+# Menu UI objects landed in the overlay.
+if [ -n "${P6_FRONTEND_MENU:-}" ]; then
+    echo "[5f] M1 Menu front-end symbol presence:"
+    grep -m1 "p6_w_menusetup_classid$" game.map || echo "  MISSING p6_w_menusetup_classid (compile failed silently?)"
+    grep -m1 "p6_w_uicontrol_classid$" game.map || echo "  MISSING p6_w_uicontrol_classid"
+    grep -m1 "p6_w_menu_objcount$"     game.map || echo "  MISSING p6_w_menu_objcount"
+    grep -m1 "MenuSetup_Update"    "$P6/ovl_ring.map" || echo "  MISSING MenuSetup in overlay (Game_MenuSetup.o not linked -- REV02 sed/compile fail?)"
+    grep -m1 "UIControl_Update"    "$P6/ovl_ring.map" || echo "  MISSING UIControl in overlay"
+    grep -m1 "UIBackground_Update" "$P6/ovl_ring.map" || echo "  MISSING UIBackground in overlay"
+    grep -m1 "p6_w_menu_edge_calls" "$P6/ovl_ring.map" || echo "  MISSING p6_w_menu_edge_calls (closure TU not linked into overlay?)"
 fi
 # Task #271: front-end LOAD-TIMING witnesses + the SFX-early-out fix witness. The
 # front-end flavors gate these on P6_FRONTEND_LOGOS; build_p6scene_objs.sh swallows

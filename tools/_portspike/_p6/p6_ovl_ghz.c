@@ -144,6 +144,97 @@ void APICallback_ClearPrerollErrors(void) {}
  * macros it also uses are already stubbed in p6_closure_edge.c. */
 void APICallback_ResetControllerAssignments(void) {}
 #endif
+#if defined(P6_FRONTEND_MENU)
+/* M1 FRONT-END link 3 (qa_engine_menu.py): the MENU scene's min UI set. Registered
+ * only in the -DP6_FRONTEND_MENU overlay flavor (their Game_*.o link into the
+ * overlay only in that build, alongside p6_menu_closure.o which provides the
+ * 68-symbol link cone of the unregistered UI/API classes). MenuSetup is the live
+ * non-Plus director; UIControl carries the menu rows (the M3 classID + M4 objcount
+ * evidence); UIBackground draws the animated backdrop; UIButton/UIWidgets/
+ * UISubHeading/UIButtonPrompt are the placed-and-renderable widgets. Their object
+ * globals are provided by their own verbatim TUs (Game.h declares the externs).
+ * The classID witnesses are pack globals (ld -R import). */
+extern ObjectMenuSetup      *MenuSetup;
+extern ObjectUIControl      *UIControl;
+extern ObjectUIBackground   *UIBackground;
+extern ObjectUIButton       *UIButton;
+extern ObjectUIWidgets      *UIWidgets;
+extern ObjectUISubHeading   *UISubHeading;
+extern ObjectUIButtonPrompt *UIButtonPrompt;
+extern int32 p6_w_menusetup_classid, p6_w_uicontrol_classid, p6_w_menu_objcount;
+// M1b: UIModeButton is the 4 MAIN-MENU rows (Mania Mode/Time Attack/Competition/
+// Options). Its verbatim Game_UIModeButton.o links into the overlay (OVL_FE) only in
+// the Menu flavor; the global is provided by that .o (Game.h declares the extern). The
+// render witnesses are pack globals (ld -R import, DEFINED in p6_io_main.cpp):
+//   p6_w_menu_treebuilt       = (MenuSetup->mainMenu != NULL) (M6, the row tree built)
+//   p6_w_menu_modebtn_classid = UIModeButton->classID         (M6b, the rows registered)
+// p6_menu_apic_init is the AUTH-GATE FLIP (defined in p6_menu_closure.c, this overlay),
+// exported to the pack via api->menu_apic_init_fn so it runs at the top of the first
+// frontend frame (before MenuSetup's first StaticUpdate -> InitAPI).
+extern ObjectUIModeButton   *UIModeButton;
+extern int32 p6_w_menu_treebuilt, p6_w_menu_modebtn_classid;
+extern int32 p6_w_menu_force_scrx, p6_w_menu_force_scry; /* pack witnesses, -R import */
+void p6_menu_apic_init(void);
+
+/* M2b/M3 (Task #294/#295): SATURN-NATIVE 320 MENU LAYOUT, applied by the pack each frame
+ * (api->menu_layout_fn) after ProcessObjects + before ProcessObjectDrawLists.
+ *
+ * USER DECISION: Saturn-native 320 layout. Mania's 4 main-menu rows (UIModeButton:
+ * Mania/TimeAttack/Competition/Options) are authored as a 2x2 grid at world px
+ * (756,358)(948,358)(756,420)(948,420) for a 424x240 screen -> the right column lands at
+ * screen x~256 with ~148px labels spilling past x=320 on Saturn's 320x224 (MEASURED:
+ * qa_menu_layout.py, _menuok_4.png). Keep the decomp STRUCTURE (the 2x2 mode grid, order
+ * Mania top-left / TimeAttack top-right / Competition bot-left / Options bot-right, the
+ * SELECTED row pulled prominent via the EXISTING UIModeButton bounce offsets, untouched)
+ * but re-derive the row positions to fit 320 cleanly.
+ *
+ * (1) ORIGIN: the active "Main Menu" UIControl sits at world (852,376); the decomp
+ *     world->screen transform (UIControl_Draw, UIControl.c:52-53) is
+ *     screen = world - (FROM_FIXED(ctrl->position) - center), center (160,112) for the
+ *     full 320x224 screen (MenuSetup SetVideoSetting(SCREENCOUNT,1)) -> origin
+ *     (852-160, 376-112) = (692,264). Write that into p6_w_menu_force_scrx/scry; the pack
+ *     forces currentScreen->position to it (the missing M2b consumption -- the decomp's own
+ *     UIControl_Draw write was clobbered to (0,0) by a 2nd leaking control later in the frame).
+ * (2) ROW POSITIONS (Saturn-native 320 fit): columns at screen x {80,240}, rows at screen
+ *     y {92,150}. The widest label is 148px (TextEN "Competition") centred on the row -> a
+ *     row at x80 spans [6,154], at x240 spans [166,314]: both fully inside [0,320]. (The
+ *     raw decomp 64/256 columns would clip a 148px label ~10px each side.) world = screen +
+ *     origin(692,264), keyed on the decomp buttonID enum (UIModeButton.h: MANIA=0,
+ *     TIMEATTACK=1, COMPETITION=2, OPTIONS=3):
+ *       bid0 Mania       screen(80,92)  -> world(772,356)
+ *       bid1 TimeAttack  screen(240,92) -> world(932,356)
+ *       bid2 Competition screen(80,150) -> world(772,414)
+ *       bid3 Options     screen(240,150)-> world(932,414)
+ *     Override mb->position (FIXED) each frame; drawGroup/bounce/anim/selection untouched,
+ *     so the selected-row prominence (UIModeButton_State_HandleButtonEnter) is preserved.
+ * MENU flavor only (the whole block is #if'd); GHZ/Logos/Title overlay is byte-identical. */
+static void p6_menu_apply_layout(void)
+{
+    /* Saturn-native 320-fit world targets, indexed by buttonID 0..3. */
+    static const int32 s_row_wx[4] = { 772, 932, 772, 932 };
+    static const int32 s_row_wy[4] = { 356, 356, 414, 414 };
+
+    if (UIModeButton && UIModeButton->classID) {
+        foreach_all(UIModeButton, mb) {
+            int32 bid = mb->buttonID;
+            if (bid >= 0 && bid < 4) {
+                mb->position.x = TO_FIXED(s_row_wx[bid]);
+                mb->position.y = TO_FIXED(s_row_wy[bid]);
+            }
+        }
+    }
+    /* Origin from the ACTIVE "Main Menu" control (decomp UIControl_Draw transform). */
+    if (UIControl && UIControl->classID) {
+        foreach_all(UIControl, c) {
+            if (c->active == ACTIVE_ALWAYS) {
+                p6_w_menu_force_scrx = (int32)(c->position.x >> 16) - 160;
+                p6_w_menu_force_scry = (int32)(c->position.y >> 16) - 112;
+                foreach_break;
+            }
+        }
+    }
+}
+#endif
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
 extern int32 p6_w_explosion_aniframes; /* Explosion->aniFrames (load-status latch) */
 extern int32 p6_w_animals_aniframes;   /* Animals->aniFrames */
@@ -334,6 +425,54 @@ int p6_overlay_entry(p6_ovl_api *api)
 #endif
 #endif /* !P6_TITLEBG_SPRITES_OFF */
 #endif
+#if defined(P6_FRONTEND_MENU)
+    /* M1: the MENU scene's min UI set. Register order is irrelevant (the engine
+     * LoadGameConfig matches by md5(name)); these resolve their classIDs the same
+     * registration-time way Ring/TitleSetup do. NULL editor callbacks (matches the
+     * verbatim RSDK_REGISTER_OBJECT non-editor arm, GAME_INCLUDE_EDITOR off).
+     * MenuSetup_StageLoad stops music + clears the save slot + arms FXFade;
+     * UIControl/UIButton/UIBackground/UIWidgets/UISubHeading/UIButtonPrompt Create +
+     * StageLoad run inside the generic InitObjects chain to instantiate the Menu
+     * Scene1.bin placements (the M4 objcount evidence). */
+    api->register_object_full((void **)&MenuSetup, "MenuSetup",
+                              (unsigned)sizeof(EntityMenuSetup), (unsigned)sizeof(ObjectMenuSetup),
+                              MenuSetup_Update, MenuSetup_LateUpdate, MenuSetup_StaticUpdate,
+                              MenuSetup_Draw, MenuSetup_Create, MenuSetup_StageLoad, MenuSetup_Serialize);
+    api->register_object_full((void **)&UIControl, "UIControl",
+                              (unsigned)sizeof(EntityUIControl), (unsigned)sizeof(ObjectUIControl),
+                              UIControl_Update, UIControl_LateUpdate, UIControl_StaticUpdate,
+                              UIControl_Draw, UIControl_Create, UIControl_StageLoad, UIControl_Serialize);
+    api->register_object_full((void **)&UIBackground, "UIBackground",
+                              (unsigned)sizeof(EntityUIBackground), (unsigned)sizeof(ObjectUIBackground),
+                              UIBackground_Update, UIBackground_LateUpdate, UIBackground_StaticUpdate,
+                              UIBackground_Draw, UIBackground_Create, UIBackground_StageLoad, UIBackground_Serialize);
+    api->register_object_full((void **)&UIButton, "UIButton",
+                              (unsigned)sizeof(EntityUIButton), (unsigned)sizeof(ObjectUIButton),
+                              UIButton_Update, UIButton_LateUpdate, UIButton_StaticUpdate,
+                              UIButton_Draw, UIButton_Create, UIButton_StageLoad, UIButton_Serialize);
+    api->register_object_full((void **)&UIWidgets, "UIWidgets",
+                              (unsigned)sizeof(EntityUIWidgets), (unsigned)sizeof(ObjectUIWidgets),
+                              UIWidgets_Update, UIWidgets_LateUpdate, UIWidgets_StaticUpdate,
+                              UIWidgets_Draw, UIWidgets_Create, UIWidgets_StageLoad, UIWidgets_Serialize);
+    api->register_object_full((void **)&UISubHeading, "UISubHeading",
+                              (unsigned)sizeof(EntityUISubHeading), (unsigned)sizeof(ObjectUISubHeading),
+                              UISubHeading_Update, UISubHeading_LateUpdate, UISubHeading_StaticUpdate,
+                              UISubHeading_Draw, UISubHeading_Create, UISubHeading_StageLoad, UISubHeading_Serialize);
+    api->register_object_full((void **)&UIButtonPrompt, "UIButtonPrompt",
+                              (unsigned)sizeof(EntityUIButtonPrompt), (unsigned)sizeof(ObjectUIButtonPrompt),
+                              UIButtonPrompt_Update, UIButtonPrompt_LateUpdate, UIButtonPrompt_StaticUpdate,
+                              UIButtonPrompt_Draw, UIButtonPrompt_Create, UIButtonPrompt_StageLoad, UIButtonPrompt_Serialize);
+    /* M1b: UIModeButton -- the 4 MAIN-MENU rows. Registered so foreach_all(UIModeButton)
+     * at MenuSetup_SetupActions:507 wires each row's actionCB, and the 4 Scene1.bin
+     * UIModeButton placements instantiate + draw (icon+text+plates). UIModeButton_StageLoad
+     * loads UI/MainIcons.bin (the mode icons); the text labels come from UIWidgets->textFrames
+     * (UI/TextEN.bin). NULL editor callbacks (the verbatim RSDK_REGISTER_OBJECT non-editor
+     * arm). Its closure (UIModeButton_SetupSprites/_State_*) is intra-Game_UIModeButton.o. */
+    api->register_object_full((void **)&UIModeButton, "UIModeButton",
+                              (unsigned)sizeof(EntityUIModeButton), (unsigned)sizeof(ObjectUIModeButton),
+                              UIModeButton_Update, UIModeButton_LateUpdate, UIModeButton_StaticUpdate,
+                              UIModeButton_Draw, UIModeButton_Create, UIModeButton_StageLoad, UIModeButton_Serialize);
+#endif
     /* MASS-PORT BATCH 1 (verified-CLEAN drop-ins; closure self-confirmed: only
      * Zone/Player/SceneInfo/DebugMode/Zone_RotateOnPivot, all ported). Decoration =
      * GHZ scenery; ForceSpin/ForceUnstick/SpinBooster = player-state trigger regions
@@ -432,6 +571,17 @@ int p6_overlay_entry(p6_ovl_api *api)
     /* I3b 2b: the per-frame STREAMING manager (s_ovl.stream_fn) -- materialize newly-near + dormant
      * newly-far, the camera-local pool's live half. Called from ProcessObjects via p6_stream_tick. */
     api->stream_fn = p6_ovl_stream;
+#if defined(P6_FRONTEND_MENU)
+    /* M1b AUTH-GATE FLIP: export the menu auth init so the pack runs it at the top of
+     * the first frontend frame (before MenuSetup's first StaticUpdate -> InitAPI). The
+     * overlay owns the ObjectAPICallback struct (needs the Mania Game.h type the pack
+     * lacks); it writes the pack APICallback/globals via -R. */
+    api->menu_apic_init_fn = p6_menu_apic_init;
+    /* M2b/M3 (Task #294/#295): export the Saturn-native 320 layout apply so the pack runs
+     * it each frame after ProcessObjects + before ProcessObjectDrawLists (overrides the 4
+     * UIModeButton world positions to the 320-fit grid + sets the scroll origin). */
+    api->menu_layout_fn = p6_menu_apply_layout;
+#endif
     return 0;
 }
 
@@ -614,6 +764,94 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
                 st == (void *)TitleSetup_State_FadeToVideo       ? 8 : 0;
         }
     }
+#endif
+#if defined(P6_FRONTEND_MENU)
+    /* M1 (M2/M3): latch the Menu classIDs once they resolve. Called from
+     * p6_frontend_frame each tick (the api->witness_fn seam). M1 (folder_tag) is
+     * set in p6_menu_reload; M4 (objcount) is latched in InitObjects (p6_io_main);
+     * M5 (cont_frames) is bumped by p6_frontend_frame. Independent of any live
+     * entity / crash -- just the registered Object globals' classIDs. */
+    if (MenuSetup && MenuSetup->classID) p6_w_menusetup_classid = (int32)MenuSetup->classID;
+    if (UIControl && UIControl->classID) p6_w_uicontrol_classid = (int32)UIControl->classID;
+    /* M1b RENDER witnesses (the auth-gate + rows). M6: MenuSetup_Initialize wired the
+     * row tree (mainMenu set by the foreach_all(UIControl){match "Main Menu"}) IFF
+     * InitAPI returned true -- 0 while it stays in the pre-handshake branch (the M1a
+     * RED), 1 once the tree is built. M6b: UIModeButton registered (classID>0) so the
+     * 4 main-menu rows instantiate + draw. Rebuilt each tick (a snapshot, not a latch). */
+    p6_w_menu_treebuilt       = (MenuSetup && MenuSetup->mainMenu) ? 1 : 0;
+    if (UIModeButton && UIModeButton->classID) p6_w_menu_modebtn_classid = (int32)UIModeButton->classID;
+    /* M2a LAYOUT measurement (qa_menu_layout.py): the 4 UIModeButton positions + their
+     * world->screen mapping, the visible-UIControl count, and the active control's
+     * position/tag. Fills the pack witnesses (ld -R import). The scroll origin
+     * (currentScreen->position) is latched pack-side in p6_menu_layout_scroll_latch()
+     * AFTER the draw lists run -- see p6_frontend_frame. */
+#if defined(P6_MENU_LAYOUT320)
+    {
+        extern int32 p6_w_menu_scrx, p6_w_menu_scry;
+        extern int32 p6_w_menu_modebtn_px[4], p6_w_menu_modebtn_py[4];
+        extern int32 p6_w_menu_modebtn_sx[4], p6_w_menu_modebtn_sy[4];
+        extern int32 p6_w_menu_modebtn_act[4], p6_w_menu_modebtn_bid[4];
+        extern int32 p6_w_menu_visctrls, p6_w_menu_actctrl_px, p6_w_menu_actctrl_py;
+        extern int32 p6_w_menu_actctrl_tagh, p6_w_menu_ctrl_count;
+        if (UIModeButton && UIModeButton->classID) {
+            int32 mi = 0;
+            foreach_all(UIModeButton, mb) {
+                if (mi < 4) {
+                    p6_w_menu_modebtn_px[mi]  = (int32)(mb->position.x >> 16);
+                    p6_w_menu_modebtn_py[mi]  = (int32)(mb->position.y >> 16);
+                    p6_w_menu_modebtn_sx[mi]  = (int32)(mb->position.x >> 16) - p6_w_menu_scrx;
+                    p6_w_menu_modebtn_sy[mi]  = (int32)(mb->position.y >> 16) - p6_w_menu_scry;
+                    p6_w_menu_modebtn_act[mi] = (int32)mb->active;
+                    p6_w_menu_modebtn_bid[mi] = (int32)mb->buttonID;
+                    ++mi;
+                }
+            }
+        }
+        if (UIControl && UIControl->classID) {
+            extern int32 p6_w_menu_vis_tagh[4], p6_w_menu_vis_px[4], p6_w_menu_vis_py[4], p6_w_menu_vis_act[4];
+            int32 vis = 0, total = 0, vi = 0;
+            foreach_all(UIControl, c) {
+                ++total;
+                if (c->visible) {
+                    if (vi < 4) {
+                        uint32 hh = 5381; int32 kk;
+                        for (kk = 0; kk < c->tag.length && kk < 24; ++kk)
+                            hh = ((hh << 5) + hh) + (uint32)c->tag.chars[kk];
+                        p6_w_menu_vis_tagh[vi] = (int32)hh;
+                        p6_w_menu_vis_px[vi]   = (int32)(c->position.x >> 16);
+                        p6_w_menu_vis_py[vi]   = (int32)(c->position.y >> 16);
+                        p6_w_menu_vis_act[vi]  = (int32)c->active;
+                        ++vi;
+                    }
+                    ++vis;
+                }
+                if (c->active == ACTIVE_ALWAYS) {
+                    extern int32 p6_w_menu_force_scrx, p6_w_menu_force_scry;
+                    p6_w_menu_actctrl_px = (int32)(c->position.x >> 16);
+                    p6_w_menu_actctrl_py = (int32)(c->position.y >> 16);
+                    /* M2b FIX: hand the active control's scroll origin to the pack so it
+                     * FORCES currentScreen->position before the draw lists. Mirrors
+                     * UIControl_Draw (UIControl.c:52-53): pos = FROM_FIXED(self->position) -
+                     * center. The menu runs SetVideoSetting(SCREENCOUNT,1) full 320x224
+                     * (MenuSetup_StageLoad:205), so ScreenInfo->center is (160,112) -- the
+                     * fixed value, no ScreenInfo deref needed (keeps the overlay TU free of
+                     * the game ScreenInfo extern). */
+                    p6_w_menu_force_scrx = (int32)(c->position.x >> 16) - 160;
+                    p6_w_menu_force_scry = (int32)(c->position.y >> 16) - 112;
+                    /* djb2 of the tag chars (CompareStrings stores chars in tag.chars) */
+                    {
+                        uint32 h = 5381; int32 k;
+                        for (k = 0; k < c->tag.length && k < 24; ++k)
+                            h = ((h << 5) + h) + (uint32)c->tag.chars[k];
+                        p6_w_menu_actctrl_tagh = (int32)h;
+                    }
+                }
+            }
+            p6_w_menu_visctrls   = vis;
+            p6_w_menu_ctrl_count = total;
+        }
+    }
+#endif /* P6_MENU_LAYOUT320 */
 #endif
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;
     {   /* Batch 1: count how many of the 4 clean objects registered (classID>0). */

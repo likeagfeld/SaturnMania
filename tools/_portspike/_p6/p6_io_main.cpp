@@ -803,6 +803,125 @@ __attribute__((used)) int32 p6_w_titlesetup_classid  = 0;
 __attribute__((used)) int32 p6_w_titlelogo_classid   = 0;
 __attribute__((used)) int32 p6_w_title_objcount      = 0;
 #endif
+// M1 FRONT-END link 3 (qa_engine_menu.py M1-M5): the MENU scene. Mirrors the CP5a
+// Title witnesses EXACTLY -- the engine LoadScene + run path now serves the Menu
+// scene (the verbatim non-Plus MenuSetup + the min UI set) through the SAME generic
+// chain GHZ/Logos/Title use, behind -DP6_FRONTEND_MENU (which also defines
+// P6_FRONTEND_TITLE -> LOGOS so the shared frontend_frame/VDP1-box/arm-sprites
+// machinery compiles unchanged). frontend_folder_tag is REUSED (set to 0x4D65 'Me'
+// in p6_menu_reload; M1). menusetup/uicontrol_classid = the overlay-registered
+// classIDs (written by the overlay witness via -R; M2/M3 > 0 == ports linked +
+// resolved). menu_objcount = the live-classID scene-entity census after InitObjects
+// for the Menu scene (M4 > 0 == the Menu Scene1.bin placements instantiated through
+// the generic chain). cont_frames is REUSED (M5). GUARDED under P6_FRONTEND_MENU
+// (additive-only; the default GHZ/Title maps stay byte-identical -- the -u roots in
+// build_p6scene_objs.sh are harmless no-ops when the symbols are absent).
+#if defined(P6_FRONTEND_MENU)
+__attribute__((used)) int32 p6_w_menusetup_classid   = 0;
+__attribute__((used)) int32 p6_w_uicontrol_classid   = 0;
+__attribute__((used)) int32 p6_w_menu_objcount       = 0;
+// M1b (qa_engine_menu_render.py): the RENDER half of the Menu checkpoint.
+//   M6 menu_treebuilt: MenuSetup->mainMenu != NULL  -- the auth gate flipped so
+//     MenuSetup_InitAPI returned true (offline no-save path) -> MenuSetup_Initialize
+//     ran -> the foreach_all(UIControl){match "Main Menu"} wired mainMenu (and every
+//     other UIControl). 0 while InitAPI stays in its pre-handshake branch (the M1a
+//     RED), 1 once the tree is built. Written by the overlay witness each tick (-R).
+//   M6b menu_modebtn_classid: UIModeButton registered + classID resolved (>0) -- the
+//     4 main-menu rows (Mania Mode/Time Attack/Competition/Options) need this class
+//     live so foreach_all(UIModeButton,...) at SetupActions:507 instantiates+draws.
+//   M7 the menu emits VDP1 sprite commands: latch of the global p6_w_vdp1_landed at
+//     the witness tick (>0 == at least one UI sprite reached a bound VDP1 slot ==
+//     the rows/text are blitting; the M1a RED was landed==0 == black screen).
+__attribute__((used)) int32 p6_w_menu_treebuilt      = 0;
+__attribute__((used)) int32 p6_w_menu_modebtn_classid = 0;
+__attribute__((used)) int32 p6_w_menu_vdp1_landed    = 0;
+// M2a LAYOUT witnesses (qa_menu_layout.py): WHY do the menu rows scatter?
+//   p6_w_menu_scrx/scry = the LIVE engine scroll origin currentScreen->position (px).
+//     The decomp transform is screen = world - ScreenInfo->position; ScreenInfo IS
+//     currentScreen (Game ScreenInfo = &screens[0], p6_wave1_link). UIControl_Draw
+//     (UIControl.c:52-53) sets it to FROM_FIXED(activeControl->position) - center, so
+//     this == (activeMainMenu.position>>16) - (160,112) IFF the active main-menu
+//     UIControl is the LAST UIControl whose Draw ran. A wrong/stale value == scatter.
+//   p6_w_menu_modebtn_px[i]/py[i] = the 4 UIModeButton entities' world position>>16.
+//   p6_w_menu_modebtn_sx[i]/sy[i] = those mapped to screen (world - scrollOrigin) ==
+//     the on-screen centroid the gate compares to the measured PNG centroid.
+//   p6_w_menu_modebtn_act[i] = each row's `active` (ACTIVE_NEVER=0 row would not draw).
+//   p6_w_menu_visctrls = count of UIControl entities with visible==true. The PC main
+//     menu has exactly ONE visible UIControl (the active one); >1 == inactive menus
+//     leaking their content onto the screen (the scatter hypothesis).
+//   p6_w_menu_actctrl_px/py = the ACTIVE (active==ACTIVE_ALWAYS) UIControl position>>16.
+//   p6_w_menu_actctrl_tagh = djb2 of the active control's tag (identify which menu).
+__attribute__((used)) int32 p6_w_menu_scrx = -999999, p6_w_menu_scry = -999999;
+__attribute__((used)) int32 p6_w_menu_modebtn_px[4] = { -999999, -999999, -999999, -999999 };
+__attribute__((used)) int32 p6_w_menu_modebtn_py[4] = { -999999, -999999, -999999, -999999 };
+__attribute__((used)) int32 p6_w_menu_modebtn_sx[4] = { -999999, -999999, -999999, -999999 };
+__attribute__((used)) int32 p6_w_menu_modebtn_sy[4] = { -999999, -999999, -999999, -999999 };
+__attribute__((used)) int32 p6_w_menu_modebtn_act[4] = { -9, -9, -9, -9 };
+__attribute__((used)) int32 p6_w_menu_modebtn_bid[4] = { -9, -9, -9, -9 };
+__attribute__((used)) int32 p6_w_menu_visctrls    = -9;
+__attribute__((used)) int32 p6_w_menu_actctrl_px  = -999999;
+__attribute__((used)) int32 p6_w_menu_actctrl_py  = -999999;
+__attribute__((used)) int32 p6_w_menu_actctrl_tagh = 0;
+__attribute__((used)) int32 p6_w_menu_ctrl_count   = -9; // total UIControl entities
+// M2a: per-visible-control identity (up to 4) -- to identify the 2nd leaking control.
+__attribute__((used)) int32 p6_w_menu_vis_tagh[4] = { 0, 0, 0, 0 };
+__attribute__((used)) int32 p6_w_menu_vis_px[4]   = { -999999, -999999, -999999, -999999 };
+__attribute__((used)) int32 p6_w_menu_vis_py[4]   = { -999999, -999999, -999999, -999999 };
+__attribute__((used)) int32 p6_w_menu_vis_act[4]  = { -9, -9, -9, -9 };
+// M2b FIX hand-off: the overlay's witness writes the ACTIVE main-menu control's
+// scroll origin (position>>16 - center) here every tick; the pack reads it back
+// just before ProcessObjectDrawLists and FORCES currentScreen->position to it.
+// This makes the world->screen transform DETERMINISTIC for the whole frame --
+// independent of (a) whether the verbatim UIControl_Draw ran, (b) draw order, and
+// (c) a stray 2nd visible control re-writing ScreenInfo->position late in the frame
+// (the MEASURED cause of the scattered/clipped rows: post-draw currentScreen->
+// position latched (0,0) while the active control sat at (852,376) i.e. origin
+// (692,264)). Mirrors the decomp UIControl_Draw formula (UIControl.c:52-53) applied
+// to the GUARANTEED-correct active control. -999999 sentinel == not yet computed
+// (pack skips the force-set until the overlay has found the active control). */
+__attribute__((used)) int32 p6_w_menu_force_scrx = -999999;
+__attribute__((used)) int32 p6_w_menu_force_scry = -999999;
+// M2a tap point: the pack sets these from currentScreen at the witness tick (the
+// overlay fills the entity ones). currentScreen lives in THIS TU.
+__attribute__((used)) void p6_menu_layout_scroll_latch(void)
+{
+    if (currentScreen) {
+        p6_w_menu_scrx = currentScreen->position.x;
+        p6_w_menu_scry = currentScreen->position.y;
+    }
+    // GC-ROOT the array + entity witnesses from the PACK: they are WRITTEN only by
+    // the overlay (p6_ghz_ovl_witness), so without a pack-side reference the gc-pack
+    // (-r, -u p6_engine_boot_and_run) drops them before game.elf -> the overlay's
+    // -R import then fails to link (undefined reference). A self-touch keeps them
+    // defined in game.elf so the overlay binds them. (volatile defeats the no-op
+    // optimization without changing the value.)
+    {
+        volatile int32 *p;
+        p = p6_w_menu_modebtn_px; p[0] = p[0];
+        p = p6_w_menu_modebtn_py; p[0] = p[0];
+        p = p6_w_menu_modebtn_sx; p[0] = p[0];
+        p = p6_w_menu_modebtn_sy; p[0] = p[0];
+        p = p6_w_menu_modebtn_act; p[0] = p[0];
+        p = p6_w_menu_modebtn_bid; p[0] = p[0];
+        // SCALARS: a plain `x = x` is LTO-dropped (the array volatile-ptr trick
+        // above is what keeps those). Use the same volatile-pointer self-touch so
+        // the scalar witnesses are gc-rooted in the pack too.
+        { volatile int32 *q;
+          q = &p6_w_menu_visctrls;     *q = *q;
+          q = &p6_w_menu_ctrl_count;   *q = *q;
+          q = &p6_w_menu_actctrl_px;   *q = *q;
+          q = &p6_w_menu_actctrl_py;   *q = *q;
+          q = &p6_w_menu_actctrl_tagh; *q = *q;
+          q = &p6_w_menu_force_scrx;   *q = *q;
+          q = &p6_w_menu_force_scry;   *q = *q;
+        }
+        p = p6_w_menu_vis_tagh; p[0] = p[0];
+        p = p6_w_menu_vis_px;   p[0] = p[0];
+        p = p6_w_menu_vis_py;   p[0] = p[0];
+        p = p6_w_menu_vis_act;  p[0] = p[0];
+    }
+}
+#endif
 #if defined(P6_FRONTEND_LOGOS)
 // CP4b render diag (front-end only): UIPicture->aniFrames (LoadSpriteAnimation
 // ("Logos/Logos.bin") result; -1 == load FAILED == the anim half of the render
@@ -3800,6 +3919,48 @@ extern "C" void p6_scene_run(void)
         }
         P6_LT_MARK(5); // Task #272 S5: TBG.SHT + ELECTR1/ELECTR2.SHT load+stage
 #endif
+#if defined(P6_FRONTEND_MENU)
+        // M1b: stage the MAIN-MENU sprite sheets so the menu rows' icons + text blit.
+        // MENU implies TITLE -> LOGOS, so the Title/Logo sheets above are already staged
+        // (slots 0..12, inert on the Menu scene). These add slots 13 (MAINICON) + 14
+        // (TEXTEN). MIRRORS the TBG.SHT block exactly (256-class banded, MakeResident
+        // SAFE -- both are <=512 wide so raw band <=0x2000 << the 0x4000 scratch-split).
+        //   MAINICON.SHT: UI/MainIcons.gif, the UIModeButton mode icons (LoadSprite-
+        //     Animation("UI/MainIcons.bin") -> sheet[0]). 6,567 B banded.
+        //   TEXTEN.SHT: UI/TextEN.gif, the mode TEXT labels (UIWidgets_ApplyLanguage ->
+        //     UIWidgets->textFrames -> LoadSpriteAnimation("UI/TextEN.bin") -> sheet[0]).
+        //     24,097 B banded. Path hashes are what those LoadSpriteAnimation calls compute.
+        {
+            int sn = rsdk_storage_load_to_lwram("MAINICON.SHT",
+                                                (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("UI/MainIcons.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
+                }
+            }
+        }
+        {
+            int sn = rsdk_storage_load_to_lwram("TEXTEN.SHT",
+                                                (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("UI/TextEN.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+#ifndef P6_SHT_NO_RESIDENT
+                    SaturnSheet_MakeResident(slot);
+#endif
+                }
+            }
+        }
+#endif // P6_FRONTEND_MENU
 
 #include "p6_sheet_probes.inc"
         // W12b: fixed-window scratch (P6_HW_GROUPWIN tail), was 4 KB .bss
@@ -5138,6 +5299,23 @@ static void p6_scene_load_and_arm(void)
         p6_w_title_objcount = nf;
     }
 #endif
+    // M1 (qa_engine_menu M4): census the live-classID scene entities the generic
+    // InitObjects chain just instantiated for the MENU scene (the UIControl/
+    // UIBackground/UIButton/... Scene1.bin placements). LATCH on the "Menu" folder +
+    // never overwrite -- a later MenuSetup_SaveSlot_ActionCB advance (M2) would re-
+    // enter with the next scene's count and clobber the measurement. The first Menu
+    // load's count is the M4 evidence. > 0 proves the Menu Scene1.bin placements were
+    // created through the SAME LoadScene path GHZ/Logos/Title use.
+#if defined(P6_FRONTEND_MENU)
+    if (p6_w_menu_objcount == 0
+        && !strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "Menu")) {
+        int32 nf = 0;
+        for (int32 s = 0; s < SCENEENTITY_COUNT; ++s)
+            if (RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + s)->classID)
+                ++nf;
+        p6_w_menu_objcount = nf;
+    }
+#endif
     p6_i2_selfcheck(); // P6.8 I2: assert slot->pool indirection is 1:1 (byte-identical)
     p6_scan_index_build(); // P6.8 I3c: sorted-by-x scene-entity index for the loop1 spatial cull
     // I3b SHRINK measurement (read-only, one-shot): walk the full scene region, count populated +
@@ -5461,6 +5639,57 @@ static void p6_title_reload(void)
 }
 #endif // P6_FRONTEND_TITLE
 
+#if defined(P6_FRONTEND_MENU)
+// =============================================================================
+// M1 (qa_engine_menu.py): p6_menu_reload -- the FRONT-END mirror of p6_title_reload
+// for the MENU scene (category "Presentation", folder "Menu"). VERBATIM copy of the
+// proven p6_title_reload path except it scans every category range for the folder
+// "Menu" and tags it 0x4D65 ('M'<<8 | 'e'; gate M1). Load+arm through the same
+// generic p6_scene_load_and_arm (its GHZ-tilemap steps no-op for the sprite-only UI
+// scene -- Menu has no FG/collision; the GHZ arm is guarded behind p6_isGHZ). Also
+// arms `scanlines` to the front-end cart buffer the same way p6_title_reload does:
+// UIBackground_DrawNormal / the engine ProcessObjectDrawLists path is safe regardless,
+// but any UI object that installs a scanlineCallback would otherwise wild-write the
+// NULL Saturn `scanlines` (there is no Saturn RenderDevice to allocate it). Behind
+// -DP6_FRONTEND_MENU; the default GHZ/Title builds never compile this.
+// =============================================================================
+static void p6_menu_reload(void)
+{
+    int32 found = 0;
+    for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
+        SceneListInfo *cat = &sceneInfo.listCategory[c];
+        for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+            if (!strcmp(sceneInfo.listData[i].folder, "Menu")) {
+                sceneInfo.activeCategory = c;
+                sceneInfo.listPos        = i;
+                found                    = 1;
+                break;
+            }
+        }
+    }
+    if (!found)
+        return;
+    // M1: tag the loaded folder's first two chars ('M'<<8 | 'e' = 0x4D65).
+    {
+        const char *f = sceneInfo.listData[sceneInfo.listPos].folder;
+        p6_w_frontend_folder_tag =
+            (int32)(((uint32)(uint8)f[0] << 8) | (uint32)(uint8)(f[0] ? f[1] : 0));
+    }
+    // Safe `scanlines` backing (front-end-only cart buffer) -- see p6_title_reload
+    // for the MEASURED rationale (NULL Saturn scanlines + an ungated scanlineCallback
+    // == wild write). The Menu UI classes registered for M1 do not install one, but
+    // arming it is cheap and matches the Title path's safety contract.
+    scanlines = (ScanlineInfo *)0x22400000u;
+    memset((void *)scanlines, 0, (size_t)SCREEN_YSIZE * sizeof(ScanlineInfo));
+    p6_scene_load_and_arm();
+    p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
+    // M1b AUTH-GATE FLIP is done at the top of the first p6_frontend_frame via
+    // s_ovl.menu_apic_init_fn (set by the overlay entry, run inside p6_scene_load_and_arm
+    // above) -- it cannot run before the overlay loads, and it must precede the scene's
+    // first StaticUpdate (which runs in p6_frontend_frame, AFTER this reload returns).
+}
+#endif // P6_FRONTEND_MENU
+
 // =============================================================================
 // CP4 (Task #265): p6_frontend_frame -- the GENERIC per-frame tick for a non-GHZ
 // UI scene. p6_ghz_frame is GHZ-FG-present-specific (p6_present_kick/join the
@@ -5478,6 +5707,20 @@ static void p6_frontend_frame(void)
     currentScreen = &screens[0];
     for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
         engine.drawGroupVisible[g] = true;
+#if defined(P6_FRONTEND_MENU)
+    // M1b AUTH-GATE FLIP (one-shot, BEFORE ProcessObjects runs the scene's first
+    // MenuSetup StaticUpdate -> InitAPI). The overlay set s_ovl.menu_apic_init_fn at
+    // its entry (run inside p6_menu_reload's load_and_arm), so the pointer is valid
+    // here. Installs the real APICallback struct + globals->noSave=true so InitAPI
+    // returns true -> MenuSetup_Initialize wires the UIControl row tree (M6).
+    {
+        static int32 s_menu_apic_done = 0;
+        if (!s_menu_apic_done && s_ovl.menu_apic_init_fn) {
+            s_ovl.menu_apic_init_fn();
+            s_menu_apic_done = 1;
+        }
+    }
+#endif
     // Point the pack Ring/Animals globals at the overlay's registered objects
     // (the F.3/#235 seam) -- harmless on the UI scene (no Ring/Animals placed).
     if (s_ovl.staticvars_slot && *(void **)s_ovl.staticvars_slot)
@@ -5645,7 +5888,18 @@ static void p6_frontend_frame(void)
             // band y[168,240]); a slow horizontal drift mirrors Scanline_Clouds.
             p6_vdp2_title_island_rbg0_frame((int)ang, (int)sine, (int)cosine);
             if (p6_w_title_clouds_armed)
-                p6_vdp2_title_clouds_b1_config((int)((s_island_angle >> 1) & 0xFF), 0);
+                /* CLOUD-FLICKER FIX (#276, MEASURED 2026-06-23): the decomp
+                 * TitleBG_Scanline_Clouds is HORIZONTALLY STATIC -- Sin256(0)=0 so
+                 * its position.x is fixed; only position.y drifts (TitleBG->timer).
+                 * The prior per-frame HORIZONTAL scroll (s_island_angle>>1) dragged
+                 * the cloud's non-uniform wisps through the 320px window -> the top-
+                 * band cloud mass oscillated 40k<->33k (qa_title_clouds_stable RED,
+                 * 6/24 dips; per-column measure: clouds blanked at the L/R screen
+                 * edges at the dip scroll positions). The cells tile seamlessly (x%16)
+                 * so it is NOT a tiling gap -- it is the non-decomp horizontal pan.
+                 * FIX: freeze the scroll (decomp-faithful, stable). The subtle vertical
+                 * timer-drift needs a vertically-tiling cloud band -> deferred polish. */
+                p6_vdp2_title_clouds_b1_config(0, 0);
             ++s_island_angle;
         }
     } else
@@ -5657,9 +5911,41 @@ static void p6_frontend_frame(void)
     p6_w_perf_cyc_present = P6_FRT_DELTA(fe_t0, fe_t1);
     p6_w_perf_vbl_present = (int32)(fe_v1 - fe_v0);
 
+#if defined(P6_FRONTEND_MENU) && defined(P6_MENU_LAYOUT320)
+    // BISECT (recovery): the interrupted-agent 320 layout mechanism regressed the menu to
+    // a BLACK SCREEN (M6/M6b/M7=0). Gated OFF behind P6_MENU_LAYOUT320 (undefined by
+    // default) to restore the working clean-icons render while the 320 layout is redone
+    // correctly. The force-currentScreen path below is the suspect (overrides positions +
+    // forces the scroll origin pre-draw); re-enable only with a verified replacement.
+    // M2b/M3 (Task #294/#295): apply the Saturn-native 320 menu layout BEFORE the draw.
+    //   (1) The overlay's menu_layout_fn overrides the 4 UIModeButton world positions to
+    //       the 320-fit grid + writes the active "Main Menu" control's scroll origin
+    //       (position>>16 - center) into p6_w_menu_force_scrx/scry.
+    //   (2) FORCE currentScreen->position to that origin here. This is the missing M2b
+    //       CONSUMPTION -- the decomp UIControl_Draw (UIControl.c:52-53) writes
+    //       ScreenInfo->position = FROM_FIXED(activeControl->position) - center, but that
+    //       write is order-dependent and a 2nd visible (leaking) UIControl drawn later in
+    //       the frame clobbers it back to (0,0) (MEASURED: scroll stayed (0,0), rows at raw
+    //       world -> off-screen). Forcing it here makes the world->screen transform
+    //       deterministic for the whole frame, independent of draw order. The -999999
+    //       sentinel == the overlay has not yet found the active control (skip the force).
+    if (s_ovl.menu_layout_fn)
+        s_ovl.menu_layout_fn();
+    if (currentScreen && p6_w_menu_force_scrx > -900000 && p6_w_menu_force_scry > -900000) {
+        currentScreen->position.x = p6_w_menu_force_scrx;
+        currentScreen->position.y = p6_w_menu_force_scry;
+    }
+#endif
     fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
 #ifndef P6_TITLE_NODRAW
     ProcessObjectDrawLists(); // emits the UIPicture VDP1 sprite list (jo swaps it)
+#if defined(P6_FRONTEND_MENU)
+    // M2a (qa_menu_layout.py): latch currentScreen->position AFTER the draw lists ran --
+    // with the force-set above the latched value should read the forced origin (692,264),
+    // confirming the rows used the correct transform (UIControl_Draw can no longer leave
+    // it (0,0) because the force-set ran first AND the overlay re-asserts each frame).
+    p6_menu_layout_scroll_latch();
+#endif
 #else
     // CP5b.7 A/B: skip ALL title VDP1 sprite emit (no sprites added to the SGL sort
     // list) to isolate whether slSynch's measured ~90ms/frame jo-body wait is the
@@ -5709,8 +5995,20 @@ static void p6_frontend_frame(void)
 
     // Write the front-end classID witnesses (E2/E3) -- the overlay's witness fn
     // latches LogoSetup/UIPicture->classID via the -R import (p6_ghz_ovl_witness).
+    // For the Menu flavor it ALSO writes M6 (MenuSetup->mainMenu!=NULL ->
+    // p6_w_menu_treebuilt) + M6b (UIModeButton->classID) -- those need the Mania
+    // Game.h types, so they live in the overlay witness, not here.
     if (s_ovl.witness_fn)
         s_ovl.witness_fn(RSDK_ENTITY_AT(P6_OBJ_RING_SLOT));
+#if defined(P6_FRONTEND_MENU)
+    // M7: latch the global VDP1 landed-blit count so the gate can assert the menu
+    // emitted >=1 sprite command (the M1a black-screen RED was landed==0). This is a
+    // pack global (p6_vdp1.c), latched here in the pack frame.
+    {
+        extern int p6_w_vdp1_landed; /* p6_vdp1.c */
+        p6_w_menu_vdp1_landed = (int32)p6_w_vdp1_landed;
+    }
+#endif
 }
 #endif // P6_FRONTEND_LOGOS
 
@@ -5970,7 +6268,18 @@ extern "C" void p6_scene_tick(void)
     // frame. Subsequent ticks take the armed fast path below. Gated on
     // p6_lean_boot so the diag tick is unchanged.
     if (p6_lean_boot && !p6_ghz_continuous_armed) {
-#if defined(P6_FRONTEND_CHAIN)
+#if defined(P6_FRONTEND_MENU)
+        // M1 (qa_engine_menu): the MENU front-end flavor boots the Menu scene
+        // directly on the first live tick (select "Menu" + load+arm, then run the
+        // generic UI-scene frame). MENU takes PRECEDENCE over CHAIN/TITLE/LOGOS (it
+        // defines all of them so the shared p6_frontend_frame/VDP1-box/arm-sprites
+        // machinery compiles) -- without this #if first, the CHAIN/Title-direct boot
+        // would steal the boot. Same lean-tick shape as the CP5a Title boot.
+        p6_menu_reload();
+        if (p6_ghz_continuous_armed)
+            p6_frontend_frame();
+        return;
+#elif defined(P6_FRONTEND_CHAIN)
         // CP5c (Task #270): the front-end FLOW chain boots the LOGOS scene first
         // (NOT Title) -- it plays the SEGA/RSDK logos, then the decomp LogoSetup
         // auto-advance (RSDK.LoadScene) is caught in p6_frontend_frame and routed

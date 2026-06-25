@@ -139,6 +139,27 @@ typedef struct {
     /* (after p6_scan_update_near, before loop1): materialize newly-near scene entities from the DORM     */
     /* store + dormant newly-far ones, maintaining the free-list + lifecycle bit. The fps + WRAM-L win.   */
     void (*stream_fn)(void);
+    /* M1b (qa_engine_menu_render): the Menu AUTH-GATE FLIP. The overlay (which has the   */
+    /* Mania Game.h type ObjectAPICallback) installs a real zeroed APICallback struct +   */
+    /* sets globals->noSave=true so MenuSetup_InitAPI returns true (offline no-save path,  */
+    /* MenuSetup.c:467) -> MenuSetup_Initialize wires the UIControl row tree. APICallback/ */
+    /* globals are PACK symbols the overlay writes via -R; the struct is overlay .bss.     */
+    /* The pack calls this ONCE at the top of the first p6_frontend_frame (BEFORE the      */
+    /* scene's first StaticUpdate runs InitAPI) -- it cannot run pre-overlay-load, so the  */
+    /* call site is the per-frame frontend tick (one-shot), NOT p6_menu_reload. NULL on    */
+    /* the GHZ/Logos/Title flavors (the overlay only sets it under P6_FRONTEND_MENU).      */
+    void (*menu_apic_init_fn)(void);
+    /* M2b/M3 (Task #294/#295): the Menu LAYOUT apply, called by the pack EACH FRAME    */
+    /* after ProcessObjects + BEFORE ProcessObjectDrawLists. The overlay (which has the  */
+    /* Mania Game.h EntityUIModeButton type) (1) overrides the 4 UIModeButton world      */
+    /* positions to the Saturn-native 320-fit 2x2 grid keyed on buttonID, and (2) writes */
+    /* the active "Main Menu" UIControl's scroll origin (position>>16 - center) into the  */
+    /* pack witnesses p6_w_menu_force_scrx/scry. The pack then forces currentScreen->     */
+    /* position to that origin (currentScreen is a C++-mangled pack symbol the flat-C     */
+    /* overlay cannot name, so the pack does the actual write). Together: the world->     */
+    /* screen transform (UIControl_Draw:52-53) lands every row + plate on-screen, fitting */
+    /* 320 cleanly. NULL on GHZ/Logos/Title (overlay sets it only under P6_FRONTEND_MENU).*/
+    void (*menu_layout_fn)(void);
 } p6_ovl_api;
 
 /* The entry signature at P6_OVL_BASE: registers the overlay's classes via

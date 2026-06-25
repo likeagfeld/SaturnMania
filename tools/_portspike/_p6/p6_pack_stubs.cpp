@@ -52,7 +52,36 @@ void DrawLine(int32 x1, int32 y1, int32 x2, int32 y2, uint32 color, int32 alpha,
 void DrawRectangle(int32 x, int32 y, int32 width, int32 height, uint32 color, int32 alpha, int32 inkEffect, bool32 screenRelative) {}
 void DrawCircle(int32 x, int32 y, int32 radius, uint32 color, int32 alpha, int32 inkEffect, bool32 screenRelative) {}
 void DrawCircleOutline(int32 x, int32 y, int32 innerRadius, int32 outerRadius, uint32 color, int32 alpha, int32 inkEffect, bool32 screenRelative) {}
+#if defined(P6_FRONTEND_MENU)
+// M3 (Task #295): forward DrawFace to the jo-side VDP1 flat-colour polygon emitter
+// (p6_vdp1.c:p6_drawface_saturn -- a slPutPolygon flat quad at Z=455, behind the row
+// icon/text Z=450 + above the gold backdrop Z=460). The pack C++ TU cannot call
+// slPutPolygon (jo/SGL namespace clash), so the jo emitter is reached via this extern
+// "C" seam. UIWidgets_DrawParallelogram already subtracted ScreenInfo->position, so the
+// verts arrive screen-relative 16.16 (the emitter does >>16 then screen-centre). The
+// pointer is non-NULL once p6_vdp1.o links (always, in the MENU flavor). vertCount 3/4.
+extern "C" void p6_drawface_saturn(const int *vx, const int *vy, int count,
+                                   int r8, int g8, int b8);
+void DrawFace(Vector2 *vertices, int32 vertCount, int32 r, int32 g, int32 b, int32 alpha, int32 inkEffect)
+{
+#if !defined(P6_MENU_LAYOUT320)
+    // BISECT (recovery): the 320-agent DrawFace->p6_drawface_saturn plate emitter is a
+    // suspect for the first-frame crash (cont_frames=0). No-op it (the working layout-
+    // diagnosis state had DrawFace calls=0) until the emitter is re-verified under
+    // P6_MENU_LAYOUT320.
+    (void)vertices; (void)vertCount; (void)r; (void)g; (void)b; (void)alpha; (void)inkEffect;
+    return;
+#endif
+    (void)alpha; (void)inkEffect; // INK_NONE: opaque replace; partial-alpha = Phase Z
+    if (!vertices || vertCount < 3 || vertCount > 4)
+        return;
+    int vx[4], vy[4];
+    for (int32 i = 0; i < vertCount; ++i) { vx[i] = vertices[i].x; vy[i] = vertices[i].y; }
+    p6_drawface_saturn(vx, vy, (int)vertCount, (int)r, (int)g, (int)b);
+}
+#else
 void DrawFace(Vector2 *vertices, int32 vertCount, int32 r, int32 g, int32 b, int32 alpha, int32 inkEffect) {}
+#endif
 void DrawBlendedFace(Vector2 *vertices, color *vertColors, int32 vertCount, int32 alpha, int32 inkEffect) {}
 void BlendColors(uint8 paletteID, color *srcColorsA, color *srcColorsB, int32 blendAmount, int32 startIndex, int32 count) {}
 int32 maskColor = 0; // Palette.hpp:28

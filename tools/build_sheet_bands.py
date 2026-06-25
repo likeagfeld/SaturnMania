@@ -120,6 +120,18 @@ SHEETS = [
     # sprites blit. MIRRORS the TLOGO/TSONIC path. 256x256 = 65,536 B decoded;
     # banded .SHT (BAND_ROWS=16, 16 bands) ~well under the 64 KB load buffer.
     ("Title/BG.gif", "TBG.SHT"),
+    # M1b (qa_engine_menu_render): the MAIN-MENU sprite sheets. Staged ONLY by the
+    # P6_FRONTEND_MENU boot (slots 13/14/15; MENU implies TITLE->LOGOS so slots 0..12
+    # are the GHZ+Logos+Title sheets, inert on the Menu scene). Once staged+hashed, the
+    # p6_ghz_arm_env bind loop binds each gfxSurface to a VDP1 handle -> the menu rows'
+    # icons + text blit (the M1a black-screen RED was these UNBOUND -> DrawSprite drops).
+    #   MainIcons.gif  -> UIModeButton's mode icons (LoadSpriteAnimation("UI/MainIcons.bin"))
+    #   TextEN.gif     -> the mode TEXT labels (UIWidgets->textFrames, "Mania Mode"/etc.)
+    # (UIElements.gif -- UIWidgets->uiFrames arrows/frames -- is NOT extracted as a .gif
+    #  and is not needed for the MAIN-MENU rows; the submenu arrow widgets that use it are
+    #  a later checkpoint. The 2 sheets above carry the main-menu rows' icons + text.)
+    ("UI/MainIcons.gif", "MAINICON.SHT"),
+    ("UI/TextEN.gif", "TEXTEN.SHT"),
 ]
 
 # CP4c _end-leak FIX (Task #266): sheets that ONLY a FRONT-END boot stages. Their
@@ -146,7 +158,13 @@ FRONTEND_ONLY_SHEETS = {"LOGOS.SHT": "P6_FRONTEND_LOGOS",
                         "TSONIC.SHT": "P6_FRONTEND_TITLE",
                         # CP5b.3 (Task #272): TBG.SHT (Title/BG.gif) staged ONLY by the
                         # Title flavor (slot 12), SAME P6_FRONTEND_TITLE guard.
-                        "TBG.SHT": "P6_FRONTEND_TITLE"}
+                        "TBG.SHT": "P6_FRONTEND_TITLE",
+                        # M1b: the MAIN-MENU sheets staged ONLY by the P6_FRONTEND_MENU
+                        # boot (slots 13/14/15). MENU implies TITLE so a Title-only build
+                        # stages 13 sheets [0..12] -> a slot-13 probe there would FetchRect-
+                        # fail; gating under P6_FRONTEND_MENU keeps the Title probe table clean.
+                        "MAINICON.SHT": "P6_FRONTEND_MENU",
+                        "TEXTEN.SHT": "P6_FRONTEND_MENU"}
 
 
 def djb2(data):
@@ -255,7 +273,7 @@ def main():
         # regeneration-stable. P6_FRONTEND_TITLE implies P6_FRONTEND_LOGOS, so in the
         # Title build BOTH groups compile (count = base + LOGOS + TITLE); in a Logos-only
         # build only the LOGOS group does (count = base + LOGOS); in GHZ neither (base).
-        GUARD_ORDER = ["P6_FRONTEND_LOGOS", "P6_FRONTEND_TITLE"]
+        GUARD_ORDER = ["P6_FRONTEND_LOGOS", "P6_FRONTEND_TITLE", "P6_FRONTEND_MENU"]
         base_rows = []
         fe_groups = {}  # guard -> [rows]
         for si, m in enumerate(model["sheets"]):
@@ -284,11 +302,15 @@ def main():
             # LOGOS-only (LOGOS), TITLE (LOGOS+TITLE). Guard the literals accordingly.
             n_logos = len(fe_groups.get("P6_FRONTEND_LOGOS", []))
             n_title = len(fe_groups.get("P6_FRONTEND_TITLE", []))
-            # Any extra guards beyond LOGOS/TITLE -> add unconditionally to the relevant
-            # branch (none expected today; assert to fail loudly if a 3rd guard appears).
-            assert set(guards) <= {"P6_FRONTEND_LOGOS", "P6_FRONTEND_TITLE"}, \
+            # M1b: the MENU flavor implies TITLE -> LOGOS, so its count is
+            # base+LOGOS+TITLE+MENU. Branch order is most-specific-first (MENU before
+            # TITLE before LOGOS). Assert loudly if an UNHANDLED 4th guard appears.
+            n_menu = len(fe_groups.get("P6_FRONTEND_MENU", []))
+            assert set(guards) <= {"P6_FRONTEND_LOGOS", "P6_FRONTEND_TITLE", "P6_FRONTEND_MENU"}, \
                 "build_sheet_bands: add a count branch for new guard(s): %s" % guards
-            f.write("#if defined(P6_FRONTEND_TITLE)\n")
+            f.write("#if defined(P6_FRONTEND_MENU)\n")
+            f.write("#define P6_SHEET_PROBE_COUNT %d\n" % (n_base + n_logos + n_title + n_menu))
+            f.write("#elif defined(P6_FRONTEND_TITLE)\n")
             f.write("#define P6_SHEET_PROBE_COUNT %d\n" % (n_base + n_logos + n_title))
             f.write("#elif defined(P6_FRONTEND_LOGOS)\n")
             f.write("#define P6_SHEET_PROBE_COUNT %d\n" % (n_base + n_logos))

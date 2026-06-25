@@ -79,7 +79,17 @@
  * frees 6*sizeof(P6Vdp1Slot)=168 B of .bss so the N-bucket arrays (s_buck0/1/2) are a
  * NET-NEGATIVE WRAM-H change -- the +120 B naive version tripped the #228 boot trap
  * (master PC 0x06000956), the title flavor's ceiling being far tighter than GHZ's. */
+#if defined(P6_FRONTEND_MENU)
+/* M1b: the MENU scene NEVER reaches bucket b3 (its widest sprite is the 176px Sound
+ * label -> routes to b1; the catch-all b3 is only hit for w>192 or h in 65..160, and
+ * every menu frame is <=176 wide / <=44 tall). So shrink b3 to 1 slot in the menu --
+ * its 39,680 B/slot box dominates the VDP1 user area, and 4 unused b3 slots + the
+ * 14/18 b0/b1 counts below would overflow JO_VDP1_USER_AREA_SIZE (466,232). With b3=1:
+ * VRAM = 14*5,120 + 18*12,288 + 1*25,600 + 1*39,680 = 358,144 B (108,088 B margin). */
+#define P6_VDP1_NSLOTS  1   /* MENU: b3 catch-all unused -> 1 placeholder slot */
+#else
 #define P6_VDP1_NSLOTS  4   /* Title BIG bucket (Sonic body catch-all); buckets carry the rest */
+#endif
 #elif defined(P6_FRONTEND_LOGOS)
 #define P6_SPR_MAXW     192 /* Logos: widest frame 187 -> mult-8 pad 192 */
 #define P6_SPR_MAXH     96  /* Logos: tallest frame 89 -> 96 */
@@ -169,10 +179,43 @@ __attribute__((used)) int p6_w_vdp1_contentpx = 0; /* sum of w*h per cmd (ideal)
 __attribute__((used)) int p6_w_vdp1_maxw      = 0; /* widest single sprite this frame */
 __attribute__((used)) int p6_w_vdp1_maxh      = 0; /* tallest single sprite this frame */
 
+#if defined(P6_FRONTEND_MENU)
+/* M1b striped-icon ROOT-CAUSE witnesses (this session). The MENU bucket pools
+ * (b0/b1/b2/b3) are uniform-box content-size pools; a MISS on a FULL bucket
+ * EVICTS the LRU slot and p6_title_restage_content RE-DMAs that slot's jo_id +
+ * mutates its __jo_sprite_def CMDSIZE. If a slot that was ALREADY restaged THIS
+ * frame is restaged AGAIN (its lastUse stamp is >= this frame's start clock), an
+ * EARLIER same-jo_id draw command already in the frame's VDP1 list now reads the
+ * NEW rect's pixels/CMDSIZE at flush -> the striped-band garble. p6_w_restage_dbl
+ * counts exactly that condition (the garble proof; 0 == every slot restaged at
+ * most once/frame == no stale-command corruption). p6_w_buckN_fmax = the max
+ * distinct rects requested from bucket N in one frame (the per-frame demand vs
+ * the bucket slot count). All reset in p6_vdp1_perf_reset; the savestate holds the
+ * captured frame's values. MENU flavor only (the GHZ/Title p6_vdp1.o is unchanged). */
+__attribute__((used)) int p6_w_restage_dbl = 0; /* intra-frame double-restage (the garble) */
+__attribute__((used)) int p6_w_buck0_fmax  = 0; /* per-frame restages (misses) in b0 (64x80) */
+__attribute__((used)) int p6_w_buck1_fmax  = 0; /* per-frame restages (misses) in b1 (192x64) */
+__attribute__((used)) int p6_w_buck2_fmax  = 0; /* per-frame restages (misses) in b2 (160x160) */
+__attribute__((used)) int p6_w_buck3_fmax  = 0; /* per-frame restages (misses) in b3 (248x160) */
+/* s_buckMiss[bk] accumulates restages (cache misses -> evict+restage) for bucket bk
+ * THIS frame; perf_reset latches the per-frame MAX into p6_w_buckN_fmax. A frame whose
+ * miss count for a bucket EXCEEDS that bucket's slot count means >=1 slot was restaged
+ * MID-FRAME after an earlier draw already referenced its jo_id -> stale-command garble.
+ * s_restageEpoch increments per frame; s_buckMiss is the within-frame tally. */
+int p6_buckMiss[4] = { 0, 0, 0, 0 }; /* non-static: bumped from p6_title_pool_for */
+#endif
+
 __attribute__((used)) void p6_vdp1_perf_reset(void) /* called at p6_ghz_frame top */
 {
     p6_w_vdp1_cmds = 0; p6_w_vdp1_boxpx = 0; p6_w_vdp1_contentpx = 0;
     p6_w_vdp1_maxw = 0; p6_w_vdp1_maxh = 0;
+#if defined(P6_FRONTEND_MENU)
+    if (p6_buckMiss[0] > p6_w_buck0_fmax) p6_w_buck0_fmax = p6_buckMiss[0];
+    if (p6_buckMiss[1] > p6_w_buck1_fmax) p6_w_buck1_fmax = p6_buckMiss[1];
+    if (p6_buckMiss[2] > p6_w_buck2_fmax) p6_w_buck2_fmax = p6_buckMiss[2];
+    if (p6_buckMiss[3] > p6_w_buck3_fmax) p6_w_buck3_fmax = p6_buckMiss[3];
+    p6_buckMiss[0] = p6_buckMiss[1] = p6_buckMiss[2] = p6_buckMiss[3] = 0;
+#endif
 }
 
 /* W12b: MULTI-SHEET bind table. A handle indexes this table; resident
@@ -237,9 +280,49 @@ static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MA
  * (n_max capped at 4) + the p6_w_vdp1_slots coldn, so the GHZ/Logos builds (no
  * P6_FRONTEND_TITLE) keep the single-pool path byte-identical. */
 #define P6_NB 4
-static P6Vdp1Slot s_buck0[6];                    /* 64x80   */
-static P6Vdp1Slot s_buck1[6];                    /* 192x64  */
-static P6Vdp1Slot s_buck2[6];                    /* 160x160 */
+/* M1b: the MENU scene draws MANY small sprites (the 4 mode rows = icon+shadow+text
+ * each, + headings/prompts) -- far more distinct rects than the Title's ~9. With the
+ * Title bucket counts (6/6/6/4 = 22 slots) the menu THRASHED the LRU (MEASURED
+ * p6_w_vdp1_evicts=3238): a victim slot re-staged with DIFFERENT content keeps the
+ * PREVIOUS sprite's __jo_sprite_def CMDSIZE -> garbage stripes (the title-vdp1-slot-
+ * thrash class). The menu sprites are SMALL (text glyphs <=32px, icons <=48px) so they
+ * route to bucket 0 (64x80) -- give it MANY slots. VRAM (1 B/px 8bpp):
+ * 40*5,120 + 8*12,288 + 3*25,600 + 2*39,680 = 459,264 B < JO_VDP1_USER_AREA_SIZE
+ * (466,232; 6,968 B margin). The TITLE/Logos flavor keeps 6/6/6/4 (this #if is the only
+ * difference; the GHZ build has no buckets). */
+#if defined(P6_FRONTEND_MENU)
+/* M1b STRIPED-ICON FIX (this session) -- MEASURED root cause + sizing.
+ *
+ * The UIModeButton rows draw (decomp UIModeButton_Draw:45-74, per frame): the icon
+ * (MainIcons.bin anim0) + shadow (anim1) [+ altIcon/altShadow for Competition] of each
+ * of the 4 mode rows = ~10 MAINICON rects (88-120px wide, 38-44px tall) -> ALL route to
+ * bucket b1 (192x64; b0=64x80 is too narrow for >64px). The 4 mode TEXT labels (TextEN.bin
+ * anim1 "Main Menu" 86-148px wide x 22) ALSO route to b1. So b1's per-frame demand is
+ * ~14-16 distinct rects. The CRITICAL bug: P6_FRONTEND_MENU was NOT passed to the jo-make
+ * compile of THIS TU (Makefile had no ifeq P6_FRONTEND_MENU block), so this #if was FALSE
+ * and the build used the TITLE #else branch (6/6/6) -> b1 had only 6 slots -> every frame
+ * overflowed -> the LRU EVICTED + p6_title_restage_content RE-DMA'd a slot's jo_id +
+ * mutated its __jo_sprite_def CMDSIZE MID-FRAME, after an EARLIER same-id draw command was
+ * already queued -> VDP1 rasterised the FINAL (wrong) rect for those earlier icon draws =
+ * the RED/BLUE/WHITE horizontal-band garble (the TEXT, drawn LAST per row, won the LRU and
+ * stayed clean). MEASURED p6_w_vdp1_evicts = 37,388; qa_menu_icon_clean.py ROW_ALT = 148.
+ * FIX: (1) Makefile ifeq P6_FRONTEND_MENU -> -DP6_FRONTEND_MENU reaches this compile (so
+ * this branch is taken); (2) size b1 = 18 (> the ~16 demand -> NO eviction). b0 = 14
+ * (small nav/heading/prompt glyphs <64px). The menu NEVER reaches b2 (160x160; needs h>64)
+ * or b3 (catch-all; needs w>192 -- menu max width 176 routes to b1), so both = 1 placeholder
+ * (P6_VDP1_NSLOTS=1 for MENU, set above). VRAM (8bpp, 1 B/px): 14*5,120 + 18*12,288 +
+ * 1*25,600 + 1*39,680 = 358,144 B < JO_VDP1_USER_AREA_SIZE (466,232; 108,088 B margin). */
+#define P6_BK0 14
+#define P6_BK1 18
+#define P6_BK2 1
+#else
+#define P6_BK0 6
+#define P6_BK1 6
+#define P6_BK2 6
+#endif
+static P6Vdp1Slot s_buck0[P6_BK0];               /* 64x80   */
+static P6Vdp1Slot s_buck1[P6_BK1];               /* 192x64  */
+static P6Vdp1Slot s_buck2[P6_BK2];               /* 160x160 */
 /* bucket 3 (248x160 catch-all) reuses s_slots[] + p6_w_vdp1_slots. */
 static int s_buck0n = 0, s_buck1n = 0, s_buck2n = 0;
 static const struct { int bw, bh; } P6_BUCK[P6_NB] = {
@@ -423,7 +506,17 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
  * ========================================================================== */
 static int            s_fillSprBlack = -2; /* -2 = not yet attempted */
 static int            s_fillSprWhite = -2;
+static int            s_fillSprColor = -2; /* M1b: the menu backdrop solid-colour sprite */
+static unsigned short s_fillColorKey = 0;  /* last RGB555 the colour sprite was filled with */
 static unsigned short s_fillPx[16 * 16];
+/* M1b backdrop diag: count fill draws by class + latch the colour sprite's id/key, so a
+ * savestate can localise why the menu backdrop is black (colour-branch reached? sprite
+ * alloc ok? what colour?). FRONT-END only (the whole helper is P6_FRONTEND_TITLE). */
+__attribute__((used)) int p6_w_fill_calls   = 0; /* total p6_fillscreen_saturn calls */
+__attribute__((used)) int p6_w_fill_color   = 0; /* calls that took the "other colour" (menu bg) branch */
+__attribute__((used)) int p6_w_fill_drawn   = 0; /* calls that reached jo_sprite_draw3D */
+__attribute__((used)) int p6_w_fill_colorid = -3;/* s_fillSprColor (>=0 == colour sprite alloc'd) */
+__attribute__((used)) int p6_w_fill_colorkey = 0;/* last colour RGB555 (e.g. gold) */
 
 static int p6_fill_make(unsigned short rgb555)
 {
@@ -437,10 +530,23 @@ static int p6_fill_make(unsigned short rgb555)
     return jo_sprite_add(&img); /* COL_32K RGB direct-colour sprite */
 }
 
+/* M1b: RGB888 (the decomp color, 0xRRGGBB) -> RGB555 with the MSB visible bit. */
+static unsigned short p6_rgb888_to_555(unsigned int c)
+{
+    unsigned int r5 = ((c >> 16) & 0xFF) >> 3;
+    unsigned int g5 = ((c >> 8) & 0xFF) >> 3;
+    unsigned int b5 = (c & 0xFF) >> 3;
+    return (unsigned short)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
+}
+
 __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int aG, int aB)
 {
     int sum, avg, spr;
+    unsigned int rb = (color >> 16) & 0xFF, gb = (color >> 8) & 0xFF, bb = color & 0xFF;
+    int isBlack = (rb == 0 && gb == 0 && bb == 0);
+    int isWhite = (rb >= 0xE0 && gb >= 0xE0 && bb >= 0xE0); /* Flash 0xF0F0F0 / near-white */
 
+    ++p6_w_fill_calls;
     if (aR < 0) aR = 0; else if (aR > 255) aR = 255;
     if (aG < 0) aG = 0; else if (aG > 255) aG = 255;
     if (aB < 0) aB = 0; else if (aB > 255) aB = 255;
@@ -448,26 +554,148 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
     if (sum <= 0)
         return; /* fully transparent -> the content shows through (decomp early-out) */
 
-    /* Lazy-allocate the two solid sprites (once each). 0x8000 = RGB555 visible bit. */
-    if (s_fillSprWhite == -2)
-        s_fillSprWhite = p6_fill_make((unsigned short)(0x8000 | 0x7FFF)); /* white */
-    if (s_fillSprBlack == -2)
-        s_fillSprBlack = p6_fill_make((unsigned short)(0x8000 | 0x0000)); /* black */
-
-    /* Colour select: FadeBlack=0x000000, Flash=0xF0F0F0 -- threshold the red byte. */
-    spr = (((color >> 16) & 0xFF) > 0x80) ? s_fillSprWhite : s_fillSprBlack;
+    /* COLOUR SELECT (3 cases):
+     *  - black (TitleSetup/MenuSetup FadeBlack 0x000000) -> the lazy black sprite.
+     *  - near-white (TitleSetup Flash 0xF0F0F0) -> the lazy white sprite.
+     *  - ANY OTHER colour (M1b: UIBackground_DrawNormal's FillScreen(bgColor) -- the
+     *    Mania main-menu GOLD 0xF0C800, etc.) -> a single re-tintable colour sprite,
+     *    re-filled in place via jo_sprite_replace only when the colour changes (the menu
+     *    backdrop colour is constant per menu, so this re-fills ~once). This makes the
+     *    UIBackground backdrop render its real colour instead of being thresholded black. */
+    if (isBlack) {
+        if (s_fillSprBlack == -2)
+            s_fillSprBlack = p6_fill_make((unsigned short)(0x8000 | 0x0000));
+        spr = s_fillSprBlack;
+    }
+    else if (isWhite) {
+        if (s_fillSprWhite == -2)
+            s_fillSprWhite = p6_fill_make((unsigned short)(0x8000 | 0x7FFF));
+        spr = s_fillSprWhite;
+    }
+    else {
+        unsigned short key = p6_rgb888_to_555(color);
+        ++p6_w_fill_color;
+        if (s_fillSprColor == -2) {
+            s_fillSprColor = p6_fill_make(key);   /* first colour fill (alloc once) */
+            s_fillColorKey = key;
+        }
+        else if (key != s_fillColorKey && s_fillSprColor >= 0) {
+            jo_img img; int i;                    /* re-tint in place (no new alloc) */
+            for (i = 0; i < 16 * 16; ++i) s_fillPx[i] = key;
+            img.width = 16; img.height = 16; img.data = s_fillPx;
+            jo_sprite_replace(&img, s_fillSprColor);
+            s_fillColorKey = key;
+        }
+        spr = s_fillSprColor;
+        p6_w_fill_colorid  = s_fillSprColor;
+        p6_w_fill_colorkey = (int)key;
+    }
     if (spr < 0)
         return; /* alloc failed (VRAM full) -> skip rather than draw garbage */
 
     avg = sum / 3;
-    /* 16x16 sprite * uniform 20.0 = 320x320 -> covers the 320x240 frame, centred. */
+    /* 16x16 sprite * uniform 20.0 = 320x320 -> covers the 320x240 frame, centred.
+     * Z-DEPTH: the black/white intro fades (TitleSetup/MenuSetup Draw, the LAST
+     * drawGroup) must composite ON TOP of the content -> Z=450 (the content Z), where
+     * SGL's Z-sort + painter-order put the last-submitted command on top. The MENU
+     * BACKDROP (the "other colour" branch, UIBackground drawGroup 0 = FIRST) must sit
+     * BEHIND the rows -> Z=460 (farther), so SGL draws it before the Z=450 row sprites.
+     * (UIBackground also draws drawGroup 0 first, so painter-order agrees.) */
     jo_sprite_change_sprite_scale(20.0f);
     if (avg < 170)
         jo_sprite_enable_half_transparency(); /* mid-fade: VDP1 CL_Half 50% blend */
     /* avg >= 170 -> opaque (CL_Replace, the default). */
-    jo_sprite_draw3D(spr, 0, 0, 450);
+    jo_sprite_draw3D(spr, 0, 0, (isBlack || isWhite) ? 450 : 460);
     jo_sprite_disable_half_transparency();
     jo_sprite_restore_sprite_scale();
+    ++p6_w_fill_drawn;
+}
+#endif
+
+#if defined(P6_FRONTEND_MENU)
+/* =============================================================================
+ * M3 (Task #295): RSDK::DrawFace on Saturn -- the menu row PLATES.
+ *
+ * UIWidgets_DrawParallelogram (decomp UIWidgets.c:202-245) builds 4 screen-RELATIVE
+ * verts (it subtracts ScreenInfo->position<<16 first, :233-242) + a flat RGB and
+ * calls RSDK.DrawFace(verts, 4, r,g,b, 0xFF, INK_NONE). UIModeButton_Draw (:64,69)
+ * calls it twice per row: a near-white (0xF0F0F0) plate offset by -buttonBounce and a
+ * black (0x000000) plate offset by +buttonBounce -- the row's light/shadow plate pair.
+ * On Saturn DrawFace was a p6_pack_stubs.cpp no-op so the rows floated on the gold
+ * backdrop. This is the Saturn implementation: a VDP1 FLAT-COLOUR POLYGON.
+ *
+ * MECHANISM (ST-013-R3 VDP1 sec 5 polygon command + SGL ST-238-R1 slPutPolygon):
+ *  - slPutPolygon (jo pulls SGL via JO_COMPILE_USING_SGL) submits one PDATA (a POINT[4]
+ *    vertex table + a 1-entry POLYGON + a 1-entry ATTR) into the VDP1 command list. The
+ *    ATTR encodes a flat-shaded (No_Gouraud), direct-colour (CL32KRGB) polygon -- the
+ *    VDP1 Comm=0x4 polygon-draw command with colour-calc replace (ST-013-R3 sec 5.5.4).
+ *    Verbatim the proven hand-port emitter src/rsdk/drawing.c:_emit_polygon4 (Task #148):
+ *    Dual_Plane (double-sided so a screen-facing 2D UI quad never back-face culls --
+ *    Single_Plane culled every UI polygon, MEASURED), sort SORT_CEN, the sprPolygon
+ *    flag-decomposition into sort/atrb/dir.
+ *  - Coords: jo's SGL polygon vertex table is screen-CENTRED FIXED (origin 160,112 for
+ *    320x224). The decomp verts arrive screen-relative 16.16, so: px = (vert>>16) - 160,
+ *    py = (vert>>16) - 112, then <<16 to FIXED. Same conversion as drawing.c:_fixed_to_
+ *    sgl_x/y with screen_relative=true.
+ *  - Z-DEPTH: the menu icon/text sprites blit at Z=450 (p6_vdp1_blit_flipped's
+ *    jo_sprite_draw3D, p6_vdp1.c:1150/1211); the gold backdrop FillScreen at Z=460. The
+ *    plate must sit BEHIND the icon+text but ABOVE the backdrop -> Z=455. SGL draws
+ *    larger-Z first (farther), so backdrop(460) then plate(455) then row(450) on top.
+ *
+ * Cross-TU: the pack DrawFace stub (p6_pack_stubs.cpp) cannot call slPutPolygon (the
+ * jo/SGL namespace clash, same as the SaturnSheet_FetchRect path). So this jo-side
+ * emitter is reached through a runtime function pointer the pack sets after init
+ * (p6_vdp1_set_drawface, mirroring p6_vdp1_set_fetch). MENU flavor only; GHZ/Title/Logos
+ * p6_vdp1.o is byte-identical (this whole block is #if'd). */
+#define P6_PLATE_Z  455   /* between backdrop(460) and rows(450) */
+static POINT   s_plate_pnt[4];
+/* Screen-facing +Z unit normal (1.0 FIXED) + vertex order 0-1-2-3; Dual_Plane makes
+ * winding irrelevant but a non-degenerate normal is required for SGL sort/cull. */
+static POLYGON s_plate_pol[1] = { { { 0, 0, 0x00010000 }, { 0, 1, 2, 3 } } };
+static ATTR    s_plate_att[1];
+static PDATA   s_plate_pdata  = { s_plate_pnt, 4, s_plate_pol, 1, s_plate_att };
+
+static unsigned short p6_plate_rgb555(int r8, int g8, int b8)
+{
+    unsigned int r5 = ((unsigned)r8 & 0xFF) >> 3;
+    unsigned int g5 = ((unsigned)g8 & 0xFF) >> 3;
+    unsigned int b5 = ((unsigned)b8 & 0xFF) >> 3;
+    return (unsigned short)(0x8000 | (b5 << 10) | (g5 << 5) | r5); /* MSB=opaque */
+}
+
+__attribute__((used)) int p6_w_drawface_calls = 0; /* DrawFace invocations (the plate count) */
+
+/* The emitter the pack DrawFace stub forwards to. verts are screen-relative 16.16
+ * (screen px = vert>>16). count is 3 or 4 (triangle dups the last vertex). */
+__attribute__((used)) void p6_drawface_saturn(const int *vx, const int *vy, int count,
+                                              int r8, int g8, int b8)
+{
+    int i;
+    FIXED fx[4], fy[4];
+    if (count < 3 || count > 4) return;
+    for (i = 0; i < count; ++i) {
+        fx[i] = (FIXED)(((vx[i] >> 16) - (JO_TV_WIDTH_2)) << 16);
+        fy[i] = (FIXED)(((vy[i] >> 16) - (JO_TV_HEIGHT_2)) << 16);
+    }
+    if (count == 3) { fx[3] = fx[2]; fy[3] = fy[2]; } /* degenerate quad */
+
+    s_plate_pnt[0][X] = fx[0]; s_plate_pnt[0][Y] = fy[0]; s_plate_pnt[0][Z] = P6_PLATE_Z << 16;
+    s_plate_pnt[1][X] = fx[1]; s_plate_pnt[1][Y] = fy[1]; s_plate_pnt[1][Z] = P6_PLATE_Z << 16;
+    s_plate_pnt[2][X] = fx[2]; s_plate_pnt[2][Y] = fy[2]; s_plate_pnt[2][Z] = P6_PLATE_Z << 16;
+    s_plate_pnt[3][X] = fx[3]; s_plate_pnt[3][Y] = fy[3]; s_plate_pnt[3][Z] = P6_PLATE_Z << 16;
+
+    /* ATTR encoding == src/rsdk/drawing.c:_emit_polygon4 (the proven hand-port path):
+     * flat-shaded direct-colour replace polygon, double-sided. */
+    s_plate_att[0].flag  = Dual_Plane;
+    s_plate_att[0].sort  = (Uint16)(SORT_CEN | ((sprPolygon >> 16) & 0x1c) | No_Option);
+    s_plate_att[0].texno = No_Texture;
+    s_plate_att[0].atrb  = (Uint16)((CL32KRGB | No_Gouraud | MESHoff) | ((sprPolygon >> 24) & 0xc0));
+    s_plate_att[0].colno = p6_plate_rgb555(r8, g8, b8);
+    s_plate_att[0].gstb  = 0;
+    s_plate_att[0].dir   = (Uint16)(sprPolygon & 0x3f);
+
+    slPutPolygon(&s_plate_pdata);
+    ++p6_w_drawface_calls;
 }
 #endif
 
@@ -580,9 +808,10 @@ void p6_vdp1_frontend_pal_reset(void)
     {
         P6Vdp1Slot *bk[P6_NB];
         int bn, j, n;
+        static const int bkcnt[P6_NB] = { P6_BK0, P6_BK1, P6_BK2, P6_VDP1_NSLOTS };
         bk[0] = s_buck0; bk[1] = s_buck1; bk[2] = s_buck2; bk[3] = s_slots;
         for (bn = 0; bn < P6_NB; ++bn) {
-            n = (bn == 3) ? P6_VDP1_NSLOTS : 6;
+            n = bkcnt[bn];
             for (j = 0; j < n; ++j) {
                 bk[bn][j].sheet   = -1;
                 bk[bn][j].sx = bk[bn][j].sy = bk[bn][j].w = bk[bn][j].h = -1;
@@ -800,6 +1029,17 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
     if (b->slots[victim].sheet >= 0) ++p6_w_vdp1_evicts;             /* reuse of a live slot */
 
     pw = p6_title_restage_content(b->slots[victim].jo_id, srcPx, srcStride, w, h);
+#if defined(P6_FRONTEND_MENU)
+    /* M1b witness: tally this restage (cache miss) against the owning bucket so
+     * perf_reset can latch the per-frame demand (p6_w_buckN_fmax). bk is recovered
+     * by matching the bucket pointer into s_buckets[]. A per-frame miss count >
+     * the bucket's slot count == an intra-frame slot reuse == the striped garble. */
+    {
+        int _bk;
+        for (_bk = 0; _bk < P6_NB; ++_bk)
+            if (b == &s_buckets[_bk]) { ++p6_buckMiss[_bk]; break; }
+    }
+#endif
 
     b->slots[victim].sheet   = sheet;
     b->slots[victim].sx      = sx;
@@ -825,7 +1065,7 @@ static int p6_title_ensure_prealloc(void)
 
     if (s_buckets_prealloc) return 1;
     arr[0] = s_buck0; arr[1] = s_buck1; arr[2] = s_buck2; arr[3] = s_slots;
-    cnt[0] = 6; cnt[1] = 6; cnt[2] = 6; cnt[3] = P6_VDP1_NSLOTS; /* P6_VDP1_NSLOTS==4 */
+    cnt[0] = P6_BK0; cnt[1] = P6_BK1; cnt[2] = P6_BK2; cnt[3] = P6_VDP1_NSLOTS; /* NSLOTS==4 */
     for (bi = 0; bi < P6_NB; ++bi) {
         s_buckets[bi].slots = arr[bi];
         s_buckets[bi].n     = cnt[bi];
@@ -842,7 +1082,7 @@ static int p6_title_ensure_prealloc(void)
     }
     /* p6_w_vdp1_slots tracks bucket-3 occupancy in the witnesses; the slots are now all
      * reserved, so mark it full (the LRU victim path -- not cold-fill -- serves it). */
-    s_buck0n = 6; s_buck1n = 6; s_buck2n = 6; p6_w_vdp1_slots = P6_VDP1_NSLOTS;
+    s_buck0n = P6_BK0; s_buck1n = P6_BK1; s_buck2n = P6_BK2; p6_w_vdp1_slots = P6_VDP1_NSLOTS;
     s_buckets_prealloc = 1;
     return 1;
 }

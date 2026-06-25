@@ -61,7 +61,15 @@ typedef signed int int32;
 // the large p6_ghz_frame/reload -> ~1.6 KB of headroom) carry the extra slots.
 // NSHEETS=12 (VDP1 bind table) is unchanged either way (the Title bind demand is the 3
 // Title surfaces -- logo + sonic + electricity -- + a few engine surfaces << 12).
-#if defined(P6_FRONTEND_TITLE)
+#if defined(P6_FRONTEND_MENU)
+// M1b: the MENU flavor (implies TITLE -> LOGOS) adds 2 slots for the main-menu sheets
+// MAINICON.SHT (slot 13, UI/MainIcons.gif) + TEXTEN.SHT (slot 14, UI/TextEN.gif) on
+// top of the 13 Title+Logo sheets (slots 0..12). 16 = 13 + 2 + 1 margin. The front-end
+// builds gc-drop the large p6_ghz_frame/reload (~1.6 KB headroom), so 7*32 B over the
+// GHZ 9-slot table fits under the #228 ANIMPAK floor. (NSHEETS=12 VDP1 bind table is
+// unchanged -- the menu bind demand is the 2 UI surfaces + a few engine surfaces << 12.)
+#define SATURNSHEET_SLOTS     16
+#elif defined(P6_FRONTEND_TITLE)
 // CP5b.3 (#272): the TITLE flavor adds a 13th slot for TBG.SHT (Title/BG.gif, the
 // TitleBG + Title3DSprite mountains/water/billboard sheet) -- slot 12 (slots 9/10/11
 // = LOGOS/TLOGO/TSONIC). The front-end builds gc-drop the large p6_ghz_frame/reload

@@ -553,12 +553,23 @@ void p6_vdp2_title_clouds_b1_arm(const unsigned char *tilesetPx,
  * NBG1 reads char + map from B1 ONLY (B1's cycle is honored -- not RBG0-claimed). */
 void p6_vdp2_title_clouds_b1_config(int scroll_x, int scroll_y)
 {
-    slCharNbg1(COL_TYPE_256, CHAR_SIZE_2x2);
-    slPageNbg1((void *)P6_CLOUD_CEL, 0, PNB_2WORD); /* cell base = B1 (RBG0 banks ignored) */
-    slPlaneNbg1(PL_SIZE_2x2);                        /* proven geometry (= flat backdrop) */
-    slMapNbg1((void *)P6_CLOUD_MAP, (void *)P6_CLOUD_MAP,
-              (void *)P6_CLOUD_MAP, (void *)P6_CLOUD_MAP); /* map base = B1, all 4 planes */
-    slScrPosNbg1(toFIXED(scroll_x), toFIXED(scroll_y));
+    /* CLOUD-FLICKER FIX (#276, user 2026-06-23 "clouds constantly flickering"):
+     * the static NBG1 GEOMETRY (char/page/plane/map) is asserted ONCE, not every
+     * frame. Re-writing the MPOFN/PLSZ/CHCTL + map registers every frame raced the
+     * SGL vblank register-image DMA and dropped a chunk of cloud cell-fetches on
+     * ~1/4 of frames -> the wisp-blink (qa_title_clouds_stable.py RED: 6/24 dips).
+     * slScrAutoDisp does NOT touch CHCTL/MPOFN/PLSZ (only BGON + the cycle table),
+     * so the geometry PERSISTS; only the SCROLL position changes per frame. */
+    static int s_clouds_geom = 0;
+    if (!s_clouds_geom) {
+        slCharNbg1(COL_TYPE_256, CHAR_SIZE_2x2);
+        slPageNbg1((void *)P6_CLOUD_CEL, 0, PNB_2WORD); /* cell base = B1 (RBG0 banks ignored) */
+        slPlaneNbg1(PL_SIZE_2x2);                        /* proven geometry (= flat backdrop) */
+        slMapNbg1((void *)P6_CLOUD_MAP, (void *)P6_CLOUD_MAP,
+                  (void *)P6_CLOUD_MAP, (void *)P6_CLOUD_MAP); /* map base = B1, all 4 planes */
+        s_clouds_geom = 1;
+    }
+    slScrPosNbg1(toFIXED(scroll_x), toFIXED(scroll_y)); /* scroll: the only per-frame NBG1 write */
     slPriorityNbg1(1);                               /* below RBG0 island (2) + sprites (7) */
 
     /* MPOFN (NBG1 map-offset) IS handled by slMapNbg1 -- DISASSEMBLY-PROVEN, do NOT
