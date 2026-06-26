@@ -43,27 +43,69 @@ def parse_define(txt, name):
     return int(m.group(1), 0) if m else None
 
 
+def parse_frontend_define(txt, name):
+    """Parse a P6_FRONTEND_MENU-gated pool #define. The front-end uniform-pool values
+    live in the `#if defined(P6_FRONTEND_MENU)` block in Object.hpp under the
+    P6_FE_<NAME> alias so the gate can read them WITHOUT a preprocessor (the live block
+    is compile-gated; offline Python sees both arms). Returns None if absent (-> the
+    front-end pool is not yet defined = RED for --frontend)."""
+    m = re.search(r"^#define\s+P6_FE_" + re.escape(name) + r"\s+\(?\s*([0-9xXa-fA-F]+)\s*\)?\s*$",
+                  txt, re.M)
+    return int(m.group(1), 0) if m else None
+
+
 def main():
+    frontend = "--frontend" in sys.argv
     txt = open(OBJHPP, "r", encoding="utf-8", errors="replace").read()
 
-    RESERVE = parse_define(txt, "RESERVE_ENTITY_COUNT")
-    TEMPCNT = parse_define(txt, "TEMPENTITY_COUNT")
-    SCENE   = parse_define(txt, "SCENEENTITY_COUNT")
-    WIDE    = parse_define(txt, "ENTITY_WIDE_SIZE")
-    # NARROW = sizeof(EntityBase); not a #define (struct size). Object.hpp:57 documents it
-    # as the NARROW stride. Parse the cited value; the bijection's self-consistency is
-    # proven for whatever the live stride is (any positive NARROW round-trips), but using
-    # the cited number keeps the proof tied to the source.
-    mnar = re.search(r"sizeof\(EntityBase\)\s*=\s*(\d+)", txt)
-    NARROW = int(mnar.group(1)) if mnar else None
+    if frontend:
+        # FRONT-END uniform-wide pool (P6_FRONTEND_MENU): every slot is ENTITY_WIDE_SIZE
+        # so the dual-stride accessor collapses to base + slot*WIDE (NARROW == WIDE).
+        # Read the P6_FE_* aliases from the live front-end #define block.
+        RESERVE = parse_frontend_define(txt, "RESERVE_ENTITY_COUNT")
+        TEMPCNT = parse_frontend_define(txt, "TEMPENTITY_COUNT")
+        SCENE   = parse_frontend_define(txt, "SCENEENTITY_COUNT")
+        WIDE    = parse_frontend_define(txt, "ENTITY_WIDE_SIZE")
+        # uniform: the scene-region stride IS the wide stride (P6_POOL_NARROW_STRIDE==WIDE)
+        NARROW  = WIDE
+        # The whole point: EntityUISaveSlot = 588 B must FIT a wide slot. Compile-measured.
+        UISAVESLOT = 588
+        # WRAM-L map: the front-end pool lives at P6_LW_ENTITYLIST and must NOT reach the
+        # menu-used DATASTORAGE region. Parse both addresses from p6_io_main.cpp.
+        IOMAIN = os.path.join(ROOT, "tools", "_portspike", "_p6", "p6_io_main.cpp")
+        iotxt = open(IOMAIN, "r", encoding="utf-8", errors="replace").read()
+        def io_addr(nm):
+            mm = re.search(r"#define\s+" + re.escape(nm) + r"\s+(0x[0-9A-Fa-f]+)u?", iotxt)
+            return int(mm.group(1), 16) if mm else None
+        LW_ENTITYLIST = io_addr("P6_LW_ENTITYLIST")
+        LW_LAYOUTBANDS = io_addr("P6_LW_LAYOUTBANDS")   # GHZ-only; free for the menu, hard floor
+        LW_DATASTORAGE = io_addr("P6_LW_DATASTORAGE")   # menu-USED; the pool must end below this
+    else:
+        RESERVE = parse_define(txt, "RESERVE_ENTITY_COUNT")
+        TEMPCNT = parse_define(txt, "TEMPENTITY_COUNT")
+        SCENE   = parse_define(txt, "SCENEENTITY_COUNT")
+        WIDE    = parse_define(txt, "ENTITY_WIDE_SIZE")
+        # NARROW = sizeof(EntityBase); not a #define (struct size). Object.hpp:57 documents it
+        # as the NARROW stride. Parse the cited value; the bijection's self-consistency is
+        # proven for whatever the live stride is (any positive NARROW round-trips), but using
+        # the cited number keeps the proof tied to the source.
+        mnar = re.search(r"sizeof\(EntityBase\)\s*=\s*(\d+)", txt)
+        NARROW = int(mnar.group(1)) if mnar else None
+
+    label = "FRONT-END uniform-wide pool (P6_FRONTEND_MENU)" if frontend else "GHZ dual-stride pool"
+    print("=== qa_p6_i3 (%s address-bijection proof) ===" % label)
+    print("  source: rsdkv5-src/.../Scene/Object.hpp (live Saturn pool #defines)")
 
     miss = [n for n, v in [("RESERVE_ENTITY_COUNT", RESERVE), ("TEMPENTITY_COUNT", TEMPCNT),
                            ("SCENEENTITY_COUNT", SCENE), ("ENTITY_WIDE_SIZE", WIDE),
-                           ("sizeof(EntityBase)", NARROW)] if v is None]
-    print("=== qa_p6_i3 (camera-local pool address-bijection proof, mass-port I3 step 1) ===")
-    print("  source: rsdkv5-src/.../Scene/Object.hpp (live Saturn pool #defines)")
+                           ("NARROW stride", NARROW)] if v is None]
     if miss:
-        print("RED: could not parse %s from Object.hpp -- update the gate's regex." % ", ".join(miss))
+        if frontend:
+            print("RED: could not parse %s -- the front-end uniform pool (P6_FE_* aliases in the "
+                  "#if defined(P6_FRONTEND_MENU) block of Object.hpp) is NOT defined yet. This is "
+                  "the RED baseline for the front-end pool fix." % ", ".join(miss))
+        else:
+            print("RED: could not parse %s from Object.hpp -- update the gate's regex." % ", ".join(miss))
         return 1
 
     ENTITY_COUNT = RESERVE + SCENE + TEMPCNT
@@ -89,11 +131,15 @@ def main():
         return TEMP_START + (off - tempOff) // WIDE
 
     # non-identity involution t (disjoint swaps straddling BOTH stride boundaries +
-    # each region interior) -- the exact permutation the runtime attempt used.
+    # each region interior). Interior scene-region swap points are scaled to the
+    # ACTUAL pool size (a fixed 100<->900 pair would be out of range for the smaller
+    # front-end 384-scene pool -- that is a test artifact, not an accessor defect).
+    sceneA = RESERVE + min(36, max(1, SCENE // 4))
+    sceneB = RESERVE + min(SCENE - 1, max(sceneA - RESERVE + 1, (SCENE * 3) // 4))
     SWAPS = {2: 5, 5: 2,
-             RESERVE - 1: RESERVE, RESERVE: RESERVE - 1,                 # 63<->64 reserve/scene
-             100: 900, 900: 100,
-             TEMP_START - 1: TEMP_START, TEMP_START: TEMP_START - 1,     # 1151<->1152 scene/temp
+             RESERVE - 1: RESERVE, RESERVE: RESERVE - 1,                 # reserve/scene boundary
+             sceneA: sceneB, sceneB: sceneA,                             # scene interior (in-range)
+             TEMP_START - 1: TEMP_START, TEMP_START: TEMP_START - 1,     # scene/temp boundary
              TEMP_START + 8: ENTITY_COUNT - 1, ENTITY_COUNT - 1: TEMP_START + 8}
     def t(s):
         return SWAPS.get(s, s)
@@ -123,7 +169,45 @@ def main():
               % (s, t(s), at(t(s)), slot(at(t(s))), t(slot(at(t(s)))),
                  "OK" if t(slot(at(t(s)))) == s else "FAIL"))
 
-    if invol and div_ok and rt and ni:
+    bijection_ok = invol and div_ok and rt and ni
+
+    if frontend:
+        # FRONT-END-specific data-driven asserts (the WHOLE point of the front-end pool):
+        #   (A) the pool is UNIFORM (NARROW == WIDE) so the dual-stride math collapses --
+        #       no narrow scene region exists to refuse the 588 B EntityUISaveSlot.
+        #   (B) EntityUISaveSlot (588 B, compile-measured) FITS a wide slot.
+        #   (C) the WRAM-L pool window [P6_LW_ENTITYLIST, +listBytes) does NOT reach the
+        #       menu-USED P6_LW_DATASTORAGE region (a collision = the #228-class WRAM trap).
+        uniform_ok = (NARROW == WIDE)
+        fit_ok     = (UISAVESLOT <= WIDE)
+        addr_ok    = (LW_ENTITYLIST is not None and LW_DATASTORAGE is not None)
+        pool_end   = (LW_ENTITYLIST + listBytes) if addr_ok else None
+        nonoverlap = addr_ok and (pool_end <= LW_DATASTORAGE)
+        underbands = addr_ok and LW_LAYOUTBANDS is not None and (pool_end <= LW_LAYOUTBANDS)
+        print("-" * 72)
+        print("  (A) uniform pool  NARROW(%d) == WIDE(%d)                 : %s"
+              % (NARROW, WIDE, "PASS" if uniform_ok else "FAIL"))
+        print("  (B) EntityUISaveSlot 588 B <= WIDE %d                    : %s"
+              % (WIDE, "PASS" if fit_ok else "FAIL"))
+        if addr_ok:
+            print("  WRAM-L: pool [0x%06X,0x%06X) listBytes=%d (0x%X)"
+                  % (LW_ENTITYLIST, pool_end, listBytes, listBytes))
+            print("  (C) pool end 0x%06X <= DATASTORAGE 0x%06X (menu-used) : %s"
+                  % (pool_end, LW_DATASTORAGE, "PASS" if nonoverlap else "FAIL"))
+            print("      (also <= LAYOUTBANDS 0x%06X, GHZ-only/free : %s)"
+                  % (LW_LAYOUTBANDS if LW_LAYOUTBANDS else 0, "PASS" if underbands else "n/a"))
+        else:
+            print("  (C) RED: could not parse P6_LW_ENTITYLIST/DATASTORAGE from p6_io_main.cpp")
+        if bijection_ok and uniform_ok and fit_ok and nonoverlap:
+            print("RESULT: GREEN -- the FRONT-END uniform-wide pool is a clean bijection, every "
+                  "slot fits EntityUISaveSlot (588<=%d), and the WRAM-L window does not collide "
+                  "with the menu DATASTORAGE. The 10 UISaveSlots can register + seat." % WIDE)
+            return 0
+        print("RESULT: RED -- the front-end uniform pool is not valid yet (see the FAIL above). "
+              "Do NOT ship the menu pool until A+B+C are all PASS.")
+        return 1
+
+    if bijection_ok:
         print("RESULT: GREEN -- the address<->slot indirection is an exact bijection AND "
               "survives a non-identity remap across both stride boundaries; the pool shrink "
               "can safely make SaturnSlotToPoolSlot/SaturnEntitySlot a real table.")

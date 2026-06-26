@@ -109,6 +109,20 @@ CORE_INC="-I$PLAT -I$SHIM -I$SRC -I$DEPS -I$NEWLIB"
 CXXFLAGS="-x c++ -std=gnu++11 -m2 -O2 -include stdlib.h -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-builtin -ffunction-sections -fdata-sections"
 # Every engine TU shares the SAME header view -> P6_SCENE_TEST on all of them.
 ENG_DEFS="$CORE_DEFS -DRETRO_SATURN_FILEIO -DP6_SCENE_TEST"
+# Task #296 (M2 front-end uniform-wide entity pool): the P6_FRONTEND_MENU pool block in
+# Object.hpp changes ENTITY_COUNT / the region strides / ENTITYLIST_SIZE_BYTES + the inline
+# SaturnEntityAt/SaturnEntitySlot accessors. EVERY engine TU that includes RetroEngine.hpp
+# (Object/Scene/Collision/RetroEngine/Link/Math/Reader/Storage/Text/Sprite/DefaultObject/
+# DevOutput/Input) bakes that geometry, so they MUST all see the SAME flag or the per-TU
+# entity addresses diverge -- a SILENT ODR-class split (MEASURED 2026-06-25: p6_io_main.o
+# compiled the 512x592 uniform pool while Scene_Object.o compiled the 1216 dual-stride pool
+# -> the whole entity system reads garbage -> the Menu never registers; a settled frame-90
+# capture showed MenuSetup/UIControl classID=0). Threading it through the SHARED ENG_DEFS
+# guarantees every core TU agrees. P6_FRONTEND_MENU is the ONLY front-end flag that gates
+# engine source (verified: its sole uses are Object.cpp:1512 + Object.hpp:59; P6_FRONTEND_TITLE
+# /LOGOS gate Audio.cpp, NOT the pool) -> thread ONLY it here. DEFAULT / Title / GHZ -> the
+# :+ expands to nothing -> ENG_DEFS unchanged -> every non-menu .o BYTE-IDENTICAL.
+ENG_DEFS="$ENG_DEFS ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU}"
 MINIZ_DEFS="-DMINIZ_NO_STDIO -DMINIZ_NO_TIME -DMINIZ_NO_ARCHIVE_APIS -DMINIZ_NO_ARCHIVE_WRITING_APIS -DNDEBUG"
 
 echo "=============================================================="
@@ -447,7 +461,9 @@ if [ -n "${P6_FRONTEND_MENU:-}" ]; then
                Menu_UIModeButton:Game_UIModeButton \
                Menu_UIWidgets:Game_UIWidgets \
                Menu_UISubHeading:Game_UISubHeading \
-               Menu_UIButtonPrompt:Game_UIButtonPrompt; do
+               Menu_UIButtonPrompt:Game_UIButtonPrompt \
+               Menu_UISaveSlot:Game_UISaveSlot \
+               Menu_UITransition:Game_UITransition; do
         src_tu="${wfm%%:*}"; out_tu="${wfm##*:}"
         "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
             $GAME_DEFS -DP6_FRONTEND_MENU -I"$GINC" -I"$NEWLIB" \
@@ -623,6 +639,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_MENU:+-u _p6_w_menusetup_classid -u _p6_w_uicontrol_classid -u _p6_w_menu_objcount} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_treebuilt -u _p6_w_menu_modebtn_classid -u _p6_w_menu_vdp1_landed} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_edge_calls -u _p6_w_menu_edge_last} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_menu_saveslot_classid -u _p6_w_menu_input_seen} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_menu_startscene_tag -u _p6_w_menu_start_cat -u _p6_w_menu_start_listpos} \
+    ${P6_FRONTEND_MENU:+-u _p6_menu_start_witness_root} \
     ${P6_FRONTEND_MENU:+-u _MathHelpers_PointInHitbox} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipicture_aniframes -u _p6_w_uipicture_framesNN} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_drawgrp -u _p6_w_uipic_active -u _p6_w_uipic_visible -u _p6_w_uipic_onscreen} \

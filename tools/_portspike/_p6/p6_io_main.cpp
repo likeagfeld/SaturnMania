@@ -641,12 +641,21 @@ __attribute__((used)) int32 p6_w_i2_resolve_ok = 0;
 static EntityBase *p6_i2_direct(int32 slot)
 {
     uint8 *base = (uint8 *)objectEntityList;
+    // P6_POOL_NARROW_STRIDE = sizeof(EntityBase) (dual-stride scene region).
+#if defined(P6_FRONTEND_MENU)
+    // Task #298: mirror SaturnEntityAt's wide-scene sub-pool routing so p6_i2_selfcheck
+    // keeps resolve_ok==1 (slot == pool slot for the menu -- identity remap). 0 == narrow
+    // (.bss default); a wide record stores (index+1) -- MUST match SaturnEntityAt's encoding.
+    if (slot >= RESERVE_ENTITY_COUNT && slot < TEMPENTITY_START && p6_widescene_map[slot - RESERVE_ENTITY_COUNT] != 0)
+        return (EntityBase *)(base + P6_WIDESCENE_OFF
+                              + (uint32)(p6_widescene_map[slot - RESERVE_ENTITY_COUNT] - 1) * P6_WIDESCENE_SIZE);
+#endif
     if (slot < RESERVE_ENTITY_COUNT)
         return (EntityBase *)(base + (uint32)slot * ENTITY_WIDE_SIZE);
     if (slot < TEMPENTITY_START)
         return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE
-                              + (uint32)(slot - RESERVE_ENTITY_COUNT) * sizeof(EntityBase));
-    return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase)
+                              + (uint32)(slot - RESERVE_ENTITY_COUNT) * P6_POOL_NARROW_STRIDE);
+    return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * P6_POOL_NARROW_STRIDE
                           + (uint32)(slot - TEMPENTITY_START) * ENTITY_WIDE_SIZE);
 }
 // P6.8 I2 load-time self-check: walk every slot once (1216 slots, NOT per-frame --
@@ -925,6 +934,39 @@ __attribute__((used)) void p6_menu_layout_scroll_latch(void)
         p = p6_w_menu_vis_py;   p[0] = p[0];
         p = p6_w_menu_vis_act;  p[0] = p[0];
     }
+}
+// =============================================================================
+// M2 (qa_engine_menu_start.py): the START-GAME path witnesses.
+//   S1 p6_w_menu_saveslot_classid : UISaveSlot registered + classID resolved (>0).
+//      The save-select slot widget is ported (Game_UISaveSlot.o). Written by the
+//      overlay witness (needs the Mania Game.h UISaveSlot type).
+//   S2 p6_w_menu_input_seen : a STICKY OR of UIControl->any{Confirm,Down,Up,Left,
+//      Right}Press observed across the run -- proves the Saturn pad reaches the live
+//      UIControl's input read (UIControl_ProcessInputs reads ControllerInfo). Also
+//      written by the overlay witness (UIControl is the overlay-registered class).
+//      A NON-ZERO value == an injected press was sampled by the menu tick.
+//   S3 p6_w_menu_startscene_tag / p6_w_menu_start_cat : latched by the PACK in the
+//      p6_frontend_frame ENGINESTATE_LOAD branch when MenuSetup_SaveSlot_ActionCB's
+//      RSDK.SetScene("Cutscenes","Angel Island Zone") fires. SetScene (Scene.cpp:
+//      1530-1553) sets sceneInfo.activeCategory + sceneInfo.listPos by md5 match;
+//      the AIZ scene's folder is "AIZ" (GameConfig verified) -> tag 'A'<<8|'I' =
+//      0x4149. start_cat = sceneInfo.activeCategory at the latch (the Cutscenes idx).
+//      sticky: once the AIZ tag is seen it is NOT overwritten by a later GHZ load.
+__attribute__((used)) int32 p6_w_menu_saveslot_classid = 0;
+__attribute__((used)) int32 p6_w_menu_input_seen       = 0;
+__attribute__((used)) int32 p6_w_menu_startscene_tag   = 0;      // folder tag at the start-game SetScene
+__attribute__((used)) int32 p6_w_menu_start_cat        = -1;     // sceneInfo.activeCategory at that load
+__attribute__((used)) int32 p6_w_menu_start_listpos    = -1;     // sceneInfo.listPos at that load (diag)
+// PACK gc-root for the two overlay-written witnesses (same pattern as the M2a block
+// above -- the overlay's -R import needs them DEFINED in game.elf).
+__attribute__((used)) void p6_menu_start_witness_root(void)
+{
+    volatile int32 *q;
+    q = &p6_w_menu_saveslot_classid; *q = *q;
+    q = &p6_w_menu_input_seen;       *q = *q;
+    q = &p6_w_menu_startscene_tag;   *q = *q;
+    q = &p6_w_menu_start_cat;        *q = *q;
+    q = &p6_w_menu_start_listpos;    *q = *q;
 }
 #endif
 #if defined(P6_FRONTEND_LOGOS)
@@ -2177,6 +2219,9 @@ extern "C" void p6_player_witness_pre(int32 startSlot, int32 sceneCount);
 extern "C" void p6_player_witness_post(void);
 extern "C" void p6_player_witness_tick(void);
 extern "C" void p6_cont_witness(void); // P6.8 Step A: SLOT_PLAYER1 continuous snapshot
+#if defined(P6_FRONTEND_MENU)
+extern "C" void p6_widescene_reset(void); // Task #298: reset the wide-scene sub-pool maps (Object.cpp)
+#endif
 // O1 step 2: p6_brg_witness + p6_loop_witness MOVED into the overlay (p6_ovl_ghz.c)
 // WITH Bridge/PlaneSwitch -- the resident pack no longer names those globals; the
 // overlay writes p6_w_brg_*/p6_w_loop_* via the ld -R import, through s_ovl.witness_fn.
@@ -5266,6 +5311,13 @@ static void p6_scene_load_and_arm(void)
     // GHZ player otherwise inherits uninitialized memory (100 rings + fire shield). The
     // game-side reset (p6_wave1_reg.c) also witnesses the pre-reset garbage.
     p6_player_newgame_reset();
+#if defined(P6_FRONTEND_MENU)
+    // Task #298 (M2): reset the wide-scene sub-pool maps to all-narrow BEFORE InitObjects
+    // populates them (ResetEntitySlot routes oversize scene placements during entity
+    // Create). Without this, stale mappings from a prior scene load leak into this one.
+    // (extern declared at file scope above -- a block-scope linkage spec is ill-formed C++.)
+    p6_widescene_reset();
+#endif
     p6_w_load_step = 34; // #251 phase-2: InitObjects (entity Create/StageLoad)
     InitObjects();
     // #256 FIX: real Mania's Player_LoadSprites (Player.c:779 foreach_all(Player))
@@ -5758,6 +5810,24 @@ static void p6_frontend_frame(void)
     // the advance FIRED (p6_w_transitions) so the chain readiness is measurable.
     if (sceneInfo.state == ENGINESTATE_LOAD) {
         ++p6_w_transitions;
+#if defined(P6_FRONTEND_MENU)
+        // M2 (qa_engine_menu_start.py) S3: the START-GAME SetScene fired. The select
+        // chain (Mania Mode -> new save slot) reaches MenuSetup_SaveSlot_ActionCB
+        // (MenuSetup.c:1121) which calls RSDK.SetScene("Cutscenes","Angel Island Zone")
+        // + RSDK.LoadScene() -> sceneInfo.state = ENGINESTATE_LOAD. SetScene already
+        // updated sceneInfo.activeCategory + listPos (Scene.cpp:1530-1553); latch the
+        // loaded scene's folder tag + category HERE (this is the one frame they hold
+        // the AIZ target before the frontend swallows the load below). STICKY on the
+        // AIZ tag (0x4149 'AI') so a later (non-AIZ) load cannot clear the evidence.
+        if (p6_w_menu_startscene_tag != 0x4149) {
+            const char *sf = sceneInfo.listData[sceneInfo.listPos].folder;
+            int32 tag = (int32)(((uint32)(uint8)sf[0] << 8)
+                                | (uint32)(uint8)(sf[0] ? sf[1] : 0));
+            p6_w_menu_startscene_tag = tag;
+            p6_w_menu_start_cat      = (int32)sceneInfo.activeCategory;
+            p6_w_menu_start_listpos  = (int32)sceneInfo.listPos;
+        }
+#endif
 #if defined(P6_FRONTEND_CHAIN)
         // CP5c (Task #270): the FLOW chain. When the auto-advance fires FROM the
         // Logos scene, do NOT swallow -- carry the front-end to the Title screen by
@@ -5964,6 +6034,7 @@ static void p6_frontend_frame(void)
     // confirming the rows used the correct transform (UIControl_Draw can no longer leave
     // it (0,0) because the force-set ran first AND the overlay re-asserts each frame).
     p6_menu_layout_scroll_latch();
+    p6_menu_start_witness_root(); // M2: gc-root the start-game witnesses (overlay -R import)
 #endif
 #else
     // CP5b.7 A/B: skip ALL title VDP1 sprite emit (no sprites added to the SGL sort

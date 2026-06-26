@@ -26,6 +26,37 @@ namespace RSDK
 // NOT a #define. Every non-Saturn build keeps the stock values byte-identical.
 #define OBJECT_COUNT (0x100)
 
+// =====================================================================
+// ENTITY POOL -- GHZ/Title dual-stride (UNCONDITIONAL) + front-end
+// WIDE-SCENE SUB-POOL for EntityUISaveSlot (Task #296/#298 / M2)
+// ---------------------------------------------------------------------
+// The Mania MENU's start-game path needs EntityUISaveSlot (588 B, compile-
+// measured -- 11 non-Plus Animators dominate), placed at 10 SCENE slots in
+// Menu/Scene1.bin. The GHZ dual-stride pool's scene slots are NARROW
+// (sizeof(EntityBase)=344); even the WIDE reserve/temp regions are 556 ->
+// RegisterObject (Object.cpp, > ENTITY_WIDE_SIZE) AND ResetEntitySlot
+// (Object.cpp, > sizeof(EntityBase) in a scene slot) BOTH refuse 588.
+//
+// FIX (user-chosen 2026-06-25, menu-uniform-pool-crash-widesubpool-design):
+// the prior UNIFORM-WIDE pool CRASHED the menu (master PC 0x06000956 inside
+// MenuSetup_InitAPI -- a subtle 512x592 geometry bug; DECISIVE bisect: the
+// GHZ dual-stride pool RENDERS the menu). So keep the working dual-stride
+// pool BYTE-IDENTICAL and add a SMALL WIDE-SCENE SUB-POOL for the oversize
+// scene placements plus a remap, all #if defined(P6_FRONTEND_MENU). The
+// dual-stride defines below are now UNCONDITIONAL (GHZ/Title/menu all use
+// them); the front-end appends the sub-pool after the dual-stride backing
+// and routes the 10 UISaveSlot scene slots to it via SaturnEntityAt/Slot.
+//
+// SAFETY (WRAM-L, MEASURED): the dual-stride backing is at
+// P6_LW_ENTITYLIST=0x243000, size P6_DUALSTRIDE_BYTES=445,440 -> ends
+// 0x2AFC00. The 16x592=9,472 B sub-pool occupies 0x2AFC00..0x2B2100, which
+// is the GHZ LAYOUTBANDS window (0x2AFC00..0x2BC400). The menu NEVER mounts a
+// <TAG>LAYT.BIN band store (the GHZ1LAYT load is gated #if !P6_FRONTEND_TITLE
+// in p6_io_main.cpp, and cd/ has no menu LAYT) -> that window is dead space
+// for the menu -> no collision. End 0x2B2100 < DATASTORAGE 0x2BC400 (42 KB
+// headroom). For GHZ/Title (no P6_FRONTEND_MENU) the sub-pool defines + the
+// accessor remap blocks expand to NOTHING -> ENTITYLIST_SIZE_BYTES ==
+// P6_DUALSTRIDE_BYTES -> byte-identical to the working dual-stride pool.
 #define RESERVE_ENTITY_COUNT (0x40)
 // P6.7 W11b (Task #226) GHZ-SCALE entity flip, per the P6.7b contract
 // (SaturnMemoryMap.h P68_RESERVE/SCENE/TEMP_ENTITIES): GHZ1 places 1,041
@@ -62,7 +93,10 @@ namespace RSDK
 // threshold moves to ENTITY_WIDE_SIZE, and ResetEntitySlot refuses an
 // oversize class aimed at a narrow slot (witnessed).
 #define ENTITY_WIDE_SIZE (556)
-#define ENTITYLIST_SIZE_BYTES                                                                                                                        \
+// P6_DUALSTRIDE_BYTES = the dual-stride pool's byte size (uses SCENEENTITY_COUNT,
+// NOT P6_POOL_SCENE_PHYS). The front-end appends a wide-scene sub-pool after this
+// (ENTITYLIST_SIZE_BYTES below); GHZ/Title set ENTITYLIST_SIZE_BYTES == this.
+#define P6_DUALSTRIDE_BYTES                                                                                                                           \
     ((uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)SCENEENTITY_COUNT * sizeof(EntityBase)                                                \
      + (uint32)TEMPENTITY_COUNT * ENTITY_WIDE_SIZE)
 // P6.8 I3b camera-local pool SHRINK -- the PHYSICAL scene-slot count (vs the 1088 LOGICAL
@@ -74,6 +108,47 @@ namespace RSDK
 // too-small offline proxy box (101) -- DISPROVEN. Sized to the census ceiling (binding rule:
 // never one zone). Pool = 64*556 + 640*344 + 64*556 = 291,328 B (frees ~150 KB WRAM-L vs 445,440).
 #define P6_POOL_SCENE_PHYS (640)
+// Dual-stride: the scene-region stride is the narrow EntityBase struct.
+// Expanding to sizeof(EntityBase) here is a textual no-op vs a hardcoded
+// `sizeof(EntityBase)` in the accessor -> byte-identical.
+#define P6_POOL_NARROW_STRIDE (sizeof(EntityBase))
+
+// ---------------------------------------------------------------------
+// FRONT-END WIDE-SCENE SUB-POOL (Task #298 / M2). #if defined(P6_FRONTEND_MENU)
+// ONLY -> GHZ/Title expand to nothing (ENTITYLIST_SIZE_BYTES == the dual-stride
+// size, P6_MAX_ENTITY_SIZE == ENTITY_WIDE_SIZE -> byte-identical pool + refusals).
+// The sub-pool of P6_WIDESCENE_COUNT x P6_WIDESCENE_SIZE records is appended after
+// the dual-stride backing at P6_WIDESCENE_OFF; ResetEntitySlot routes an oversize
+// scene placement (588 B UISaveSlot) to a free sub-pool record + records the slot
+// mapping, and SaturnEntityAt/SaturnEntitySlot honor the mapping. See the WRAM-L
+// SAFETY note above (sub-pool lands in the menu-unused LAYOUTBANDS window).
+#if defined(P6_FRONTEND_MENU)
+#define P6_WIDESCENE_COUNT (16)
+#define P6_WIDESCENE_SIZE  (592) // >= EntityUISaveSlot 588; even alignment
+#define P6_WIDESCENE_OFF   (P6_DUALSTRIDE_BYTES)
+#define ENTITYLIST_SIZE_BYTES (P6_DUALSTRIDE_BYTES + (uint32)P6_WIDESCENE_COUNT * P6_WIDESCENE_SIZE)
+#define P6_MAX_ENTITY_SIZE (P6_WIDESCENE_SIZE)
+// p6_widescene_map[i]     : for a scene slot ps in [RESERVE, TEMPENTITY_START),
+//                           indexed by i = (ps - RESERVE); -1 == narrow (inline
+//                           dual-stride address), else 0..P6_WIDESCENE_COUNT-1 ==
+//                           the sub-pool record this scene slot routes to. Sized
+//                           SCENEENTITY_COUNT to cover the FULL guarded index range
+//                           (ps < TEMPENTITY_START => i < SCENEENTITY_COUNT); the
+//                           prior P6_POOL_SCENE_PHYS=640 sizing (design memo) is too
+//                           small for that guard -- Menu's max scene placement is 290
+//                           (measured _parse_menu_scene.py), fits either way, but the
+//                           array bound must match the indexing guard, not the
+//                           physical-slot count. +896 B front-end .bss (~167 KB free).
+// p6_widescene_revslot[r] : the LOGICAL slot that owns sub-pool record r (the
+//                           SaturnEntitySlot inverse).
+// p6_widescene_used       : count of sub-pool records allocated this scene.
+extern int16 p6_widescene_map[SCENEENTITY_COUNT];
+extern int16 p6_widescene_revslot[P6_WIDESCENE_COUNT];
+extern int32 p6_widescene_used;
+#else
+#define ENTITYLIST_SIZE_BYTES (P6_DUALSTRIDE_BYTES)
+#define P6_MAX_ENTITY_SIZE (ENTITY_WIDE_SIZE)
+#endif
 
 // P6.7 W11b group-list entry caps (P68_TYPEGROUP/DRAWGROUP_ENTRY_CAP):
 // stock TypeGroupList/DrawList embed entries[ENTITY_COUNT] -- at 0x500
@@ -475,12 +550,25 @@ inline __attribute__((noinline)) EntityBase *SaturnEntityAt(int32 slot)
     int32 ps    = SaturnSlotToPoolSlot(slot); // I2 indirection (identity now; I3 -> table)
     int32 sphys = p6_pool_scene_phys;         // == SCENEENTITY_COUNT until the shrink (byte-identical)
     uint8 *base = (uint8 *)objectEntityList;
+    // P6_POOL_NARROW_STRIDE = sizeof(EntityBase) (dual-stride scene region).
+#if defined(P6_FRONTEND_MENU)
+    // Wide-scene sub-pool routing (Task #298): a scene slot mapped to a sub-pool
+    // record resolves to the sub-pool address, NOT the inline narrow address.
+    // (ps == slot for the menu -- no compaction runs; identity remap.)
+    // ENCODING: map[]==0 is NARROW (the .bss default + the post-reset state) -- a wide
+    // record stores (recordIndex + 1), so the uninitialized/zeroed map is correctly
+    // all-narrow with NO reset-ordering dependency (the -1 sentinel + `>=0` test redirected
+    // EVERY scene slot to record 0 whenever the map was still .bss-zero -> black render).
+    if (ps >= RESERVE_ENTITY_COUNT && ps < TEMPENTITY_START && p6_widescene_map[ps - RESERVE_ENTITY_COUNT] != 0)
+        return (EntityBase *)(base + P6_WIDESCENE_OFF
+                              + (uint32)(p6_widescene_map[ps - RESERVE_ENTITY_COUNT] - 1) * P6_WIDESCENE_SIZE);
+#endif
     if (ps < RESERVE_ENTITY_COUNT)
         return (EntityBase *)(base + (uint32)ps * ENTITY_WIDE_SIZE);
     if (ps < RESERVE_ENTITY_COUNT + sphys)
         return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE
-                              + (uint32)(ps - RESERVE_ENTITY_COUNT) * sizeof(EntityBase));
-    return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)sphys * sizeof(EntityBase)
+                              + (uint32)(ps - RESERVE_ENTITY_COUNT) * P6_POOL_NARROW_STRIDE);
+    return (EntityBase *)(base + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE + (uint32)sphys * P6_POOL_NARROW_STRIDE
                           + (uint32)(ps - RESERVE_ENTITY_COUNT - sphys) * ENTITY_WIDE_SIZE);
 }
 inline int32 SaturnEntitySlot(EntityBase *entity)
@@ -488,13 +576,20 @@ inline int32 SaturnEntitySlot(EntityBase *entity)
     uint32 off       = (uint32)((uint8 *)entity - (uint8 *)objectEntityList);
     int32  sphys     = p6_pool_scene_phys;    // == SCENEENTITY_COUNT until the shrink (byte-identical)
     uint32 narrowOff = (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE;
-    uint32 tempOff   = narrowOff + (uint32)sphys * sizeof(EntityBase);
+    uint32 tempOff   = narrowOff + (uint32)sphys * P6_POOL_NARROW_STRIDE;
     if (off >= ENTITYLIST_SIZE_BYTES)
         return 0;
+#if defined(P6_FRONTEND_MENU)
+    // Wide-scene sub-pool inverse (Task #298): an entity at >= P6_WIDESCENE_OFF is a
+    // sub-pool record -> recover its LOGICAL scene slot from the reverse map. Checked
+    // BEFORE the dual-stride temp arm (the sub-pool sits ABOVE tempOff in the backing).
+    if (off >= P6_WIDESCENE_OFF)
+        return (int32)p6_widescene_revslot[(off - P6_WIDESCENE_OFF) / P6_WIDESCENE_SIZE];
+#endif
     if (off < narrowOff)
         return (int32)(off / ENTITY_WIDE_SIZE);
     if (off < tempOff)
-        return RESERVE_ENTITY_COUNT + (int32)((off - narrowOff) / sizeof(EntityBase));
+        return RESERVE_ENTITY_COUNT + (int32)((off - narrowOff) / P6_POOL_NARROW_STRIDE);
     return (RESERVE_ENTITY_COUNT + sphys) + (int32)((off - tempOff) / ENTITY_WIDE_SIZE);
 }
 #define RSDK_ENTITY_AT(slot) (RSDK::SaturnEntityAt((int32)(slot)))

@@ -175,6 +175,18 @@ extern ObjectUIModeButton   *UIModeButton;
 extern int32 p6_w_menu_treebuilt, p6_w_menu_modebtn_classid;
 extern int32 p6_w_menu_force_scrx, p6_w_menu_force_scry; /* pack witnesses, -R import */
 void p6_menu_apic_init(void);
+/* M2 (qa_engine_menu_start.py): the start-game path. UISaveSlot is the save-select
+ * slot widget (the start-game trigger); UITransition is the mode-button -> Save-Select
+ * transition (UIModeButton_SelectedCB -> UITransition_StartTransition runs the actionCB
+ * through the transition). Both verbatim Game_*.o link into the overlay (OVL_FE) in the
+ * Menu flavor; their globals come from those TUs. The S1/S2 witnesses are pack globals
+ * (ld -R import, DEFINED in p6_io_main.cpp):
+ *   p6_w_menu_saveslot_classid = UISaveSlot->classID (S1, the slot widget is registered)
+ *   p6_w_menu_input_seen       = sticky OR of UIControl->any{Confirm,Down,Up,Left,Right}Press
+ *                                (S2, a Saturn-pad press reached the live UIControl). */
+extern ObjectUISaveSlot     *UISaveSlot;
+extern ObjectUITransition   *UITransition;
+extern int32 p6_w_menu_saveslot_classid, p6_w_menu_input_seen;
 
 /* M2b/M3 (Task #294/#295): SATURN-NATIVE 320 MENU LAYOUT, applied by the pack each frame
  * (api->menu_layout_fn) after ProcessObjects + before ProcessObjectDrawLists.
@@ -472,6 +484,30 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityUIModeButton), (unsigned)sizeof(ObjectUIModeButton),
                               UIModeButton_Update, UIModeButton_LateUpdate, UIModeButton_StaticUpdate,
                               UIModeButton_Draw, UIModeButton_Create, UIModeButton_StageLoad, UIModeButton_Serialize);
+    /* M2 (Task #298): UISaveSlot + UITransition registration RE-ENABLED. The
+     * 0x06000956 crash was the UNIFORM 512x592 pool (DECISIVE bisect: the GHZ
+     * dual-stride pool renders the menu); the fix keeps the dual-stride pool
+     * byte-identical and routes EntityUISaveSlot (588 B) to a wide-scene sub-pool
+     * (Object.hpp/Object.cpp #if P6_FRONTEND_MENU). The bisect #if 0 is removed. */
+    /* M2: UISaveSlot -- the 10 save-select slot widgets (Menu/Scene1.bin AUDIT 1). The
+     * SELECT chain (confirm a slot -> UISaveSlot_State_Selected grows fxRadius -> runs
+     * actionCB = MenuSetup_SaveSlot_ActionCB -> SetScene("Cutscenes","Angel Island Zone")).
+     * UISaveSlot_StageLoad loads "UI/SaveSelect.bin" via the engine pack (no new cd/ asset).
+     * Its closure (SaveGame, UIWidgets, UIDialog, UIWaitSpinner, API helpers) resolves via
+     * p6_closure_edge + Game_UIWidgets.o + the engine table (MEASURED satisfiable). */
+    api->register_object_full((void **)&UISaveSlot, "UISaveSlot",
+                              (unsigned)sizeof(EntityUISaveSlot), (unsigned)sizeof(ObjectUISaveSlot),
+                              UISaveSlot_Update, UISaveSlot_LateUpdate, UISaveSlot_StaticUpdate,
+                              UISaveSlot_Draw, UISaveSlot_Create, UISaveSlot_StageLoad, UISaveSlot_Serialize);
+    /* M2: UITransition -- the screen-wipe transition (1 placement). UIModeButton_SelectedCB
+     * (UIModeButton.c:208) runs the mode row's actionCB ONLY through UITransition_StartTransition;
+     * without it, Mania Mode -> "Save Select" never fires. UITransition_StartTransition derefs
+     * UIDialog->activeDialog (UITransition.c:57) -- p6_menu_apic_init installs a real zeroed
+     * UIDialog instance (activeDialog==NULL) so that deref is valid (UIDialog is NOT placed). */
+    api->register_object_full((void **)&UITransition, "UITransition",
+                              (unsigned)sizeof(EntityUITransition), (unsigned)sizeof(ObjectUITransition),
+                              UITransition_Update, UITransition_LateUpdate, UITransition_StaticUpdate,
+                              UITransition_Draw, UITransition_Create, UITransition_StageLoad, UITransition_Serialize);
 #endif
     /* MASS-PORT BATCH 1 (verified-CLEAN drop-ins; closure self-confirmed: only
      * Zone/Player/SceneInfo/DebugMode/Zone_RotateOnPivot, all ported). Decoration =
@@ -854,6 +890,19 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
             p6_w_menu_visctrls   = vis;
             p6_w_menu_ctrl_count = total;
         }
+    }
+    /* M2 (qa_engine_menu_start.py) S1+S2. S1: UISaveSlot registered + classID resolved
+     * (the start-game slot widget is live). S2: a STICKY OR of the live UIControl input
+     * flags -- UIControl_ProcessInputs (UIControl.c:227-245) sets any{Confirm,Down,Up,Left,
+     * Right}Press from ControllerInfo when an input slot fed by the Saturn pad presses. The
+     * UIControl object's any*Press fields are global on ObjectUIControl, so reading them
+     * here proves the menu tick SAW a real pad press (||-accumulate across frames -> once
+     * set, stays set; a single injected press registers it). */
+    if (UISaveSlot && UISaveSlot->classID) p6_w_menu_saveslot_classid = (int32)UISaveSlot->classID;
+    if (UIControl) {
+        if (UIControl->anyConfirmPress || UIControl->anyDownPress || UIControl->anyUpPress
+            || UIControl->anyLeftPress || UIControl->anyRightPress || UIControl->anyBackPress)
+            p6_w_menu_input_seen = 1;
     }
 #endif
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;

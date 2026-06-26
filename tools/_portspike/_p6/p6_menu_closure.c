@@ -68,7 +68,10 @@ ObjectUILeaderboard    *UILeaderboard    = NULL;
 // Attack/Competition/Options); foreach_all(UIModeButton,...) at MenuSetup_SetupActions
 // :507 wires their actionCB, and UIModeButton_Draw blits each row's icon+text+plates.
 ObjectUIResPicker      *UIResPicker      = NULL;
-ObjectUISaveSlot       *UISaveSlot       = NULL; // M2: the save-select start-game slot
+// M2: UISaveSlot is now a REGISTERED, overlay-resident object (Game_UISaveSlot.o links
+// into OVL_FE) -- its global is provided by that .o, no longer a NULL stub here. It is the
+// save-select start-game slot: confirm a slot -> UISaveSlot_State_Selected -> actionCB ->
+// MenuSetup_SaveSlot_ActionCB -> SetScene("Cutscenes","Angel Island Zone").
 ObjectUISlider         *UISlider         = NULL;
 ObjectUITAZoneModule   *UITAZoneModule   = NULL;
 ObjectUIVsCharSelector *UIVsCharSelector = NULL;
@@ -112,6 +115,17 @@ ObjectUIWinSize        *UIWinSize        = NULL;
 // :415/:419 derefs are valid (no garbage low-memory read). The storage-status function
 // below is self-contained (no pack symbols) and returns the decomp's terminal value.
 static ObjectAPICallback s_menu_apicallback; /* overlay .bss, zero-initialised */
+// M2: a real zeroed ObjectUIDialog instance. The decomp NULLs unregistered class pointers,
+// but UITransition_StartTransition (UITransition.c:57) AND UITransition_State_TransitionOut
+// (:288,300) deref UIDialog->activeDialog UNCONDITIONALLY -- with UIDialog==NULL that is a
+// NULL deref the moment the mode-button transition (Mania Mode -> Save Select) runs. UIDialog
+// is NOT placed in Menu/Scene1.bin (AUDIT 1: x0), so no real UIDialog StageLoad ever runs; a
+// zeroed instance (activeDialog==NULL) is the correct quiescent state the decomp would have
+// after UIDialog_StageLoad on a scene with no dialog open. This makes the deref valid AND
+// reproduces the "no active dialog" branch UITransition takes. Lives in overlay .bss (the
+// overlay has the Mania Game.h ObjectUIDialog type); UIDialog is the pack symbol (p6_closure_
+// edge.c:120, NULL) the overlay re-points here via -R, exactly the APICallback pattern above.
+static ObjectUIDialog s_menu_uidialog; /* overlay .bss, zero-initialised; activeDialog==NULL */
 
 void p6_menu_apic_init(void)
 {
@@ -122,6 +136,10 @@ void p6_menu_apic_init(void)
     s_menu_apicallback.active        = ACTIVE_ALWAYS;
     APICallback     = &s_menu_apicallback; /* pack NULL -> real struct (writable via -R) */
     globals->noSave = true;                /* API_GetNoSave() (MenuSetup.c:467) -> no-save path */
+    /* M2: install the real zeroed UIDialog (activeDialog==NULL) so UITransition's
+     * UIDialog->activeDialog derefs are valid (the start-game transition path). */
+    memset(&s_menu_uidialog, 0, sizeof(s_menu_uidialog));
+    UIDialog = &s_menu_uidialog; /* pack NULL (closure_edge:120) -> real struct via -R */
 }
 
 // ---- 2. out-of-set FUNCTIONS (witnessed inert stubs, header signatures) ------
@@ -215,7 +233,9 @@ void UITAZoneModule_ShowLeaderboards(int32 player, int32 zone, int32 act, bool32
 void UITAZoneModule_Update(void) { M6_EDGE(38); }
 
 // UITransition / UIUsernamePopup / UIVsCharSelector / UIVsScoreboard / UIVsZoneButton.
-void UITransition_StartTransition(void (*callback)(void), int32 delay) { (void)callback; (void)delay; M6_EDGE(39); }
+// UITransition_StartTransition is now provided by the REGISTERED Game_UITransition.o (M2,
+// the Mania Mode -> "Save Select" wipe); its stub here would be a multiple-definition in
+// cd/OVLRING.BIN (MEASURED). Removed -- defer to the real TU (the closure_edge convention).
 void UIUsernamePopup_ShowPopup(void) { M6_EDGE(40); }
 void UIVsCharSelector_ProcessButtonCB(void) { M6_EDGE(41); }
 void UIVsScoreboard_SetScores(EntityUIVsScoreboard *scoreboard, uint32 p1Score, uint32 p2Score)

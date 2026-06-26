@@ -170,7 +170,10 @@ fi
 if [ -n "${P6_FRONTEND_MENU:-}" ]; then
     # M1b: + Game_UIModeButton.o (the 4 main-menu rows). Links into the overlay vs
     # game.elf (-R) like every other Menu UI obj.
-    OVL_FE="$OVL_FE Game_MenuSetup.o Game_UIControl.o Game_UIBackground.o Game_UIButton.o Game_UIModeButton.o Game_UIWidgets.o Game_UISubHeading.o Game_UIButtonPrompt.o p6_menu_closure.o"
+    # M2: + Game_UISaveSlot.o (the save-select start-game slot) + Game_UITransition.o (the
+    # mode-button -> Save-Select wipe; UIModeButton_SelectedCB runs the actionCB only through
+    # it). Both link into the overlay vs game.elf (-R) like every other Menu UI obj.
+    OVL_FE="$OVL_FE Game_MenuSetup.o Game_UIControl.o Game_UIBackground.o Game_UIButton.o Game_UIModeButton.o Game_UIWidgets.o Game_UISubHeading.o Game_UIButtonPrompt.o Game_UISaveSlot.o Game_UITransition.o p6_menu_closure.o"
 fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
@@ -243,6 +246,11 @@ if [ -n "${P6_FRONTEND_MENU:-}" ]; then
     grep -m1 "UIControl_Update"    "$P6/ovl_ring.map" || echo "  MISSING UIControl in overlay"
     grep -m1 "UIBackground_Update" "$P6/ovl_ring.map" || echo "  MISSING UIBackground in overlay"
     grep -m1 "p6_w_menu_edge_calls" "$P6/ovl_ring.map" || echo "  MISSING p6_w_menu_edge_calls (closure TU not linked into overlay?)"
+    # M2: the start-game path TUs + witnesses (silent-fail trip-wire).
+    grep -m1 "UISaveSlot_Update"   "$P6/ovl_ring.map" || echo "  MISSING UISaveSlot in overlay (Game_UISaveSlot.o not linked?)"
+    grep -m1 "UITransition_Update" "$P6/ovl_ring.map" || echo "  MISSING UITransition in overlay (Game_UITransition.o not linked?)"
+    grep -m1 "p6_w_menu_startscene_tag$" game.map || echo "  MISSING p6_w_menu_startscene_tag (M2 start-game witness compiled out?)"
+    grep -m1 "p6_w_menu_saveslot_classid$" game.map || echo "  MISSING p6_w_menu_saveslot_classid (M2 S1 witness compiled out?)"
 fi
 # Task #271: front-end LOAD-TIMING witnesses + the SFX-early-out fix witness. The
 # front-end flavors gate these on P6_FRONTEND_LOGOS; build_p6scene_objs.sh swallows

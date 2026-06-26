@@ -299,7 +299,20 @@ void RSDK::LoadSceneAssets()
     ShowLoadingIcon();
 #endif
 
-    memset(objectEntityList, 0, ENTITYLIST_SIZE_BYTES); // Saturn: dual-stride pool total (PC: identical product)
+    // Saturn: zero the DUAL-STRIDE pool only (PC: identical product). Task #298 (M2):
+    // use P6_DUALSTRIDE_BYTES, NOT ENTITYLIST_SIZE_BYTES -- on the front-end the latter
+    // includes the +9,472 B wide-scene sub-pool, and zeroing past P6_DUALSTRIDE_BYTES
+    // (the dual-stride pool end == P6_LW_LAYOUTBANDS/COLLMASKS window 0x2AFC00) CLOBBERS
+    // the menu's collisionMasks/render-adjacent WRAM-L there -> BLACK menu (MEASURED:
+    // ENTITYLIST_SIZE_BYTES memset blanked the gold menu; P6_DUALSTRIDE_BYTES restores
+    // it). The sub-pool is zeroed separately by p6_widescene_reset() (pre-InitObjects)
+    // and per-entity by ResetEntitySlot's memset. GHZ/Title: P6_DUALSTRIDE_BYTES ==
+    // ENTITYLIST_SIZE_BYTES -> byte-identical.
+#if RETRO_PLATFORM == RETRO_SATURN
+    memset(objectEntityList, 0, P6_DUALSTRIDE_BYTES);
+#else
+    memset(objectEntityList, 0, ENTITYLIST_SIZE_BYTES);
+#endif
 
     SceneListEntry *sceneEntry = &sceneInfo.listData[sceneInfo.listPos];
     char fullFilePath[0x40];

@@ -26,6 +26,34 @@ int32 RSDK::editableVarCount = 0;
 TypeGroupList RSDK::typeGroups[TYPEGROUP_COUNT];
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_FRONTEND_MENU)
+// Task #298 (M2 wide-scene sub-pool): the slot<->sub-pool record maps. Defined HERE
+// (outside the !P6_SCENE_TEST guard above -- the menu IS a P6_SCENE_TEST build, and
+// these must be linked into Scene_Object.o for it). .bss (zero-init); RESET to the
+// all-narrow state at the start of every scene load (p6_widescene_reset, called from
+// p6_io_main's scene-load setup). FRONT-END ONLY -> ZERO bytes in GHZ/Title.
+namespace RSDK {
+int16 p6_widescene_map[SCENEENTITY_COUNT];     // [slot-RESERVE] -> record (-1 == narrow)
+int16 p6_widescene_revslot[P6_WIDESCENE_COUNT]; // record -> owning logical slot
+int32 p6_widescene_used = 0;                    // records allocated this scene
+}
+// Reset the wide-scene maps to the all-narrow state (every map entry 0, used=0).
+// ENCODING: 0 == narrow (the .bss default), a wide record stores (index+1). So the
+// uninitialized/.bss state is ALREADY all-narrow -- this reset is belt-and-suspenders
+// for SCENE RELOADS (clears stale mappings); it is NOT correctness-critical for the
+// first load, which removes the prior reset-ordering hazard (entities created during
+// LoadScene before this ran were redirected to record 0 under the old -1/`>=0` scheme
+// -> black render). Called from p6_io_main.cpp's per-scene setup.
+extern "C" void p6_widescene_reset(void)
+{
+    for (int32 i = 0; i < SCENEENTITY_COUNT; ++i)
+        RSDK::p6_widescene_map[i] = 0;
+    for (int32 i = 0; i < P6_WIDESCENE_COUNT; ++i)
+        RSDK::p6_widescene_revslot[i] = 0;
+    RSDK::p6_widescene_used = 0;
+}
+#endif
+
 bool32 RSDK::validDraw = false;
 
 ForeachStackInfo RSDK::foreachStackList[FOREACH_STACK_COUNT];
@@ -83,7 +111,11 @@ void RSDK::RegisterObject(Object **staticVars, const char *name, uint32 entityCl
         // beyond 556 (Platform 724, TitleCard 864 -- future waves) still
         // refuse here: cleanly absent beats silent slot corruption (the
         // Phase 1.4-1.15 class).
-        if (entityClassSize > ENTITY_WIDE_SIZE)
+        // Task #298: the threshold is P6_MAX_ENTITY_SIZE -- == ENTITY_WIDE_SIZE
+        // for GHZ/Title (byte-identical), == P6_WIDESCENE_SIZE (592) for the
+        // front-end so EntityUISaveSlot (588) registers (it seats in the
+        // wide-scene sub-pool via ResetEntitySlot routing below).
+        if (entityClassSize > P6_MAX_ENTITY_SIZE)
             return;
 #endif
 
@@ -538,7 +570,7 @@ void RSDK::ProcessObjects()
         for (int32 e = 0; e < ENTITY_COUNT; ++e) {
             EntityBase *se = (EntityBase *)_shep;
             _shep += (e < RESERVE_ENTITY_COUNT || e >= TEMPENTITY_START)
-                         ? (uint32)ENTITY_WIDE_SIZE : (uint32)sizeof(EntityBase);
+                         ? (uint32)ENTITY_WIDE_SIZE : (uint32)P6_POOL_NARROW_STRIDE;
             uint8 ir = 0;
             if (se->classID) {
                 switch (se->active) {
@@ -581,12 +613,18 @@ void RSDK::ProcessObjects()
     sceneInfo.entitySlot = 0;
 #if RETRO_PLATFORM == RETRO_SATURN
     s_p6_inrange_n = 0; // Phase 2h: rebuild the in-range slot list this frame
+#if !defined(P6_FRONTEND_MENU)
     // Phase 2i (Task #245): advance the entity pointer by the dual-stride pool's
     // region size (wide reserve/temp, narrow scene) instead of recomputing
     // RSDK_ENTITY_AT(e) (the SaturnEntityAt branch+multiply) every slot. _ep ==
     // RSDK_ENTITY_AT(e) at each slot -> parity-exact, just cheaper addressing on
     // the hottest ENTITY_COUNT scan.
+    // Task #298: the front-end CANNOT use this raw walk -- the wide-scene UISaveSlot
+    // records live at P6_WIDESCENE_OFF (NOT inline in the scene region), so a raw
+    // sequential walk would point at the (empty) narrow inline slot and miss them.
+    // The front-end uses RSDK_ENTITY_AT(e) below (honors the wide remap).
     uint8 *_ep = (uint8 *)objectEntityList;
+#endif
 #endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
     // Phase 2i (Task #245): bracket the three internal loops to split the
@@ -597,6 +635,20 @@ void RSDK::ProcessObjects()
 #endif
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
 #if RETRO_PLATFORM == RETRO_SATURN
+#if defined(P6_FRONTEND_MENU)
+        // Task #298 (M2): the front-end iterates via RSDK_ENTITY_AT(e) so the wide-scene
+        // remap is honored (a UISaveSlot scene slot resolves to its sub-pool record, not
+        // the empty narrow inline slot -- a raw stride walk would MISS it -> it never
+        // ticks). _L == e (identity; no compaction/remap runs for the menu). NO I3d
+        // far-skip: the menu is ~130 populated slots (not perf-bound) and skipping a far
+        // scene slot whose p6_scan_near bit is clear would drop a UISaveSlot if its
+        // always-iterate bit were ever absent -- iterate every slot, exactly like the
+        // stock (non-Saturn) loop. p6_scan_index_build/p6_scan_update_near still run
+        // harmlessly; their bits are simply not consulted here.
+        int32 _L = e;
+        sceneInfo.entitySlot = _L;
+        sceneInfo.entity = RSDK_ENTITY_AT(e);
+#else
         // I3b.2 (2a): `e` IS THE PHYSICAL pool slot now. Iterate only the PHYSICAL pool
         // [0,RESERVE+sphys+TEMP) -- == ENTITY_COUNT at sphys=1088 (byte-identical), == 768 shrunk.
         // _L = the LOGICAL slot via the inverse remap (== e at identity) -- used for the near
@@ -604,8 +656,11 @@ void RSDK::ProcessObjects()
         if (e >= RESERVE_ENTITY_COUNT + p6_pool_scene_phys + TEMPENTITY_COUNT)
             break;
         EntityBase *_ce = (EntityBase *)_ep;
+        // P6_POOL_NARROW_STRIDE = sizeof(EntityBase) (GHZ/Title, byte-identical) or
+        // ENTITY_WIDE_SIZE (front-end uniform pool) -- the _ep raw walk must use the
+        // SAME scene-region stride as SaturnEntityAt or it points at the wrong entities.
         _ep += (e < RESERVE_ENTITY_COUNT || e >= RESERVE_ENTITY_COUNT + p6_pool_scene_phys)
-                   ? (uint32)ENTITY_WIDE_SIZE : (uint32)sizeof(EntityBase);
+                   ? (uint32)ENTITY_WIDE_SIZE : (uint32)P6_POOL_NARROW_STRIDE;
         int32 _L = (int32)p6_pool_remap_inv[e];
         sceneInfo.entitySlot = _L;
         // I3d (the 60fps step, #246/#263): a FAR scene slot (combined near|always bit clear)
@@ -621,6 +676,7 @@ void RSDK::ProcessObjects()
             continue; // sceneInfo.entitySlot already set to _L above
         }
         sceneInfo.entity = _ce;
+#endif
 #else
         sceneInfo.entity = RSDK_ENTITY_AT(e);
 #endif
@@ -642,11 +698,13 @@ void RSDK::ProcessObjects()
 
                 case ACTIVE_BOUNDS:
                     sceneInfo.entity->inRange = false;
-#if RETRO_PLATFORM == RETRO_SATURN
+#if RETRO_PLATFORM == RETRO_SATURN && !defined(P6_FRONTEND_MENU)
                     // I3c spatial cull: a FAR scene entity (x-window bit clear) is out-of-range
                     // by the x-condition -> skip the slow WRAM-L position read. Reserve/temp +
                     // near scene entities fall through to the exact check below. (2a: physical
                     // region via sphys, near indexed by the LOGICAL slot _L = inv[e].)
+                    // Task #298: gated OUT for the front-end -- the menu does NO spatial cull
+                    // (iterate every entity, stock-loop behavior; p6_scan_near is not consulted).
                     if (e >= RESERVE_ENTITY_COUNT && e < RESERVE_ENTITY_COUNT + p6_pool_scene_phys
                         && !(p6_scan_near[_L >> 3] & (1 << (_L & 7))))
                         break;
@@ -666,7 +724,8 @@ void RSDK::ProcessObjects()
 
                 case ACTIVE_XBOUNDS:
                     sceneInfo.entity->inRange = false;
-#if RETRO_PLATFORM == RETRO_SATURN
+#if RETRO_PLATFORM == RETRO_SATURN && !defined(P6_FRONTEND_MENU)
+                    // Task #298: gated OUT for the front-end (no spatial cull; see ACTIVE_BOUNDS).
                     if (e >= RESERVE_ENTITY_COUNT && e < RESERVE_ENTITY_COUNT + p6_pool_scene_phys
                         && !(p6_scan_near[_L >> 3] & (1 << (_L & 7))))
                         break;
@@ -785,7 +844,7 @@ void RSDK::ProcessObjects()
         for (int32 e = 0; e < ENTITY_COUNT; ++e) {
             EntityBase *ce = (EntityBase *)_cep;
             _cep += (e < RESERVE_ENTITY_COUNT || e >= TEMPENTITY_START)
-                        ? (uint32)ENTITY_WIDE_SIZE : (uint32)sizeof(EntityBase);
+                        ? (uint32)ENTITY_WIDE_SIZE : (uint32)P6_POOL_NARROW_STRIDE;
             if (ce->classID && (uint8)(ce->inRange ? 1 : 0) != s_p6_shadow_inrange[e]) ++_div;
         }
         p6_w_scan_divergence = _div;
@@ -1498,6 +1557,12 @@ int32 p6_saturn_entity_slot_refusals = 0;
 int32 p6_w_rslot_log[16]  = { 0 };
 int32 p6_w_rslot_step[16] = { 0 }; // p6_w_initobj_step at call time (names the caller)
 int32 p6_w_rslot_logn     = 0;
+#if defined(P6_FRONTEND_MENU)
+// Task #298 (M2): count of wide-scene sub-pool records allocated by ResetEntitySlot
+// routing this run -- the gate witness. 0 == no oversize scene placement routed (RED
+// for the menu, where UISaveSlot has 10 placements); >0 == the routing fired.
+__attribute__((used)) int32 p6_w_widescene_used = 0;
+#endif
 #endif
 
 void RSDK::ResetEntitySlot(uint16 slot, uint16 classID, void *data)
@@ -1506,10 +1571,41 @@ void RSDK::ResetEntitySlot(uint16 slot, uint16 classID, void *data)
     slot                = slot < ENTITY_COUNT ? slot : (ENTITY_COUNT - 1);
 
 #if RETRO_PLATFORM == RETRO_SATURN
+#if !defined(P6_FRONTEND_MENU)
+    // GHZ/Title dual-stride: a scene slot is NARROW (sizeof(EntityBase)) -> refuse an
+    // oversize class aimed at one (cleanly absent beats silent slot corruption). The
+    // FRONT-END (P6_FRONTEND_MENU) uses a UNIFORM-WIDE pool (every slot ENTITY_WIDE_SIZE
+    // = 592 >= EntityUISaveSlot 588, Object.hpp), so NO scene slot is narrow and this
+    // refusal must NOT fire -- otherwise the 10 Menu/Scene1.bin UISaveSlot placements
+    // (the start-game widgets) would be refused at their scene slots. Gated OUT for the
+    // front-end; the GHZ/Title builds compile this verbatim (byte-identical).
     if (object->entityClassSize > sizeof(EntityBase) && slot >= RESERVE_ENTITY_COUNT && slot < TEMPENTITY_START) {
         ++p6_saturn_entity_slot_refusals;
         return;
     }
+#else
+    // FRONT-END (Task #298): an oversize class aimed at a NARROW scene slot is ROUTED
+    // to a wide-scene sub-pool record instead of refused. Map the logical slot to a
+    // free record (idempotent: a re-reset of the same slot reuses its record), then
+    // FALL THROUGH -- the RSDK_ENTITY_AT(slot)/memset below then resolve to the wide
+    // sub-pool address (SaturnEntityAt honors the now-set map) and Create runs there.
+    // The 588 B EntityUISaveSlot fits the 592 B record. If the 16-record sub-pool is
+    // exhausted, leave it unmapped: RSDK_ENTITY_AT falls back to the narrow inline
+    // slot and the memset(classSize=588) would overrun -- but Menu places only 10
+    // UISaveSlot (measured), well under 16, so this never trips (witnessed by
+    // p6_w_widescene_used == placements). (slot == physical pool slot for the menu --
+    // no compaction; map indexed by slot-RESERVE.)
+    if (object->entityClassSize > sizeof(EntityBase) && slot >= RESERVE_ENTITY_COUNT && slot < TEMPENTITY_START) {
+        int32 si = slot - RESERVE_ENTITY_COUNT;
+        if (p6_widescene_map[si] == 0 && p6_widescene_used < P6_WIDESCENE_COUNT) {
+            p6_widescene_map[si]                 = (int16)(p6_widescene_used + 1); // +1 encoding: 0 == narrow
+            p6_widescene_revslot[p6_widescene_used] = (int16)slot;
+            ++p6_widescene_used;
+            p6_w_widescene_used = p6_widescene_used;
+        }
+        // no return -- fall through so RSDK_ENTITY_AT(slot) resolves to the wide record
+    }
+#endif
     if (slot < RESERVE_ENTITY_COUNT && p6_w_rslot_logn < 16) {
         extern int32 p6_w_initobj_step;
         p6_w_rslot_step[p6_w_rslot_logn] = p6_w_initobj_step; // caller phase/class
