@@ -443,6 +443,31 @@ __attribute__((used)) int32 p6_w_vdp2_done  = 0; // 1 == engine layer presented 
 // W11b SPLIT: cells+CRAM upload runs while the transient tilesetPixels is
 // alive (post-LoadSceneFolder); the layout half runs post-LoadSceneAssets.
 void p6_vdp2_upload_cells(const unsigned char *tilesetPx);
+#if defined(P6_AIZ_TEST)
+extern "C" void p6_vdp2_aiz_blank_setup(int charIdx); // R1 (AIZ): clear an unused CEL char transparent for empty FG cells
+// Task #309 gate-2 follow-up: the FG present's empty-cell (0xFFFF) blank-char
+// index (p6_vdp2.c). AIZ sets it to 64 (its only-transparent CEL char, since AIZ
+// tile-0 is opaque orange); GHZ/GHZCutscene need -1 (= tile 0, the GHZ transparent
+// convention). It is a PERSISTENT global -> the live AIZ->GHZCutscene seam MUST
+// reset it to -1 before the GHZCutscene present runs, else GHZCutscene's empty FG
+// cells render as opaque GHZ-tile-64 (the checkerboard bleed into the black sky).
+extern "C" int p6_fg_blank_char_override;
+// R2.1 (AIZ Background render): the 4-bpp BG plane on NBG0 (p6_vdp2.c). upload =
+// once at load (CHR->B1, CRAM[256..303], static map from BG4, NBG0 config);
+// frame = per-frame re-assert NBG0ON + scroll + BG-below-FG priority split.
+extern "C" void p6_vdp2_aiz_bg_upload(const unsigned short *chr_cart, int chr_words,
+                                      const unsigned char *cmp,
+                                      const unsigned short *map_cart, int map_words,
+                                      const unsigned short *pal565);
+extern "C" void p6_vdp2_aiz_bg_frame(int bg4_sx, int bg1_sx, int bg3_sx);
+// R2.4/R2.5: camera-streamed BG parallax -- re-window an NBG plane's map from a
+// resident full layout as the camera crosses a tile. which: 0=BG4/NBG0(B1 map),
+// 1=BG1/NBG2(B0 map). wrap: source x wraps mod l3_xs (BG1 tiles at 80).
+extern "C" void p6_vdp2_aiz_bg_stream(int which, unsigned int map_addr,
+                                      const unsigned short *l3, int l3_xs, int l3_ys, int wrap,
+                                      const unsigned char *rmp, const unsigned char *bnk,
+                                      int scroll_x, int scroll_y);
+#endif
 void p6_vdp2_present_layout(const unsigned short *layout, int wshift,
                             const unsigned short *pal565);
 #if defined(P6_FRONTEND_TITLE)
@@ -954,9 +979,205 @@ __attribute__((used)) void p6_menu_layout_scroll_latch(void)
 //      sticky: once the AIZ tag is seen it is NOT overwritten by a later GHZ load.
 __attribute__((used)) int32 p6_w_menu_saveslot_classid = 0;
 __attribute__((used)) int32 p6_w_menu_input_seen       = 0;
+// S3 diag (Task #296): localize the Mania Mode -> Save Select UITransition stall.
+// present: 1 = UITransition->activeTransition live; 0 = obj's activeTransition NULL (Create
+//   never ran); -2 = UITransition obj NULL. state: the entity->state fn ptr (map to
+//   UITransition_State_{Init,TransitionIn,TransitionOut} via ovl_ring.map). istrans/timer:
+//   is the state machine ticking + how far. active: the entity's RSDK active byte.
+__attribute__((used)) int32 p6_w_uitrans_present = -1;
+__attribute__((used)) int32 p6_w_uitrans_state   = 0;
+__attribute__((used)) int32 p6_w_uitrans_timer   = -1;
+__attribute__((used)) int32 p6_w_uitrans_istrans = -1;
+__attribute__((used)) int32 p6_w_uitrans_active  = -1;
+// S3 root-cause (Task #296): the active UIControl button's actionCB ptr. 0 == NULL == the
+// stall (UIButton_ProcessButtonCB_Scroll:397 hasNoAction=!actionCB -> only buttonEnterCB,
+// never selectedCB -> StartTransition). Non-0 -> maps to MenuSetup_MenuButton_ActionCB in
+// ovl_ring.map (so the stall is elsewhere). id/count = the active control's buttonID/buttonCount.
+__attribute__((used)) int32 p6_w_active_btn_actioncb = -1;
+__attribute__((used)) int32 p6_w_active_btn_id       = -99;
+__attribute__((used)) int32 p6_w_active_btn_count    = -1;
+// S3 root-cause test (Task #296): UISaveSlot_ProcessButtonCB:19 gates the confirm on
+// `control->position.x == control->targetPos.x` (the control must be SETTLED). If the No-Save
+// control is perpetually un-settled (posx != tgtx), every confirm is silently ignored -> no
+// SelectedCB -> no fxRadius ramp -> no SetScene AIZ. Both are 16.16 fixed (>>16 for pixels).
+__attribute__((used)) int32 p6_w_ctrl_posx = -123456;
+__attribute__((used)) int32 p6_w_ctrl_tgtx = -123456;
+// S3 dispatch triangulation (Task #296): localize WHY the No-Save confirm never reaches
+// UISaveSlot_SelectedCB despite the control being settled + active + actionCB wired. The
+// active control's state must be UIControl_ProcessInputs for ProcessButtonCB to run + see
+// anyConfirmPress. ctrl_state = snapshot of uc->state (cmp UIControl_ProcessInputs offline).
+// nosave_pi/nosave_confirm = sticky latches over the whole run.
+__attribute__((used)) int32 p6_w_ctrl_state     = -123456;
+__attribute__((used)) int32 p6_w_ctrl_active    = -123456;
+__attribute__((used)) int32 p6_w_nosave_pi      = 0;   // sticky: 1-button control reached ProcessInputs
+__attribute__((used)) int32 p6_w_nosave_confirm = 0;   // sticky: anyConfirmPress while it was in ProcessInputs
+// S3 downstream (Task #296): confirm reaches ProcessButtonCB but SelectedCB body never runs.
+// nosave_gate = sticky EXACT SelectedCB-call condition (confirm && posx==tgtx on a No-Save PI
+// frame) -- distinguishes settle-gate-fails-on-confirm-frame from SelectedCB-downstream. slot_state
+// + slot_fxradius = the active UISaveSlot's own state/ramp (did it reach State_Selected?).
+__attribute__((used)) int32 p6_w_nosave_gate    = 0;
+__attribute__((used)) int32 p6_w_slot_state     = -123456;
+__attribute__((used)) int32 p6_w_slot_fxradius  = -123456;
+// S3 ROOT (Task #296): UIControl_ProcessButtonInput (-> UISaveSlot_ProcessButtonCB -> confirm)
+// is gated by `if (!self->selectionDisabled)` (UIControl.c:262). gate_seldisabled = the
+// control's selectionDisabled AT the gate+confirm frame -- if 1, the dispatch is SKIPPED
+// (confirm never reaches ProcessButtonCB) => ROOT CAUSE. ctrl_seldisabled = snapshot at capture.
+__attribute__((used)) int32 p6_w_gate_seldisabled = -123456;
+__attribute__((used)) int32 p6_w_ctrl_seldisabled = -123456;
+// #296 debug-inject progress: 0=waiting, 1=MatchMenuTag fired (No-Save active), 2=actionCB fired.
+__attribute__((used)) int32 p6_w_as_stage = -123456;
 __attribute__((used)) int32 p6_w_menu_startscene_tag   = 0;      // folder tag at the start-game SetScene
 __attribute__((used)) int32 p6_w_menu_start_cat        = -1;     // sceneInfo.activeCategory at that load
 __attribute__((used)) int32 p6_w_menu_start_listpos    = -1;     // sceneInfo.listPos at that load (diag)
+#if defined(P6_AIZ_TEST)
+// M3.0 (qa_p6_aiz_scene): the AIZ intro-cutscene scene load+render witnesses. Written
+// by p6_aiz_reload + the p6_isAIZ arm branch in p6_scene_load_and_arm (NOT the overlay),
+// so __attribute__((used)) + a -u root in build_p6scene_objs.sh keeps them (no gc-root
+// fn needed). Behind -DP6_AIZ_TEST: a P6_FRONTEND_MENU diagnostic build that boots
+// straight to AIZ, decoupling the load+render from the menu confirm (the same pattern
+// F.1/F.2 used with P6_TRANSITION_TEST).
+__attribute__((used)) int32 p6_w_aiz_loaded   = 0;  // A1: currentSceneFolder=="AIZ" after load+arm
+__attribute__((used)) int32 p6_w_aiz_fg_hash  = 0;  // A2: djb2 of the uploaded AIZ FG cells (!=0 == content)
+__attribute__((used)) int32 p6_w_aiz_objcount = 0;  // A3: sceneInfo.classCount after the AIZ load
+#if defined(P6_GHZCUT_BOOT)
+// Task #309 Tier-B.1: the FXRuby fade the overlay read off the live entity this
+// frame, packed (fadeWhite<<16)|(fadeBlack&0xFFFF). The engine hands fadeWhite/
+// fadeBlack to p6_vdp2_fade_apply (the VDP2 Color Offset write). Gate
+// qa_ghzcut_fade.py reads this + the CLOFEN/COAR registers.
+__attribute__((used)) int32 p6_w_ghzcut_fade = 0;
+extern "C" void p6_vdp2_fade_apply(int fadeWhite, int fadeBlack); // p6_vdp2.c
+// Task #309 Tier-B.2 (the 5 Heavies render): the HBHOBJ.SHT staging + HBHOBJ.PAK
+// anim-load + Heavy-region VDP1 blit witnesses. Gate qa_ghzcut_heavies.py reads
+// these + the 5 CRAM palette blocks (CRAM[512..1663]).
+//   hbh_slot      = the SaturnSheet slot of the staged HBHOBJ.SHT (>=0 == staged+
+//                   hashed; -9 == NOT staged == the RED pre-fix state).
+//   hbh_aniframes = the live CutsceneHBH->aniFrames (>=0 == LoadSpriteAnimation
+//                   resolved a Heavy .bin from HBHOBJ.PAK; -1 == pack missing). The
+//                   overlay writes it (CutsceneHBH is overlay-resident).
+//   hbh_landed    = count of Heavy-region VDP1 blits this frame (overlay-written in
+//                   the CutsceneHBH Draw shim: ++ per DrawSprite reached).
+__attribute__((used)) int32 p6_w_hbh_slot      = -9;
+__attribute__((used)) int32 p6_w_hbh_aniframes = -2;
+__attribute__((used)) int32 p6_w_hbh_landed    = 0;
+// Tier-B.2 DIAG: why don't the Heavies draw? The overlay witness scans
+// foreach_all(CutsceneHBH) each tick. count = # live Heavy entities; the first
+// Heavy's visible/onScreen/active + posY (px) + handle for "Cutscene/HBH.gif".
+// cam/plr Y localise whether the Heavies are off-screen above the camera.
+__attribute__((used)) int32 p6_w_hbh_count     = -1;
+__attribute__((used)) int32 p6_w_hbh_vis       = -1; // (visible<<16)|(onScreen<<8)|active
+__attribute__((used)) int32 p6_w_hbh_posy      = -1; // first Heavy world Y (px)
+__attribute__((used)) int32 p6_w_hbh_posx      = -1; // first Heavy world X (px)
+__attribute__((used)) int32 p6_w_hbh_handle    = -9; // VDP1 handle of Cutscene/HBH.gif surface
+__attribute__((used)) int32 p6_w_hbh_camy      = -1; // camera/screen Y (px)
+__attribute__((used)) int32 p6_w_hbh_animid    = -9; // first Heavy mainAnimator.animationID
+#endif
+__attribute__((used)) int32 p6_w_aiz_nlayers  = 0;  // diag: non-null tileLayer count (FG-Low index for the M3.0b present)
+__attribute__((used)) int32 p6_w_aiz_bg_filebytes = -1; // R2.1: AIZBG.CHR GFS bytes (62720 expected)
+__attribute__((used)) int32 p6_w_aiz_fglow_idx = -1; // M3.0c: the index p6_fglow_layer_index() resolved for the present
+__attribute__((used)) int32 p6_w_aiz_slots    = -1; // M3.0c: packed tileLayers[0..5].saturnSlot (nibble per layer)
+__attribute__((used)) int32 p6_w_aiz_scrx     = 0;  // M3.0c: screens[0].position.x passed to the present (the scroll)
+__attribute__((used)) int32 p6_w_aiz_scry     = 0;  // M3.0c: screens[0].position.y
+// M3.1 (qa_p6_aiz_cutscene): the AIZ intro-cutscene DRIVER witnesses. The class-id
+// witnesses are written by the overlay's combined witness (p6_ghz_ovl_witness, called
+// per-tick via s_ovl.witness_fn) -- the AIZ object globals are overlay-resident, so the
+// scan lives there; these are pack globals the overlay writes via the ld -R import.
+//   cutscene_state = -1 until CutsceneSeq is instantiated, then the live seq->stateID
+//                    (0 == EnterAIZ running). C1: the cutscene state machine ran.
+//   setup/seq/tornado/path_classid = the registered+instantiated class IDs. C3.
+//   cam_x          = SLOT_CAMERA1's live cam->position.x (the cutscene-driven camera).
+__attribute__((used)) int32 p6_w_aiz_cutscene_state  = -1;
+__attribute__((used)) int32 p6_w_aiz_setup_classid   = 0;
+__attribute__((used)) int32 p6_w_aiz_seq_classid     = 0;
+__attribute__((used)) int32 p6_w_aiz_tornado_classid = 0;
+__attribute__((used)) int32 p6_w_aiz_path_classid    = 0;
+__attribute__((used)) int32 p6_w_aiz_cam_x           = 0;
+// R3.1 (Task #305, qa_p6_aiz_tornado.py): the AIZ Tornado sheet-bind witnesses (kept
+// MINIMAL -- the front-end build is WRAM-H-tight; a full surface-scan diag pushed _end
+// past the heap limit -> #228 boot trap, MEASURED). aizobj_slot = the SaturnSheet slot
+// returned by p6_stage_sheet_hash("AIZOBJ.SHT") (>=0 == AIZOBJ.SHT staged+hashed).
+// tornado_frames = the live AIZTornado animatorTornado.frameCount (the overlay writes
+// it, like tornado_classid; >0 == SetSpriteAnimation resolved the sheet). The actual
+// VDP1 bind / render is verified by the SCREENSHOT pixel measure (the binding proof).
+__attribute__((used)) int32 p6_w_aizobj_slot         = -9;
+__attribute__((used)) int32 p6_w_aiz_tornado_frames  = -1;
+// R3.1 (#305) DIAG: AIZTornado->aniFrames (OBJECT-level, set by AIZTornado_StageLoad's
+// LoadSpriteAnimation("AIZ/AIZTornado.bin")). -1/0xFFFF == load FAILED or StageLoad
+// never ran; >=0 == the anim list loaded (then SetSpriteAnimation/the census is the
+// frameCount=0 culprit). animID = the live tornado animatorTornado.animationID (-1 ==
+// SetSpriteAnimation never ran on it). torn_count = # live AIZTornado entities.
+__attribute__((used)) int32 p6_w_aiz_torn_aniframes  = -2;
+__attribute__((used)) int32 p6_w_aiz_torn_animid     = -2;
+__attribute__((used)) int32 p6_w_aiz_torn_count      = -2;
+// R3.4 (#306 follow-on) AIZ cutscene actor anim-load latches: AIZKingClaw->aniFrames
+// (AIZ/Claw.bin, beat 4 EnterClaw) + AIZEggRobo->aniFrames (AIZ/AIZEggRobo.bin, the
+// Heavies). -1/0xFFFF == LoadSpriteAnimation FAILED (.bin not in AIZOBJ.PAK -- the
+// pre-R3.4 state, identical to the Tornado before R3.2); >=0 == the anim list loaded.
+__attribute__((used)) int32 p6_w_aiz_claw_aniframes    = -2;
+__attribute__((used)) int32 p6_w_aiz_eggrobo_aniframes = -2;
+// #308 AIZ beat-3 (P2FlyIn) STALL diag: the cutscene advances ONLY when player2(Tails)->
+// onGround (AIZSetup.c:425-450); MEASURED stuck at beat 3 (cam frozen). These localise WHY
+// Tails(SLOT_PLAYER2) isn't landing: classid 0=not spawned vs >0=a Player; onground=the
+// stall condition; posx/posy px (near Sonic+on-floor, in-air, or fell BELOW the level);
+// vely 16.16 (falling+); sidekick=1 if P2_AI active. p1_posy = Sonic's y (the ground ref --
+// Sonic DID land, the cutscene reached beat 3 via his run). Distinguishes the #256 phantom-
+// sidekick "can't settle" class from a fall-through (#180) or a not-spawned/respawn gap.
+__attribute__((used)) int32 p6_w_aiz_p2_classid  = -2;
+__attribute__((used)) int32 p6_w_aiz_p2_onground = -2;
+__attribute__((used)) int32 p6_w_aiz_p2_posx     = -999999;
+__attribute__((used)) int32 p6_w_aiz_p2_posy     = -999999;
+__attribute__((used)) int32 p6_w_aiz_p2_vely     = -999999;
+__attribute__((used)) int32 p6_w_aiz_p2_sidekick = -2;
+__attribute__((used)) int32 p6_w_aiz_p1_posy     = -999999;
+// #308 phase-2: the EXACT Tails state. stateptr/inputptr = the raw function pointers
+// (look up in game.map: AIZSetup_PlayerState_Static / _P2Enter / Player_State_HoldRespawn /
+// Player_Input_P2_AI / _P2_Delay) -> identifies WHICH state/input is running (no guessing).
+// tilecoll = TILECOLLISION mode (NONE==1 set by HandleSidekickRespawn:3755 -> can't land);
+// visible (Static sets 0). Together: Static-stuck vs HoldRespawn-stuck vs flying-no-collide.
+__attribute__((used)) int32 p6_w_aiz_p2_stateptr = 0;
+__attribute__((used)) int32 p6_w_aiz_p2_inputptr = 0;
+__attribute__((used)) int32 p6_w_aiz_p2_tilecoll = -2;
+__attribute__((used)) int32 p6_w_aiz_p2_visible  = -2;
+// #309 beat-7 (RubyAppear) diag+fix: the PhantomRuby flash. ruby_active = the entity active
+// mode (4 ACTIVE_BOUNDS = updates only on-screen -> off-screen this beat -> the 38-frame
+// flash timer in PhantomRuby_State_PlaySfx never ticks -> flashFinished never set -> stall;
+// the fix forces it to 2 ACTIVE_NORMAL when cutscene_state>=7). timer = the flash counter
+// (ticks 0->38); flashfin = ruby->flashFinished (0->1 at timer==38 -> beat 7 advances).
+__attribute__((used)) int32 p6_w_aiz_ruby_active  = -2;
+__attribute__((used)) int32 p6_w_aiz_ruby_timer   = -2;
+__attribute__((used)) int32 p6_w_aiz_ruby_flashfin = -2;
+// M3.1 DIAG (camera-progression localiser): the live tornado x + the path moveVel.
+__attribute__((used)) int32 p6_w_aiz_torn_x       = -1;
+__attribute__((used)) int32 p6_w_aiz_torn_dis     = -1;
+__attribute__((used)) int32 p6_w_aiz_torn_active  = -1;
+__attribute__((used)) int32 p6_w_aiz_torn_state   = -1;
+__attribute__((used)) int32 p6_w_aiz_path_movevel = 0;
+__attribute__((used)) int32 p6_w_aiz_pn_type   = -99;
+__attribute__((used)) int32 p6_w_aiz_pn_tgtspd = -99;
+__attribute__((used)) int32 p6_w_aiz_pn_speed  = -99;
+__attribute__((used)) int32 p6_w_aiz_pn_state  = -99;
+__attribute__((used)) int32 p6_w_aiz_pn_active = -99;
+__attribute__((used)) int32 p6_w_aiz_sp_ptr    = 0;
+__attribute__((used)) int32 p6_w_aiz_sp_post0  = -99;
+// M3.2 slot-trajectory witnesses: the 8 AIZTornadoPath nodes are scene slots 6-13, all
+// filter==0xFF (MEASURED -> all survive the REV02 compaction), no wide-scene routing
+// (MEASURED map[6]==0). Yet foreach_all sees only 7 (slots 7-13); the type-0 START at
+// scene slot 6 (physical RESERVE_ENTITY_COUNT+6) is gone. Scene slot 5 is a Player marker.
+// Latch the classID trio (slot5<<16 | slot6<<8 | slot7) at 3 load phases to pin WHEN slot
+// 6 is blanked: post-LoadScene/compaction, post-InitObjects (Player_LoadSprites), post-purge.
+__attribute__((used)) int32 p6_w_aiz_trio_load  = -1;
+__attribute__((used)) int32 p6_w_aiz_trio_init  = -1;
+__attribute__((used)) int32 p6_w_aiz_trio_purge = -1;
+__attribute__((used)) int32 p6_w_aiz_player_cls = -1; // RSDK_ENTITY_AT(0)->classID after InitObjects
+// M3.2 FG-present probe: the AIZ FG renders as a uniform repeating tile. Band store is
+// AIZ1LAYT.BIN (mounted, 7695 B), FG-Low is scene/band layer 4 (216 distinct tiles,
+// varied). Probe SaturnLayout_GetTile(slot 0 = FG-Low, bound by the present) at 4
+// in-window positions to separate "tile read uniform/broken" (binding/window/refill bug)
+// from "tile read varied but page renders uniform" (PND/CEL/VDP2 config bug). gt_ctx =
+// the camera tile origin so the offline AIZ FG-Low layout can be compared at the exact coords.
+__attribute__((used)) int32 p6_w_aiz_gt_ctx = -1; // (ctx<<16)|cty at the probe
+__attribute__((used)) int32 p6_w_aiz_gt_a   = -1; // (GetTile(0,ctx+1,cty+2)<<16)|GetTile(0,ctx+8,cty+6)
+__attribute__((used)) int32 p6_w_aiz_gt_b   = -1; // (GetTile(0,ctx+15,cty+10)<<16)|GetTile(0,ctx+20,cty+12)
+#endif
 // PACK gc-root for the two overlay-written witnesses (same pattern as the M2a block
 // above -- the overlay's -R import needs them DEFINED in game.elf).
 __attribute__((used)) void p6_menu_start_witness_root(void)
@@ -3452,6 +3673,41 @@ extern "C" __attribute__((used)) void p6_eng_write_placement(void *ent, int32 cl
     e->position.y = py;
 }
 
+// R3.1 (#305): factor the IDENTICAL load->Stage->SetHash->MakeResident banded-sheet
+// staging blocks (LOGOS/TLOGO/MAINICON/TEXTEN/AIZOBJ -- all 0x10000-buffer sheets) into
+// one helper. This NET-REDUCES p6_scene_run .text (4 inline copies collapse to 1 fn +
+// calls) -- the WRAM-H reclaim that lets the AIZOBJ.SHT staging fit UNDER the front-end
+// heap limit (a naive AIZOBJ inline block + diag pushed _end 0x060BA360 -> #228 boot
+// trap, MEASURED blue-screen). Returns the staged SaturnSheet slot (>=0) or -1.
+// textBuffer + GEN_HASH_MD5 resolve via the file-scope `using namespace RSDK`.
+// ((unused)) so the DEFAULT (GHZ) build -- which compiles this TU but guards out all 5
+// callers -- doesn't -Werror on the unused static + gc-sections drops it (GHZ _end
+// byte-identical). The front-end builds DO call it, so it is kept + used there.
+// SaturnSheet_* are extern "C" (SaturnSheet.cpp:178/217/276); declare them at FILE scope
+// (extern "C" is ILLEGAL at block scope -- MEASURED "expected unqualified-id") so this
+// plain-C++ helper resolves the UNMANGLED C symbols (else the refs mangle -> undefined).
+extern "C" {
+int32 SaturnSheet_Stage(const void *blob, uint32 bytes);
+void SaturnSheet_SetHash(int32 slot, const uint32 *hash);
+int32 SaturnSheet_MakeResident(int32 slot);
+}
+__attribute__((unused)) static int32 p6_stage_sheet_hash(const char *shtFile, const char *gifPath)
+{
+    int sn = rsdk_storage_load_to_lwram(shtFile, (void *)P6_LW_ENTITYLIST, 0x10000);
+    if (sn <= 0)
+        return -1;
+    int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+    if (slot < 0)
+        return -1;
+    RETRO_HASH_MD5(ph);
+    GEN_HASH_MD5(gifPath, ph);
+    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+#ifndef P6_SHT_NO_RESIDENT
+    SaturnSheet_MakeResident(slot);
+#endif
+    return slot;
+}
+
 extern "C" void p6_scene_run(void)
 {
     // Task #238: probe the 4MB cart FIRST (raw A-Bus RW; harmless -- the cart is
@@ -3710,6 +3966,11 @@ extern "C" void p6_scene_run(void)
         // The badnik fix is solely P6_VDP1_NSHEETS 9->12 so GHZ/Objects.gif (surf 16)
         // gets a bind slot. Explosions/Animals render via their stock resident-pixel
         // path (LoadSpriteSheet decode into DATASET_STG, Sprite.cpp:994).
+        // R3.1 (#305) WRAM-H reclaim: these 9-sheet arrays + their 18 path strings are
+        // GHZ-ONLY (the front-end SKIPS the load loop below) -- guard them out of the
+        // front-end build so the bytes don't push _end past the front-end heap limit
+        // (#228 boot trap, MEASURED). GHZ flavor BYTE-IDENTICAL (the guard is true there).
+#if !defined(P6_FRONTEND_TITLE)
         static const char *shtFiles[9] = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
                                            "ITEMS.SHT", "DISPLAY.SHT", "SHIELDS.SHT",
                                            "TAILS1.SHT", "GLOBJ.SHT", "GHZOBJ.SHT" };
@@ -3724,6 +3985,7 @@ extern "C" void p6_scene_run(void)
                                            "Players/Tails1.gif",
                                            "Global/Objects.gif",
                                            "GHZ/Objects.gif" };
+#endif // !P6_FRONTEND_TITLE (shtFiles/shtPaths GHZ-only -- R3.1 WRAM-H reclaim)
 #if defined(P6_FRONTEND_TITLE)
         // FRONT-END LOAD CUT (this session, MEASURED): the TITLE scene draws
         // TitleLogo/TitleSonic/TitleBG/Title3DSprite and NONE of these 9 GHZ gameplay
@@ -3734,7 +3996,8 @@ extern "C" void p6_scene_run(void)
         // (the dominant chunk of the masked-core chain-load cost). The title's OWN
         // sheets (LOGOS/TLOGO/TSONIC/TBG) load in their own blocks below, unaffected.
         // GHZ flavor BYTE-IDENTICAL (this #if is compiled out -> the loop runs verbatim).
-        (void)shtFiles; (void)shtPaths;
+        // R3.1: the shtFiles/shtPaths arrays are now GHZ-only (guarded above) -> no void
+        // casts here (they don't exist in this build).
 #else
         for (int32 i = 0; i < 9; ++i) {
             p6_w_load_step = 10 + i; // #251 per-sheet (10..17 = SONIC1/2/3,ITEMS,DISPLAY,SHIELDS,TAILS1,GLOBJ)
@@ -3791,21 +4054,7 @@ extern "C" void p6_scene_run(void)
         // engine LoadSpriteSheet computes for UIPicture's sheet). Front-end only; the
         // GHZ flavor never reaches this. (Built offline by tools/build_sheet_bands.py
         // build_one("Logos/Logos.gif","LOGOS.SHT").)
-        {
-            int sn = rsdk_storage_load_to_lwram("LOGOS.SHT",
-                                                (void *)P6_LW_ENTITYLIST, 0x10000);
-            if (sn > 0) {
-                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
-                if (slot >= 0) {
-                    RETRO_HASH_MD5(ph);
-                    GEN_HASH_MD5("Logos/Logos.gif", ph);
-                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
-#ifndef P6_SHT_NO_RESIDENT
-                    SaturnSheet_MakeResident(slot);
-#endif
-                }
-            }
-        }
+        p6_stage_sheet_hash("LOGOS.SHT", "Logos/Logos.gif");
 #endif
 #if defined(P6_FRONTEND_TITLE)
         // CP5b.1 (Task #268): stage TLOGO.SHT (Title/Logo.gif, the SONIC-MANIA logo
@@ -3822,21 +4071,7 @@ extern "C" void p6_scene_run(void)
         // it -> handle<0 -> every TitleLogo blit dropped -> uniform-blue title. MIRRORS
         // the CP4b LOGOS.SHT block above exactly. (Built offline by build_sheet_bands.py
         // build_one("Title/Logo.gif","TLOGO.SHT").)
-        {
-            int sn = rsdk_storage_load_to_lwram("TLOGO.SHT",
-                                                (void *)P6_LW_ENTITYLIST, 0x10000);
-            if (sn > 0) {
-                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
-                if (slot >= 0) {
-                    RETRO_HASH_MD5(ph);
-                    GEN_HASH_MD5("Title/Logo.gif", ph);
-                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
-#ifndef P6_SHT_NO_RESIDENT
-                    SaturnSheet_MakeResident(slot);
-#endif
-                }
-            }
-        }
+        p6_stage_sheet_hash("TLOGO.SHT", "Title/Logo.gif");
         P6_LT_MARK(3); // Task #271 S3: 512x512 sheets (LOGOS.SHT + TLOGO.SHT load+stage+resident)
         // CP5b.2 (Task #269): stage TSONIC.SHT (Title/Sonic.gif, the ring-center head
         // sheet) into the 12th SaturnSheet slot (slot 11; slots 9/10 = LOGOS/TLOGO,
@@ -3994,38 +4229,95 @@ extern "C" void p6_scene_run(void)
         //   TEXTEN.SHT: UI/TextEN.gif, the mode TEXT labels (UIWidgets_ApplyLanguage ->
         //     UIWidgets->textFrames -> LoadSpriteAnimation("UI/TextEN.bin") -> sheet[0]).
         //     24,097 B banded. Path hashes are what those LoadSpriteAnimation calls compute.
-        {
-            int sn = rsdk_storage_load_to_lwram("MAINICON.SHT",
-                                                (void *)P6_LW_ENTITYLIST, 0x10000);
-            if (sn > 0) {
-                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
-                if (slot >= 0) {
-                    RETRO_HASH_MD5(ph);
-                    GEN_HASH_MD5("UI/MainIcons.gif", ph);
-                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
-#ifndef P6_SHT_NO_RESIDENT
-                    SaturnSheet_MakeResident(slot);
-#endif
-                }
-            }
-        }
-        {
-            int sn = rsdk_storage_load_to_lwram("TEXTEN.SHT",
-                                                (void *)P6_LW_ENTITYLIST, 0x10000);
-            if (sn > 0) {
-                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
-                if (slot >= 0) {
-                    RETRO_HASH_MD5(ph);
-                    GEN_HASH_MD5("UI/TextEN.gif", ph);
-                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
-#ifndef P6_SHT_NO_RESIDENT
-                    SaturnSheet_MakeResident(slot);
-#endif
-                }
-            }
-        }
+        p6_stage_sheet_hash("MAINICON.SHT", "UI/MainIcons.gif");
+        p6_stage_sheet_hash("TEXTEN.SHT", "UI/TextEN.gif");
 #endif // P6_FRONTEND_MENU
+#if defined(P6_AIZ_TEST)
+        // R3.1 (Task #305, qa_p6_aiz_tornado.py): stage AIZOBJ.SHT (AIZ/Objects.gif --
+        // the AIZ intro Tornado biplane sheet: body+propeller+flame+pilot) into the 17th
+        // SaturnSheet slot (slot 16; AIZ_TEST implies MENU so slots 0..15 are the
+        // GHZ+Logos+Title+Menu sheets, inert on the AIZ scene). MIRRORS the TEXTEN.SHT
+        // block exactly. Path hash = "AIZ/Objects.gif" -- what AIZTornado_StageLoad's
+        // LoadSpriteAnimation("AIZ/AIZTornado.bin") computes for its sheet[0]. ROOT CAUSE
+        // (same class as CP4b LOGOS / CP5b.1 TLOGO / CP5b.2 TSONIC): the AIZTornado entity
+        // is registered + FLYING (M3.2: tornado x 60->14282) but AIZ/Objects.gif's surface
+        // had saturnSheetSlot==-1 (no .SHT staged) -> no VDP1 handle -> every AIZTornado_
+        // Draw DrawSprite (AIZTornado.c:29-42) dropped -> the biplane was invisible. The
+        // bind loop (p6_ghz_arm_env, run unconditionally below) binds it to a VDP1 handle
+        // (P6_VDP1_NSHEETS=12 has room -- the AIZ scene's sprite-bind demand is far under
+        // GHZ's). 21,947 B banded fits the 0x10000 (64 KB) load buffer. MakeResident SAFE
+        // (512-wide -> raw band <=0x4000, the scratch-split boundary).
+        // R3.1 (#305): stage AIZOBJ.SHT BANDED -- NO MakeResident. The front-end cart RES
+        // store (0x22400000.., ~3 MB) is already filled by the resident LOGOS/TLOGO/TSONIC
+        // (1 MB!)/TBG/MAINICON/TEXTEN; making the AIZ Tornado sheet resident too OVERFLOWS
+        // it -> the cart inflate clobbers a boot structure -> master traps 0x06000956 in
+        // early boot (folder_tag=0, cont_frames=0; MEASURED blue-screen -- the CP5b.2
+        // RES-store-overflow class, NOT a WRAM-H _end trap: _end 0x060B9C40 is 1.2 KB UNDER
+        // the R2.5-safe line yet still trapped). The biplane is a ONE-TIME cutscene sprite
+        // -- banded FetchRect (per-rect miniz inflate) is fine, no per-frame fast-path. So
+        // this stages inline WITHOUT the helper's MakeResident.
+        {
+            int sn = rsdk_storage_load_to_lwram("AIZOBJ.SHT", (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("AIZ/Objects.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                    p6_w_aizobj_slot = slot;
+                }
+            }
+        }
+#if defined(P6_GHZCUT_BOOT)
+        // Task #309 Tier-B.2: stage the COMBINED Heavy atlas (cd/HBHOBJ.SHT,
+        // built by tools/build_heavy_atlas.py = the 43 used frames of the 5
+        // boss sheets packed into ONE 512x432 8bpp atlas). MIRRORS the AIZOBJ.SHT
+        // block above exactly. Path hash = "Cutscene/HBH.gif" -- the single sheet
+        // name the rewritten HBHOBJ.PAK .bin entries reference -> CutsceneHBH's
+        // frames resolve to THIS sheet's gfxSurface. Staged into the NEXT free
+        // SaturnSheet slot (slot 7; the front-end uses 0..6 = LOGOS/TLOGO/TSONIC/
+        // TBG/MAINICON/TEXTEN/AIZOBJ, leaving 7..15 free in the 16-slot MENU table
+        // -> NO growth to slot 16/17 = the #228 trap). Staged BANDED, NO
+        // MakeResident -- the front-end cart RES store is already filled by the
+        // resident title sheets (TSONIC 1 MB!); making the 221 KB Heavy atlas
+        // resident too risks the AIZOBJ-class RES-store-overflow boot trap. The
+        // Heavies are a held cutscene -> banded per-rect FetchRect renders fine.
+        // The p6_ghz_arm_env bind loop (run unconditionally below) binds the
+        // surface to a VDP1 handle (P6_VDP1_NSHEETS=12 has room). 30 KB banded
+        // fits the 0x10000 (64 KB) load buffer.
+        {
+            int sn = rsdk_storage_load_to_lwram("HBHOBJ.SHT", (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (sn > 0) {
+                int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                if (slot >= 0) {
+                    RETRO_HASH_MD5(ph);
+                    GEN_HASH_MD5("Cutscene/HBH.gif", ph);
+                    SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                    p6_w_hbh_slot = slot;
+                }
+            }
+            // Upload the 5 Heavy palette blocks (cd/HBHPAL.BIN) to CRAM[512..1663]
+            // (the no-AIZ-BG GHZCutscene flavor leaves CRAM[512+] free; bank0 FG
+            // CRAM[0..255] + bank1 VDP1-sprite CRAM[256..511] UNTOUCHED -> R3.3-safe).
+            // Each block = the jo colno the Heavy draw shim selects (block*256).
+            {
+                extern void p6_vdp2_hbh_pal_upload(const unsigned short *palData);
+                int pn = rsdk_storage_load_to_lwram("HBHPAL.BIN", (void *)P6_LW_ENTITYLIST, 0x800);
+                if (pn >= 5 * 128 * 2)
+                    p6_vdp2_hbh_pal_upload((const unsigned short *)P6_LW_ENTITYLIST);
+            }
+        }
+#endif // P6_GHZCUT_BOOT
+#endif // P6_AIZ_TEST
 
+        // R3.1 (#305) WRAM-H reclaim: the sheet-probe table + djb2 loop is GHZ-ONLY. The
+        // front-end SKIPS the 9-sheet GHZ load loop, so its runtime SaturnSheet slots
+        // (LOGOS=0,TLOGO=1,... AIZOBJ=6) DON'T match the probe table's SHEETS-index slots
+        // (LOGOS=9,...) -> every front-end FetchRect already MISMATCHED (dead diagnostic).
+        // Guarding it out of the front-end drops ~1 KB of probe-table .rodata + the loop --
+        // the reclaim that lets the front-end (AIZ) build fit under the heap limit (#228
+        // boot trap, MEASURED blue-screen at _end 0x060BA140). GHZ flavor BYTE-IDENTICAL.
+#if !defined(P6_FRONTEND_TITLE)
 #include "p6_sheet_probes.inc"
         // W12b: fixed-window scratch (P6_HW_GROUPWIN tail), was 4 KB .bss
         uint8 *p6_shtRect = (uint8 *)P6_HW_GROUPWIN_SHTRECT; // largest probe rect 64x64
@@ -4048,6 +4340,7 @@ extern "C" void p6_scene_run(void)
                 p6_w_sht_firstbad = i;
         }
         p6_w_sht_probes = good;
+#endif // !P6_FRONTEND_TITLE (sheet-probe table GHZ-only -- R3.1 WRAM-H reclaim)
     }
 
 
@@ -5139,6 +5432,7 @@ static char s_layout_tag[12] = "GHZ1"; // tag of the mounted store (boot mounts 
 extern "C" int32 SaturnLayout_Mount(const void *blob); // file-scope (matches the C symbol)
 extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty); // F.2 diag probe
 extern "C" void SaturnLayout_PreInflateResident(void); // #249/#250 deferred resident pre-inflate
+extern "C" void SaturnLayout_SetScratch(void **bufp, uint32 cap); // M3.2: arm the AIZ FG band-inflate scratch
 
 static void p6_layout_mount_for_scene(void)
 {
@@ -5146,8 +5440,23 @@ static void p6_layout_mount_for_scene(void)
     char id            = sceneInfo.listData[sceneInfo.listPos].id[0];
     char tag[12];
     int32 n = 0;
+#if defined(P6_FRONTEND_MENU)
+    // #309: the LAYT band-store filename is "<tag>LAYT.BIN" and SGL GFS 8.3 caps
+    // the name at 8 chars, so the tag must be <= 4. folder[:7]+id gives "GHZ"->
+    // "GHZ1" (OK) but the cutscene folder "GHZCutscene"->"GHZCuts1" -> a 16-char
+    // "GHZCuts1LAYT.BIN" that GFS rejects. Alias the long cutscene folders to a
+    // <=3-char prefix distinct from "GHZ" (built offline as GHC1LAYT.BIN via
+    // build_layout_bands.py --tag GHC1 --no-model). Front-end-only branch; the
+    // GHZ shipping build takes the #else and is byte-identical.
+    const char *prefix = folder;
+    if (!strcmp(folder, "GHZCutscene"))
+        prefix = "GHC"; // GHC1LAYT.BIN (Scene1) / GHC2LAYT.BIN (Scene2)
+    for (const char *p = prefix; *p && n < 7; ++p)
+        tag[n++] = *p;
+#else
     for (const char *p = folder; *p && n < 7; ++p)
         tag[n++] = *p;
+#endif
     tag[n++] = id;
     tag[n]   = 0;
     // F.4 diag: capture what this mount call resolved (tag + listPos) so the gate
@@ -5288,6 +5597,65 @@ static void p6_scene_load_and_arm(void)
         }
     }
 #endif
+#if defined(P6_AIZ_TEST)
+    // M3.0: the AIZ FG cells -> NBG1 NOW, while tilesetPixels is the live W11b transient
+    // (post-LoadSceneFolder GIF decode, pre-LoadSceneAssets memset) -- the SAME window the
+    // GHZ (p6_isGHZ above) and Title (p6_isTitle above) uploads use. AIZ is a gameplay
+    // tilemap, so unlike the Logos 1731 B placeholder it has real FG content -> the
+    // GHZ-only guard above must NOT gate it. A2 latches a djb2 of the uploaded cells
+    // (!=0 proves the AIZ tileset decoded with content -> the FG renders, separate from
+    // the per-frame present G8 -- M3.0b).
+    {
+        int32 p6_isAIZ =
+            (strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "AIZ") == 0);
+        if (p6_isAIZ && !p6_folderReload) {
+            p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+            // R1 (AIZ render): AIZ tile-0 is OPAQUE orange -> the GHZ "empty cell -> tile-0
+            // (transparent)" present assumption fills the screen with orange. Clear an UNUSED
+            // tile index (64, MEASURED used by no AIZ layer -> streaming-safe) to transparent
+            // and route empty FG cells (0xFFFF) there so the FG is see-through over the BG.
+            p6_vdp2_aiz_blank_setup(64);
+            uint32 h = 5381u;
+            const uint8 *pb = (const uint8 *)tilesetPixels;
+            for (int32 i = 0; i < 0x4000; ++i) // 16 KB sample of the decoded tileset
+                h = ((h << 5) + h) ^ pb[i];
+            p6_w_aiz_fg_hash = (int32)h;
+        }
+    }
+#endif
+#if defined(P6_GHZCUT_BOOT)
+    // Task #309: the GHZCutscene FG cells -> NBG1 NOW, while tilesetPixels is the live
+    // W11b transient (post-LoadStageGIF pre-decoded-tileset memcpy, pre-LoadSceneAssets
+    // memset). GHZCutscene's folder ("GHZCutscene") matches NONE of the p6_isGHZ/isTitle/
+    // isAIZ guards above, so it needs its own upload. GHZCutscene is a GHZ-THEMED scene:
+    // its tile-0 is the GHZ transparent convention (NOT the AIZ opaque-orange tile-0), so
+    // it takes the plain GHZ-style upload + the present's "empty cell (0xFFFF) -> tile-0
+    // (transparent)" assumption -- NO p6_vdp2_aiz_blank_setup. Reuse the AIZ fg_hash
+    // witness (gc-rooted) so the capture proves the tileset decoded with content.
+    {
+        int32 p6_isGHZCut =
+            (strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "GHZCutscene") == 0);
+        if (p6_isGHZCut && !p6_folderReload) {
+            // Task #309 gate-2 FOLLOW-UP: enforce the documented "empty cell -> tile-0
+            // transparent" assumption for GHZCutscene by resetting the persistent
+            // p6_fg_blank_char_override to -1 here (the load-time twin of the live-seam
+            // reset above). On the LIVE path the AIZ scene left it at 64; on the
+            // direct-boot it is already -1 (no-op). Without this the present maps
+            // GHZCutscene empty FG cells to opaque GHZ-tile-64 -> the checkerboard bleed.
+            // (-DP6_GHZCUT_NOFIX disables BOTH this and the live-seam reset for the
+            // RED-proof build.)
+#ifndef P6_GHZCUT_NOFIX
+            p6_fg_blank_char_override = -1;
+#endif
+            p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
+            uint32 h = 5381u;
+            const uint8 *pb = (const uint8 *)tilesetPixels;
+            for (int32 i = 0; i < 0x4000; ++i) // 16 KB sample of the decoded tileset
+                h = ((h << 5) + h) ^ pb[i];
+            p6_w_aiz_fg_hash = (int32)h;
+        }
+    }
+#endif
     p6_w_load_step = 33; // #251 phase-2: LoadSceneAssets (sprite sheets)
     LoadSceneAssets();
     P6_LT_MARK(9); // Task #271 S9: LoadSceneAssets (sprite-sheet GIF decode/stage for the scene)
@@ -5319,7 +5687,29 @@ static void p6_scene_load_and_arm(void)
     p6_widescene_reset();
 #endif
     p6_w_load_step = 34; // #251 phase-2: InitObjects (entity Create/StageLoad)
+#if defined(P6_AIZ_TEST)
+    // M3.2: latch the slot-5/6/7 classID trio BEFORE InitObjects (post-LoadScene+compaction
+    // state). slot 6 == the AIZTornadoPath START node, slot 5 == a scene Player marker,
+    // slot 7 == AIZTornadoPath SETSPEED. cls==33 expected for an AIZTornadoPath node.
+    if (strcmp(currentSceneFolder, "AIZ") == 0)
+        p6_w_aiz_trio_load =
+            ((int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 5)->classID << 16)
+            | ((int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 6)->classID << 8)
+            | (int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 7)->classID;
+#endif
     InitObjects();
+#if defined(P6_AIZ_TEST)
+    // M3.2: same trio AFTER InitObjects. If slot 6 went 33->0 here, the Saturn Player-marker
+    // consumption (Player_LoadSprites / Player StageLoad) blanked the START node adjacent to
+    // the slot-5 Player marker. player_cls == Player1's classID for the purge comparison.
+    if (strcmp(currentSceneFolder, "AIZ") == 0) {
+        p6_w_aiz_trio_init =
+            ((int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 5)->classID << 16)
+            | ((int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 6)->classID << 8)
+            | (int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 7)->classID;
+        p6_w_aiz_player_cls = (int32)RSDK_ENTITY_AT(0)->classID;
+    }
+#endif
     // #256 FIX: real Mania's Player_LoadSprites (Player.c:779 foreach_all(Player))
     // consumes EVERY scene-placed Player marker -- CopyEntity(clearSrc=true) the
     // chosen-character one into SLOT_PLAYER1, destroyEntity the rest; both zero
@@ -5334,6 +5724,15 @@ static void p6_scene_load_and_arm(void)
     // the first tick) so the phantom never executes an Update -> shared buffers stay
     // clean. ResetEntity(.,0,.) == destroyEntity (memset + classID=TYPE_BLANK=0).
     p6_purge_scene_players();
+#if defined(P6_AIZ_TEST)
+    // M3.2: same trio AFTER the purge. If slot 6 went 33->0 here (while player_cls != 33),
+    // p6_purge_scene_players blanked a non-Player slot -> a purge bug clobbering the START node.
+    if (strcmp(currentSceneFolder, "AIZ") == 0)
+        p6_w_aiz_trio_purge =
+            ((int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 5)->classID << 16)
+            | ((int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 6)->classID << 8)
+            | (int32)RSDK_ENTITY_AT(RESERVE_ENTITY_COUNT + 7)->classID;
+#endif
     // CP4 (Task #266, qa_engine_logos E4): census the live-classID scene entities
     // the generic InitObjects chain just instantiated for the LOGOS scene (the 4
     // UIPicture placements). LATCH on the Logos folder + never overwrite -- the
@@ -5759,6 +6158,214 @@ static void p6_menu_reload(void)
     // above) -- it cannot run before the overlay loads, and it must precede the scene's
     // first StaticUpdate (which runs in p6_frontend_frame, AFTER this reload returns).
 }
+
+#if defined(P6_AIZ_TEST)
+// =============================================================================
+// M3.0 (qa_p6_aiz_scene): p6_aiz_reload -- the AIZ intro-cutscene mirror of
+// p6_menu_reload. Scans every category range for folder "AIZ" (the decomp
+// Cutscenes/"Angel Island Zone" target, MenuSetup.c:1121), then load+arm through
+// the generic p6_scene_load_and_arm. AIZ is a GAMEPLAY-tilemap scene (FG Low/High
+// like GHZ, NOT a sprite-only UI scene), so the p6_isAIZ branch added to
+// p6_scene_load_and_arm uploads its 16x16 cells to NBG1 (the FG render path). The
+// AIZ object classes (Tornado/EggRobo/...) are UNREGISTERED in M3.0 -- the engine
+// loads them as inert blank entities (classID 0, no Update/Draw -- Scene.cpp:590-610,
+// the "Object Class N is unimplemented" path), so the FG tilemap renders with zero
+// new object compiles; the actors come in M3.1+. Behind -DP6_AIZ_TEST: a
+// P6_FRONTEND_MENU diagnostic build that boots straight to AIZ (the same pattern
+// F.1/F.2 used with P6_TRANSITION_TEST to prove a load+arm before wiring the trigger).
+// =============================================================================
+static void p6_aiz_reload(void)
+{
+    int32 found = 0;
+    for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
+        SceneListInfo *cat = &sceneInfo.listCategory[c];
+        for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+            if (!strcmp(sceneInfo.listData[i].folder, "AIZ")) {
+                sceneInfo.activeCategory = c;
+                sceneInfo.listPos        = i;
+                found                    = 1;
+                break;
+            }
+        }
+    }
+    if (!found)
+        return;
+    // tag the loaded folder ('A'<<8 | 'I' = 0x4149).
+    {
+        const char *f = sceneInfo.listData[sceneInfo.listPos].folder;
+        p6_w_frontend_folder_tag =
+            (int32)(((uint32)(uint8)f[0] << 8) | (uint32)(uint8)(f[0] ? f[1] : 0));
+    }
+    // Safe `scanlines` backing (front-end cart buffer) -- AIZSetup is unregistered in
+    // M3.0 so no scanlineCallback installs, but arm it for the Title path's safety
+    // contract (a NULL Saturn scanlines + an ungated callback == wild write; see
+    // p6_title_reload for the MEASURED rationale). 0x22400000 = the front-end free cart.
+    scanlines = (ScanlineInfo *)0x22400000u;
+    memset((void *)scanlines, 0, (size_t)SCREEN_YSIZE * sizeof(ScanlineInfo));
+    // M3.2 FG fix: the AIZ FG tilemap present serves tiles from SaturnLayout's camera-local
+    // windows, which inflate from the AIZ1LAYT band store through a scratch buffer. The
+    // front-end boot path never effectively armed SaturnLayout_SetScratch (the GHZ1LAYT
+    // chain-load block is GHZ-gameplay-only), so s_scratchPtr stays NULL -> PreInflateResident
+    // AND the band Refill both bail (MEASURED: p6_w_lay_resident=0, p6_w_lay_refills=0) -> the
+    // FG-Low window stays zeroed -> GetTile returns 0 -> AIZ tile 0 (opaque) fills the screen.
+    // Arm the scratch HERE (the same fixed P6_LW_LAYSCRATCH GHZ uses) BEFORE the arm mounts
+    // AIZ1LAYT + pre-inflates. Idempotent (only sets the s_scratchPtr/cap statics).
+    {
+        static void *p6_aiz_layScratch = (void *)P6_LW_LAYSCRATCH;
+        SaturnLayout_SetScratch(&p6_aiz_layScratch, 0x8000); // file-scope extern "C" decl above
+    }
+    // R3.2 (#305): load the AIZ object anim pack (cd/AIZOBJ.PAK) into the CART
+    // P6_HW_OBJANIMPAK window BEFORE the scene's StageLoad runs (LoadSpriteAnimation
+    // resolves from the resident packs first). The front-end SKIPS the GHZ GHZOBJ.PAK,
+    // so this window is free -- AIZOBJ.PAK (AIZ/AIZTornado.bin) resolves the Tornado's
+    // anim on the FAST path, so AIZTornado_StageLoad's LoadSpriteAnimation returns
+    // aniFrames>=0 (was -1: empty packs -> the slow windowed-GFS LoadFile failed,
+    // MEASURED -> the biplane drew nothing). Zero engine-logic change: the existing
+    // Animation.cpp pack-resolution loop reads paks[1]=P6_HW_OBJANIMPAK / objapk_bytes.
+    {
+        int n = rsdk_storage_load_to_lwram("AIZOBJ.PAK", (void *)P6_HW_OBJANIMPAK,
+                                           P6_HW_OBJANIMPAK_CAP);
+        if (n > 0)
+            p6_w_objapk_bytes = n;
+    }
+    p6_scene_load_and_arm();
+    p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
+    // A1: the engine LoadScene of folder AIZ finished (LoadSceneFolder re-strcpy's
+    // currentSceneFolder to the loaded folder during the arm above).
+    p6_w_aiz_loaded   = (strcmp(currentSceneFolder, "AIZ") == 0) ? 1 : 0;
+    // A3: the scene's resolved object-class count (proves the object table loaded; the
+    // AIZ actor classes are unregistered M3.0 blanks, so this counts the global/default
+    // classes -- > 0 whenever the scene loaded its useGlobalObjects table).
+    p6_w_aiz_objcount = (int32)sceneInfo.classCount;
+    // diag: non-null tileLayer count -> pins the FG-Low layer index for the M3.0b
+    // present (p6_vdp2_present_ghz_camera needs the per-zone FG-Low index, G8).
+    {
+        int32 n = 0;
+        for (int32 i = 0; i < LAYER_COUNT; ++i)
+            if (tileLayers[i].layout) ++n;
+        p6_w_aiz_nlayers = n;
+    }
+    // R2.1: load the 4-bpp AIZ Background data (cd/AIZBG.*) + upload BG4 (the
+    // jungle) onto NBG0. CHR (char data) + MAP (precomputed NBG0 PND image) +
+    // CMP (custom CRAM bank composition). NOTE: the BG layers are WINDOWED on
+    // Saturn (>8192 B -> tileLayers[].layout is NULL, Scene.hpp:175-203), so the
+    // map is PRECOMPUTED offline and copied -- NO tileLayers dependency. Cart
+    // staging at 0x22480000 = the front-end free cart (p6_io_main.cpp:5874-5875:
+    // no SaturnLayout/GHZ tileset/pool in this flavor); MEASURED-disjoint from
+    // scanlines@0x22400000 and GFS@0x22700000. CHR/MAP are staged in cart
+    // (byte-writable) then copied to B1/B0 VRAM with 16-bit writes (the
+    // VDP2-VRAM-16-bit-only rule), mirroring p6_vdp2_upload_cells.
+    {
+        unsigned char *chr = (unsigned char *)0x22480000u; // 62,720 B
+        unsigned char *map = (unsigned char *)0x22490000u; // 16,384 B (frame-0 window)
+        unsigned char *cmp = (unsigned char *)0x22494000u; //     49 B
+        unsigned char *rmp = (unsigned char *)0x22495000u; //  2,048 B (R2.4 stream)
+        unsigned char *bnk = (unsigned char *)0x22496000u; //  1,024 B (R2.4 stream)
+        unsigned char *l3  = (unsigned char *)0x22498000u; // 24,576 B full BG4 layout
+        unsigned char *l0  = (unsigned char *)0x2249E000u; //  2,560 B full BG1 layout
+        unsigned char *l2  = (unsigned char *)0x224A0000u; // 12,288 B full BG3 layout
+        int nchr = rsdk_storage_load_to_lwram("AIZBG.CHR", chr, 0x10000);
+        int nmap = rsdk_storage_load_to_lwram("AIZBG.MAP", map, 0x4000);
+        int ncmp = rsdk_storage_load_to_lwram("AIZBG.CMP", cmp, 0x40);
+        rsdk_storage_load_to_lwram("AIZBG.RMP", rmp, 0x800);   // for the streamer
+        rsdk_storage_load_to_lwram("AIZBG.BNK", bnk, 0x400);
+        rsdk_storage_load_to_lwram("AIZBG.L3",  l3,  0x6000);  // 768x16 BG4 layout
+        rsdk_storage_load_to_lwram("AIZBG.L0",  l0,  0xC00);   // 80x16 BG1 layout (NBG2)
+        rsdk_storage_load_to_lwram("AIZBG.L2",  l2,  0x3000);  // 384x16 BG3 layout (NBG3)
+        p6_w_aiz_bg_filebytes = nchr;
+        if (nchr > 0 && nmap > 0 && ncmp > 0) {
+            p6_vdp2_aiz_bg_upload((const unsigned short *)chr, nchr / 2, cmp,
+                                  (const unsigned short *)map, nmap / 2,
+                                  (const unsigned short *)fullPalette[0]);
+        }
+    }
+}
+
+#if defined(P6_GHZCUT_DIRECTBOOT)
+// =============================================================================
+// Task #309 gate-1: p6_ghzcut_reload -- the AIZ->GHZCutscene arrival-cutscene mirror
+// of p6_aiz_reload. The AIZ intro's final beat (CutsceneSonic_LoadGHZ, AIZSetup.c:896)
+// does SetScene("Cutscenes","Green Hill Zone") -> GameConfig folder GHZCutscene id 1.
+// This diagnostic boots STRAIGHT to that scene to prove the engine LoadScene + FG
+// render + the fixed-timer cutscene -> playable-GHZ handoff in ISOLATION (the same
+// pattern p6_aiz_reload used for AIZ).
+//
+// Scans every category range for folder "GHZCutscene" AND id[0]=='1' (both Scene1 and
+// Scene2 share the folder; require id=='1' for the arrival cutscene). GHZCutscene uses
+// the NORMAL FG tileset path: LoadStageGIF (Scene.cpp:1238-1249) loads the pre-decoded
+// cd/GHZCUTIL.BIN + GHZCUPAL.BIN automatically, keyed on upper(folder)[:5]=="GHZCU"
+// (p6_til_name) -- ZERO runtime code here for the tileset. So this OMITS the AIZ-specific
+// bits (AIZOBJ.PAK load, the 4-bpp AIZBG.* block). The boss-sheet anims for CutsceneHBH's
+// Heavies are NOT staged (Tier-A acceptable -> LoadSpriteAnimation returns -1 gracefully
+// -> Heavies invisible). The FG cell upload + per-frame FG present are handled by the
+// P6_GHZCUT_BOOT branch in p6_scene_load_and_arm + the P6_AIZ_TEST present block in
+// p6_frontend_frame (its AIZ BG streaming is runtime-guarded to folder=="AIZ").
+// =============================================================================
+static void p6_ghzcut_reload(void)
+{
+    int32 found = 0;
+    for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
+        SceneListInfo *cat = &sceneInfo.listCategory[c];
+        for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+            if (!strcmp(sceneInfo.listData[i].folder, "GHZCutscene")
+                && sceneInfo.listData[i].id[0] == '1') {
+                sceneInfo.activeCategory = c;
+                sceneInfo.listPos        = i;
+                found                    = 1;
+                break;
+            }
+        }
+    }
+    if (!found)
+        return;
+    // tag the loaded folder ('G'<<8 | 'H' = 0x4748) -- the existing front-end folder-tag witness.
+    {
+        const char *f = sceneInfo.listData[sceneInfo.listPos].folder;
+        p6_w_frontend_folder_tag =
+            (int32)(((uint32)(uint8)f[0] << 8) | (uint32)(uint8)(f[0] ? f[1] : 0));
+    }
+    // Safe `scanlines` backing (front-end free cart) -- a scanlineCallback could install
+    // (GHZCutsceneST/FXRuby) so arm it for the Title-path safety contract (NULL Saturn
+    // scanlines + ungated callback == wild write; see p6_aiz_reload for the rationale).
+    scanlines = (ScanlineInfo *)0x22400000u;
+    memset((void *)scanlines, 0, (size_t)SCREEN_YSIZE * sizeof(ScanlineInfo));
+    // Arm the SaturnLayout band-inflate scratch BEFORE the arm mounts GHC1LAYT + pre-inflates
+    // (the same fixed P6_LW_LAYSCRATCH GHZ/AIZ use). Idempotent. Without it the FG-Low window
+    // stays zeroed -> GetTile returns 0 (see the AIZ rationale at p6_aiz_reload).
+    {
+        static void *p6_ghzcut_layScratch = (void *)P6_LW_LAYSCRATCH;
+        SaturnLayout_SetScratch(&p6_ghzcut_layScratch, 0x8000);
+    }
+    // Task #309 Tier-B.2: load the Heavy object anim pack (cd/HBHOBJ.PAK) into the
+    // CART P6_HW_OBJANIMPAK window BEFORE the scene's StageLoad runs (the front-end
+    // SKIPS the GHZ GHZOBJ.PAK so this window is free, exactly like AIZOBJ.PAK in
+    // p6_aiz_reload). HBHOBJ.PAK holds the 5 rewritten Heavy .bin (keyed by the
+    // ORIGINAL load names SPZ1/Boss.bin etc.) -> CutsceneHBH_LoadSprites'
+    // LoadSpriteAnimation resolves them on the FAST path (aniFrames>=0); their frames
+    // index ONE sheet "Cutscene/HBH.gif" = the staged HBHOBJ.SHT (below). Zero
+    // engine-logic change: Animation.cpp reads paks[1]=P6_HW_OBJANIMPAK/objapk_bytes.
+    {
+        int n = rsdk_storage_load_to_lwram("HBHOBJ.PAK", (void *)P6_HW_OBJANIMPAK,
+                                           P6_HW_OBJANIMPAK_CAP);
+        if (n > 0)
+            p6_w_objapk_bytes = n;
+    }
+    p6_scene_load_and_arm();
+    p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
+    // A1-analog: the engine LoadScene of folder GHZCutscene finished (LoadSceneFolder
+    // re-strcpy's currentSceneFolder to the loaded folder during the arm). Reuse the AIZ
+    // witnesses (gc-rooted under P6_AIZ_TEST) so the capture is measurable.
+    p6_w_aiz_loaded   = (strcmp(currentSceneFolder, "GHZCutscene") == 0) ? 1 : 0;
+    p6_w_aiz_objcount = (int32)sceneInfo.classCount;
+    {
+        int32 n = 0;
+        for (int32 i = 0; i < LAYER_COUNT; ++i)
+            if (tileLayers[i].layout) ++n;
+        p6_w_aiz_nlayers = n;
+    }
+}
+#endif // P6_GHZCUT_DIRECTBOOT
+#endif // P6_AIZ_TEST
 #endif // P6_FRONTEND_MENU
 
 // =============================================================================
@@ -5891,6 +6498,112 @@ static void p6_frontend_frame(void)
             return;
         }
 #endif
+#if defined(P6_GHZCUT_BOOT)
+        // Task #309 gate-2 (LIVE SEAM, AIZ->GHZCutscene): when LEAVING the AIZ intro
+        // cutscene, do NOT swallow -- carry the front-end to the GHZCutscene arrival
+        // cutscene. The AIZ intro's final beat AIZSetup_Cutscene_LoadGHZ (AIZSetup.c:900)
+        // did RSDK.SetScene("Cutscenes","Green Hill Zone") + RSDK.LoadScene(); SetScene
+        // resolved (Scene.cpp, via GameConfig) folder GHZCutscene id 1, so sceneInfo.listPos
+        // already points at GHZCutscene/Scene1 here. Just load+arm it -- LoadSceneFolder
+        // inside re-strcpy's currentSceneFolder to "GHZCutscene" (Scene.cpp:148) -> the FG
+        // tileset (GHZCUTIL/GHZCUPAL via p6_til_name) + the GHZCutscene FG cell upload +
+        // HBHOBJ.SHT/HBHPAL staging all run from p6_scene_load_and_arm's runtime
+        // folder=="GHZCutscene" branches (the SAME code the direct-boot p6_ghzcut_reload
+        // reaches via p6_scene_load_and_arm), and the per-frame FG present + fade are keyed
+        // on P6_GHZCUT_BOOT + runtime folder -> the live arrival renders identically to the
+        // direct-boot. THE ONE EXTRA STEP vs the GHZCutscene->GHZ branch below: pre-load the
+        // Heavy anim pack HBHOBJ.PAK into P6_HW_OBJANIMPAK BEFORE the arm runs StageLoad
+        // (CutsceneHBH_LoadSprites' LoadSpriteAnimation resolves from the resident packs
+        // first), exactly as p6_ghzcut_reload does. Discriminator = currentSceneFolder
+        // (still "AIZ"; re-strcpy'd only inside the load below). Once (static guard). RETURN
+        // so this frame does not also tick the now-GHZCutscene ProcessObjects on a
+        // half-swapped state (mirrors the CHAIN / GHZCutscene->GHZ returns).
+        {
+            static int32 s_aiz_ghzcut_seam_fired = 0;
+            if (!s_aiz_ghzcut_seam_fired && !strcmp(currentSceneFolder, "AIZ")) {
+                s_aiz_ghzcut_seam_fired = 1;
+                // Task #309 gate-2 FOLLOW-UP (the LIVE render-clean fix): reset the FG
+                // present's empty-cell blank-char override the AIZ scene left at 64.
+                // ROOT CAUSE of the live-vs-direct-boot mismatch (MEASURED via
+                // tools/_portspike/qa_ghzcut_liverender.py): p6_fg_blank_char_override is
+                // a PERSISTENT global. The AIZ scene set it to 64 (p6_io_main.cpp:5610
+                // p6_vdp2_aiz_blank_setup(64) -- AIZ's only-transparent CEL char, because
+                // AIZ tile-0 is opaque orange). GHZCutscene is GHZ-THEMED: its tile-0 is
+                // transparent (the GHZ convention) and its FG cell upload deliberately
+                // does NOT call p6_vdp2_aiz_blank_setup (p6_io_main.cpp:5624-5631), so the
+                // present must map empty FG cells (0xFFFF) to tile 0 (override == -1). The
+                // DIRECT-BOOT (P6_GHZCUT_DIRECTBOOT) never ran AIZ -> override stayed -1 ->
+                // empties -> char 0 -> BLACK sky (clean). The LIVE seam comes FROM AIZ ->
+                // override==64 persisted -> GHZCutscene empties -> opaque GHZ-tile-64 -> the
+                // CHECKERBOARD bleeding into the upper-screen black-sky region (the user-
+                // reported "FG framed too high"). Resetting it here makes the live FG-plane
+                // content BYTE-EQUAL the direct-boot's. (No VDP2 register write: this only
+                // changes which CEL char index empty PND cells reference; the present's
+                // slScrAutoDisp(NBG1ON|SPRON) + camera scroll are already identical -- the
+                // SCYIN1=0x030C NBG1 scroll MATCHED in both states.)
+                // Temporary RED/GREEN A-B knob for the qa_ghzcut_liverender RED->GREEN
+                // proof: the fix is ON by default; build with -DP6_GHZCUT_NOFIX to
+                // reproduce the pre-fix (RED) live render from the SAME source tree.
+#ifndef P6_GHZCUT_NOFIX
+                p6_fg_blank_char_override = -1;
+#endif
+                // VDP1 surface->handle map reset for the AIZ->GHZCutscene folder change
+                // (the #250 same-folder-persist hazard): GHZCutscene's LoadSceneAssets +
+                // the HBHOBJ.SHT stage re-populate surface indices the AIZ scene used;
+                // stale "bound" handles would make the arm-env bind loop skip them.
+                for (int32 i = 0; i < SURFACE_COUNT; ++i)
+                    p6_vdp1HandleBySurface[i] = -1;
+                p6_vdp1HandlesInit = false;
+                // Pre-load HBHOBJ.PAK into the CART P6_HW_OBJANIMPAK window (the front-end
+                // SKIPS GHZ GHZOBJ.PAK so it is free; AIZ left AIZOBJ.PAK there, now
+                // overwritten by the Heavy pack for the GHZCutscene phase) BEFORE the arm's
+                // StageLoad runs -- mirrors p6_ghzcut_reload. Without it CutsceneHBH's
+                // LoadSpriteAnimation falls to the slow windowed-GFS path -> aniFrames=-1 ->
+                // Heavies invisible. Zero engine-logic change (Animation.cpp reads
+                // paks[1]=P6_HW_OBJANIMPAK / objapk_bytes).
+                {
+                    int n = rsdk_storage_load_to_lwram("HBHOBJ.PAK", (void *)P6_HW_OBJANIMPAK,
+                                                       P6_HW_OBJANIMPAK_CAP);
+                    if (n > 0)
+                        p6_w_objapk_bytes = n;
+                }
+                p6_scene_load_and_arm(); // load+arm the GHZCutscene scene the AIZ SetScene selected
+                return;
+            }
+        }
+        // Task #309 (handoff): when leaving the GHZCutscene arrival cutscene, do NOT
+        // swallow -- carry the front-end to the playable Green Hill Zone. The cutscene's
+        // final beat GHZCutsceneST_Cutscene_SetupGHZ1 (GHZCutsceneST.c:310-327) did
+        // RSDK.SetScene("Mania Mode","") + Zone_StoreEntities + RSDK.LoadScene(); SetScene
+        // with an empty scene name resolves to the FIRST Mania Mode scene = Green Hill Zone
+        // 1 (Scene.cpp:1543-1565: listPos = category sceneOffsetStart), so sceneInfo.listPos
+        // already points at GHZ Scene1 here. Just load+arm it -- LoadSceneFolder inside
+        // re-strcpy's currentSceneFolder to "GHZ" (Scene.cpp:148) -> the handoff is live.
+        // Discriminator = currentSceneFolder (the CURRENTLY-loaded folder, still
+        // "GHZCutscene"; re-strcpy'd only inside the load below), the same order-independent
+        // test the CP5c CHAIN uses. Once (static guard). The front-end SKIPS GHZANIM.PAK/
+        // GHZOBJ.PAK (line 3834 #if !P6_FRONTEND_TITLE), so the playable GHZ renders its FG
+        // tilemap but the Player/object sprites are unbound -- acceptable for the handoff
+        // gate (folder=="GHZ"); a faithful playable GHZ from the front-end needs those packs
+        // staged, a separate step. p6_scene_load_and_arm handles GHZ via its p6_isGHZ branch
+        // (the P6_FRONTEND_LOGOS runtime strcmp). RETURN so this frame does not also tick the
+        // now-GHZ ProcessObjects on a half-swapped state (mirrors the CHAIN return).
+        {
+            static int32 s_ghzcut_handoff_fired = 0;
+            if (!s_ghzcut_handoff_fired && !strcmp(currentSceneFolder, "GHZCutscene")) {
+                s_ghzcut_handoff_fired = 1;
+                // Reset the VDP1 surface->handle map for the folder change (the same #250
+                // same-folder-persist hazard the CHAIN handles): GHZ's LoadSceneAssets
+                // re-populates surface indices the cutscene used; stale "bound" handles
+                // would make the arm-env bind loop skip them.
+                for (int32 i = 0; i < SURFACE_COUNT; ++i)
+                    p6_vdp1HandleBySurface[i] = -1;
+                p6_vdp1HandlesInit = false;
+                p6_scene_load_and_arm(); // load+arm the GHZ scene SetupGHZ1 selected
+                return;
+            }
+        }
+#endif
         sceneInfo.state = ENGINESTATE_REGULAR; // hold the splash; do not load Title (unported)
     }
 
@@ -6000,6 +6713,130 @@ static void p6_frontend_frame(void)
     p6_w_perf_cyc_present = P6_FRT_DELTA(fe_t0, fe_t1);
     p6_w_perf_vbl_present = (int32)(fe_v1 - fe_v0);
 
+#if defined(P6_GHZCUT_SEAMTEST)
+    // Task #309 gate-2: the LIVE-SEAM RED-gate injection. The full AIZ intro is ~4 fps
+    // and runs MINUTES before its beat-9 AIZSetup_Cutscene_LoadGHZ (AIZSetup.c:900)
+    // fires RSDK.SetScene("Cutscenes","Green Hill Zone")+RSDK.LoadScene(). To exercise the
+    // ENGINESTATE_LOAD AIZ->GHZCutscene SEAM in seconds (not minutes), inject the EXACT
+    // same SetScene at a fixed cont-frame count once the AIZ scene is up -- the proven
+    // P6_TRANSITION_TEST one-shot pattern (the GHZ1->GHZ2 act-advance, this file ~:7170).
+    // SetScene("Cutscenes","Green Hill Zone") resolves (Scene.cpp) to folder GHZCutscene
+    // id 1; replicate that listPos selection by NAME scan (GameConfig-equivalent), then
+    // request ENGINESTATE_LOAD. The REAL trigger in the live build is the beat-9 SetScene;
+    // this injection only SHORT-CIRCUITS the wait so the seam can be gated cheaply. The
+    // seam branch in the ENGINESTATE_LOAD handler above (currentSceneFolder=="AIZ") catches
+    // it on the next frame. NOT compiled in the live-loop build (P6_GHZCUT_BOOT alone).
+    {
+        static int32 s_seamtest_fired = 0;
+        if (!s_seamtest_fired && p6_w_cont_frames >= 100
+            && strcmp(currentSceneFolder, "AIZ") == 0) {
+            s_seamtest_fired = 1;
+            for (int32 c = 0; c < sceneInfo.categoryCount; ++c) {
+                SceneListInfo *cat = &sceneInfo.listCategory[c];
+                int32 hit = 0;
+                for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+                    if (!strcmp(sceneInfo.listData[i].folder, "GHZCutscene")
+                        && sceneInfo.listData[i].id[0] == '1') {
+                        sceneInfo.activeCategory = c;
+                        sceneInfo.listPos        = i;
+                        hit                      = 1;
+                        break;
+                    }
+                }
+                if (hit)
+                    break;
+            }
+            sceneInfo.state = ENGINESTATE_LOAD;
+            p6_w_aiz_cutscene_state = 999; // SEAMTEST witness: injection fired (distinct from real beats)
+        }
+    }
+#endif
+#if defined(P6_AIZ_TEST)
+    // M3.0b: present the AIZ FG tilemap on NBG1 each frame. Runs AFTER the
+    // p6_vdp2_arm_sprites_only() above (which armed SPRON-only -> NBG1 OFF for AIZ,
+    // since p6_w_title_backdrop_done==0), so this is the FINAL VDP2 arm -> NBG1ON|SPRON
+    // sticks into the vblank register DMA. The menu flavor drops p6_ghz_frame, so this
+    // wires the GHZ-style FG present (the analog of the p6_ghz_frame present) into the
+    // front-end frame. p6_fglow_layer_index() is DATA-DRIVEN -- it scans tileLayers for
+    // saturnSlot==0 (the FG-Low layer LoadSceneFolder bound, Scene.cpp:450-452) -- so the
+    // AIZ FG-Low index is DERIVED, not guessed. The single call builds the PND page from
+    // the AIZ1LAYT band-store window + arms NBG1ON|SPRON + sets the scroll
+    // (p6_vdp2.c:1481-1482). Static camera (screens[0].position = the AIZ load camera);
+    // M3.2 drives screens[0].position via the cutscene state machine.
+    {
+        unsigned int ph = 0; int nb = 0;
+        int fgl = p6_fglow_layer_index();
+        // M3.0c diag: which layer did the present read + each layer's saturnSlot + the
+        // scroll. The repeating pattern points at the wrong FG-Low index (a BG layer
+        // with a default saturnSlot==0 winning the scan). Latched every frame (cheap).
+        p6_w_aiz_fglow_idx = fgl;
+        p6_w_aiz_scrx      = screens[0].position.x;
+        p6_w_aiz_scry      = screens[0].position.y;
+        {
+            int32 s = 0;
+            for (int32 i = 0; i < 6; ++i)
+                s |= ((int32)((uint32)tileLayers[i].saturnSlot & 0xF)) << (i * 4);
+            p6_w_aiz_slots = s;
+        }
+        p6_vdp2_present_ghz_camera(fgl,
+                                   screens[0].position.x, screens[0].position.y,
+                                   (const unsigned short *)fullPalette[0], &ph, &nb);
+        // M3.2 FG probe: the present just bound SaturnLayout slot 0 -> layer fgl (FG-Low).
+        // Read 4 in-window tiles to see if the windowed accessor returns the varied AIZ
+        // FG-Low or a uniform constant (binding/window/refill vs page-build discriminator).
+        {
+            extern uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty);
+            int32 ctx = screens[0].position.x >> 4;
+            int32 cty = screens[0].position.y >> 4;
+            uint16 t0 = SaturnLayout_GetTile(0, ctx + 1,  cty + 2);
+            uint16 t1 = SaturnLayout_GetTile(0, ctx + 8,  cty + 6);
+            uint16 t2 = SaturnLayout_GetTile(0, ctx + 15, cty + 10);
+            uint16 t3 = SaturnLayout_GetTile(0, ctx + 20, cty + 12);
+            p6_w_aiz_gt_ctx = (ctx << 16) | (cty & 0xFFFF);
+            p6_w_aiz_gt_a   = ((int32)t0 << 16) | t1;
+            p6_w_aiz_gt_b   = ((int32)t2 << 16) | t3;
+        }
+        // R2.4: the 4-bpp BG4 plane (NBG0), DECOMP-FAITHFUL parallax. Scene.cpp:1471
+        // scrollInfo->tilePos = scrollInfo->scrollPos + (camera.x * parallaxFactor << 8);
+        // BG4 sInfo[0].parallax=0xC0 and AIZSetup sets scrollPos ONLY for bg2/bg3
+        // (AIZSetup.c:172-179), NOT bg4 -> bg4 scroll = camera.x * 0xC0 >> 8 = x*0.75,
+        // base offset 0. BG4 content is cols 436-767 -> the plane is faithfully EMPTY
+        // when the camera maps to tiles <436 (Mania fills that with bg2/bg3 + sky; a lone
+        // BG4 plane is correctly sparse -- the other BG layers are the next phase). Stream
+        // the window from the resident full BG4 layout (AIZBG.L3) as the camera crosses a
+        // tile. Vertical fixed (BG4 is a 16-tile horizontal band).
+        // Task #309: this BG streaming reads the AIZBG.* cart staging (0x22498000+) that
+        // p6_aiz_reload loads -- p6_ghzcut_reload does NOT (GHZCutscene has no 4-bpp BG
+        // assets; its background comes from the FG tilemap layers, presented above). Guard
+        // it to folder=="AIZ" so the GHZCutscene boot does not stream UNINITIALIZED cart
+        // garbage onto NBG0/NBG2/NBG3. The FG-Low present above runs for both folders.
+        if (strcmp(currentSceneFolder, "AIZ") == 0) {
+            int cam_x  = screens[0].position.x;
+            int bg4_sx = (cam_x * 0xC0) >> 8;   /* BG4 parallax 0.75 (sInfo 0xC0, scrollPos 0) */
+            int bg1_sx = (cam_x * 0x40) >> 8;   /* BG1 parallax 0.25 (mid of its 3 bands)      */
+            int bg3_sx = (cam_x * 0x80) >> 8;   /* BG3 parallax 0.5 (R2.6 single-scroll approx) */
+            /* BG4 -> NBG0 (map B1, no source-wrap; 768 wide). */
+            p6_vdp2_aiz_bg_stream(0, 0x25E70000u, (const unsigned short *)0x22498000u,
+                                  768, 16, 0,
+                                  (const unsigned char *)0x22495000u,
+                                  (const unsigned char *)0x22496000u, bg4_sx, 0);
+            /* BG1 -> NBG2 (map B0, source-wraps mod 80; the distant backdrop that
+             * fills the screen where BG4 is empty). Shares the B1 CHR + CRAM banks. */
+            p6_vdp2_aiz_bg_stream(1, 0x25E48000u, (const unsigned short *)0x2249E000u,
+                                  80, 16, 1,
+                                  (const unsigned char *)0x22495000u,
+                                  (const unsigned char *)0x22496000u, bg1_sx, 0);
+            /* BG3 -> NBG3 (map B0 @0x25E4C000, no source-wrap; 384 wide -> re-windows
+             * like BG4). The distant mountains/island layer. Shares B1 CHR + CRAM. */
+            p6_vdp2_aiz_bg_stream(2, 0x25E4C000u, (const unsigned short *)0x224A0000u,
+                                  384, 16, 0,
+                                  (const unsigned char *)0x22495000u,
+                                  (const unsigned char *)0x22496000u, bg3_sx, 0);
+            p6_vdp2_aiz_bg_frame(bg4_sx, bg1_sx, bg3_sx);
+        }
+    }
+#endif
+
 #if defined(P6_FRONTEND_MENU) && defined(P6_MENU_LAYOUT320)
     // BISECT (recovery): the interrupted-agent 320 layout mechanism regressed the menu to
     // a BLACK SCREEN (M6/M6b/M7=0). Gated OFF behind P6_MENU_LAYOUT320 (undefined by
@@ -6041,6 +6878,20 @@ static void p6_frontend_frame(void)
     // list) to isolate whether slSynch's measured ~90ms/frame jo-body wait is the
     // draw-sort/transfer of the title sprites (fps jumps if so -> fix = cut draw) or
     // a draw-INDEPENDENT cadence/audio stall (fps unchanged -> different lever).
+#endif
+#if defined(P6_GHZCUT_BOOT)
+    // Task #309 Tier-B.1: drive the FXRuby full-screen fade as a VDP2 Color Offset
+    // (ST-058-R2 Ch.13) -- the RSDKv5 software-framebuffer FillScreen the decomp
+    // FXRuby_Draw emits is never presented by the true-port. The overlay reads the
+    // live FXRuby fade fields (and, under P6_GHZCUT_HOLD, pins them to freeze the
+    // cutscene at a visible wash); the engine applies the offset to NBG1+SPR here,
+    // AFTER ProcessObjectDrawLists so it is the last VDP2 state before slSynch.
+    if (s_ovl.fade_fn) {
+        int fade_w = 0, fade_b = 0;
+        s_ovl.fade_fn(&fade_w, &fade_b);
+        p6_vdp2_fade_apply(fade_w, fade_b);
+        p6_w_ghzcut_fade = (fade_w << 16) | (fade_b & 0xFFFF);
+    }
 #endif
     fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
     p6_w_perf_cyc_draw = P6_FRT_DELTA(fe_t0, fe_t1);
@@ -6358,7 +7209,30 @@ extern "C" void p6_scene_tick(void)
     // frame. Subsequent ticks take the armed fast path below. Gated on
     // p6_lean_boot so the diag tick is unchanged.
     if (p6_lean_boot && !p6_ghz_continuous_armed) {
-#if defined(P6_FRONTEND_MENU)
+#if defined(P6_AIZ_TEST)
+        // M3.0 (qa_p6_aiz_scene): the AIZ-test diagnostic build (P6_FRONTEND_MENU +
+        // P6_AIZ_TEST) boots STRAIGHT to the AIZ intro-cutscene scene instead of the
+        // Menu, to prove the engine LoadScene + FG render of a non-GHZ gameplay scene
+        // in ISOLATION from the menu confirm (the same pattern F.1/F.2 used with
+        // P6_TRANSITION_TEST). PRECEDENCE over the plain MENU branch (P6_AIZ_TEST
+        // implies P6_FRONTEND_MENU so both macros are defined here). p6_aiz_reload
+        // routes through the gameplay-tilemap arm (p6_isAIZ); the inert AIZ blank
+        // entities tick harmlessly in the generic p6_frontend_frame.
+#if defined(P6_GHZCUT_DIRECTBOOT)
+        // Task #309 gate-2: P6_GHZCUT_DIRECTBOOT (the direct-boot DIAGNOSTIC; implies
+        // P6_GHZCUT_BOOT -> P6_AIZ_TEST) boots straight to the AIZ->GHZCutscene DESTINATION
+        // scene instead of AIZ, to prove its load+render + the fixed-timer cutscene ->
+        // playable-GHZ handoff in ISOLATION. The LIVE-loop build (P6_GHZCUT_BOOT WITHOUT
+        // DIRECTBOOT) takes the #else -> boots the normal menu->AIZ path so the AIZ intro's
+        // OWN beat-9 LoadGHZ reaches GHZCutscene through the ENGINESTATE_LOAD seam branch.
+        p6_ghzcut_reload();
+#else
+        p6_aiz_reload();
+#endif
+        if (p6_ghz_continuous_armed)
+            p6_frontend_frame();
+        return;
+#elif defined(P6_FRONTEND_MENU)
         // M1 (qa_engine_menu): the MENU front-end flavor boots the Menu scene
         // directly on the first live tick (select "Menu" + load+arm, then run the
         // generic UI-scene frame). MENU takes PRECEDENCE over CHAIN/TITLE/LOGOS (it

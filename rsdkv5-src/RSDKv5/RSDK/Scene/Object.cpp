@@ -356,6 +356,23 @@ void RSDK::LoadStaticVariables(uint8 *classPtr, uint32 *hash, int32 readOffset)
     }
 }
 
+// M3.2 (AIZ intro): destroy stray scene-placed Player markers BEFORE the entity Create
+// loop. The dual-stride pool (Object.hpp:79-94) sizes scene slots to the NARROW
+// sizeof(EntityBase)=344 and ASSUMES the oversize (EntityPlayer=556 B) scene Player
+// markers are consumed by Player_LoadSprites before any Create touches their slot. On
+// Saturn that consumption leaves strays (#256), so the Create loop runs Player_Create
+// (556 B) on a stray sitting in a 344 B narrow slot -> a 212 B forward overrun clobbers
+// the NEXT slot's header (classID). For AIZ a Player marker is scene slot 5, immediately
+// before the AIZTornadoPath START node at scene slot 6 -> the START node is silently
+// destroyed (MEASURED: slot-6 classID 33->0 during InitObjects; slots 5/7 intact, since
+// the 212 B overrun reaches slot 6 but not slot 7 at +344). p6_purge_scene_players
+// destroys those strays; called below (after StageLoad set SLOT_PLAYER1, before Create)
+// it restores the decomp invariant. Front-end gated -> GHZ byte-identical (its existing
+// post-InitObjects purge in p6_scene_load_and_arm is unchanged).
+#if defined(P6_FRONTEND_MENU)
+extern "C" void p6_purge_scene_players(void); // C linkage (defined in p6_io_main.cpp)
+#endif
+
 void RSDK::InitObjects()
 {
     sceneInfo.entitySlot = 0;
@@ -388,6 +405,16 @@ void RSDK::InitObjects()
 
 #if RETRO_USE_MOD_LOADER
     RunModCallbacks(MODCB_ONSTAGELOAD, NULL);
+#endif
+
+#if defined(P6_FRONTEND_MENU)
+    // M3.2: enforce the dual-stride invariant -- destroy stray scene Player markers that
+    // Player_LoadSprites (the StageLoad phase above) left behind, BEFORE the Create loop
+    // runs Player_Create (556 B) on them in a 344 B narrow scene slot (the forward overrun
+    // clobbers the adjacent slot's classID -- the AIZ intro AIZTornadoPath START node).
+    // SLOT_PLAYER1 was set by Player_LoadSprites above, so the purge's Player-classID read
+    // is valid here. GHZ (no P6_FRONTEND_MENU) is unchanged -- byte-identical.
+    p6_purge_scene_players();
 #endif
 
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {

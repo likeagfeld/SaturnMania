@@ -1,0 +1,9 @@
+#ifndef _PORTSPIKE_CMATH
+#define _PORTSPIKE_CMATH
+// Probe 2 (engine true-port feasibility spike, Task #194).
+// Freestanding C++ shim: the jo-engine sh-none-elf-gcc-8.2.0 ships NO
+// libstdc++, so <cmath> does not exist. RSDKv5's core uses only bare C math
+// (measured: zero std::-qualified math calls across the whole RSDKv5 tree), so
+// a thin passthrough to the newlib C <math.h> is a complete, correct stand-in.
+#include <math.h>
+#endif

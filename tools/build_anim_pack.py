@@ -84,6 +84,27 @@ OBJ_BINS = [
 OBJ_OUT = os.path.join(ROOT, "cd", "GHZOBJ.PAK")
 OBJ_CAP = 0x40000  # 256 KB cart window (0x22760000..0x227A0000 has 320 KB clear)
 
+# R3.2 (#305): the AIZ intro-cutscene OBJECT anims (front-end / P6_AIZ_TEST). The Saturn
+# LoadSpriteAnimation resolves anims from the resident packs FIRST; the front-end SKIPS
+# the GHZ GHZANIM.PAK/GHZOBJ.PAK, so its object anims have NO pack and the slow windowed-
+# GFS LoadFile fails (aniFrames=-1, MEASURED). AIZOBJ.PAK is loaded into the SAME
+# P6_HW_OBJANIMPAK cart window (free in the front-end) so the pack-resolution finds
+# AIZ/AIZTornado.bin (the FAST path) -> the biplane animator gets frames. Start with the
+# Tornado (the fly-in focal sprite); add KingClaw/EggRobo/Ruby as they're wired.
+AIZ_OBJ_BINS = [
+    "AIZ/AIZTornado.bin",
+    # R3.4 (#306 follow-on): the cutscene actor anims that spawn AFTER the fly-in --
+    # KingClaw (beat 4 EnterClaw) + EggRobo (the Heavies). MEASURED: both .bins
+    # reference the SAME sheet "AIZ/Objects.gif" already staged by AIZOBJ.SHT (slot 8),
+    # so no new sheet is needed -- only their anim metadata in the pack. Claw.bin 260 B
+    # (10 frames: Chain/Hinge/Front Claw/Back Claw), AIZEggRobo.bin 268 B (12 frames:
+    # Body/Arm/Legs); both trivial vs the 256 KB OBJ_CAP. The cutscene IS confirmed to
+    # progress (cutscene_state 0->3 measured) so these objects reach their spawn beats.
+    "AIZ/Claw.bin",
+    "AIZ/AIZEggRobo.bin",
+]
+AIZ_OBJ_OUT = os.path.join(ROOT, "cd", "AIZOBJ.PAK")
+
 FRAMEHITBOX_COUNT = 2
 # SH-2 layout (static_asserted in Animation.cpp): GameSpriteFrameType base
 # = 17 B -> pads to 18 (align 2); hitboxCount u8 at 18; 1 pad; hitboxes at
@@ -223,6 +244,10 @@ def main():
     # Object pack -> cart (cold anims, read only when on-screen). #254 lever.
     print("--- object anim pack (cart-resident) ---")
     build_pack(OBJ_BINS, OBJ_OUT, OBJ_CAP)
+    # R3.2 (#305): AIZ intro-cutscene object anims -> cart (front-end, reuses the
+    # P6_HW_OBJANIMPAK window since the GHZ GHZOBJ.PAK is skipped in the front-end).
+    print("--- AIZ object anim pack (cart-resident, front-end) ---")
+    build_pack(AIZ_OBJ_BINS, AIZ_OBJ_OUT, OBJ_CAP)
     return 0
 
 

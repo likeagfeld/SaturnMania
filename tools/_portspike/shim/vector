@@ -1,0 +1,36 @@
+#ifndef _PORTSPIKE_VECTOR
+#define _PORTSPIKE_VECTOR
+// Probe 2 (engine true-port feasibility spike, Task #194).
+// MINIMAL freestanding std::vector. NOT a production container -- it exists
+// ONLY to let the monolithic RetroEngine.hpp bottom-include block parse so the
+// spike can reach and typecheck the actual game-logic core headers below it.
+//
+// MEASURED FACT this shim documents: with RETRO_USE_MOD_LOADER=0 the ONLY STL
+// pulled into a core TU is std::vector + std::string, and ONLY by the
+// achievements/leaderboards services headers (UserAchievements.hpp:133-134,
+// UserLeaderboards.hpp:138) -- features with no gameplay role on Saturn. A real
+// Saturn port gates those service includes behind RETRO_SATURN (a Dummy/Saturn
+// services backend already has siblings: RSDK/User/{Dummy,NX,Steam,EOS}).
+namespace std {
+template <class T> class vector {
+    T *_data;
+    unsigned _size, _cap;
+  public:
+    vector() : _data(0), _size(0), _cap(0) {}
+    typedef T *iterator;
+    typedef const T *const_iterator;
+    unsigned size() const { return _size; }
+    bool empty() const { return _size == 0; }
+    void clear() { _size = 0; }
+    void push_back(const T &) {}
+    void pop_back() {}
+    T &operator[](unsigned i) { return _data[i]; }
+    const T &operator[](unsigned i) const { return _data[i]; }
+    T &at(unsigned i) { return _data[i]; }
+    T *begin() { return _data; }
+    T *end() { return _data + _size; }
+    const T *begin() const { return _data; }
+    const T *end() const { return _data + _size; }
+};
+} // namespace std
+#endif

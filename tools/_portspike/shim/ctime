@@ -1,0 +1,7 @@
+#ifndef _PORTSPIKE_CTIME
+#define _PORTSPIKE_CTIME
+// Probe 2 (engine true-port feasibility spike, Task #194).
+// Freestanding C++ shim for the libstdc++-less Saturn toolchain. RSDKv5 uses
+// only bare C time (time()/clock()); passthrough to newlib C <time.h>.
+#include <time.h>
+#endif

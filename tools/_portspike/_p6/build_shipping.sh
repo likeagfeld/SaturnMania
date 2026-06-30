@@ -51,6 +51,73 @@ export P6_NOSCAN="${P6_NOSCAN-1}"
 # NOT set this, so it stays byte-identical (no re-validation of its gate sweep).
 export P6_CART_TMP="${P6_CART_TMP-1}"
 
+# Task #309 (P6_GHZCUT_BOOT): the AIZ->GHZCutscene direct-boot diagnostic BUILDS ON the
+# AIZ-test flavor (it reuses the AIZ overlay objects + the AIZ FG present block + the
+# closure_edge AIZ stubs), and additionally registers GHZSetup/BGSwitch/GHZCutsceneST/
+# CutsceneHBH + boots straight to GHZCutscene. Set P6_AIZ_TEST FIRST so the full
+# AIZ->MENU->TITLE->LOGOS cascade below fires and every ${P6_AIZ_TEST:+...} thread (the
+# AIZ overlay OVL_FE, the AIZ witness grep, the pack -DP6_AIZ_TEST) engages.
+# build_p6scene_objs.sh (invoked as a child below, inheriting this exported env) self-
+# implies P6_FRONTEND_MENU from P6_AIZ_TEST. The GHZCUT-specific bits are added explicitly
+# (the 4 Game_*.o in OVL_FE, the 2 symbol greps). Default GHZ leaves both unset.
+# Task #309 Tier-B.1 (P6_GHZCUT_HOLD): the FXRuby-fade RED-gate capture flavor. It
+# FREEZES the cutscene at a fixed visible white wash (the overlay pins fxRuby->fadeWhite)
+# so a savestate captures the fade on-screen. Implies P6_GHZCUT_DIRECTBOOT (the held
+# captures all DIRECT-BOOT straight to GHZCutscene), -> P6_GHZCUT_BOOT -> P6_AIZ_TEST.
+# Default GHZ + plain AIZ + plain GHZCUT-boot leave it unset -> byte-identical.
+if [ -n "${P6_GHZCUT_HOLD:-}" ]; then
+    export P6_GHZCUT_HOLD   # ensure the child build_p6scene_objs.sh inherits it
+    export P6_GHZCUT_DIRECTBOOT=1
+    # Optional: override the held wash intensity (default 256 = full white). A
+    # partial value (e.g. 144) ramps a ~56% wash so the FG composites THROUGH it,
+    # proving the VDP2 color offset is variable-alpha (not a fixed blank).
+    [ -n "${P6_GHZCUT_HOLD_WHITE:-}" ] && export P6_GHZCUT_HOLD_WHITE
+fi
+# Task #309 gate-2 (P6_GHZCUT_DIRECTBOOT): the DIRECT-BOOT diagnostic flavor -- boots
+# STRAIGHT to GHZCutscene (the boot-dispatch p6_ghzcut_reload + the reload fn def are the
+# ONLY two code sites gated by this flag). DECOUPLED from P6_GHZCUT_BOOT so the LIVE-loop
+# build (P6_GHZCUT_BOOT alone) boots the normal menu->AIZ path and the AIZ intro's own
+# beat-9 LoadGHZ reaches GHZCutscene through the ENGINESTATE_LOAD seam. Implies
+# P6_GHZCUT_BOOT (-> the support: objects/assets/fade/Heavies/seam-routing). The gate-1/
+# B.1/B.2 captures use this flag (so they reproduce byte-identically).
+if [ -n "${P6_GHZCUT_DIRECTBOOT:-}" ]; then
+    export P6_GHZCUT_DIRECTBOOT  # ensure the child build_p6scene_objs.sh inherits it
+    export P6_GHZCUT_BOOT=1
+fi
+# Task #309 gate-2 (P6_GHZCUT_SEAMTEST): the LIVE-SEAM RED-gate capture flavor. Boots the
+# LIVE menu->AIZ path (P6_GHZCUT_BOOT support on, NOT direct-boot), then injects a ONE-SHOT
+# AIZ->GHZCutscene transition (the exact AIZSetup_Cutscene_LoadGHZ SetScene the beat-9 fires)
+# at a fixed cont-frame count -> exercises the ENGINESTATE_LOAD AIZ->GHZCutscene seam in
+# seconds instead of the ~minutes 4fps AIZ playthrough (the proven P6_TRANSITION_TEST
+# act-advance pattern). Implies P6_GHZCUT_BOOT (the support) but NOT DIRECTBOOT (so the live
+# boot path runs). Default leaves it unset -> byte-identical.
+if [ -n "${P6_GHZCUT_SEAMTEST:-}" ]; then
+    export P6_GHZCUT_SEAMTEST    # ensure the child build_p6scene_objs.sh inherits it
+    export P6_GHZCUT_BOOT=1
+fi
+# Task #309 gate-2 FOLLOW-UP (P6_GHZCUT_NOFIX): the A-B RED-proof knob for the live
+# render-clean fix (the p6_fg_blank_char_override reset). NOFIX disables BOTH reset
+# sites in p6_io_main.cpp so the SEAMTEST live render reproduces the pre-fix RED
+# (checkerboard bleed). Implies P6_GHZCUT_SEAMTEST (the live seam) -> P6_GHZCUT_BOOT.
+# Default unset -> the fix is ON (and the no-flag GHZ build never sees it).
+if [ -n "${P6_GHZCUT_NOFIX:-}" ]; then
+    export P6_GHZCUT_NOFIX       # ensure the child build_p6scene_objs.sh inherits it
+    export P6_GHZCUT_SEAMTEST=1
+    export P6_GHZCUT_BOOT=1
+fi
+if [ -n "${P6_GHZCUT_BOOT:-}" ]; then
+    export P6_AIZ_TEST=1
+fi
+# M3.1 (qa_p6_aiz_cutscene): the AIZ-test flavor IMPLIES the MENU flavor (it boots the
+# AIZ/GHZCutscene scene through the same p6_frontend_frame machinery + the Menu witness
+# threading + the shared MENU->TITLE->LOGOS front-end stack). Set P6_FRONTEND_MENU here so
+# the make knob (${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1}, lines below) + the MENU overlay
+# OVL_FE + the MENU symbol grep all fire for the AIZ/GHZCUT build. build_p6scene_objs.sh
+# self-implies it too (line 66-68). Default GHZ leaves it unset -> byte-identical.
+if [ -n "${P6_AIZ_TEST:-}" ]; then
+    export P6_FRONTEND_MENU=1
+fi
+
 # M1 (qa_engine_menu): the MENU front-end flavor IMPLIES the TITLE flavor (which
 # implies LOGOS, below). The Menu scene reuses every shared front-end thread (the
 # frontend_frame UI tick, the SaturnSheet store, the VDP1 box); the only Menu-specific
@@ -114,7 +181,7 @@ cd /work
 # hybrid-image rule).
 rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
       tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
 LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
@@ -175,6 +242,27 @@ if [ -n "${P6_FRONTEND_MENU:-}" ]; then
     # it). Both link into the overlay vs game.elf (-R) like every other Menu UI obj.
     OVL_FE="$OVL_FE Game_MenuSetup.o Game_UIControl.o Game_UIBackground.o Game_UIButton.o Game_UIModeButton.o Game_UIWidgets.o Game_UISubHeading.o Game_UIButtonPrompt.o Game_UISaveSlot.o Game_UITransition.o p6_menu_closure.o"
 fi
+# M3.1 (qa_p6_aiz_cutscene): the AIZ flavor adds the 8 AIZ DRIVER objects to the overlay
+# so they link against game.elf via -R (same as every other overlay obj). ADDITIVE to the
+# Menu objects (P6_AIZ_TEST implies P6_FRONTEND_MENU -> TITLE -> LOGOS, so those compile +
+# register too -- inert on the AIZ scene). Game_Decoration.o is ALREADY in the base link
+# line below (the GHZ batch), so it is NOT added here. Their cross-class refs (Camera/
+# Music/Player/MathHelpers/StarPost) import from game.elf via -R.
+if [ -n "${P6_AIZ_TEST:-}" ]; then
+    OVL_FE="$OVL_FE Game_AIZSetup.o Game_CutsceneSeq.o Game_AIZTornado.o Game_AIZTornadoPath.o Game_AIZKingClaw.o Game_AIZEggRobo.o Game_PhantomRuby.o Game_FXRuby.o"
+fi
+# Task #309 (P6_GHZCUT_BOOT): the 2 NEW AIZ->GHZCutscene driver TUs join the overlay so
+# they link against game.elf via -R like every other overlay obj. GHZSetup/BGSwitch are
+# NOT added here -- they are PACK-resident (the base link line below: Game_BGSwitch.o
+# Game_GHZSetup.o), so the overlay's register_object_full((void**)&GHZSetup,...) +
+# GHZSetup_Update/... symbols import from game.elf via -R (the same way the AIZ overlay
+# imports Camera/Music/Zone). Adding them to OVL_FE would duplicate their .text in both
+# link units. GHZCutsceneST/CutsceneHBH are overlay-ONLY (not in the pack list) -> they
+# MUST be here. Their cross-class refs (Player/Camera/Music/Zone/PhantomRuby/FXRuby/
+# CutsceneRules_SetupEntity) import from game.elf via -R.
+if [ -n "${P6_GHZCUT_BOOT:-}" ]; then
+    OVL_FE="$OVL_FE Game_GHZCutsceneST.o Game_CutsceneHBH.o"
+fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
     Game_Decoration.o Game_ForceSpin.o Game_SpinBooster.o \
@@ -188,7 +276,7 @@ cd /work
 
 echo "[4/5] re-master the ISO with the overlay on disc ..."
 rm -f game.iso
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[5/5] sanity: _end + lean-boot entry + flavor flag + overlay entry ..."
 grep " _end = " game.map
@@ -251,6 +339,44 @@ if [ -n "${P6_FRONTEND_MENU:-}" ]; then
     grep -m1 "UITransition_Update" "$P6/ovl_ring.map" || echo "  MISSING UITransition in overlay (Game_UITransition.o not linked?)"
     grep -m1 "p6_w_menu_startscene_tag$" game.map || echo "  MISSING p6_w_menu_startscene_tag (M2 start-game witness compiled out?)"
     grep -m1 "p6_w_menu_saveslot_classid$" game.map || echo "  MISSING p6_w_menu_saveslot_classid (M2 S1 witness compiled out?)"
+fi
+# M3.1 (qa_p6_aiz_cutscene): in the AIZ flavor, confirm the M3.1 cutscene-driver
+# witnesses landed in game.map (build_p6scene_objs.sh SWALLOWS compile errors -> a stale
+# p6_io_main.o / Game_AIZSetup.o leaves them ABSENT; this grep is the silent-fail trip-
+# wire) + the AIZ driver objects landed in the overlay.
+if [ -n "${P6_AIZ_TEST:-}" ]; then
+    echo "[5g] M3.1 AIZ cutscene-driver symbol presence:"
+    grep -m1 "p6_w_aiz_cutscene_state$" game.map || echo "  MISSING p6_w_aiz_cutscene_state (compile failed silently?)"
+    grep -m1 "p6_w_aiz_setup_classid$"  game.map || echo "  MISSING p6_w_aiz_setup_classid"
+    grep -m1 "p6_w_aiz_seq_classid$"    game.map || echo "  MISSING p6_w_aiz_seq_classid"
+    grep -m1 "p6_w_aiz_cam_x$"          game.map || echo "  MISSING p6_w_aiz_cam_x"
+    grep -m1 "AIZSetup_StaticUpdate"       "$P6/ovl_ring.map" || echo "  MISSING AIZSetup in overlay (Game_AIZSetup.o not linked?)"
+    grep -m1 "CutsceneSeq_LateUpdate"      "$P6/ovl_ring.map" || echo "  MISSING CutsceneSeq in overlay (Game_CutsceneSeq.o not linked?)"
+    grep -m1 "AIZTornadoPath_Create"       "$P6/ovl_ring.map" || echo "  MISSING AIZTornadoPath in overlay (Game_AIZTornadoPath.o not linked?)"
+    grep -m1 "AIZTornado_Create"           "$P6/ovl_ring.map" || echo "  MISSING AIZTornado in overlay (Game_AIZTornado.o not linked?)"
+fi
+# Task #309 (P6_GHZCUT_BOOT): confirm the 2 NEW GHZCutscene driver TUs linked into the
+# overlay (build_p6scene_objs.sh SWALLOWS compile errors -> a stale/absent Game_*.o leaves
+# them MISSING; this grep is the silent-fail trip-wire) + the GHZCutscene reload reached the
+# pack (its boot dispatch is compiled under -DP6_GHZCUT_BOOT). GHZSetup/BGSwitch are pack-
+# resident (no overlay symbol); their registration imports via -R.
+if [ -n "${P6_GHZCUT_BOOT:-}" ]; then
+    echo "[5h] Task #309 GHZCutscene driver symbol presence:"
+    grep -m1 "GHZCutsceneST_Create" "$P6/ovl_ring.map" || echo "  MISSING GHZCutsceneST_Create in overlay (Game_GHZCutsceneST.o not linked / compile failed silently?)"
+    grep -m1 "CutsceneHBH_Create"   "$P6/ovl_ring.map" || echo "  MISSING CutsceneHBH_Create in overlay (Game_CutsceneHBH.o not linked / compile failed silently?)"
+fi
+# Task #309 gate-2 (P6_GHZCUT_DIRECTBOOT): note on the direct-boot reload. p6_ghzcut_reload
+# is a file-STATIC fn called ONCE from the boot dispatch, so GCC -O2 INLINES it into
+# p6_scene_tick -> it has NO standalone game.map symbol (a grep for it MISLEADINGLY reports
+# "missing" even though it executes -- VERIFIED 2026-06-30: the direct-boot reaches
+# currentSceneFolder=="GHZCutscene" via qa_ghzcut_load.py). The reliable presence witness is
+# the GHZCutscene SUPPORT (the [5h] overlay-driver grep above, gated by P6_GHZCUT_BOOT which
+# DIRECTBOOT implies). So just confirm p6_scene_tick (the inline host) is present + remind that
+# the behavioral proof is the qa_ghzcut_load capture, not a map grep.
+if [ -n "${P6_GHZCUT_DIRECTBOOT:-}" ]; then
+    echo "[5h2] Task #309 gate-2 direct-boot: p6_ghzcut_reload inlines into p6_scene_tick (-O2);"
+    echo "      behavioral proof = qa_ghzcut_load.py folder=='GHZCutscene' on a direct-boot capture."
+    grep -m1 " p6_scene_tick$" game.map || echo "  MISSING p6_scene_tick (the inline host -- pack link broken?)"
 fi
 # Task #271: front-end LOAD-TIMING witnesses + the SFX-early-out fix witness. The
 # front-end flavors gate these on P6_FRONTEND_LOGOS; build_p6scene_objs.sh swallows

@@ -1082,3 +1082,31 @@ the single-page render. Gate tools/_portspike/qa_title_island_match.py GREEN (fu
 100% of settled frames, centered; HW-calibrated land floor); qa_title_sonic_intact.py GREEN (no
 FG regression). Clouds restored on NBG1 bank B1 (still flicker from per-frame slScrAutoDisp cycle-
 pattern churn -- next fix). Mountains + Title3DSprite 3D-rocks remain OFF (VDP1 slot capacity).
+
+M3.1 AIZ INTRO-CUTSCENE DRIVER (2026-06-26, P6_AIZ_TEST flavor; gate qa_p6_aiz_cutscene.py
+GREEN; UNCOMMITTED, GHZ/menu byte-identical). Registered the AIZ cutscene DRIVER + the placed
+actors into the overlay (cart-resident; all edits #if defined(P6_AIZ_TEST), GHZ/menu unchanged):
+AIZSetup (cid 30), CutsceneSeq (cid 34), AIZTornado (cid 32), AIZTornadoPath (cid 33), +
+AIZKingClaw/AIZEggRobo/PhantomRuby/FXRuby (Decoration already in the GHZ batch). Compiled as
+Game_*.o in build_p6scene_objs.sh (P6_AIZ_TEST block) -> OVL_FE (build_shipping.sh). MEASURED
+entity-size gate: every PLACED AIZ entity <=344 B (engine narrow scene slot, sizeof(EntityBase)
+Saturn); CutsceneSeq (476 B) spawns at SLOT_CUTSCENESEQ=15 (RESERVE/wide 556) -> fits.
+CLOSURE: Camera_*/Music_*/Player_*/MathHelpers_GetBezierPoint resolve PACK via -R game.elf;
+DrawHelpers_DrawCross needed a -u root (gc-dropped, AIZ-only caller); StarPost (pack NULL stub)
+-> a zeroed ObjectStarPost instance (p6_closure_edge.c, #if P6_AIZ_TEST) so AIZTornado/Path
+Create's StarPost->postIDs[0] reads 0 (fresh-boot, no crash); FXRuby_Create's non-Plus
+RSDK.GetTintLookupTable() (REV02+MOD_LOADER=0 removed it) sed-stubbed (the PauseMenu.c:214
+precedent). RESULT (witnessed, savestate): the AIZ cutscene STARTS (cutscene_state=0 == EnterAIZ
+running) + the camera is CUTSCENE-DRIVEN -- cam_x=320 (the AIZSetup_CutsceneSonic_EnterAIZ clamp
+camera->position.x = ScreenInfo->size.x<<16) vs the M3.0c leftover 10676. GHZ regression
+qa_p6_ghz_regression.py R0-R16 GREEN; GHZ _end 0x060B5A40 (4.5KB under ANIMPAK 0x060B6C00),
+unchanged. REMAINING GAP (M3.2 scope, precisely localized): the tornado fly-in does NOT animate
+-- the live AIZTornadoPath set has 7 of 8 placed nodes and NO type-0 START node (pn_count=7,
+has_START=0, first node x=640=slot7; the slot-6 x=128 START is absent from the live pool).
+Without the START node nothing grabs SLOT_CAMERA1 / sets State_SetTornadoSpeed -> path moveVel.x=0
+-> tornado pinned at spawn x=60 -> EnterAIZ holds the camera at 320 (state 0). So the camera is
+framed at the intro position but the pan does not progress, and the screenshot still shows the
+FG-Low ground as a uniform repeating fill (the present composites only FG-Low; the AIZ BG
+parallax jungle/sky is not yet presented). NEXT: root-cause the missing slot-6 START node
+(scene-entity instantiation, not the M3.1 registration) + present the AIZ BG layers, then the
+later cutscene beats (M3.2 claw/PhantomRuby, M3.3 FXRuby warp-to-GHZ).

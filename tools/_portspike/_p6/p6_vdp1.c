@@ -1197,6 +1197,22 @@ static int p6_box_in_stride(int x, int flipX, int w, int h)
 }
 #endif
 
+#if defined(P6_GHZCUT_BOOT)
+/* Task #309 Tier-B.2: per-draw VDP1 palette-block selector. Normal sprites use
+ * block 1 (jo colno=256 -> CRAM[256] bank1, p6_pal_mirror). The 5 GHZCutscene
+ * Heavies each route to their OWN 256-entry CRAM block via colno = block*256
+ * (DOC-CITED: live SPCTL=0x23 Sprite Type 3 = full 11-bit DC, SPCAOS=0, CRAM
+ * mode 1 -> a VDP1 8bpp sprite's CRAM address = jo colno (CMDCOLR high byte) +
+ * charpixel; ST-013-R3 sec 6.4 + ST-058-R2 sec 10.1). The overlay's CutsceneHBH
+ * Draw shim sets this to 2+characterID (-> colno 512..1536) before DrawSprite and
+ * resets it to 1 after. Default 1 -> every non-Heavy draw is byte-identical to the
+ * hardcoded jo_sprite_set_palette(1). GHZCUT-only (#else keeps p6_vdp1.o the same). */
+__attribute__((used)) int p6_heavy_palblock = 1;
+#define P6_BLIT_PALBLOCK p6_heavy_palblock
+#else
+#define P6_BLIT_PALBLOCK 1
+#endif
+
 /* Draw a sheet rect with its TOP-LEFT at engine screen px (x,y) -- the
  * coordinate DrawSpriteFlipped receives (Drawing.cpp:2785: pos + pivot).
  * jo_sprite_draw3D positions the sprite CENTER in screen-centered coords;
@@ -1230,7 +1246,7 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
     p6_w_vdp1_contentpx += w * h;
     if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
     if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
-    jo_sprite_set_palette(1);
+    jo_sprite_set_palette(P6_BLIT_PALBLOCK);
     /* Task #241 + CP5b.7: the slot is a fixed s_last_box_w x s_last_box_h box with
      * content in the top-left corner; the box CENTER sits at content-top-left +
      * box/2, so placing the center there lands the content at engine top-left (x,y). */
@@ -1288,7 +1304,7 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
     p6_w_vdp1_contentpx += w * h;
     if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
     if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
-    jo_sprite_set_palette(1);
+    jo_sprite_set_palette(P6_BLIT_PALBLOCK);
     if (flipX)
         jo_sprite_enable_horizontal_flip();
     if (flipY)

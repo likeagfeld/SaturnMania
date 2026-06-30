@@ -153,13 +153,18 @@ def parse_scene(path):
         xs = r.u16(); ys = r.u16()
         parallax = r.u16(); scroll = r.u16()
         sic = r.u16()
+        sinfo = []                              # per-band: (parallaxFactor, scrollSpeed, deform)
         for _ in range(sic):
-            r.u16(); r.u16(); r.u8(); r.u8()    # scrollInfo (6 bytes)
-        r.compressed()                          # line-scroll table (unused here)
+            pf = r.u16(); ss = r.u16(); df = r.u8(); r.u8()
+            if pf >= 0x8000: pf -= 0x10000       # i16
+            if ss >= 0x8000: ss -= 0x10000
+            sinfo.append((pf, ss, df))
+        lstab = r.compressed()                  # line-scroll indexes: per pixel-row u8 -> band
         raw = r.compressed()                    # tile layout: xs*ys u16 LE
         layout = np.frombuffer(raw[:xs * ys * 2], dtype="<u2").reshape(ys, xs)
         layers.append({"name": name, "type": ltype, "xs": xs, "ys": ys,
-                       "parallax": parallax, "layout": layout})
+                       "parallax": parallax, "scrollInfo": sinfo,
+                       "lineScroll": lstab, "layout": layout})
     return layers
 
 

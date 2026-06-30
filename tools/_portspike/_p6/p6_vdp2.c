@@ -1228,6 +1228,251 @@ static int          s_present_nblank  = 0;
 static int          s_last_ctx = 0x7fffffff; /* camera tile origin at last build */
 static int          s_last_cty = 0x7fffffff;
 static int          s_blank_char = 0;
+#if defined(P6_AIZ_TEST)
+/* R1 (AIZ render): empty FG cells (0xFFFF) map to s_blank_char. The GHZ present assumes
+ * tile-0 is transparent, but AIZ tile-0 is OPAQUE orange (MEASURED: 16x16Tiles.gif tile 0
+ * center = (171,84,0)) -> empty FG cells fill the screen orange. AIZ has NO transparent
+ * tile, but 231 indices are UNUSED across all 6 layers; p6_vdp2_aiz_blank_setup clears one
+ * (64 -- verified used by NO layer, so safe even under camera streaming) to transparent and
+ * routes empty cells to it. -1 = GHZ default (char 0); GHZ build #if's this out byte-identical. */
+int p6_fg_blank_char_override = -1;
+void p6_vdp2_aiz_blank_setup(int charIdx)
+{
+    volatile Uint16 *cel = (volatile Uint16 *)P6_VDP2_CEL;
+    int base = charIdx * 128; /* 256 B per 8bpp 16x16 char = 128 Uint16 words */
+    for (int i = 0; i < 128; ++i)
+        cel[base + i] = 0; /* all palette-index-0 -> VDP2 transparent */
+    p6_fg_blank_char_override = charIdx;
+}
+
+/* =====================================================================
+ * R2.1 (AIZ Background render): the 4-bpp AIZ Background plane on VDP2 NBG0.
+ *
+ * R2.0 (tools/build_aiz_4bpp.py) re-palettized the 4 AIZ Background layers to
+ * 4-bpp using 3 custom 16-color banks (LOSSLESS, 0/4,358,656 px). This wires the
+ * first background layer (BG4 = tile layer 3, the jungle) onto the UNUSED NBG0:
+ *   - 4-bpp char data (cd/AIZBG.CHR, 490 compact tiles) lives in free bank B1.
+ *   - The 3 custom CRAM banks live at CRAM[512..559] (PAL_BASE=32) -> CLEAR of
+ *     BOTH the 8-bpp FG's CRAM[0..255] (bank 0) AND the VDP1 sprite palette
+ *     CRAM[256..511] (bank 1, p6_vdp1.c p6_pal_mirror) -- so the FG on NBG1 AND
+ *     the VDP1 actor sprites (Tornado/pilot) both stay correct (R3.3 #306: at
+ *     PAL_BASE=16 the BG banks stomped the sprite palette -> magenta/green biplane).
+ *   - 2-WORD PND (ST-058-R2 Table 4.7, confirmed qa_p6_vdp2.py:10-13): bit31
+ *     Vflip, bit30 Hflip, bits 22-16 palette#, low word charno. charno unit =
+ *     0x20 B -> 4-bpp 16x16 = 4 units -> charno = compactIdx*4. Char base is the
+ *     SHARED 0x25E00000 (mirrors the title cloud reach into B1):
+ *     charno_base = (0x25E60000-0x25E00000)/0x20 = 0x3000.
+ *   - Z: NBG0(BG) priority 1; NBG1(FG) RAISED to 2 (AIZ-only -- GHZ never calls
+ *     p6_vdp2_aiz_bg_frame so its NBG1 priority 1 is untouched); sprites at 7.
+ *
+ * VRAM (AIZ flavor; B1 free -- the title backdrop is OFF on the AIZ path):
+ *   B1 0x25E60000 : 4-bpp CHR (490*128 = 62,720 B) + a zeroed blank char at *490
+ *   B1 0x25E70000 : NBG0 PND map (PL_SIZE_2x2, 4 pages*32x32*4 B = 16 KB; past
+ *                   the CHR which ends at 0x25E6F500)
+ * BANK PLACEMENT (the coexistence rule -- p6_vdp2.c:1098-1104 / ST-058-R2): a
+ * plane must NOT read from a bank another plane claims. NBG1(FG 8-bpp) reads char
+ * from A0+A1 and PN from B0; NBG0(BG 4-bpp) reads BOTH char + PN from B1. No bank
+ * is shared between the two -> slScrAutoDisp can allocate both. (The map was in B0
+ * first -> 2 PN reads contended in B0 -> slScrAutoDisp dropped BOTH planes, black.)
+ * ===================================================================== */
+#define P6_AIZBG_CHR_B1      0x25E60000u /* B1: 4-bpp compact char data (shared)  */
+#define P6_AIZBG_MAP_B1      0x25E70000u /* B1: NBG0 (BG4) PND map (past the CHR)  */
+#define P6_AIZBG1_MAP_B0     0x25E48000u /* B0: NBG2 (BG1) PND map (past FG map)   */
+#define P6_AIZBG3_MAP_B0     0x25E4C000u /* B0: NBG3 (BG3) PND map (past BG1 map;  */
+                                         /* MEASURED-free: FG@..44000 BG1@..4C000) */
+#define P6_AIZBG_CHARNO_BASE 0x3000u     /* (0x25E60000-0x25E00000)/0x20          */
+/* R3.3 (#306) CRAM-bank collision FIX -- MEASURED: PAL_BASE=16 placed the 3 BG banks at
+ * CRAM entries 256..303, which is bank 1 == the VDP1 SPRITE palette (p6_vdp1.c
+ * p6_pal_mirror writes 0x05F00200 + i*2 = CRAM[256..511]). The BG jungle banks STOMPED
+ * the Tornado's body reds at sprite-idx 16-18 (CRAM[272..274]) -> the biplane read magenta
+ * (0xfc1f) / jungle greens (0x8860) instead of the global reds 0x8008/0x8012/0x801C
+ * (savestate-confirmed: bank0 FG idx16-18 = reds, bank1 SPR idx16-18 = greens). PAL_BASE=32
+ * relocates the 3 banks to CRAM[512..559], clear of BOTH bank 0 (8-bpp FG, 0..255) AND bank
+ * 1 (VDP1 sprites, 256..511). CRAM mode 1 (RAMCTL=0x1327, CRMD=1, RGB555 2048-color) makes
+ * 512+ valid; palnum 32-34 fits the 2-word PND 7-bit field (bits 22-16). AIZ-only (GHZ
+ * never calls p6_vdp2_aiz_bg_*). Gate qa_p6_aiz_tornado.py C3 (bank1==bank0 over idx16-47). */
+#define P6_AIZBG_PAL_BASE    32          /* CRAM bank 32 -> CRAM[512], clear of FG + sprites */
+#define P6_AIZBG_BLANK_COMP  490         /* compact char one past the 490 used    */
+
+__attribute__((used)) int p6_w_aiz_bg_loaded = 0; /* CHR words copied to B1      */
+__attribute__((used)) int p6_w_aiz_bg_chrw0  = 0; /* first B1 char word          */
+__attribute__((used)) int p6_w_aiz_bg_cram   = 0; /* CRAM[256] after bank write  */
+__attribute__((used)) int p6_w_aiz_bg_nbg0   = 0; /* 1 after NBG0 config         */
+
+/* One-time (load): copy CHR cart->B1, write the 3 CRAM banks, build the static
+ * NBG0 PND map from a BG layer, and the NBG0 cell/page/plane/map config. Called
+ * from p6_aiz_reload -- VRAM/CRAM DATA writes, like p6_vdp2_upload_cells. */
+void p6_vdp2_aiz_bg_upload(const unsigned short *chr_cart, int chr_words,
+                           const unsigned char *cmp,
+                           const unsigned short *map_cart, int map_words,
+                           const unsigned short *pal565)
+{
+    volatile Uint16 *chr  = (volatile Uint16 *)P6_AIZBG_CHR_B1;
+    volatile Uint16 *map  = (volatile Uint16 *)P6_AIZBG_MAP_B1;
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    int i, b, s;
+    int n_banks = cmp[0];
+
+    /* 1) CHR cart -> B1 VRAM (SH-2 big-endian: u16 copy preserves the byte
+     *    stream). Plus a zeroed blank char at compact index 490. */
+    for (i = 0; i < chr_words; ++i)
+        chr[i] = chr_cart[i];
+    for (i = 0; i < 64; ++i)                       /* 128 B per 4-bpp 16x16 = 64 u16 */
+        chr[P6_AIZBG_BLANK_COMP * 64 + i] = 0;
+    p6_w_aiz_bg_loaded = chr_words;
+    p6_w_aiz_bg_chrw0  = (int)chr[0];
+
+    /* 2) CRAM banks at CRAM[256..]: each slot's SOURCE palette index -> Saturn
+     *    BGR555 (same conversion as the FG present). Slot 0 = transparent. */
+    for (b = 0; b < n_banks; ++b) {
+        for (s = 0; s < 16; ++s) {
+            int src = cmp[1 + b * 16 + s];
+            unsigned short v  = pal565[src];
+            unsigned short r5 = (v >> 11) & 0x1F;
+            unsigned short g5 = ((v >> 5) & 0x3F) >> 1;
+            unsigned short b5 = v & 0x1F;
+            cram[(P6_AIZBG_PAL_BASE + b) * 16 + s] =
+                (Uint16)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
+        }
+    }
+    p6_w_aiz_bg_cram = (int)cram[P6_AIZBG_PAL_BASE * 16];
+
+    /* 3) Static NBG0 map: copy the PRECOMPUTED B0 PND image (built offline by
+     *    tools/build_aiz_4bpp.py with the SAME 2-word PND / charno*4 / palette
+     *    formula). The 4 AIZ BG layers are WINDOWED on Saturn (>8192 B ->
+     *    tileLayers[].layout is NULL at runtime, Scene.hpp:175-203), so the
+     *    engine CANNOT read the layout to build the map -- it ships the image. */
+    for (i = 0; i < map_words; ++i)
+        map[i] = map_cart[i];
+    /* NBG0 cell/page/plane/map config is re-applied EVERY frame in
+     * p6_vdp2_aiz_bg_frame (NOT here) -- the FG present re-configs NBG1 every
+     * frame, and SGL rebuilds the VRAM cycle pattern from the per-frame
+     * slCharNbg/slMapNbg calls; a one-time NBG0 config gets dropped from that
+     * allocation (MEASURED: config-once -> NBG0 never cycle-allocated -> black).
+     * The static AIZBG.MAP copied above is the frame-0 window; per-frame
+     * p6_vdp2_aiz_bg_stream re-windows it as the camera moves (R2.4 parallax). */
+}
+
+__attribute__((used)) int p6_w_aiz_bg_ctx = -1;  /* last streamed BG tile-X (motion) */
+
+/* R2.4 camera-streamed BG4 parallax: rewrite the NBG0 map window from the
+ * RESIDENT full BG4 layout (AIZBG.L3) as the camera crosses a tile boundary.
+ * BG4 is 768 tiles wide (>> the 64-tile plane) and parallax 0.75 scrolls it
+ * ~7,900 px over the fly-in, so a static window cannot wrap -- it must re-window.
+ * Mirrors p6_present_compute's camera-anchored rewrite: cells at (tx&63, ty&63),
+ * the HW scroll (slScrPosNbg0) wraps mod the 1024 px plane and lines up. NOTE:
+ * writes B1 VRAM directly, so a CROSSING frame may tear for 1 frame (the FG's
+ * cart-page + vblank-DMA path is the no-tear refinement, deferred). */
+void p6_vdp2_aiz_bg_stream(int which, unsigned int map_addr,
+                           const unsigned short *l3, int l3_xs, int l3_ys, int wrap,
+                           const unsigned char *rmp, const unsigned char *bnk,
+                           int scroll_x, int scroll_y)
+{
+    /* which (0=BG4/NBG0, 1=BG1/NBG2, 2=BG3/NBG3) selects a separate crossing cache.
+     * wrap=1 -> source x wraps mod l3_xs (BG1 is 80 tiles, narrower than the camera
+     * sweep, so it tiles; the plane rewrite + HW scroll keep it lined up regardless
+     * of the plane's 64-tile wrap). BG3 (384 wide, wrap=0) re-windows like BG4. */
+    static int s_ctx[4] = {0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff};
+    static int s_cty[4] = {0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff};
+    volatile Uint16 *map = (volatile Uint16 *)map_addr;
+    int ctx = scroll_x >> 4, cty = scroll_y >> 4;
+    int x, y;
+    if (ctx == s_ctx[which] && cty == s_cty[which])
+        return;                          /* no tile crossing -> plane already right */
+    for (y = cty - 1; y <= cty + 15; ++y) {
+        int cyw = y & 63;
+        for (x = ctx - 1; x <= ctx + 21; ++x) {
+            int cxw = x & 63;
+            int sx = wrap ? (((x % l3_xs) + l3_xs) % l3_xs) : x;
+            unsigned short e = (y >= 0 && y < l3_ys && sx >= 0 && sx < l3_xs
+                                && (wrap || x < l3_xs))
+                             ? l3[y * l3_xs + sx] : 0xFFFF;
+            unsigned short tile = e & 0x3FF;
+            unsigned short comp = (e == 0xFFFF) ? 0xFFFF
+                : (unsigned short)(((unsigned)rmp[tile * 2] << 8) | rmp[tile * 2 + 1]);
+            unsigned long pnd;
+            if (comp == 0xFFFF) {
+                pnd = ((unsigned long)P6_AIZBG_PAL_BASE << 16)
+                    | (P6_AIZBG_CHARNO_BASE + (unsigned long)P6_AIZBG_BLANK_COMP * 4u);
+            } else {
+                unsigned long palnum = (unsigned long)(P6_AIZBG_PAL_BASE + bnk[tile]);
+                unsigned long charno = P6_AIZBG_CHARNO_BASE + (unsigned long)comp * 4u;
+                pnd = ((unsigned long)(e & 0x800) << 20)   /* fy -> 31 */
+                    | ((unsigned long)(e & 0x400) << 20)   /* fx -> 30 */
+                    | (palnum << 16) | charno;
+            }
+            int page = ((cyw >> 5) << 1) + (cxw >> 5);
+            volatile Uint16 *p = map + page * 2048 + (((cyw & 31) << 5) + (cxw & 31)) * 2;
+            p[0] = (Uint16)(pnd >> 16);
+            p[1] = (Uint16)(pnd & 0xFFFF);
+        }
+    }
+    s_ctx[which] = ctx; s_cty[which] = cty;
+    if (which == 0) p6_w_aiz_bg_ctx = ctx;
+}
+
+/* Per-frame: re-apply the FULL NBG0 config + display arm, so SGL allocates
+ * NBG0's VRAM cycle slots alongside the FG present's per-frame NBG1 config
+ * (4-bpp, shared char base 0x25E00000 so charno reaches B1 -- mirrors the title
+ * cloud reach; map in B0). Priority split is AIZ-only (GHZ never calls this, so
+ * p6_present_config's NBG1 pri 1 stands). */
+void p6_vdp2_aiz_bg_frame(int bg4_sx, int bg1_sx, int bg3_sx)
+{
+    /* NBG0 = BG4 (near jungle, parallax 0.75): char + PN map both in B1. */
+    slCharNbg0(COL_TYPE_16, CHAR_SIZE_2x2);
+    slPageNbg0((void *)P6_VDP2_CEL, 0, PNB_2WORD);
+    slPlaneNbg0(PL_SIZE_2x2);
+    slMapNbg0((void *)P6_AIZBG_MAP_B1, (void *)P6_AIZBG_MAP_B1,
+              (void *)P6_AIZBG_MAP_B1, (void *)P6_AIZBG_MAP_B1);
+    slScrPosNbg0(toFIXED(bg4_sx), toFIXED(0));
+    /* NBG2 = BG1 (distant backdrop, parallax 0.25): SHARES the B1 CHR (charno
+     * base 0x3000) + CRAM banks 16-18; its PN map is in B0 (past the FG map). */
+    slCharNbg2(COL_TYPE_16, CHAR_SIZE_2x2);
+    slPageNbg2((void *)P6_VDP2_CEL, 0, PNB_2WORD);
+    slPlaneNbg2(PL_SIZE_2x2);
+    slMapNbg2((void *)P6_AIZBG1_MAP_B0, (void *)P6_AIZBG1_MAP_B0,
+              (void *)P6_AIZBG1_MAP_B0, (void *)P6_AIZBG1_MAP_B0);
+    slScrPosNbg2(toFIXED(bg1_sx), toFIXED(0));
+    /* NBG3 = BG3 (distant mountains/island, parallax ~0.5): SHARES the B1 CHR
+     * (charno base 0x3000) + CRAM banks 16-18; its PN map is in B0 (past BG1's).
+     * R2.6: single-scroll approximation of BG3's dominant band (true per-line
+     * line-scroll is NBG0/NBG1-only, ST-058-R2 -- BG2 will take NBG0 next). */
+    slCharNbg3(COL_TYPE_16, CHAR_SIZE_2x2);
+    slPageNbg3((void *)P6_VDP2_CEL, 0, PNB_2WORD);
+    slPlaneNbg3(PL_SIZE_2x2);
+    slMapNbg3((void *)P6_AIZBG3_MAP_B0, (void *)P6_AIZBG3_MAP_B0,
+              (void *)P6_AIZBG3_MAP_B0, (void *)P6_AIZBG3_MAP_B0);
+    slScrPosNbg3(toFIXED(bg3_sx), toFIXED(0));
+    /* Z: BG1(farthest) < {BG3,BG4} < FG < sprites(7). BG3 + BG4 share priority 2;
+     * within a priority the fixed inter-plane order NBG0>NBG3 puts BG4(NBG0) in
+     * FRONT of BG3(NBG3) -> BG3 is the more-distant of the two (ST-058-R2). NBG1
+     * re-asserted every frame (the FG present sets slPriorityNbg1(1) each frame). */
+    slPriorityNbg2(1);   /* BG1 farthest (behind BG3/BG4) */
+    slPriorityNbg3(2);   /* BG3 distant (behind BG4 by equal-pri NBG0>NBG3 order) */
+    slPriorityNbg0(2);   /* BG4 */
+    slPriorityNbg1(3);   /* FG above the BGs */
+    slScrAutoDisp(NBG0ON | NBG1ON | NBG2ON | NBG3ON | SPRON);
+    /* MANUAL VRAM cycle pattern (the title #276 fix: set the cycle register DIRECTLY
+     * after slScrAutoDisp -- its auto-allocator mis-banks the non-standard B1 char).
+     * 4-PLANE pattern (R2.6, doc-verified ST-058-R2 Tables 3.3/3.4/3.5 via the
+     * feasibility sub-agent): adds NBG3 PN (code 3) @ B0 T2 + NBG3 char (code 7) @
+     * B1 T3 to the proven 3-plane pattern; both were idle 0xF slots. Each plane's
+     * char-read T-slot >= its PN-read T-slot within the allowed window (Table 3.4).
+     * Nibble codes: 0=N0 PN,1=N1 PN,2=N2 PN,3=N3 PN,4=N0 char,5=N1 char,6=N2 char,
+     * 7=N3 char,E=CPU,F=no-access. */
+    slScrCycleSet(0x55FEEEEEu,   /* A0: N1 char x2 (FG 8-bpp)                     */
+                  0xFFFEEEEEu,   /* A1: idle                                     */
+                  0x123FEEEEu,   /* B0: N1 PN(T0) + N2 PN(T1) + N3 PN(T2)        */
+                  0x0467EEEEu);  /* B1: N0 PN + N0 char + N2 char(T2) + N3 char(T3) */
+    /* DEFERRED (separate front-end task, NOT a BG-arming bug): the AIZ fly-in shows a
+     * ~30% periodic full-screen black. MEASURED NOT to be this VDP2 plane arming -- a
+     * vblank-ISR force of the BGON hardware reg to 0x47 (savestate-confirmed all-planes-
+     * on) left the ~30% black UNCHANGED across 5 builds. The black is downstream
+     * (VDP1 framebuffer / front-end-rate class, shared with the title #276/#241), to be
+     * investigated at that layer. BG1 itself renders correctly (BGON=0x47, clouds). */
+    p6_w_aiz_bg_nbg0 = 1;
+}
+#endif
 
 /* Streaming witnesses (read by qa_p6_fgstream.py from game.map). The self-check
  * walks the VISIBLE tile rect every present and compares each plane cell to the
@@ -1352,7 +1597,12 @@ static void p6_present_compute(int layer, int scroll_x, int scroll_y,
              * collision is possible level-wide. (The non-streaming
              * p6_vdp2_present_layout scans the WHOLE resident layout so its
              * stolen-blank stays safe; only the windowed streaming path broke.) */
+#if defined(P6_AIZ_TEST)
+            /* R1 (AIZ): empty cells -> the cleared transparent char (64) for AIZ; char 0 for GHZ. */
+            s_blank_char = (p6_fg_blank_char_override >= 0) ? p6_fg_blank_char_override : 0;
+#else
             s_blank_char = 0;
+#endif
             (void)used;
             /* Zero the whole cart page = tile 0 (transparent) everywhere; the
              * rebuild below drops real tiles into the visible+margin rect. The
@@ -1549,3 +1799,102 @@ void p6_present_join_config(int sx, int sy)
     jo_core_wait_for_slave();
     p6_present_config(sx, sy);
 }
+
+#if defined(P6_GHZCUT_BOOT)
+/* ============================================================================
+ * Task #309 Tier-B.1: the FXRuby full-screen fade as a Saturn VDP2 hardware
+ * effect (the RSDKv5 software-framebuffer FillScreen is never presented).
+ *
+ * MECHANISM -- VDP2 Color Offset Function (ST-058-R2 Chapter 13, p249-254):
+ *   Chapter 13 Introduction (VDP2_Manual.txt:10215-10219): the color offset
+ *   function "causes a change in the screen color without changing color RAM
+ *   data by adding the offset value when sprite and data of each screen are
+ *   output. Can also be used for fade-in and fade-out." The offset is 9-bit
+ *   SIGNED per RGB (Fig 13.1, :10235-10249; :10372-10373 negatives are two's-
+ *   complement), added to 8-bit color data POST-color-calc, clamped [00,FF]
+ *   (:10226-10227). NEGATIVE offset -> subtract -> toward BLACK; POSITIVE ->
+ *   add -> toward WHITE. The 256-step ramp matches FXRuby fadeWhite/fadeBlack.
+ *
+ *   Per-screen enable CLOFEN 180110H (:10266-10283): N1COEN(bit1)=NBG1,
+ *   SPCOEN(bit6)=Sprite. Select CLOFSL 180112H (:10303-10320): 0=offset A.
+ *   GHZCutscene's only visible layers are NBG1 (FG tilemap) + SPR (VDP1
+ *   sprites) -- p6_vdp2_present_config above arms slScrAutoDisp(NBG1ON|SPRON)
+ *   -- so the wash applies offset A to NBG1ON|SPRON. This is POST-CRAM in the
+ *   color pipeline, so it does NOT touch any palette bank (heeds the R3.3
+ *   CRAM-bank-collision lesson) and costs zero VDP1 slots / fill-rate (the
+ *   rejected VDP1 half-transparency quad is a FIXED 50% ratio, ST-013-R3
+ *   :575-576, and competes for the full VDP1 NSHEETS/SLOTS tables).
+ *
+ *   SGL path (SL_DEF.H:971-977, linked engine-wide -- demo-gamepad/game.map
+ *   slColOffsetA @0x601ddb0): slColOffsetA(Sint16 r,g,b) writes COAR/COAG/COAB;
+ *   slColOffsetAUse(Uint16 screens) sets CLOFEN+CLOFSL(=A) for the mask;
+ *   slColOffsetOff(Uint16 screens) clears CLOFEN for the mask.
+ *
+ * INPUT: fadeWhite/fadeBlack are the live FXRuby fields (0..512; the cutscene
+ *   seeds 0x200 then FadeIn decrements -- GHZCutsceneST.c:88-89,144-153). The
+ *   effective full-screen opacity is the FillScreen alpha = clamp(v,0,255)
+ *   (Drawing.cpp:586-590). When BOTH are >0 (the timer 0..59 hold) the decomp
+ *   draws BLACK last (FXRuby.c:42-45) so black dominates -> apply the black
+ *   offset. Single offset-A write/frame; disable when both <= 0.
+ * ========================================================================== */
+#define P6_GHZCUT_FADE_SCREENS  (NBG1ON | SPRON)
+
+void p6_vdp2_fade_apply(int fadeWhite, int fadeBlack)
+{
+    int aw = fadeWhite; if (aw < 0) aw = 0; if (aw > 255) aw = 255;
+    int ab = fadeBlack; if (ab < 0) ab = 0; if (ab > 255) ab = 255;
+
+    if (ab > 0) {
+        /* Black wash dominates (decomp draws black FillScreen last). Negative
+         * offset subtracts -ab from every RGB -> ramps toward black. SGL
+         * encodes the two's-complement 9-bit value from the signed Sint16. */
+        slColOffsetA((Sint16)(-ab), (Sint16)(-ab), (Sint16)(-ab));
+        slColOffsetAUse(P6_GHZCUT_FADE_SCREENS);
+    }
+    else if (aw > 0) {
+        /* White wash. Positive offset adds +aw -> ramps toward white (FF). */
+        slColOffsetA((Sint16)aw, (Sint16)aw, (Sint16)aw);
+        slColOffsetAUse(P6_GHZCUT_FADE_SCREENS);
+    }
+    else {
+        /* No wash -> clear the offset so the FG/sprites render at full bright. */
+        slColOffsetA(0, 0, 0);
+        slColOffsetOff(P6_GHZCUT_FADE_SCREENS);
+    }
+}
+
+/* Clear any live fade (call on scene exit so a residual offset can't bleed). */
+void p6_vdp2_fade_reset(void)
+{
+    slColOffsetA(0, 0, 0);
+    slColOffsetOff(P6_GHZCUT_FADE_SCREENS);
+}
+
+/* Task #309 Tier-B.2: upload the 5 Hard-Boiled-Heavy palette blocks to CRAM.
+ * Source = cd/HBHPAL.BIN (built by tools/build_heavy_atlas.py): 5 contiguous
+ * blocks of 128 BGR555 colors each (already 0x8000|BGR555, big-endian u16 in the
+ * blob -> the SH-2 u16 read is native big-endian). Destination = CRAM[512..1663]
+ * (the no-AIZ-BG GHZCutscene flavor leaves CRAM[512+] free; bank0 FG = CRAM[0..255],
+ * bank1 VDP1 sprites = CRAM[256..511] are UNTOUCHED -> R3.3-collision-proof).
+ *
+ * Each block base CRAM[512 + 256*n] is the jo colno the engine selects per Heavy
+ * (p6_vdp1.c p6_heavy_palblock). A VDP1 8bpp Heavy sprite's pixel p reads CRAM
+ * [block + p] (DOC-CITED: SPCTL=0x23 Type-3 full-11-bit DC + SPCAOS=0, ST-058-R2
+ * sec 10.1; CMDCOLR high-byte = colno, ST-013-R3 sec 6.4). Entry 0 of each block
+ * is the transparent slot (VDP1 skips pixel 0). Raw CRAM write -- the same model
+ * as p6_pal_mirror (p6_vdp1.c:705) and the AIZ-BG bank upload above. NO jo +1
+ * pre-shift: the sprite reads CRAM[block+pixel] directly (the +1 shift is a jo
+ * VDP2-NBG-palnum quirk, not the raw-CRAM sprite-bank path). */
+void p6_vdp2_hbh_pal_upload(const unsigned short *palData /* HBHPAL.BIN, 5*128 u16 */)
+{
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    int n, i;
+    if (!palData)
+        return;
+    for (n = 0; n < 5; ++n) {
+        int base = 512 + 256 * n;           /* CRAM[512/768/1024/1280/1536] */
+        for (i = 0; i < 128; ++i)
+            cram[base + i] = palData[n * 128 + i];
+    }
+}
+#endif /* P6_GHZCUT_BOOT */

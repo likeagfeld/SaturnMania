@@ -92,6 +92,13 @@ def main():
     ap.add_argument("--scene", default="extracted/Data/Stages/GHZ/Scene1.bin")
     ap.add_argument("--tag", default="GHZ1")
     ap.add_argument("--probes", type=int, default=96)
+    # P6.8 #309: build a band store for a NON-GHZ1 scene (e.g. the GHZCutscene
+    # arrival cutscene) WITHOUT clobbering the GHZ1 qa_p6_layout model/probes
+    # that the shipping GHZ gate reads. The .BIN is always written; the model +
+    # probe .inc (GHZ1-gate inputs) are skipped under --no-model.
+    ap.add_argument("--no-model", dest="no_model", action="store_true",
+                    help="emit only cd/<tag>LAYT.BIN; skip p6_layout_model.json "
+                         "+ p6_layout_probes.inc (don't overwrite the GHZ1 gate)")
     args = ap.parse_args()
 
     layers = parse_layers(os.path.join(ROOT, args.scene))
@@ -131,6 +138,12 @@ def main():
         out += z
     out_path = os.path.join(ROOT, "cd", args.tag + "LAYT.BIN")
     open(out_path, "wb").write(out)
+
+    if args.no_model:
+        print("OK: %s = %d B (djb2 0x%08X), %d layers [--no-model: GHZ1 gate "
+              "model/probes untouched]" % (out_path, len(out), djb2(out),
+                                           len(layers)))
+        return 0
 
     # probes: deterministic spread across multiple window positions per
     # collidable-class layer (the two largest), plus a few BG probes

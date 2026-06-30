@@ -251,6 +251,20 @@ ifeq ($(P6_FRONTEND_MENU),1)
 CCFLAGS += -DP6_FRONTEND_MENU -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS
 endif
 
+# Task #309 Tier-B.2 (the 5 Heavies render): the GHZCutscene direct-boot flavor MUST
+# also reach the jo-make compile of p6_vdp1.c -- it adds `int p6_heavy_palblock` + the
+# P6_BLIT_PALBLOCK per-draw palette-block selector (the 5 Heavies each route to their
+# own CRAM block via jo colno). WITHOUT this define on the jo compile, P6_BLIT_PALBLOCK
+# stays the literal 1 (byte-identical) and p6_heavy_palblock is undefined -> the overlay
+# extern would not link. P6_GHZCUT_BOOT IMPLIES P6_AIZ_TEST -> MENU -> TITLE -> LOGOS
+# (build_shipping.sh sets those knobs too). DEFAULT (GHZ) + Title/Logos/Menu builds leave
+# it unset -> p6_vdp1.c byte-identical (the #if defined(P6_GHZCUT_BOOT) body compiles
+# ONLY in the GHZCutscene flavor). P6_GHZCUT_HOLD is overlay/io-only (not a p6_vdp1.c
+# concern) so it is NOT threaded here.
+ifeq ($(P6_GHZCUT_BOOT),1)
+CCFLAGS += -DP6_GHZCUT_BOOT
+endif
+
 # --- Our sources ---
 #
 # Phase 0.5 foundation alignment (2026-05-26): the hand-rolled

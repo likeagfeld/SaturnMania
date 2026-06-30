@@ -187,6 +187,18 @@ void p6_menu_apic_init(void);
 extern ObjectUISaveSlot     *UISaveSlot;
 extern ObjectUITransition   *UITransition;
 extern int32 p6_w_menu_saveslot_classid, p6_w_menu_input_seen;
+extern int32 p6_w_uitrans_present, p6_w_uitrans_state, p6_w_uitrans_timer, p6_w_uitrans_istrans, p6_w_uitrans_active;
+extern int32 p6_w_active_btn_actioncb, p6_w_active_btn_id, p6_w_active_btn_count;
+extern int32 p6_w_ctrl_posx, p6_w_ctrl_tgtx;
+extern int32 p6_w_ctrl_state, p6_w_ctrl_active, p6_w_nosave_pi, p6_w_nosave_confirm;
+extern int32 p6_w_nosave_gate, p6_w_slot_state, p6_w_slot_fxradius;
+extern int32 p6_w_gate_seldisabled, p6_w_ctrl_seldisabled;
+extern void UIControl_ProcessInputs(void);  /* S3: cmp uc->state -- intra-overlay symbol */
+#if defined(P6_MENU_AUTOSELECT)
+extern void UIControl_MatchMenuTag(const char *text); /* #296 debug-inject: activate No-Save */
+extern void UISaveSlot_State_Selected(void);          /* #296 debug-inject: force the select state */
+extern int32 p6_w_as_stage;                           /* #296 debug-inject progress witness */
+#endif
 
 /* M2b/M3 (Task #294/#295): SATURN-NATIVE 320 MENU LAYOUT, applied by the pack each frame
  * (api->menu_layout_fn) after ProcessObjects + before ProcessObjectDrawLists.
@@ -247,6 +259,36 @@ static void p6_menu_apply_layout(void)
     }
 }
 #endif
+#if defined(P6_AIZ_TEST)
+/* M3.1 (qa_p6_aiz_cutscene): the AIZ intro-cutscene DRIVER objects, registered into the
+ * overlay only in the P6_AIZ_TEST flavor (their verbatim Game_*.o link into OVL_FE only in
+ * that build). AIZSetup is the setup director (StaticUpdate runs SetupObjects +
+ * GetCutsceneSetupPtr -> CutsceneSeq_StartSequence); CutsceneSeq is the sequencer (LateUpdate
+ * drives the state machine); AIZTornado is the biplane + AIZTornadoPath is the CAMERA driver
+ * (its START node grabs SLOT_CAMERA1 + writes camera->position along the path). The placed
+ * actors AIZKingClaw/AIZEggRobo/PhantomRuby/FXRuby are registered so AIZSetup_SetupObjects'
+ * foreach_all/CREATE_ENTITY resolve the real entities (Decoration is ALREADY registered in
+ * the GHZ batch above -- its StageLoad handles the AIZ folder). Their object globals are
+ * overlay-resident (provided by the Game_*.o); Game.h declares the externs. The classID
+ * witnesses are pack globals the overlay writes via ld -R import. MEASURED entity sizes all
+ * <= 344 (placed -> narrow scene slot); CutsceneSeq (476) is created at SLOT_CUTSCENESEQ=15
+ * (reserve/wide 556) so it fits (feature checklist aiz_m3_1). */
+extern ObjectAIZSetup      *AIZSetup;
+extern ObjectCutsceneSeq   *CutsceneSeq;
+extern ObjectAIZTornado    *AIZTornado;
+extern ObjectAIZTornadoPath *AIZTornadoPath;
+extern ObjectAIZKingClaw   *AIZKingClaw;
+extern ObjectAIZEggRobo    *AIZEggRobo;
+extern ObjectPhantomRuby   *PhantomRuby;
+extern ObjectFXRuby        *FXRuby;
+/* the M3.1 witnesses are pack globals (DEFINED in p6_io_main.cpp), -R import */
+extern int32 p6_w_aiz_cutscene_state, p6_w_aiz_setup_classid, p6_w_aiz_seq_classid;
+extern int32 p6_w_aiz_tornado_classid, p6_w_aiz_path_classid, p6_w_aiz_cam_x;
+/* SLOT_CAMERA1 = 60 (GameVariables.h); the overlay reads the live camera through the
+ * engine RSDK.GetEntity to witness the cutscene-driven camera x (C2 corroboration). */
+#define P6_AIZ_SLOT_CAMERA1 (60)
+#define P6_AIZ_SLOT_CUTSCENESEQ (15)
+#endif
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
 extern int32 p6_w_explosion_aniframes; /* Explosion->aniFrames (load-status latch) */
 extern int32 p6_w_animals_aniframes;   /* Animals->aniFrames */
@@ -265,6 +307,22 @@ extern int32 p6_vdp1_handle_for_surface(int32 sheetID);
 
 /* Forward decl so p6_overlay_entry is the FIRST function (window base). */
 static void p6_ghz_ovl_witness(const void *ringSlot);
+#if defined(P6_GHZCUT_BOOT)
+/* Task #309 Tier-B.1: forward-declared so p6_overlay_entry (which sets api->fade_fn
+ * = p6_ghzcut_fade_fn) stays the FIRST function; defined after the witness below. */
+static void p6_ghzcut_fade_fn(int *outWhite, int *outBlack);
+/* Task #309 Tier-B.2: the CutsceneHBH Draw SHIM -- selects this Heavy's CRAM
+ * palette block (jo colno) before the verbatim decomp CutsceneHBH_Draw, resets
+ * after. Registered as the CutsceneHBH Draw callback (instead of the raw decomp
+ * Draw) so the verbatim port stays untouched. */
+static void p6_cuthbh_draw(void);
+/* Engine globals (defined in p6_vdp1.c / p6_io_main.cpp; ld -R cross-link). */
+extern int   p6_heavy_palblock;          /* per-draw VDP1 palette block (p6_vdp1.c) */
+extern int32 p6_w_hbh_aniframes, p6_w_hbh_landed; /* Tier-B.2 witnesses (p6_io_main) */
+extern int32 p6_w_hbh_count, p6_w_hbh_vis, p6_w_hbh_posy, p6_w_hbh_posx,
+             p6_w_hbh_handle, p6_w_hbh_camy, p6_w_hbh_animid; /* Tier-B.2 DIAG */
+extern ObjectCutsceneHBH *CutsceneHBH;
+#endif
 
 /* I3b 2b: the camera-local-pool MATERIALIZE, overlay-resident (new engine code -> cart per the
  * residency rule, freeing WRAM-H for the shrink manager). Forward-declared so p6_overlay_entry stays
@@ -509,6 +567,83 @@ int p6_overlay_entry(p6_ovl_api *api)
                               UITransition_Update, UITransition_LateUpdate, UITransition_StaticUpdate,
                               UITransition_Draw, UITransition_Create, UITransition_StageLoad, UITransition_Serialize);
 #endif
+#if defined(P6_AIZ_TEST)
+    /* M3.1: the AIZ intro-cutscene DRIVER set. Register order is irrelevant (the engine
+     * LoadGameConfig matches by md5(name)); these resolve their classIDs the same way the
+     * Menu/GHZ objects do. NULL editor callbacks (the verbatim RSDK_REGISTER_OBJECT
+     * non-editor arm; GAME_INCLUDE_EDITOR off). AIZSetup_StageLoad sets Zone->cameraBoundsB
+     * + arms the AIZ anims; AIZSetup_StaticUpdate runs SetupObjects + the cutscene start.
+     * CutsceneSeq is spawned dynamically (ResetEntitySlot(SLOT_CUTSCENESEQ)) by
+     * StartSequence -- registering it gives it a live classID so that ResetEntitySlot
+     * resolves. AIZTornado/AIZTornadoPath Create at the scene's placed positions; the
+     * START AIZTornadoPath node grabs + positions SLOT_CAMERA1 (the camera fix). */
+    api->register_object_full((void **)&AIZSetup, "AIZSetup",
+                              (unsigned)sizeof(EntityAIZSetup), (unsigned)sizeof(ObjectAIZSetup),
+                              AIZSetup_Update, AIZSetup_LateUpdate, AIZSetup_StaticUpdate,
+                              AIZSetup_Draw, AIZSetup_Create, AIZSetup_StageLoad, AIZSetup_Serialize);
+    api->register_object_full((void **)&CutsceneSeq, "CutsceneSeq",
+                              (unsigned)sizeof(EntityCutsceneSeq), (unsigned)sizeof(ObjectCutsceneSeq),
+                              CutsceneSeq_Update, CutsceneSeq_LateUpdate, CutsceneSeq_StaticUpdate,
+                              CutsceneSeq_Draw, CutsceneSeq_Create, CutsceneSeq_StageLoad, CutsceneSeq_Serialize);
+    api->register_object_full((void **)&AIZTornado, "AIZTornado",
+                              (unsigned)sizeof(EntityAIZTornado), (unsigned)sizeof(ObjectAIZTornado),
+                              AIZTornado_Update, AIZTornado_LateUpdate, AIZTornado_StaticUpdate,
+                              AIZTornado_Draw, AIZTornado_Create, AIZTornado_StageLoad, AIZTornado_Serialize);
+    api->register_object_full((void **)&AIZTornadoPath, "AIZTornadoPath",
+                              (unsigned)sizeof(EntityAIZTornadoPath), (unsigned)sizeof(ObjectAIZTornadoPath),
+                              AIZTornadoPath_Update, AIZTornadoPath_LateUpdate, AIZTornadoPath_StaticUpdate,
+                              AIZTornadoPath_Draw, AIZTornadoPath_Create, AIZTornadoPath_StageLoad, AIZTornadoPath_Serialize);
+    /* Placed actors -- registered so AIZSetup_SetupObjects' foreach_all/CREATE_ENTITY
+     * resolve the real entities (inert for M3.1; their motion is the M3.2/M3.3 beats).
+     * PhantomRuby/FXRuby anims (Global/PhantomRuby.bin, Global/FXRuby.bin) are ABSENT
+     * from DATA.RSDK -> their StageLoad LoadSpriteAnimation returns -1 gracefully (RSDK
+     * contract); they draw nothing until the assets are converted, which is fine for the
+     * M3.1 camera-framing goal (the early cutscene states never deref them). */
+    api->register_object_full((void **)&AIZKingClaw, "AIZKingClaw",
+                              (unsigned)sizeof(EntityAIZKingClaw), (unsigned)sizeof(ObjectAIZKingClaw),
+                              AIZKingClaw_Update, AIZKingClaw_LateUpdate, AIZKingClaw_StaticUpdate,
+                              AIZKingClaw_Draw, AIZKingClaw_Create, AIZKingClaw_StageLoad, AIZKingClaw_Serialize);
+    api->register_object_full((void **)&AIZEggRobo, "AIZEggRobo",
+                              (unsigned)sizeof(EntityAIZEggRobo), (unsigned)sizeof(ObjectAIZEggRobo),
+                              AIZEggRobo_Update, AIZEggRobo_LateUpdate, AIZEggRobo_StaticUpdate,
+                              AIZEggRobo_Draw, AIZEggRobo_Create, AIZEggRobo_StageLoad, AIZEggRobo_Serialize);
+    api->register_object_full((void **)&PhantomRuby, "PhantomRuby",
+                              (unsigned)sizeof(EntityPhantomRuby), (unsigned)sizeof(ObjectPhantomRuby),
+                              PhantomRuby_Update, PhantomRuby_LateUpdate, PhantomRuby_StaticUpdate,
+                              PhantomRuby_Draw, PhantomRuby_Create, PhantomRuby_StageLoad, PhantomRuby_Serialize);
+    api->register_object_full((void **)&FXRuby, "FXRuby",
+                              (unsigned)sizeof(EntityFXRuby), (unsigned)sizeof(ObjectFXRuby),
+                              FXRuby_Update, FXRuby_LateUpdate, FXRuby_StaticUpdate,
+                              FXRuby_Draw, FXRuby_Create, FXRuby_StageLoad, FXRuby_Serialize);
+#endif
+#if defined(P6_GHZCUT_BOOT)
+    /* Task #309: the AIZ->GHZCutscene destination scene's 2 NEW driver objects. Register
+     * order is irrelevant (the engine LoadGameConfig matches by md5(name)). NULL editor
+     * callbacks (the verbatim RSDK_REGISTER_OBJECT non-editor arm). FXRuby is ALREADY
+     * registered in the AIZ block above; GHZSetup + BGSwitch are ALREADY registered by the
+     * PACK (p6_wave1_reg.c:157,166 RSDK_REGISTER_OBJECT, unconditional in every flavor) --
+     * registering EITHER again here would DOUBLE-register (a second class-table entry ->
+     * corrupt classID resolution). So ONLY GHZCutsceneST + CutsceneHBH (which are NOT in
+     * the pack) are registered here. GHZCutsceneST_Create -> CutsceneRules_SetupEntity sets
+     * the cutscene-trigger hitbox (the real impl gated into p6_closure_edge.c under
+     * P6_GHZCUT_BOOT); its Update's Player_CheckCollisionTouch then starts the fixed-timer
+     * beat chain that reaches GHZCutsceneST_Cutscene_SetupGHZ1 -> SetScene("Mania Mode","")
+     * + LoadScene (the playable-GHZ handoff). CutsceneHBH = the 5 Heavies (boss sheets
+     * absent -> LoadSpriteAnimation returns -1 gracefully -> invisible; Tier-A acceptable). */
+    extern ObjectGHZCutsceneST *GHZCutsceneST;
+    extern ObjectCutsceneHBH *CutsceneHBH;
+    api->register_object_full((void **)&GHZCutsceneST, "GHZCutsceneST",
+                              (unsigned)sizeof(EntityGHZCutsceneST), (unsigned)sizeof(ObjectGHZCutsceneST),
+                              GHZCutsceneST_Update, GHZCutsceneST_LateUpdate, GHZCutsceneST_StaticUpdate,
+                              GHZCutsceneST_Draw, GHZCutsceneST_Create, GHZCutsceneST_StageLoad, GHZCutsceneST_Serialize);
+    /* Task #309 Tier-B.2: register the Draw SHIM (p6_cuthbh_draw) instead of the raw
+     * decomp CutsceneHBH_Draw so each Heavy routes to its own CRAM palette block. The
+     * verbatim CutsceneHBH_Draw stays untouched (the shim calls it). */
+    api->register_object_full((void **)&CutsceneHBH, "CutsceneHBH",
+                              (unsigned)sizeof(EntityCutsceneHBH), (unsigned)sizeof(ObjectCutsceneHBH),
+                              CutsceneHBH_Update, CutsceneHBH_LateUpdate, CutsceneHBH_StaticUpdate,
+                              p6_cuthbh_draw, CutsceneHBH_Create, CutsceneHBH_StageLoad, CutsceneHBH_Serialize);
+#endif
     /* MASS-PORT BATCH 1 (verified-CLEAN drop-ins; closure self-confirmed: only
      * Zone/Player/SceneInfo/DebugMode/Zone_RotateOnPivot, all ported). Decoration =
      * GHZ scenery; ForceSpin/ForceUnstick/SpinBooster = player-state trigger regions
@@ -618,8 +753,97 @@ int p6_overlay_entry(p6_ovl_api *api)
      * UIModeButton world positions to the 320-fit grid + sets the scroll origin). */
     api->menu_layout_fn = p6_menu_apply_layout;
 #endif
+#if defined(P6_GHZCUT_BOOT)
+    /* Task #309 Tier-B.1: export the FXRuby fade reader so the pack applies the
+     * VDP2 color offset each frame (p6_vdp2_fade_apply) from the live FXRuby. */
+    api->fade_fn = p6_ghzcut_fade_fn;
+#endif
     return 0;
 }
+
+#if defined(P6_GHZCUT_BOOT)
+// =============================================================================
+// Task #309 Tier-B.1: the FXRuby fade reader (api->fade_fn). Called from
+// p6_frontend_frame each tick AFTER ProcessObjectDrawLists. Reads the live
+// FXRuby entity's fade fields into the engine-visible ints the engine hands to
+// p6_vdp2_fade_apply (the VDP2 Color Offset write). The overlay does this (not
+// the engine TU) because EntityFXRuby is a Mania Game.h type the engine cannot
+// name. fadeWhite/fadeBlack are seeded 0x200 by GHZCutsceneST_SetupObjects then
+// ramped by GHZCutsceneST_Cutscene_FadeIn (GHZCutsceneST.c:88-89,144-153).
+//
+// Under P6_GHZCUT_HOLD (the RED-gate capture flavor): FIRST pin the live FXRuby
+// fade to a fixed visible wash so the cutscene FREEZES at it -- FXRuby's FadeIn
+// beat returns true (-> SetupGHZ1 handoff) only when BOTH fades reach 0, so
+// pinning fadeWhite>0 (and fadeBlack=0) keeps FadeIn returning false forever ->
+// no handoff -> the wash is on-screen for the savestate capture.
+//   P6_GHZCUT_HOLD_WHITE (default 256 = full white wash, FillScreen alpha 255).
+// =============================================================================
+#ifndef P6_GHZCUT_HOLD_WHITE
+#define P6_GHZCUT_HOLD_WHITE 256
+#endif
+static void p6_ghzcut_fade_fn(int *outWhite, int *outBlack)
+{
+    int w = 0, b = 0;
+    foreach_all(FXRuby, fx)
+    {
+#if defined(P6_GHZCUT_HOLD)
+        /* Freeze the cutscene for the capture. Pin BEFORE reading so the returned
+         * values reflect the held state. FadeIn (GHZCutsceneST.c:142-154) returns
+         * true (-> advances past FadeIn toward the GHZ handoff) ONLY when BOTH
+         * fadeWhite AND fadeBlack reach <=0. So to FREEZE the cutscene at FadeIn
+         * (Heavies still at their placed positions, alive, BEFORE the ExitHBH beat
+         * flies+destroys them), pin at least one fade > 0 every tick.
+         *   P6_GHZCUT_HOLD_WHITE > 0  -> full white wash (Tier-B.1 fade gate).
+         *   P6_GHZCUT_HOLD_WHITE == 0 -> Tier-B.2 Heavy capture: pin fadeBlack=1
+         *     (a -1 VDP2 color offset, IMPERCEPTIBLE) so FadeIn never completes ->
+         *     the cutscene is frozen at FadeIn with the Heavies VISIBLE + un-washed. */
+        fx->fadeWhite = P6_GHZCUT_HOLD_WHITE;
+        fx->fadeBlack = (P6_GHZCUT_HOLD_WHITE > 0) ? 0 : 1;
+#endif
+        w = (int)fx->fadeWhite;
+        b = (int)fx->fadeBlack;
+        foreach_break;
+    }
+    if (outWhite) *outWhite = w;
+    if (outBlack) *outBlack = b;
+}
+
+// =============================================================================
+// Task #309 Tier-B.2: the CutsceneHBH Draw shim (registered as the CutsceneHBH
+// Draw callback). Each Heavy is a VDP1 8bpp sprite reading ONE combined atlas
+// (HBHOBJ.SHT), but each owns a DISTINCT 128-color palette -> all 5 on-screen at
+// once need 5 distinct CRAM blocks (HBHPAL.BIN @ CRAM[512/768/1024/1280/1536]).
+// The Saturn selects a sprite's CRAM block via jo colno (= block*256 = the VDP1
+// CMDCOLR high byte; DOC-CITED ST-013-R3 sec 6.4 + ST-058-R2 sec 10.1 Type-3
+// full-11-bit DC, SPCAOS=0). So set p6_heavy_palblock = 2 + characterID (GUNNER=0
+// -> block 2 -> colno 512 ... KING=4 -> block 6 -> colno 1536) BEFORE the verbatim
+// decomp CutsceneHBH_Draw runs its two DrawSprite calls, then reset to 1 (the
+// normal bank). The decomp's CutsceneHBH_SetupPalettes/RestorePalette (SetPaletteEntry
+// to bank0 0x80-0xFF) are a NO-OP on Saturn (the palette lives in the CRAM block,
+// not bank0), but they're harmless (the verbatim Draw still calls them).
+//   characterID 0..4 (HBH_GUNNER..HBH_KING) -> block 2..6. cid>4 (the off-path
+//   Rogues/PILE/damaged-King, never in the GHZ ExitHBH beat) falls back to block 1.
+static void p6_cuthbh_draw(void)
+{
+    RSDK_THIS(CutsceneHBH);   /* self = (EntityCutsceneHBH *)SceneInfo->entity */
+    int cid   = (int)self->characterID;
+    int block = (cid >= HBH_GUNNER && cid <= HBH_KING) ? (2 + cid) : 1;
+
+    /* witnesses: this Heavy's aniFrames (>=0 == HBHOBJ.PAK .bin loaded) + a blit
+     * counter (incremented when the Heavy actually drew an on-screen frame). */
+    p6_w_hbh_aniframes = (int32)(int16)self->aniFrames;
+
+    p6_heavy_palblock = block;
+    {
+        /* count Heavy-region landed blits via the global VDP1 landed delta
+         * (p6_w_vdp1_landed declared at file scope above). */
+        int before = p6_w_vdp1_landed;
+        CutsceneHBH_Draw();                 /* verbatim decomp Draw (2x DrawSprite) */
+        p6_w_hbh_landed += (p6_w_vdp1_landed - before);
+    }
+    p6_heavy_palblock = 1;                   /* restore the normal sprite bank */
+}
+#endif /* P6_GHZCUT_BOOT */
 
 // =============================================================================
 // Combined per-tick witness (api->witness_fn, called from p6_ghz_frame's
@@ -636,6 +860,43 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * (int16)-cast so a -1 (0xFFFF) load failure reads as -1, not 65535. */
     if (Ring) p6_w_ring_aniframes = (int32)(int16)Ring->aniFrames;
     if (Ring && Ring->classID) p6_w_ring_classid = (int32)Ring->classID;
+#if defined(P6_GHZCUT_BOOT)
+    /* Tier-B.2 DIAG: why don't the Heavies draw? Disambiguate the failure:
+     *   count == -2 : CutsceneHBH Object* is NULL (never registered/resolved)
+     *   count == -3 : CutsceneHBH registered but classID==0 (scene didn't bind it)
+     *   count >= 0  : that many live CutsceneHBH entities. */
+    if (!CutsceneHBH)
+        p6_w_hbh_count = -2;
+    else if (!CutsceneHBH->classID)
+        p6_w_hbh_count = -3;
+    else {
+        int n = 0;
+        EntityCutsceneHBH *first = NULL;
+        foreach_all(CutsceneHBH, hbh) {
+            if (!first) first = hbh;
+            ++n;
+        }
+        p6_w_hbh_count = n;
+        if (first) {
+            p6_w_hbh_vis    = ((int32)(first->visible ? 1 : 0) << 16)
+                            | ((int32)(first->onScreen ? 1 : 0) << 8)
+                            | (int32)first->active;
+            p6_w_hbh_posx   = (int32)(first->position.x >> 16);
+            p6_w_hbh_posy   = (int32)(first->position.y >> 16);
+            p6_w_hbh_aniframes = (int32)(int16)first->aniFrames;
+            p6_w_hbh_animid = (int32)first->mainAnimator.animationID;
+        }
+    }
+    /* Heavy sheet bind state, INDEPENDENT of the entities (the surface exists once
+     * CutsceneHBH_LoadSprites' LoadSpriteAnimation resolved "Cutscene/HBH.gif").
+     * LoadSpriteSheet is idempotent: returns the existing surface if already loaded,
+     * or -1 if the sheet was never referenced. handle>=0 == bound to VDP1. */
+    {
+        int32 hs = (int32)(int16)RSDK.LoadSpriteSheet("Cutscene/HBH.gif", SCOPE_STAGE);
+        p6_w_hbh_handle = (hs >= 0) ? p6_vdp1_handle_for_surface(hs) : -5;
+    }
+    p6_w_hbh_camy = (int32)(ScreenInfo ? ScreenInfo->position.y : -1);
+#endif
 #if defined(P6_FRONTEND_LOGOS)
     /* CP4 (E2/E3): latch the front-end classIDs once they resolve. Called from
      * p6_frontend_frame each tick (the api->witness_fn seam). */
@@ -801,6 +1062,171 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         }
     }
 #endif
+#if defined(P6_AIZ_TEST)
+    /* M3.1 (qa_p6_aiz_cutscene): the AIZ intro-cutscene DRIVER witnesses. Called per-tick
+     * via the api->witness_fn seam (after ProcessObjects ran the cutscene state machine).
+     * The class-id witnesses prove registration+instantiation (C3). cutscene_state reads
+     * the LIVE CutsceneSeq entity's stateID (C1: -1 until the seq is spawned at
+     * SLOT_CUTSCENESEQ by StartSequence, then 0+ == EnterAIZ running). cam_x reads
+     * SLOT_CAMERA1's live position.x (C2 corroboration: the cutscene-driven camera). */
+    if (AIZSetup       && AIZSetup->classID)       p6_w_aiz_setup_classid   = (int32)AIZSetup->classID;
+    if (CutsceneSeq    && CutsceneSeq->classID)    p6_w_aiz_seq_classid     = (int32)CutsceneSeq->classID;
+    if (AIZTornado     && AIZTornado->classID)     p6_w_aiz_tornado_classid = (int32)AIZTornado->classID;
+    if (AIZTornadoPath && AIZTornadoPath->classID) p6_w_aiz_path_classid    = (int32)AIZTornadoPath->classID;
+    /* the live CutsceneSeq sits at SLOT_CUTSCENESEQ (StartSequence ResetEntitySlot'd it
+     * there). stateID is on the ENTITY. -1 stays until the seq classID matches (it is
+     * spawned). The seq destroys itself at sequence end, so the read is guarded. */
+    if (CutsceneSeq && CutsceneSeq->classID) {
+        EntityCutsceneSeq *cs = (EntityCutsceneSeq *)RSDK.GetEntity(P6_AIZ_SLOT_CUTSCENESEQ);
+        if (cs && cs->classID == CutsceneSeq->classID)
+            p6_w_aiz_cutscene_state = (int32)cs->stateID;
+    }
+    /* #308 FIX (measured): the AIZ intro cutscene STALLS at beat 3 (P2FlyIn) because
+     * Tails(SLOT_PLAYER2) is frozen in AIZSetup_PlayerState_Static (stateptr 0x026a7a88
+     * confirmed vs ovl_ring.map; visible=0, inputptr=NULL, posy=0 -- the Static signature)
+     * -> P2Enter never ran -> Tails never flies in/lands -> P2FlyIn waits on Tails->onGround
+     * forever. The decomp's beat-2 (EnterHeavies) else does exactly this transition
+     * (AIZSetup.c:414-415: if player2->state==Static -> P2Enter) but it does NOT take
+     * effect on Saturn (ruled out: dispatch one-beat, pointer identity 0x026a7a88==map,
+     * non-NULL slot ptr, timing). Apply the decomp's OWN transition from the census (which
+     * provably runs each tick): once the heavies beat is reached (stateID>=2) and Tails is
+     * still stuck in Static, set P2Enter -- the decomp-exact action. One-shot: the guard
+     * fails the moment state leaves Static (P2Enter -> HandleSidekickRespawn -> HoldRespawn
+     * -> the normal sidekick fly-in + land). AIZ-only (#if P6_AIZ_TEST). */
+    if (p6_w_aiz_cutscene_state >= 2) {
+        extern void AIZSetup_PlayerState_Static(void);
+        extern void AIZSetup_PlayerState_P2Enter(void);
+        EntityPlayer *p2f = RSDK_GET_ENTITY(SLOT_PLAYER2, Player);
+        if (p2f && Player && p2f->classID == Player->classID
+                && (void *)p2f->state == (void *)AIZSetup_PlayerState_Static) {
+            p2f->state = AIZSetup_PlayerState_P2Enter;
+        }
+    }
+    /* #309 beat 7 (RubyAppear): the PhantomRuby is ACTIVE_BOUNDS (PhantomRuby.c:53) and
+     * off-screen this beat, so its Update (the 38-frame flash timer in State_PlaySfx) never
+     * runs -> ruby->flashFinished never set -> the cutscene stalls (MEASURED: 1773 frames on
+     * beat 7, currentSceneFolder still AIZ). Force the cutscene-critical ruby ACTIVE_NORMAL
+     * during its flash beats (>=7) so its Update ticks (the timer is pure frame-counting, no
+     * camera dep) -> the flash finishes -> beat 7 advances. Witness active/timer/flashFinished
+     * to confirm the cause + the fix. AIZ-only (#if P6_AIZ_TEST). */
+    if (p6_w_aiz_cutscene_state >= 7 && PhantomRuby && PhantomRuby->classID) {
+        extern int32 p6_w_aiz_ruby_active, p6_w_aiz_ruby_timer, p6_w_aiz_ruby_flashfin;
+        foreach_all(PhantomRuby, rb) {
+            p6_w_aiz_ruby_active   = (int32)rb->active;
+            p6_w_aiz_ruby_timer    = (int32)rb->timer;
+            p6_w_aiz_ruby_flashfin = (int32)rb->flashFinished;
+            if (rb->active == ACTIVE_BOUNDS)
+                rb->active = ACTIVE_NORMAL;
+            foreach_break;
+        }
+    }
+    /* SLOT_CAMERA1 live position.x -- the AIZTornadoPath START node grabbed + positioned
+     * it; HandleMoveSpeed drives it each frame. Read generically (position is at the
+     * RSDK_ENTITY base offset, identical across entity types). */
+    {
+        Entity *cam = RSDK_GET_ENTITY_GEN(P6_AIZ_SLOT_CAMERA1);
+        if (cam) p6_w_aiz_cam_x = (int32)(cam->position.x >> 16);
+    }
+    /* M3.1 DIAG (camera-progression): the live AIZTornado entity's position.x +
+     * disableInteractions, the AIZTornadoPath static moveVel.x, and a count of active
+     * AIZTornado/Path entities. If tornado_x stays at its spawn (60) and moveVel_x==0,
+     * the path is not driving the tornado (the camera stays EnterAIZ-clamped at 320). */
+    {
+        extern int32 p6_w_aiz_torn_x, p6_w_aiz_torn_dis, p6_w_aiz_path_movevel, p6_w_aiz_torn_active, p6_w_aiz_torn_state;
+        extern int32 p6_w_aiz_tornado_frames; /* R3.1 (#305): animatorTornado.frameCount (>0 == SetSpriteAnimation resolved the sheet) */
+        extern int32 p6_w_aiz_torn_aniframes, p6_w_aiz_torn_animid, p6_w_aiz_torn_count; /* R3.1 anim-load diag */
+        if (AIZTornado && AIZTornado->classID) {
+            p6_w_aiz_torn_aniframes = (int32)(int16)AIZTornado->aniFrames; /* OBJECT-level load result */
+            int32 tc = 0;
+            foreach_all(AIZTornado, t) {
+                if (tc == 0) {
+                    p6_w_aiz_torn_x      = (int32)(t->position.x >> 16);
+                    p6_w_aiz_torn_dis    = (int32)t->disableInteractions;
+                    p6_w_aiz_torn_active = (int32)t->active;
+                    p6_w_aiz_torn_state  = (t->state != NULL) ? 1 : 0;
+                    p6_w_aiz_tornado_frames = (int32)t->animatorTornado.frameCount;
+                    p6_w_aiz_torn_animid    = (int32)t->animatorTornado.animationID;
+                }
+                ++tc;
+            }
+            p6_w_aiz_torn_count = tc;
+        }
+        if (AIZTornadoPath) p6_w_aiz_path_movevel = (int32)(AIZTornadoPath->moveVel.x);
+        /* R3.4 (#306 follow-on): the AIZ cutscene actor anim-load latches. Object-level
+         * aniFrames (set by each StageLoad's LoadSpriteAnimation) -- >=0 == the .bin
+         * resolved from AIZOBJ.PAK; -1 == not in the pack (the pre-R3.4 failure). */
+        {
+            extern int32 p6_w_aiz_claw_aniframes, p6_w_aiz_eggrobo_aniframes;
+            if (AIZKingClaw && AIZKingClaw->classID)
+                p6_w_aiz_claw_aniframes = (int32)(int16)AIZKingClaw->aniFrames;
+            if (AIZEggRobo && AIZEggRobo->classID)
+                p6_w_aiz_eggrobo_aniframes = (int32)(int16)AIZEggRobo->aniFrames;
+        }
+        /* #308: the Tails(P2) beat-3 stall localiser -- player2(SLOT_PLAYER2) state. */
+        {
+            extern int32 p6_w_aiz_p2_classid, p6_w_aiz_p2_onground, p6_w_aiz_p2_posx,
+                         p6_w_aiz_p2_posy, p6_w_aiz_p2_vely, p6_w_aiz_p2_sidekick, p6_w_aiz_p1_posy;
+            extern int32 p6_w_aiz_p2_stateptr, p6_w_aiz_p2_inputptr, p6_w_aiz_p2_tilecoll, p6_w_aiz_p2_visible;
+            EntityPlayer *p2 = RSDK_GET_ENTITY(SLOT_PLAYER2, Player);
+            EntityPlayer *p1 = RSDK_GET_ENTITY(SLOT_PLAYER1, Player);
+            if (p2) {
+                p6_w_aiz_p2_classid  = (int32)p2->classID;
+                p6_w_aiz_p2_onground = (int32)p2->onGround;
+                p6_w_aiz_p2_posx     = (int32)(p2->position.x >> 16);
+                p6_w_aiz_p2_posy     = (int32)(p2->position.y >> 16);
+                p6_w_aiz_p2_vely     = (int32)p2->velocity.y;
+                p6_w_aiz_p2_sidekick = (int32)p2->sidekick;
+                p6_w_aiz_p2_stateptr = (int32)(int)(void *)p2->state;
+                p6_w_aiz_p2_inputptr = (int32)(int)(void *)p2->stateInput;
+                p6_w_aiz_p2_tilecoll = (int32)p2->tileCollisions;
+                p6_w_aiz_p2_visible  = (int32)p2->visible;
+            }
+            if (p1) p6_w_aiz_p1_posy = (int32)(p1->position.y >> 16);
+        }
+        /* probe the path nodes via foreach (same mechanism that finds the tornado).
+         * pn_count = # path entities; pn_active = count with active==ACTIVE_NORMAL; the
+         * ACTIVE node's type/targetSpeed/speed/state localise whether Create's START branch
+         * ran + serialized (type==0 START, tgtspd!=0 serialize OK, state set == Create ran). */
+        if (AIZTornadoPath && AIZTornadoPath->classID) {
+            extern int32 p6_w_aiz_pn_type, p6_w_aiz_pn_tgtspd, p6_w_aiz_pn_speed, p6_w_aiz_pn_state, p6_w_aiz_pn_active;
+            /* enumerate ALL path nodes: pn_type = per-node type nibble-packed (node N ->
+             * bits [4N,4N+3]); pn_active = per-node active nibble-packed; pn_tgtspd = the
+             * START node's (type==0) targetSpeed; pn_state = the START node's state-set +
+             * its active in the high byte; pn_speed = START node's speed. */
+            int32 typemask = 0, actmask = 0, idx = 0, has_start = 0, first_x = -1;
+            foreach_all(AIZTornadoPath, pn) {
+                if (idx == 0) first_x = (int32)(pn->position.x >> 16);
+                if (idx < 8) {
+                    typemask |= ((int32)pn->type & 0xF) << (idx * 4);
+                    actmask  |= ((int32)pn->active & 0xF) << (idx * 4);
+                }
+                if (pn->type == 0) { /* START node */
+                    has_start = 1;
+                    p6_w_aiz_pn_tgtspd = (int32)pn->targetSpeed;
+                    p6_w_aiz_pn_speed  = (int32)pn->speed;
+                    p6_w_aiz_pn_state  = ((pn->state != NULL) ? 1 : 0) | ((int32)pn->active << 8);
+                }
+                ++idx;
+            }
+            p6_w_aiz_pn_type   = typemask;
+            /* pn_active: low 28 bits = the per-node active nibbles; bit 28 = has_start;
+             * but keep it simple -- store actmask, and stash {count<<8|has_start<<4|first_x_lo}
+             * in pn_speed is taken; reuse pn_state high bits already used. Add: encode
+             * count + has_start into the unused top of pn_type? No -- use cam_x-adjacent.
+             * Simplest: write first_x into pn_speed when no START (sentinel preserved else). */
+            p6_w_aiz_pn_active = actmask | (idx << 24) | (has_start << 20);
+            if (!has_start) { p6_w_aiz_pn_tgtspd = -77; p6_w_aiz_pn_speed = first_x; }
+        }
+        /* StarPost validity (the START-node gate): sp_ptr!=0 == the zeroed instance is wired;
+         * sp_post0 == StarPost->postIDs[0] (must be 0 for the !postIDs[0] START branch). */
+        {
+            extern int32 p6_w_aiz_sp_ptr, p6_w_aiz_sp_post0;
+            extern ObjectStarPost *StarPost;
+            p6_w_aiz_sp_ptr = (int32)(uint32)(void *)StarPost;
+            if (StarPost) p6_w_aiz_sp_post0 = (int32)StarPost->postIDs[0];
+        }
+    }
+#endif
 #if defined(P6_FRONTEND_MENU)
     /* M1 (M2/M3): latch the Menu classIDs once they resolve. Called from
      * p6_frontend_frame each tick (the api->witness_fn seam). M1 (folder_tag) is
@@ -904,6 +1330,109 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
             || UIControl->anyLeftPress || UIControl->anyRightPress || UIControl->anyBackPress)
             p6_w_menu_input_seen = 1;
     }
+    /* S3 (Task #296): latch the live UITransition state machine -- localize the Mania Mode ->
+     * Save Select stall (StartTransition -> State_TransitionIn -> State_TransitionOut ->
+     * callback). NOT sticky: reflects the CURRENT state at capture (so a stuck transition is
+     * visible). present==0 => Create never assigned activeTransition; state ptr -> map offline. */
+    if (!UITransition)
+        p6_w_uitrans_present = -2;
+    else if (!UITransition->activeTransition)
+        p6_w_uitrans_present = 0;
+    else {
+        EntityUITransition *t = (EntityUITransition *)UITransition->activeTransition;
+        p6_w_uitrans_present = 1;
+        p6_w_uitrans_state   = (int32)(size_t)t->state;
+        p6_w_uitrans_timer   = t->timer;
+        p6_w_uitrans_istrans = (int32)t->isTransitioning;
+        p6_w_uitrans_active  = (int32)t->active;
+    }
+    /* S3 root-cause (Task #296): the active UIControl button's actionCB -- 0==NULL is the
+     * UIButton_ProcessButtonCB_Scroll:397 stall (hasNoAction -> no selectedCB -> no transition). */
+    {
+        EntityUIControl *uc = UIControl_GetUIControl();
+        if (uc) {
+            p6_w_active_btn_id    = uc->buttonID;
+            p6_w_active_btn_count = uc->buttonCount;
+            p6_w_ctrl_posx        = uc->position.x;   // UISaveSlot_ProcessButtonCB:19 gate
+            p6_w_ctrl_tgtx        = uc->targetPos.x;  // confirm only if posx==tgtx (settled)
+            p6_w_ctrl_state       = (int32)(size_t)uc->state;   // cmp UIControl_ProcessInputs (0x26a1288) offline
+            p6_w_ctrl_active      = (int32)uc->active;          // ACTIVE_ALWAYS=4 expected
+            /* S3 (Task #296): the No-Save control is settled+active+actionCB-wired yet 5 confirm
+             * taps fired NO SetScene. The break is upstream of actionCB. ProcessButtonCB only runs
+             * (-> sees anyConfirmPress -> SelectedCB) when the control's state IS ProcessInputs.
+             * Sticky-latch whether the 1-button control reached ProcessInputs, and whether a confirm
+             * edge ever coincided with it -- pinpoints state-stuck vs confirm-not-seen vs downstream. */
+            if (uc->buttonCount == 1 && (void *)uc->state == (void *)UIControl_ProcessInputs) {
+                p6_w_nosave_pi = 1;
+                if (UIControl->anyConfirmPress) {
+                    p6_w_nosave_confirm = 1;
+                    /* EXACT UISaveSlot_ProcessButtonCB:889 SelectedCB-call gate: posx==tgtx
+                     * AFTER line 886 set targetPos.x = slot.position.x (end-of-frame read
+                     * reflects the gate outcome -- nothing moves posx/tgtx after ProcessButtonCB). */
+                    if (uc->position.x == uc->targetPos.x) {
+                        p6_w_nosave_gate = 1;
+                        /* UIControl.c:262 gates ProcessButtonInput on !selectionDisabled.
+                         * If this is 1 at the gate+confirm frame, the confirm dispatch is SKIPPED. */
+                        p6_w_gate_seldisabled = (int32)uc->selectionDisabled;
+                    }
+                }
+                p6_w_ctrl_seldisabled = (int32)uc->selectionDisabled;
+                if (uc->buttonID >= 0 && uc->buttons[uc->buttonID]) {
+                    EntityUISaveSlot *ss = (EntityUISaveSlot *)uc->buttons[uc->buttonID];
+                    p6_w_slot_state    = (int32)(size_t)ss->state;   // cmp UISaveSlot_State_Selected offline
+                    p6_w_slot_fxradius = ss->fxRadius;               // >0 = State_Selected ramp started
+                }
+            }
+            if (uc->buttonID >= 0 && uc->buttonID < uc->buttonCount && uc->buttons[uc->buttonID])
+                p6_w_active_btn_actioncb = (int32)(size_t)uc->buttons[uc->buttonID]->actionCB;
+        }
+    }
+#if defined(P6_MENU_AUTOSELECT)
+    /* #296 DEBUG-INJECT (user-chosen): prove the No-Save start-game chain end-to-end on the
+     * real build, bypassing the savestate harness's unreliable 20fps confirm-edge injection.
+     * MEASURED already: nav (Mania Mode -> No-Save) + the confirm reaching the settle-gate with
+     * every SelectedCB precondition true (nosave_gate=1) + selectionDisabled clears (capM). The
+     * one un-captured link is SelectedCB -> State_Selected ramp -> actionCB -> SetScene. Drive it
+     * directly: stage 0 -- once the main menu settled, MatchMenuTag("No Save Mode") (exactly what
+     * MenuButton_ActionCB:928 does for Mania Mode when API_GetNoSave; immediate, no wipe, so the
+     * No-Save control comes up active+ProcessInputs+selectionDisabled=false == the post-transition
+     * state). stage 1 -- once that control settles, run UISaveSlot_SelectedCB on its slot. The
+     * decomp State_Selected ramp then fires the slot actionCB (MenuSetup_SaveSlot_ActionCB) ->
+     * RSDK.SetScene("Cutscenes","Angel Island Zone") -> p6_w_menu_startscene_tag = 0x4149. */
+    {
+        static int32 as_stage = 0;
+        static int32 as_timer = 0;
+        EntityUIControl *asuc = UIControl_GetUIControl();
+        ++as_timer;
+        if (as_stage == 0 && asuc && asuc->buttonCount > 1 && as_timer > 120) {
+            UIControl_MatchMenuTag("No Save Mode");
+            as_stage = 1;
+            as_timer = 0;
+        }
+        else if (as_stage == 1 && asuc && asuc->buttonCount == 1 && as_timer > 20) {
+            /* MEASURED: calling actionCB() directly from THIS witness block (render phase)
+             * crashed (SH2-M PC=0x06000956, the #228 fault) -- MenuSetup_SaveSlot_ActionCB does a
+             * SCENE CHANGE (RSDK.SetScene + RSDK.LoadScene) that is only safe from the engine's
+             * main-loop ENGINESTATE context, NOT mid-render. So instead FORCE the slot into
+             * State_Selected exactly as UISaveSlot_SelectedCB:950-954 does, and let the engine's
+             * UISaveSlot_Update run the fxRadius ramp -> StateMachine_Run(actionCB) IN-CONTEXT.
+             * The main-loop ENGINESTATE_LOAD hook then latches p6_w_menu_startscene_tag=0x4149
+             * before the (M3-unported) AIZ load. */
+            EntityUISaveSlot *asss = (EntityUISaveSlot *)asuc->buttons[0];
+            if (asss && asss->actionCB) {
+                asuc->state           = 0;                       /* SelectedCB:950 control->state = None */
+                asss->isSelected      = 0;                       /* :952 */
+                asss->currentlySelected = 0;                     /* :953 */
+                asss->processButtonCB = 0;                       /* :954 */
+                asss->timer           = 0;                       /* clean State_Selected ramp */
+                asss->fxRadius        = 0;
+                asss->state           = UISaveSlot_State_Selected; /* :951 -- engine drives the ramp */
+                as_stage = 2;
+            }
+        }
+        p6_w_as_stage = as_stage;
+    }
+#endif
 #endif
     if (Spikes) p6_w_spikes_aniframes = (int32)(int16)Spikes->aniFrames;
     {   /* Batch 1: count how many of the 4 clean objects registered (classID>0). */

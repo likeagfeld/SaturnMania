@@ -59,6 +59,13 @@ set -eu
 # compiles, and the Menu witness -u roots. Set this FIRST so the title self-imply
 # below then sets LOGOS -> the full cascade fires. The default GHZ build leaves all
 # four unset -> byte-identical.
+# M3.0 (Task #296): the AIZ-test diagnostic flavor BUILDS ON the MENU flavor (it boots
+# straight to the AIZ scene via the same p6_frontend_frame machinery + the Menu witness
+# threading). Set P6_FRONTEND_MENU FIRST so the full MENU->TITLE->LOGOS cascade fires and
+# the `#elif defined(P6_FRONTEND_MENU)` boot branch + shared front-end machinery compile.
+if [ -n "${P6_AIZ_TEST:-}" ]; then
+    export P6_FRONTEND_MENU=1
+fi
 if [ -n "${P6_FRONTEND_MENU:-}" ]; then
     export P6_FRONTEND_TITLE=1
 fi
@@ -142,7 +149,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # tick boots the Logos splash scene instead of GHZ (p6_logos_reload +
 # p6_frontend_frame). Mutually independent of the GHZ diag knobs; the default
 # shipping build leaves it unset -> boots GHZ unchanged.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -193,6 +200,7 @@ echo "[7c/9] p6_vdp2.o (P6.5b1 present: engine Island layer -> NBG1 2-word-PND c
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
     ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} \
     ${P6_TITLE_NORBG0:+-DP6_TITLE_NORBG0} ${P6_TITLE_ISLAND_STATIC:+-DP6_TITLE_ISLAND_STATIC} \
+    ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} \
     -I"$SGLINC" -I"$NEWLIB" \
     -c -o "$P6/p6_vdp2.o" "$P6/p6_vdp2.c"
 # NOTE: p6_vdp1.c (P6.5b2 sprite half) is NOT built here -- it includes
@@ -310,8 +318,13 @@ done
     -c -o "$P6/p6_wave1_reg.o" "$P6/p6_wave1_reg.c"
 # Player-wave closure boundary (NULL class ptrs + witnessed inert stubs +
 # sprintf-over-vsprintf; rationale in-file).
+# M3.1 (qa_p6_aiz_cutscene): thread P6_AIZ_TEST so p6_closure_edge.c points the pack's
+# `StarPost` global at a REAL zeroed ObjectStarPost instance (instead of NULL). The AIZ
+# overlay TUs AIZTornado_Create/AIZTornadoPath_Create deref StarPost->postIDs[0] (a fresh-
+# boot 0 == arm the tornado); a NULL StarPost would crash. Default/GHZ/menu builds leave
+# P6_AIZ_TEST unset -> StarPost stays NULL -> byte-identical.
 "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} -I"$GINC" -I"$NEWLIB" \
     -c -o "$P6/p6_closure_edge.o" "$P6/p6_closure_edge.c"
 
 echo "[7p] P6.7 Player wave GAME TUs (VERBATIM 17-TU closure, -Os census knob) ..."
@@ -473,6 +486,57 @@ if [ -n "${P6_FRONTEND_MENU:-}" ]; then
         $GAME_DEFS -DP6_FRONTEND_MENU -I"$GINC" -I"$NEWLIB" \
         -c -o "$P6/p6_menu_closure.o" "$P6/p6_menu_closure.c"
 fi
+# M3.1 (qa_p6_aiz_cutscene): the AIZ intro-cutscene DRIVER objects, compiled VERBATIM
+# from the cached decomp the same w4 way. Built only in the AIZ-test flavor; they link
+# into the OVERLAY (build_shipping.sh [3b]), NOT the pack -- so they are gc-dropped from
+# the pack link regardless. The -Os census knob matches the other game TUs. Game_
+# Decoration.o is ALREADY compiled (w4 loop above, for GHZ) + linked into the overlay,
+# so it is NOT recompiled here -- Decoration_StageLoad already handles the AIZ folder.
+# MANIA_USE_PLUS=0 (GAME_VERSION=3): the AIZSetup Plus cutscene-states/BGSwitch/bellPlant
+# blocks + the CutsceneSeq skip surface preprocess out (the simple non-Plus arm compiles).
+if [ -n "${P6_AIZ_TEST:-}" ]; then
+    # FXRuby REV02 compat patch (the PauseMenu.c:214-224 precedent): the non-Plus
+    # FXRuby_Create branch calls RSDK.GetTintLookupTable() (FXRuby.c:77), but REV02 +
+    # RETRO_USE_MOD_LOADER=0 removed GetTintLookupTable from the active RSDKFunctionTable
+    # (GameLink.h:1199 struct is #if RETRO_USE_MOD_LOADER). The engine no longer owns the
+    # tint table; on Saturn the INK_TINT draw path is a no-op anyway, so neutralize the
+    # 64KB-table build (the M3.2/M3.3 white-fade effect, not M3.1 camera framing). Patch a
+    # BUILD-LOCAL copy with sed (never the cached decomp). Mirrors the MenuSetup sed above.
+    sed 's|uint16 \*tintLookupTable = RSDK.GetTintLookupTable();|uint16 *tintLookupTable = (uint16 *)0; /* P6_AIZ_TEST: REV02 no GetTintLookupTable */|; s|for (int32 c = 0; c < 0x10000; ++c) tintLookupTable\[0xFFFF - c\] = c;|if (tintLookupTable) for (int32 c = 0; c < 0x10000; ++c) tintLookupTable[0xFFFF - c] = c;|' \
+        "/work/tools/_decomp_raw/SonicMania_Objects_Cutscene_FXRuby.c" > "$P6/_FXRuby_rev02.c"
+    for waiz in AIZ_AIZSetup:Game_AIZSetup \
+                Cutscene_CutsceneSeq:Game_CutsceneSeq \
+                AIZ_AIZTornado:Game_AIZTornado \
+                AIZ_AIZTornadoPath:Game_AIZTornadoPath \
+                AIZ_AIZKingClaw:Game_AIZKingClaw \
+                AIZ_AIZEggRobo:Game_AIZEggRobo \
+                ERZ_PhantomRuby:Game_PhantomRuby; do
+        src_tu="${waiz%%:*}"; out_tu="${waiz##*:}"
+        "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+            $GAME_DEFS -DP6_AIZ_TEST -DP6_FRONTEND_MENU -I"$GINC" -I"$NEWLIB" \
+            -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
+    done
+    # Game_FXRuby.o from the REV02-patched build-local copy.
+    "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+        $GAME_DEFS -DP6_AIZ_TEST -DP6_FRONTEND_MENU -I"$GINC" -I"$NEWLIB" \
+        -c -o "$P6/Game_FXRuby.o" "$P6/_FXRuby_rev02.c"
+    # Task #309 (P6_GHZCUT_BOOT): the AIZ->GHZCutscene destination's 2 NEW cutscene-driver
+    # objects, compiled VERBATIM from the cached decomp the same waiz way (GHZSetup/BGSwitch/
+    # FXRuby are ALREADY compiled above -- w4 loop + AIZ block). Built only in the GHZCUT
+    # flavor (which implies P6_AIZ_TEST -> P6_FRONTEND_MENU); they link into the OVERLAY
+    # (build_shipping.sh [3b]), NOT the pack. -Os census knob matches the other game TUs.
+    # MANIA_USE_PLUS=0 (GAME_VERSION=3): GHZCutsceneST's SkipCB/Encore branches + the
+    # CutsceneHBH editor surface preprocess out (the simple non-Plus arm compiles).
+    if [ -n "${P6_GHZCUT_BOOT:-}" ]; then
+        for wgc in GHZ_GHZCutsceneST:Game_GHZCutsceneST \
+                   Cutscene_CutsceneHBH:Game_CutsceneHBH; do
+            src_tu="${wgc%%:*}"; out_tu="${wgc##*:}"
+            "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
+                $GAME_DEFS -DP6_AIZ_TEST -DP6_FRONTEND_MENU -DP6_GHZCUT_BOOT -I"$GINC" -I"$NEWLIB" \
+                -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
+        done
+    fi
+fi
 # Integer-only vsprintf shim (rationale in-file: newlib's float closure is
 # 10.2 KB and breached the 0x060C0000 floor by 2,856 B -- MEASURED).
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
@@ -492,7 +556,7 @@ echo "[7l2] p6_ovl_ghz.o (O1 GHZ overlay entry -- Ring + Spring multi-class) ...
 # compile-stripped from the SHIPPING build, the same way the pack's census is. Without
 # this the #ifndef in the overlay never engages -> the scan ships -> fps halves.
 $CC -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_TITLEBG_SPRITES_OFF:+-DP6_TITLEBG_SPRITES_OFF} ${P6_TITLE3D_ON:+-DP6_TITLE3D_ON} -I"$GINC" -I"$P6" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_HOLD_WHITE:+-DP6_GHZCUT_HOLD_WHITE=$P6_GHZCUT_HOLD_WHITE} ${P6_MENU_AUTOSELECT:+-DP6_MENU_AUTOSELECT} ${P6_TITLEBG_SPRITES_OFF:+-DP6_TITLEBG_SPRITES_OFF} ${P6_TITLE3D_ON:+-DP6_TITLE3D_ON} -I"$GINC" -I"$P6" -I"$NEWLIB" \
     -c -o "$P6/p6_ovl_ghz.o" "$P6/p6_ovl_ghz.c"
 
 echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding windows; miniz inflate decoder) ..."
@@ -512,6 +576,8 @@ echo "[7o] SaturnSheet.o (P6.7 W12 sprite-sheet band stores; Task #241: P6_CART 
 # 10; the default GHZ build sets neither -> 9 (byte-identical s_sheets[]).
 # M1b: thread P6_FRONTEND_MENU so SaturnSheet's SATURNSHEET_SLOTS=16 branch (the 2
 # extra menu sheets MAINICON/TEXTEN) compiles for the Menu flavor.
+# R3.1 (#305): AIZOBJ.SHT reuses the MENU 16-slot table (slot 15); NO P6_AIZ_TEST slot
+# bump (a 17th slot shifted .bss -> #228 boot trap, MEASURED blue-screen at _end 0x060BA360).
 $CC $CXXFLAGS $MINIZ_DEFS -DP6_CART ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnSheet.o" "$PLAT/SaturnSheet.cpp"
 
@@ -626,6 +692,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _DrawHelpers_DrawHitboxOutline \
     -u _Platform -u _Press -u _Crate -u _Ice -u _BigSqueeze -u _SpikeCorridor \
     -u _Platform_State_Falling2 -u _Platform_State_Hold \
+    ${P6_GHZCUT_BOOT:+-u _FXTrail} \
+    ${P6_GHZCUT_BOOT:+-u _p6_w_hbh_slot -u _p6_w_hbh_aniframes -u _p6_w_hbh_landed -u _p6_heavy_palblock} \
+    ${P6_GHZCUT_BOOT:+-u _p6_w_hbh_count -u _p6_w_hbh_vis -u _p6_w_hbh_posy -u _p6_w_hbh_posx -u _p6_w_hbh_handle -u _p6_w_hbh_camy -u _p6_w_hbh_animid} \
     -u _p6_saturn_anim_allocfail -u _p6_w_anim_lastfail -u _p6_w_stg_at_fail \
     -u _p6_w_anim_log -u _p6_w_anim_logn -u _p6_w_anim_step \
     -u _p6_w_objapk_bytes \
@@ -640,9 +709,32 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_treebuilt -u _p6_w_menu_modebtn_classid -u _p6_w_menu_vdp1_landed} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_edge_calls -u _p6_w_menu_edge_last} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_saveslot_classid -u _p6_w_menu_input_seen} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_uitrans_present -u _p6_w_uitrans_state -u _p6_w_uitrans_timer -u _p6_w_uitrans_istrans -u _p6_w_uitrans_active} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_active_btn_actioncb -u _p6_w_active_btn_id -u _p6_w_active_btn_count} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_ctrl_posx -u _p6_w_ctrl_tgtx} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_ctrl_state -u _p6_w_ctrl_active -u _p6_w_nosave_pi -u _p6_w_nosave_confirm} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_nosave_gate -u _p6_w_slot_state -u _p6_w_slot_fxradius} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_gate_seldisabled -u _p6_w_ctrl_seldisabled} \
+    ${P6_MENU_AUTOSELECT:+-u _p6_w_as_stage} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_loaded -u _p6_w_aiz_fg_hash -u _p6_w_aiz_objcount -u _p6_w_aiz_nlayers} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_fglow_idx -u _p6_w_aiz_slots -u _p6_w_aiz_scrx -u _p6_w_aiz_scry} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_cutscene_state -u _p6_w_aiz_setup_classid -u _p6_w_aiz_seq_classid} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_tornado_classid -u _p6_w_aiz_path_classid -u _p6_w_aiz_cam_x} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_torn_x -u _p6_w_aiz_torn_dis -u _p6_w_aiz_torn_active -u _p6_w_aiz_torn_state -u _p6_w_aiz_path_movevel} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_pn_type -u _p6_w_aiz_pn_tgtspd -u _p6_w_aiz_pn_speed -u _p6_w_aiz_pn_state -u _p6_w_aiz_pn_active} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_sp_ptr -u _p6_w_aiz_sp_post0} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_trio_load -u _p6_w_aiz_trio_init -u _p6_w_aiz_trio_purge -u _p6_w_aiz_player_cls} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_gt_ctx -u _p6_w_aiz_gt_a -u _p6_w_aiz_gt_b} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_bg_filebytes -u _p6_w_aiz_bg_loaded -u _p6_w_aiz_bg_chrw0 -u _p6_w_aiz_bg_cram -u _p6_w_aiz_bg_nbg0 -u _p6_w_aiz_bg_ctx} \
+    ${P6_AIZ_TEST:+-u _p6_w_aizobj_slot -u _p6_w_aiz_tornado_frames -u _p6_w_aiz_torn_aniframes -u _p6_w_aiz_torn_animid -u _p6_w_aiz_torn_count} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_claw_aniframes -u _p6_w_aiz_eggrobo_aniframes} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_p2_classid -u _p6_w_aiz_p2_onground -u _p6_w_aiz_p2_posx -u _p6_w_aiz_p2_posy -u _p6_w_aiz_p2_vely -u _p6_w_aiz_p2_sidekick -u _p6_w_aiz_p1_posy} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_p2_stateptr -u _p6_w_aiz_p2_inputptr -u _p6_w_aiz_p2_tilecoll -u _p6_w_aiz_p2_visible} \
+    ${P6_AIZ_TEST:+-u _p6_w_aiz_ruby_active -u _p6_w_aiz_ruby_timer -u _p6_w_aiz_ruby_flashfin} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_startscene_tag -u _p6_w_menu_start_cat -u _p6_w_menu_start_listpos} \
     ${P6_FRONTEND_MENU:+-u _p6_menu_start_witness_root} \
     ${P6_FRONTEND_MENU:+-u _MathHelpers_PointInHitbox} \
+    ${P6_AIZ_TEST:+-u _DrawHelpers_DrawCross} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipicture_aniframes -u _p6_w_uipicture_framesNN} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_drawgrp -u _p6_w_uipic_active -u _p6_w_uipic_visible -u _p6_w_uipic_onscreen} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_uipic_posx -u _p6_w_uipic_posy -u _p6_w_uipic_animid -u _p6_w_uipic_frameid} \

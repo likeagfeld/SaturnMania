@@ -132,6 +132,13 @@ SHEETS = [
     #  a later checkpoint. The 2 sheets above carry the main-menu rows' icons + text.)
     ("UI/MainIcons.gif", "MAINICON.SHT"),
     ("UI/TextEN.gif", "TEXTEN.SHT"),
+    # R3.1 (Task #305): AIZ/Objects.gif is the AIZ intro-cutscene actor sheet (the
+    # Tornado biplane body+propeller+flame+pilot -- AIZTornado.bin anim0..8). Staged
+    # ONLY by the P6_AIZ_TEST boot (slot 16; AIZ_TEST implies MENU so a plain-menu build
+    # stages 16 sheets [0..15] -> a slot-16 probe there would FetchRect-fail). 512x512
+    # 8bpp -> banded .SHT ~30 KB. The Tornado entity already flies (M3.2) but draws
+    # nothing because no AIZOBJ.SHT was staged (surface saturnSheetSlot==-1).
+    ("AIZ/Objects.gif", "AIZOBJ.SHT"),
 ]
 
 # CP4c _end-leak FIX (Task #266): sheets that ONLY a FRONT-END boot stages. Their
@@ -164,7 +171,12 @@ FRONTEND_ONLY_SHEETS = {"LOGOS.SHT": "P6_FRONTEND_LOGOS",
                         # stages 13 sheets [0..12] -> a slot-13 probe there would FetchRect-
                         # fail; gating under P6_FRONTEND_MENU keeps the Title probe table clean.
                         "MAINICON.SHT": "P6_FRONTEND_MENU",
-                        "TEXTEN.SHT": "P6_FRONTEND_MENU"}
+                        "TEXTEN.SHT": "P6_FRONTEND_MENU",
+                        # R3.1 (Task #305): AIZOBJ.SHT staged ONLY by the P6_AIZ_TEST boot
+                        # (slot 16). AIZ_TEST implies MENU so a plain-menu build stages 16
+                        # sheets [0..15] -> a slot-16 probe there would FetchRect-fail;
+                        # gating under P6_AIZ_TEST keeps the plain-menu probe table clean.
+                        "AIZOBJ.SHT": "P6_AIZ_TEST"}
 
 
 def djb2(data):
@@ -273,11 +285,18 @@ def main():
         # regeneration-stable. P6_FRONTEND_TITLE implies P6_FRONTEND_LOGOS, so in the
         # Title build BOTH groups compile (count = base + LOGOS + TITLE); in a Logos-only
         # build only the LOGOS group does (count = base + LOGOS); in GHZ neither (base).
-        GUARD_ORDER = ["P6_FRONTEND_LOGOS", "P6_FRONTEND_TITLE", "P6_FRONTEND_MENU"]
+        GUARD_ORDER = ["P6_FRONTEND_LOGOS", "P6_FRONTEND_TITLE", "P6_FRONTEND_MENU",
+                       "P6_AIZ_TEST"]
         base_rows = []
         fe_groups = {}  # guard -> [rows]
+        # R3.1 (#305): emit NO probe rows for AIZOBJ.SHT. The probe table is WRAM-H
+        # .rodata in the front-end build (24 B/row), which is heap-tight (#228); AIZOBJ's
+        # 3 rows are pure diagnostic. The .SHT asset still emits (it stays in SHEETS).
+        NOPROBE_SHEETS = {"AIZOBJ.SHT"}
         for si, m in enumerate(model["sheets"]):
             guard = FRONTEND_ONLY_SHEETS.get(m["file"])
+            if m["file"] in NOPROBE_SHEETS:
+                continue
             for p in m["probes"]:
                 row = ("    { %d, %d, %d, %d, %d, 0x%08Xu }"
                        % (si, p["sx"], p["sy"], p["w"], p["h"],
@@ -306,9 +325,16 @@ def main():
             # base+LOGOS+TITLE+MENU. Branch order is most-specific-first (MENU before
             # TITLE before LOGOS). Assert loudly if an UNHANDLED 4th guard appears.
             n_menu = len(fe_groups.get("P6_FRONTEND_MENU", []))
-            assert set(guards) <= {"P6_FRONTEND_LOGOS", "P6_FRONTEND_TITLE", "P6_FRONTEND_MENU"}, \
+            # R3.1 (Task #305): P6_AIZ_TEST implies P6_FRONTEND_MENU -> its count is
+            # base+LOGOS+TITLE+MENU+AIZ. Branch FIRST (most-specific) so an AIZ build
+            # doesn't fall into the MENU branch.
+            n_aiz = len(fe_groups.get("P6_AIZ_TEST", []))
+            assert set(guards) <= {"P6_FRONTEND_LOGOS", "P6_FRONTEND_TITLE",
+                                   "P6_FRONTEND_MENU", "P6_AIZ_TEST"}, \
                 "build_sheet_bands: add a count branch for new guard(s): %s" % guards
-            f.write("#if defined(P6_FRONTEND_MENU)\n")
+            f.write("#if defined(P6_AIZ_TEST)\n")
+            f.write("#define P6_SHEET_PROBE_COUNT %d\n" % (n_base + n_logos + n_title + n_menu + n_aiz))
+            f.write("#elif defined(P6_FRONTEND_MENU)\n")
             f.write("#define P6_SHEET_PROBE_COUNT %d\n" % (n_base + n_logos + n_title + n_menu))
             f.write("#elif defined(P6_FRONTEND_TITLE)\n")
             f.write("#define P6_SHEET_PROBE_COUNT %d\n" % (n_base + n_logos + n_title))

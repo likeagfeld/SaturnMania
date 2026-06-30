@@ -68,6 +68,9 @@ typedef signed int int32;
 // builds gc-drop the large p6_ghz_frame/reload (~1.6 KB headroom), so 7*32 B over the
 // GHZ 9-slot table fits under the #228 ANIMPAK floor. (NSHEETS=12 VDP1 bind table is
 // unchanged -- the menu bind demand is the 2 UI surfaces + a few engine surfaces << 12.)
+// R3.1 (#305): the AIZ_TEST flavor reuses THIS 16-slot table -- AIZOBJ.SHT lands at slot
+// 15 (the 1 margin). NO bump (a 17th slot shifted .bss past the front-end heap limit ->
+// #228 boot trap, MEASURED _end 0x060BA360 blue-screen). NSHEETS=12 unchanged.
 #define SATURNSHEET_SLOTS     16
 #elif defined(P6_FRONTEND_TITLE)
 // CP5b.3 (#272): the TITLE flavor adds a 13th slot for TBG.SHT (Title/BG.gif, the

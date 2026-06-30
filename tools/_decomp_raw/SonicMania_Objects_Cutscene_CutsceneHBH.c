@@ -183,17 +183,34 @@ void CutsceneHBH_SetupColors(void)
 
 void CutsceneHBH_SetupPalettes(void)
 {
+#if defined(P6_GHZCUT_BOOT)
+    // Task #309 Tier-B.2 (Saturn): NO-OP. The RSDKv5 SW palette swap (writes the Heavy's
+    // 128 colors to bank0 CRAM 0x80-0xFF for the upcoming DrawSprite) is REPLACED by 5
+    // resident CRAM blocks (HBHPAL.BIN @ CRAM[512..1663]); the engine's CutsceneHBH Draw
+    // shim selects each Heavy's block via jo colno. self->colors[] is shrunk to [1] on
+    // Saturn (the entity-size fix), so iterating 0x80 entries here would read OOB. Skip.
+#else
     RSDK_THIS(CutsceneHBH);
 
     for (int32 c = 0; c < 0x80; ++c) RSDK.SetPaletteEntry(0, c + 0x80, self->colors[c]);
+#endif
 }
 void CutsceneHBH_StorePalette(void)
 {
+#if defined(P6_GHZCUT_BOOT)
+    // Saturn: NO-OP (paletteColors[] shrunk to [1]; the bank0 0x80-0xFF region the decomp
+    // saved/restored is unused by the Saturn CRAM-block Heavy palettes).
+#else
     for (int32 c = 0; c < 0x80; ++c) CutsceneHBH->paletteColors[c] = RSDK.GetPaletteEntry(0, c + 0x80);
+#endif
 }
 void CutsceneHBH_RestorePalette(void)
 {
+#if defined(P6_GHZCUT_BOOT)
+    // Saturn: NO-OP (see CutsceneHBH_StorePalette).
+#else
     for (int32 c = 0; c < 0x80; ++c) RSDK.SetPaletteEntry(0, c + 0x80, CutsceneHBH->paletteColors[c]);
+#endif
 }
 
 void CutsceneHBH_LoadSprites(void)

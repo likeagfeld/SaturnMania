@@ -98,6 +98,16 @@ ObjectDebris *Debris             = NULL;
 ObjectERZOutro *ERZOutro         = NULL;
 ObjectFXFade *FXFade             = NULL;
 ObjectFXRuby *FXRuby             = NULL;
+#if defined(P6_GHZCUT_BOOT)
+// Task #309: CutsceneHBH references FXTrail (the global + CREATE_ENTITY(FXTrail,...) in
+// CutsceneHBH_ShinobiJumpSetup, CutsceneHBH.c:322). ShinobiJumpSetup is OFF the GHZ
+// ExitHBH beat path (GHZCutsceneST_Cutscene_ExitHBH manipulates the Shinobi hbh fields
+// directly, never calling *Setup), so FXTrail is never spawned on the Tier-A handoff.
+// NULL == unregistered: CREATE_ENTITY on a NULL class is inert (the foreach/spawn just
+// no-ops), the same pattern as BurningLog/Platform above. GHZ/AIZ/menu leave
+// P6_GHZCUT_BOOT unset -> the symbol is absent there (no FXTrail reference) -> byte-identical.
+ObjectFXTrail *FXTrail           = NULL;
+#endif
 ObjectFarPlane *FarPlane         = NULL;
 ObjectHCZSetup *HCZSetup         = NULL;
 ObjectIceSpring *IceSpring       = NULL;
@@ -112,7 +122,21 @@ ObjectRing *Ring                 = NULL; // SEE KNOWN SEAM ABOVE
 ObjectRingField *RingField       = NULL;
 ObjectSpikes *Spikes             = NULL;
 ObjectSpring *Spring             = NULL;
+#if defined(P6_AIZ_TEST)
+// M3.1 (qa_p6_aiz_cutscene): the AIZ overlay TUs AIZTornado_Create (AIZTornado.c:63)
+// and AIZTornadoPath_Create (AIZTornadoPath.c:30,75) deref StarPost->postIDs[0] -- a
+// fresh-boot 0 (== arm the tornado fly-in + grab SLOT_CAMERA1). StarPost is NOT
+// registered in this flavor, so a NULL StarPost would crash that deref. Point the pack
+// `StarPost` global (which the overlay resolves via ld -R) at a real ZEROED ObjectStarPost
+// instance -> postIDs[0] reads 0 -> the tornado/path arm. This mirrors the menu's zeroed
+// APICallback/UIDialog instance pattern (p6_menu_apic_init). The fresh-boot semantics are
+// EXACTLY what M3.1 wants (no StarPost touched -> the intro cutscene plays). GHZ/menu leave
+// P6_AIZ_TEST unset -> StarPost stays NULL -> byte-identical.
+static ObjectStarPost p6_aiz_starpost_instance; // zero-init (.bss)
+ObjectStarPost *StarPost         = &p6_aiz_starpost_instance;
+#else
 ObjectStarPost *StarPost         = NULL;
+#endif
 ObjectSuperSparkle *SuperSparkle = NULL;
 ObjectTitleCard *TitleCard       = NULL;
 ObjectUIButton *UIButton         = NULL;
@@ -221,11 +245,44 @@ void CutsceneRules_DrawCutsceneBounds(void *e, Vector2 *size)
     (void)e; (void)size;
     P6_EDGE(5);
 }
+#if defined(P6_GHZCUT_BOOT)
+// Task #309: CutsceneRules_SetupEntity is CRITICAL-PATH for GHZCutsceneST (and every
+// collision-triggered cutscene). GHZCutsceneST_Create calls it to compute self->hitbox
+// from the cutscene size; GHZCutsceneST_Update's Player_CheckCollisionTouch(self,
+// &self->hitbox) trigger NEVER fires with a zero hitbox -> the cutscene never starts ->
+// no playable-GHZ handoff. The no-op #else stub (used by the working AIZ build, which
+// never calls this -- AIZSetup auto-starts via StaticUpdate) is therefore a SILENT
+// blocker here. This body is the VERBATIM decomp impl (CutsceneRules.c:94-111, pulled
+// from RSDKModding/Sonic-Mania-Decompilation) -- a mechanical port, not hand-rolled
+// logic. WIDE_SCR_XSIZE/SCREEN_YSIZE/TO_FIXED from GameVariables.h/GameLink.h;
+// EntityCutsceneRules (MANIA_CUTSCENE_BASE: updateRange via RSDK_ENTITY + Hitbox) via
+// All.h. GHZ/AIZ/menu builds leave P6_GHZCUT_BOOT unset -> the no-op #else links ->
+// byte-identical.
+void CutsceneRules_SetupEntity(void *e, Vector2 *size, Hitbox *hitbox)
+{
+    EntityCutsceneRules *entity = (EntityCutsceneRules *)e;
+
+    if (!size->x)
+        size->x = WIDE_SCR_XSIZE << 16;
+
+    if (!size->y)
+        size->y = SCREEN_YSIZE << 16;
+
+    entity->updateRange.x = TO_FIXED(128) + size->x;
+    entity->updateRange.y = TO_FIXED(128) + size->y;
+
+    hitbox->left   = -size->x >> 17;
+    hitbox->top    = -size->y >> 17;
+    hitbox->right  = size->x >> 17;
+    hitbox->bottom = size->y >> 17;
+}
+#else
 void CutsceneRules_SetupEntity(void *e, Vector2 *size, Hitbox *hitbox)
 {
     (void)e; (void)size; (void)hitbox;
     P6_EDGE(6);
 }
+#endif
 void CutsceneSeq_LockAllPlayerControl(void) { P6_EDGE(7); }
 void CutsceneSeq_StartSequence(void *manager, ...)
 {

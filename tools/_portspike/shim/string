@@ -1,0 +1,67 @@
+#ifndef _PORTSPIKE_STRING
+#define _PORTSPIKE_STRING
+// Engine true-port feasibility spike (Task #194/#198).
+//
+// MINIMAL freestanding std::string. The jo-engine sh-none-elf-gcc-8.2.0 is
+// freestanding: NO libstdc++, so the platform must furnish std::string just as
+// every console true-port does (e.g. the Switch port links devkitPro libstdc++;
+// SaturnRenderDevice's sibling here is this shim). It exists ONLY to let the
+// engine headers PARSE so the spike can prove the logic core codegens to SH-2 .o.
+//
+// Two faithful, distinct usage classes:
+//  1. find_last_of(char) and compare(pos,n,const char*) are exercised by
+//     class Link (Core/Link.hpp:470-512 Open/PlatformLoadLibrary). Link is the
+//     dynamic-library / mod loader -- static inline, parsed for EVERY TU but
+//     odr-used by NONE of the 16 core TUs (RETRO_USE_MOD_LOADER=0 -> Saturn has
+//     no dlopen path). These two are implemented CORRECTLY against the non-owning
+//     view (pure reads -- strrchr / strncmp), so even if odr-used they behave.
+//  2. substr / operator+ / operator+= appear only inside that same never-called
+//     Link::Open body. A non-owning view cannot concatenate without storage, so
+//     these are PARSE-ONLY stubs (documented). When/if a real Saturn std::string
+//     is needed (storage/loader wiring phase, or MOD_LOADER ever enabled), this
+//     whole shim is replaced wholesale -- it is spike scaffolding, not ship code.
+#include <string.h>
+namespace std {
+class string {
+    const char *_data;
+    unsigned _size;
+  public:
+    static const unsigned npos = (unsigned)-1;
+
+    string() : _data(""), _size(0) {}
+    string(const char *s) : _data(s ? s : ""), _size(s ? (unsigned)strlen(s) : 0) {}
+    string(const char *s, unsigned n) : _data(s ? s : ""), _size(n) {}
+
+    unsigned size() const { return _size; }
+    unsigned length() const { return _size; }
+    bool empty() const { return _size == 0; }
+    const char *c_str() const { return _data; }
+    const char *data() const { return _data; }
+    char operator[](unsigned i) const { return _data[i]; }
+
+    bool operator==(const string &o) const { return strcmp(_data, o._data) == 0; }
+    bool operator!=(const string &o) const { return strcmp(_data, o._data) != 0; }
+
+    // --- correct against the non-owning view (read-only) --------------------
+    unsigned find_last_of(char c) const
+    {
+        const char *p = strrchr(_data, c);
+        return p ? (unsigned)(p - _data) : npos;
+    }
+    int compare(unsigned pos, unsigned n, const char *s) const { return strncmp(_data + pos, s, n); }
+
+    // --- parse-only stubs (Link::Open, never odr-used by the core) ----------
+    string substr(unsigned pos, unsigned len = npos) const
+    {
+        (void)len;
+        return string(_data + (pos <= _size ? pos : _size));
+    }
+    string &operator+=(const char *) { return *this; }
+    string &operator+=(const string &) { return *this; }
+};
+
+inline string operator+(const char *, const string &b) { return b; }
+inline string operator+(const string &a, const char *) { return a; }
+inline string operator+(const string &a, const string &) { return a; }
+} // namespace std
+#endif

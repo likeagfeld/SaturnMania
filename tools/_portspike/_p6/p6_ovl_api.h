@@ -160,6 +160,18 @@ typedef struct {
     /* screen transform (UIControl_Draw:52-53) lands every row + plate on-screen, fitting */
     /* 320 cleanly. NULL on GHZ/Logos/Title (overlay sets it only under P6_FRONTEND_MENU).*/
     void (*menu_layout_fn)(void);
+#if defined(P6_GHZCUT_BOOT)
+    /* Task #309 Tier-B.1 (GHZCutscene FXRuby fade): the overlay reads the live   */
+    /* FXRuby entity's fade fields into engine-visible ints. The overlay has the  */
+    /* Mania Game.h EntityFXRuby type; the engine TU (p6_io_main) cannot name it, */
+    /* so the overlay does the foreach_all(FXRuby) + (under P6_GHZCUT_HOLD) the    */
+    /* freeze-pin, and hands fadeWhite/fadeBlack back so the engine applies the    */
+    /* VDP2 color offset (p6_vdp2_fade_apply). LAST field + gated so non-GHZCUT    */
+    /* builds keep sizeof(p6_ovl_api) byte-identical (the field grows .bss 4 B).   */
+    /* Both the overlay (p6_ovl_ghz.o) and engine (p6_io_main.o) compile with the  */
+    /* SAME P6_GHZCUT_BOOT state, so the struct layout is consistent per build.    */
+    void (*fade_fn)(int *outWhite, int *outBlack);
+#endif
 } p6_ovl_api;
 
 /* The entry signature at P6_OVL_BASE: registers the overlay's classes via
