@@ -99,10 +99,14 @@ def main(argv=None) -> int:
         if res is not None: last_res = res
         if stg is not None: last_stg = stg
         if rb is not None: last_rb = rb
+        rf = g("p6_w_sht_resfill"); rm = g("p6_w_sht_resmask")
         st = stages.get(stage)
         if st is None:
-            st = {"df": 0, "dfetch": 0, "dvbl": 0, "res": res, "stg": stg, "rb": rb}
+            st = {"df": 0, "dfetch": 0, "dvbl": 0, "res": res, "stg": stg, "rb": rb,
+                  "rf": rf, "rm": rm}
             stages[stage] = st; order.append(stage)
+        if rf is not None: st["rf"] = rf
+        if rm is not None: st["rm"] = rm
         # accumulate deltas only within the same stage across consecutive samples
         if pf is not None and f is not None and fetch is not None and vbl is not None \
            and stage == getattr(main, "_pstage", None) and f >= pf:
@@ -126,8 +130,12 @@ def main(argv=None) -> int:
                 flag = "  <-- RED (hot scene over threshold)"; red.append(name)
             else:
                 flag = "  <-- GREEN"
+        rf = st.get("rf"); rm = st.get("rm")
+        rfkb = f"{rf/1024:.0f}KB" if rf else "?"
+        rmn = bin(rm).count("1") if rm else 0
         print(f"  {name:15s} frames={st['df']:5d} inflations/frame={infl:6.2f} "
-              f"fps={('%.1f' % fps) if fps else 'n/a':>6s}{flag}")
+              f"fps={('%.1f' % fps) if fps else 'n/a':>6s}  resfill={rfkb:>7s} "
+              f"resident_slots={rmn}{flag}")
     print("-" * 78)
     print(f"RESIDENCY (last seen): resident_sheets={last_res}  staged_sheets={last_stg}  "
           f"res_store_bytes_used={last_rb} ({last_rb/1024:.0f} KB of 1664 KB)")
