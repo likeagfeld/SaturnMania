@@ -3826,6 +3826,7 @@ extern "C" {
 int32 SaturnSheet_Stage(const void *blob, uint32 bytes);
 void SaturnSheet_SetHash(int32 slot, const uint32 *hash);
 int32 SaturnSheet_MakeResident(int32 slot);
+void  SaturnSheet_ResReset(void); // #317 draw/inflate hog: reclaim dead RES at the seam
 int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
                             int32 w, int32 h, uint8 *dst); // #311 fetch bisect
 #if defined(P6_GHZCUT_BOOT)
@@ -7147,6 +7148,7 @@ static void p6_frontend_frame(void)
                         "Global/Items.gif",   "Global/Display.gif", "Global/Shields.gif",
                         "Players/Tails1.gif", "Global/Objects.gif", "GHZ/Objects.gif"
                     };
+                    int32 ghzGslot[9] = { -1,-1,-1,-1,-1,-1,-1,-1,-1 };
                     for (int32 gi = 0; gi < 9; ++gi) {
                         int gsn = rsdk_storage_load_to_lwram(ghzShtFiles[gi],
                                                              (void *)P6_LW_ENTITYLIST, 0x10000);
@@ -7157,9 +7159,36 @@ static void p6_frontend_frame(void)
                                 RETRO_HASH_MD5(gph);
                                 GEN_HASH_MD5(ghzShtPaths[gi], gph);
                                 SaturnSheet_SetHash(gslot, (const uint32 *)gph);
+                                ghzGslot[gi] = gslot;
                             }
                         }
                     }
+#if defined(P6_FRONTEND_MENU)
+                    // #317 DRAW/INFLATE HOG FIX (this session, RED-gated): the RES store
+                    // is full of the resident TITLE/menu sheets (TSONIC 1 MB) that are
+                    // never drawn in gameplay, so the 9 sheets staged above stay banded
+                    // -> SaturnSheet_FetchRect re-inflates every draw. MEASURED at the
+                    // landed Green Hill Zone: 8.6 inflations/frame -> 4.1 fps
+                    // (qa_frontend_inflate_gate.py RED). Reclaim the dead title RES then
+                    // promote the landing sheets to resident (zero-inflate memcpy path,
+                    // SaturnSheet.cpp:345). Priority = every-frame draws first: Sonic
+                    // 1/2/3 (0,1,2), Tails1 (6), Display/HUD (4), GLObjects (7),
+                    // GHZObjects (8), Items (3). Shields (5) left banded (rarely drawn)
+                    // to leave RES headroom. MakeResident is bounds-checked -> any sheet
+                    // that overflows the 1.625 MB store simply stays banded (no
+                    // corruption). Budget: 786K(Sonic)+262K(Tails)+65K+65K+131K+32K =
+                    // 1.34 MB < 1.66 MB. Front-end only -> plain Green Hill Zone
+                    // byte-identical (this whole seam is chain-gated).
+                    {
+                        SaturnSheet_ResReset();
+                        static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
+                        for (int32 pi = 0; pi < 8; ++pi) {
+                            int32 gs = ghzGslot[promoteOrder[pi]];
+                            if (gs >= 0)
+                                SaturnSheet_MakeResident(gs);
+                        }
+                    }
+#endif
                     // Object anim pack for the staged HUD/Ring/GHZ objects (replaces
                     // HBHOBJ in the front-end OBJ window -- the Heavies are done).
                     int on = rsdk_storage_load_to_lwram("GHZOBJ.PAK", (void *)P6_HW_OBJANIMPAK,

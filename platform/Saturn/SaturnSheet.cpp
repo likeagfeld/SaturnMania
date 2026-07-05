@@ -243,6 +243,15 @@ extern "C" int32 SaturnSheet_Stage(const void *blob, uint32 bytes)
 // inflate path still serves it, just slower). Witness: p6_w_sht_resident counts
 // sheets made resident.
 __attribute__((used)) int32 p6_w_sht_resident = 0;
+#if defined(P6_FRONTEND_MENU)
+// #317 draw/inflate hog: precise residency witnesses (front-end only -> plain GHZ
+// SaturnSheet.o byte-identical). resfill = s_resCursor - RES_BASE (true RES bytes
+// in use); resmask = bitmask of which slots are resident; rescap = store size.
+// Updated by MakeResident + ResReset so the live harness reads the exact fill.
+__attribute__((used)) int32 p6_w_sht_resfill = 0;
+__attribute__((used)) int32 p6_w_sht_resmask = 0;
+__attribute__((used)) int32 p6_w_sht_rescap  = (int32)(SATURNSHEET_RES_END - SATURNSHEET_RES_BASE);
+#endif
 extern "C" int32 SaturnSheet_MakeResident(int32 slot)
 {
     if (slot < 0 || slot >= s_count)
@@ -281,6 +290,10 @@ extern "C" int32 SaturnSheet_MakeResident(int32 slot)
     S->resident = resbase;
     s_resCursor = resbase + sheetBytes;
     ++p6_w_sht_resident;
+#if defined(P6_FRONTEND_MENU)
+    p6_w_sht_resfill = (int32)(s_resCursor - SATURNSHEET_RES_BASE);
+    p6_w_sht_resmask |= (1 << slot);
+#endif
     return 0;
 }
 
@@ -298,8 +311,32 @@ extern "C" uint32 SaturnSheet_ResAlloc(uint32 bytes)
         return 0;
     s_resCursor = a + bytes;
     p6_w_sht_resbytes = (int32)(s_resCursor - SATURNSHEET_RES_BASE);
+#if defined(P6_FRONTEND_MENU)
+    p6_w_sht_resfill = (int32)(s_resCursor - SATURNSHEET_RES_BASE);
+#endif
     return a;
 }
+
+#if defined(P6_FRONTEND_MENU)
+// #317 draw/inflate hog: at the GHZCutscene->Green Hill Zone handoff the RES store is
+// full of resident TITLE/menu sheets (TSONIC 1 MB!) that are NEVER drawn again in
+// gameplay, forcing the landing sheets banded (MEASURED 8.6 inflations/frame -> 4.1
+// fps). The bump allocator never frees, so reclaim it explicitly here: reset the
+// cursor to the base and clear every slot's resident flag so its FetchRect falls back
+// to its (still-staged, still-intact) banded blob in the separate band store. SAFE
+// because the caller invokes this ONLY at the handoff seam, where none of the pre-GHZ
+// resident sheets are drawn again; the caller then re-promotes the Green Hill Zone
+// gameplay sheets from the reclaimed store. Front-end only -> plain GHZ byte-identical.
+extern "C" void SaturnSheet_ResReset(void)
+{
+    for (int32 s = 0; s < s_count; ++s)
+        s_sheets[s].resident = 0;
+    s_resCursor      = SATURNSHEET_RES_BASE;
+    p6_w_sht_resfill = 0;
+    p6_w_sht_resmask = 0;
+    p6_w_sht_resident = 0;
+}
+#endif
 #endif
 
 extern "C" void SaturnSheet_SetHash(int32 slot, const uint32 *hash)
