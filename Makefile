@@ -231,6 +231,14 @@ ifeq ($(P6_FRONTEND_CHAIN),1)
 CCFLAGS += -DP6_FRONTEND_CHAIN -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS
 endif
 
+# #316 F1 (contract step 1): the direct VDP1 command list replaces the SGL
+# sprite pipeline for the front-end (p6_vdp1.c emitters). build_shipping.sh
+# exports P6_DIRECT_VDP1=1 for the chain flavor; the DEFAULT (GHZ) build leaves
+# it unset -> p6_vdp1.o byte-identical (every direct-list block is #if'd).
+ifeq ($(P6_DIRECT_VDP1),1)
+CCFLAGS += -DP6_DIRECT_VDP1
+endif
+
 # M1b STRIPED-ICON FIX (this session): the MENU front-end flavor MUST also reach the
 # jo-make compile of p6_vdp1.c. P6_FRONTEND_MENU IMPLIES P6_FRONTEND_TITLE -> LOGOS.
 # WITHOUT this define on the jo compile, p6_vdp1.c took the #else (TITLE) bucket-count

@@ -384,3 +384,41 @@ void p6_player_newgame_reset(void)
 // those globals (flat-TU rule). The overlay's combined witness (p6_ghz_ovl_witness)
 // writes p6_w_brg_*/p6_w_loop_*/p6_w_spring_* via the ld -R import, called per-tick
 // through s_ovl.witness_fn in p6_ghz_frame. Spring witness moved in O1 step 1.
+
+// =============================================================================
+// p6_titlecard_atl_restore -- user punch list v2 items 6/7 (camera dead after the
+// GHZCutscene->GHZ handoff). VERBATIM EXCERPT of TitleCard_State_ShowTitleCard's
+// actionTimer==16 block (TitleCard.c:504-514): the decomp's cutscene detaches the
+// camera for manual panning (GHZCutsceneST.c:205 player->camera=NULL) and relies
+// on the NEXT stage's TitleCard to re-wire player->camera / camera->target /
+// Camera_State_FollowXY and clear Zone->setATLBounds. The Saturn engine build has
+// no TitleCard registered, so setATLBounds stayed 1 (MEASURED _v8_land_right.mcs
+// Zone+320=1) and Camera_Create skipped its state+bounds init (Camera.c:72-86) ->
+// camera state=NULL, screen pinned at x=52 while Sonic ran to x=777.
+// Called once from the chain's GHZCutscene->GHZ seam AFTER p6_scene_load_and_arm.
+// EXTRA vs the excerpt: the camera's own bounds are seeded from Zone's (the
+// Camera_Create branch it WOULD have taken, Camera.c:74-77) because our leftover
+// cutscene camera never had valid bounds -- in the decomp the ATL camera KEEPS its
+// prior-act bounds (Zone.c:434-443); the cutscene camera here has none.
+// FIXME: replace with the verbatim TitleCard port (stage banner + letters); this
+// excerpt covers only the ATL camera hand-back the decomp does at TitleCard.c:504.
+// =============================================================================
+void p6_titlecard_atl_restore(void)
+{
+    if (!Zone || !Camera || !Player)
+        return;
+    if (Zone->setATLBounds) {
+        EntityCamera *camera = RSDK_GET_ENTITY(SLOT_CAMERA1, Camera);
+        EntityPlayer *player = RSDK_GET_ENTITY(SLOT_PLAYER1, Player);
+        camera->boundsL      = Zone->cameraBoundsL[0]; // Camera.c:74-77 (skipped
+        camera->boundsR      = Zone->cameraBoundsR[0]; // Create branch; see note)
+        camera->boundsT      = Zone->cameraBoundsT[0];
+        camera->boundsB      = Zone->cameraBoundsB[0];
+        player->camera       = camera;                 // TitleCard.c:507
+        camera->target       = (Entity *)player;      // TitleCard.c:508
+        camera->state        = Camera_State_FollowXY; // TitleCard.c:509
+        Camera->centerBounds.x = TO_FIXED(2);          // TitleCard.c:510
+        Camera->centerBounds.y = TO_FIXED(2);          // TitleCard.c:511
+    }
+    Zone->setATLBounds = false;                        // TitleCard.c:514
+}

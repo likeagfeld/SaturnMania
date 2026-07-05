@@ -52,6 +52,33 @@ namespace RSDK
 // changes `pak`. ANIMPAK still ends contiguously at the new OVL base 0x060C8800
 // (0x060B7800 + 0x11000). _end (after Spring left the pack) must stay < 0x060B7800
 // -- gate qa_p6_ghz_regression R0 (frozen boot if over).
+#if defined(P6_FRONTEND_MENU)
+// F-LAND-POSE (2026-07-03, user-reported flying-pose carryover at the GHZCutscene->GHZ
+// handoff; savestate-proven _r1_land.mcs: p6_w_apk_bytes=0, both players' animator.frames
+// inside HBHOBJ.PAK 0x2276xxxx, aniFrames=-1 -> SetSpriteAnimation no-ops): every front-end
+// flavor's _end sits ABOVE the WRAM-H window 0x060B6C00 (#228 .bss clobber trap), which is
+// why the front-end skips GHZANIM.PAK at boot. Host the PLAYER pack in the MEASURED-free
+// cart hole [0x22744000, 0x22760000) instead (P6_CART_TMP ends 0x22744000; the OBJ pack
+// starts 0x22760000 -- disjointness per the P6_HW_OBJANIMPAK note below). The pack is
+// OFFSET-based (no baked pointers), so the base moves freely; Animation.cpp's paks[0]
+// resolve picks this up via ENG_DEFS (-DP6_FRONTEND_MENU threads into every engine TU,
+// the M2 #297 mechanism). Loaded at the GHZCutscene->GHZ seam (p6_io_main.cpp), not at
+// boot. The GHZ shipping flavor takes the #else -> BYTE-IDENTICAL.
+// RE-CARVE (2026-07-03, frontend-cart-map-recarve memory): 0x22744000 sat INSIDE
+// the front-end BAND STORE (SaturnSheet.cpp front-end arm: 0x22720000..0x22800000
+// bump alloc) -- a latent mutual clobber with staged bands. Moved to the RES
+// region's unused tail (resident fill measured ~0x225E8000; this window
+// 0x22680000..0x22691000 leaves 352KB below + 444KB above free).
+// FINAL CARVE (same day): 0x22680000 sat inside SATURNLAYOUT's cart band store
+// (0x22600000..0x227A0000, SaturnLayout.cpp:219-221) -- the GHZ landing's FG/
+// collision band inflates deterministically clobbered the pack head (measured:
+// byte-identical animator poison across builds; Tails' table at +0xACB4
+// survived the cursor's early growth). Packs now live BELOW the layout region,
+// above the (re-capped) SaturnSheet RES store: RES ends 0x225A0000, OBJ pack
+// 0x225A0000..0x225E0000, player pack 0x225E0000..0x225F1000, 60KB guard to
+// the layout base 0x22600000.
+#define P6_HW_ANIMPAK     0x225E0000u
+#else
 #define P6_HW_ANIMPAK     0x060B6C00u // RECLAIM 2026-06-19 (camera-local pool streaming WRAM-H budget):
                                       // RAISED 0x600 from 0x060B6600 into the gap the cart-relocated overlay
                                       // (#258) vacated -- the anim pack is OFFSET-based so the base moves freely
@@ -61,13 +88,23 @@ namespace RSDK
                                       // CONSERVATIVE 0x060C8000 is used). _end headroom 64 -> ~1600 B, unblocking
                                       // the streaming code. qa_p6_mapoverlap tracks the live #define; R0-R16 proves
                                       // the anim pack loads + renders at the new base. WAS 0x060B6600 (O1 D=0x1A00).
+#endif // P6_FRONTEND_MENU (F-LAND-POSE cart-vs-WRAM player-pack base)
 #define P6_HW_ANIMPAK_CAP 0x00011000u // 69,632 B (build_anim_pack.py asserts)
 // #254 residency lever (2026-06-17): SECOND resident anim pack in the CART for the
 // COLD GHZ object anims (Animation.cpp reads it after the WRAM-H pack). Cache-through
 // A-Bus alias 0x22760000 -- MEASURED-disjoint from the shipping cart map (TMP ends
 // 0x22744000, VDP1 sheet store starts 0x227A0000 -> 0x22760000 has 320 KB clear).
 // Object anims never touch DATASET_STG, retiring the SpikeLog STG overflow.
+#if defined(P6_FRONTEND_MENU)
+// RE-CARVE (2026-07-03, frontend-cart-map-recarve memory): 0x22760000 sits INSIDE
+// the front-end band store (0x22720000..0x22800000) -- the HBHOBJ.PAK load there
+// was a latent band clobber. Front-end arm moves to the RES tail: 0x22640000..
+// 0x22680000 (256KB), abutting the relocated player pack above. Plain GHZ keeps
+// 0x22760000 (its band store starts at 0x227A0000 -- genuinely disjoint there).
+#define P6_HW_OBJANIMPAK     0x225A0000u // FINAL CARVE: below the SaturnLayout region (see P6_HW_ANIMPAK note)
+#else
 #define P6_HW_OBJANIMPAK     0x22760000u
+#endif
 #define P6_HW_OBJANIMPAK_CAP 0x00040000u // 256 KB cart window (build_anim_pack.py OBJ_CAP)
 #else
 #define FRAMEHITBOX_COUNT (0x8)
@@ -210,7 +247,21 @@ inline void SetSpriteAnimation(uint16 aniFrames, uint16 animationID, Animator *a
         return;
 
     SpriteAnimationEntry *anim = &spr->animations[animationID];
-    SpriteFrame *frames        = &spr->frames[anim->frameListOffset];
+    int32 setFLO               = anim->frameListOffset;
+#if RETRO_PLATFORM == RETRO_SATURN
+    // F-LAND-SONIC (measured 2026-07-03): A-Bus cart reads can return ALL-ONES
+    // under concurrent CD/GFS DMA (a load-storm window). One such read here
+    // poisoned Sonic's animator for the whole act (frames = base-36, every
+    // entry-derived field = -1) and the caller-side "already in this anim"
+    // guard prevented healing. Re-read once (volatile defeats CSE); if still
+    // all-ones, RETURN WITHOUT WRITING -- the animator keeps its previous
+    // coherent content and the caller's next-tick set retries cleanly.
+    if ((uint32)setFLO == 0xFFFFFFFFu)
+        setFLO = *(volatile int32 *)&anim->frameListOffset;
+    if ((uint32)setFLO == 0xFFFFFFFFu)
+        return;
+#endif
+    SpriteFrame *frames = &spr->frames[setFLO];
     if (animator->frames == frames && !forceApply)
         return;
 

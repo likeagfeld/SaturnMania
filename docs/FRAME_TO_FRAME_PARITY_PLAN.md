@@ -8,6 +8,24 @@ etc.... so that it is a frame to frame match to the steam version"
 **Reference image acquired:** `tools/refs/mania_pc/title_full_archiveorg.jpg`
 (Internet Archive, Sonic Team, "Sonic mania title screen.jpg")
 
+> **2026-07-01 POSITION UPDATE (audit pass; measured).** The parity GOAL
+> and the validation methodology (§7: reference library, SSIM gates,
+> animation-sequence gates) remain binding. The IMPLEMENTATION mechanics
+> in §1-§6 (title_sonic.c atlas v4, TLOGO.ATL, the STATE_TITLE rewrite,
+> src/rsdk targets) describe the RETIRED hand-port track. On the live P6
+> engine track the Title/Logo/Menu/AIZ/GHZCutscene objects are VERBATIM
+> decomp TUs compiled from `tools/_decomp_raw/` and registered on the
+> unmodified RSDKv5 engine (`tools/_portspike/_p6/build_p6scene_objs.sh`
+> :415-538; `p6_ovl_ghz.c:424-650`), which retires §1-§3's re-derivation
+> of anim tables and state machines — the decomp TU IS the state machine.
+> §0's "roughly 15% feature completion" snapshot is superseded by the
+> measured census position in `docs/WHOLE_GAME_MASSPORT_PLAN.md` §0/§10
+> (544 decomp object TUs total, 45 classes registered in the default
+> Green Hill Zone build, 72 across front-end flavors; boot chain
+> menu->AIZ intro->GHZCutscene->playable Green Hill Zone live at
+> `cc9f333`). Per-file status: `docs/decomp_port_status.md` (2026-07-01
+> two-track note).
+
 This document is the complete-scope master plan. Frame-to-frame parity means:
 - Every visible sprite from the original is present
 - Every animation runs at the same speed and frame sequence

@@ -139,6 +139,21 @@ SHEETS = [
     # 8bpp -> banded .SHT ~30 KB. The Tornado entity already flies (M3.2) but draws
     # nothing because no AIZOBJ.SHT was staged (surface saturnSheetSlot==-1).
     ("AIZ/Objects.gif", "AIZOBJ.SHT"),
+    # Task #311 (GHZCutscene residual garble): the two sheets the GHZCutscene scene
+    # entities draw from that were NEVER staged in the P6_GHZCUT_BOOT flavor -->
+    # their DrawSprite rects sampled a WRONG surface (the #181 unbound-sheet class:
+    # fragmentary sprite parts + magenta filler, VIEWED _hbhpal_16.png):
+    #   GHZCutscene/Objects.gif -> AIZKingClaw (GHZCutscene/Claw.bin, the dig-site
+    #     claw machine, top-right) + Platform (GHZCutscene/Platform.bin, the crate).
+    #     512x512 8bpp, 33 distinct colors; GCT == live bank1 sprite palette
+    #     (MEASURED exact at every used index except 245/247/255 which read black)
+    #     -> draws at the default colno 256, NO new CRAM.
+    #   Global/PhantomRuby.gif -> PhantomRuby (Global/PhantomRuby.bin, 41 frames).
+    #     Uses 8 indices; 6/7 exact-match live bank1 (only 255=white reads black).
+    # Both staged ONLY by the P6_GHZCUT_BOOT boot; probe rows suppressed (see
+    # NOPROBE_SHEETS) so NO flavor pays probe .rodata.
+    ("GHZCutscene/Objects.gif", "GHCOBJ.SHT"),
+    ("Global/PhantomRuby.gif", "RUBYOBJ.SHT"),
 ]
 
 # CP4c _end-leak FIX (Task #266): sheets that ONLY a FRONT-END boot stages. Their
@@ -292,7 +307,10 @@ def main():
         # R3.1 (#305): emit NO probe rows for AIZOBJ.SHT. The probe table is WRAM-H
         # .rodata in the front-end build (24 B/row), which is heap-tight (#228); AIZOBJ's
         # 3 rows are pure diagnostic. The .SHT asset still emits (it stays in SHEETS).
-        NOPROBE_SHEETS = {"AIZOBJ.SHT"}
+        NOPROBE_SHEETS = {"AIZOBJ.SHT",
+                          # Task #311: GHZCUT-only sheets, probe rows suppressed for
+                          # the same #228 WRAM-H reason as AIZOBJ.
+                          "GHCOBJ.SHT", "RUBYOBJ.SHT"}
         for si, m in enumerate(model["sheets"]):
             guard = FRONTEND_ONLY_SHEETS.get(m["file"])
             if m["file"] in NOPROBE_SHEETS:

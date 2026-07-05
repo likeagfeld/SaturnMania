@@ -528,6 +528,72 @@
           "hash": "0x9CE728BD"
         }
       ]
+    },
+    {
+      "sheet": "GHZCutscene/Objects.gif",
+      "file": "GHCOBJ.SHT",
+      "width": 512,
+      "height": 512,
+      "band_rows": 16,
+      "bands": 32,
+      "bytes": 4442,
+      "file_hash": "0x284F2886",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x8B949079"
+        },
+        {
+          "sx": 448,
+          "sy": 248,
+          "w": 64,
+          "h": 64,
+          "hash": "0xA1DF1505"
+        },
+        {
+          "sx": 16,
+          "sy": 472,
+          "w": 48,
+          "h": 40,
+          "hash": "0x9CE728BD"
+        }
+      ]
+    },
+    {
+      "sheet": "Global/PhantomRuby.gif",
+      "file": "RUBYOBJ.SHT",
+      "width": 256,
+      "height": 128,
+      "band_rows": 16,
+      "bands": 8,
+      "bytes": 2829,
+      "file_hash": "0xC05AF231",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0xBCC015B9"
+        },
+        {
+          "sx": 192,
+          "sy": 56,
+          "w": 64,
+          "h": 64,
+          "hash": "0xDEC05A1E"
+        },
+        {
+          "sx": 16,
+          "sy": 88,
+          "w": 48,
+          "h": 40,
+          "hash": "0x47531B05"
+        }
+      ]
     }
   ]
 }

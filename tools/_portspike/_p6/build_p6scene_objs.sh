@@ -149,7 +149,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # tick boots the Logos splash scene instead of GHZ (p6_logos_reload +
 # p6_frontend_frame). Mutually independent of the GHZ diag knobs; the default
 # shipping build leaves it unset -> boots GHZ unchanged.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} ${P6_TICK_CATCHUP:+-DP6_TICK_CATCHUP} ${P6_DIRECT_VDP1:+-DP6_DIRECT_VDP1} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -201,6 +201,7 @@ echo "[7c/9] p6_vdp2.o (P6.5b1 present: engine Island layer -> NBG1 2-word-PND c
     ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} \
     ${P6_TITLE_NORBG0:+-DP6_TITLE_NORBG0} ${P6_TITLE_ISLAND_STATIC:+-DP6_TITLE_ISLAND_STATIC} \
     ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} \
+    ${P6_DV1_PROBE:+-DP6_DIRECT_VDP1_PROBE} ${P6_DIRECT_VDP1:+-DP6_DIRECT_VDP1} \
     -I"$SGLINC" -I"$NEWLIB" \
     -c -o "$P6/p6_vdp2.o" "$P6/p6_vdp2.c"
 # NOTE: p6_vdp1.c (P6.5b2 sprite half) is NOT built here -- it includes
@@ -695,6 +696,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_GHZCUT_BOOT:+-u _FXTrail} \
     ${P6_GHZCUT_BOOT:+-u _p6_w_hbh_slot -u _p6_w_hbh_aniframes -u _p6_w_hbh_landed -u _p6_heavy_palblock} \
     ${P6_GHZCUT_BOOT:+-u _p6_w_hbh_count -u _p6_w_hbh_vis -u _p6_w_hbh_posy -u _p6_w_hbh_posx -u _p6_w_hbh_handle -u _p6_w_hbh_camy -u _p6_w_hbh_animid} \
+    ${P6_GHZCUT_BOOT:+-u _p6_w_plrsht_slot -u _p6_w_plr_cut_anif -u _p6_w_plr_cut_anif2 -u _p6_w_plr_cut_aniid -u _p6_w_plr_cut_surf -u _p6_w_plr_cut_handle -u _p6_w_plr_cut_landed -u _p6_plr_sheet_slot} \
     -u _p6_saturn_anim_allocfail -u _p6_w_anim_lastfail -u _p6_w_stg_at_fail \
     -u _p6_w_anim_log -u _p6_w_anim_logn -u _p6_w_anim_step \
     -u _p6_w_objapk_bytes \

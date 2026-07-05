@@ -1,5 +1,35 @@
 # Sonic Mania → Sega Saturn — Project Bible
 
+## 2026-07-01 POSITION UPDATE (audit pass; measured, offline) — the P6 engine track supersedes the plans below
+
+This file is kept as the historical phase record. Two of its load-bearing
+claims are measured-stale and are corrected here rather than rewritten in
+place:
+
+- **§2.1 "We do not port the RSDKv5 C++ engine. It does not fit." is
+  FALSIFIED by the live build.** The shipping track (P6.1-P6.8, tasks
+  #194-#310) compiles the UNMODIFIED RSDKv5 engine TUs (Reader.cpp,
+  Scene.cpp, Storage.cpp, Object.cpp, Collision.cpp, Animation.cpp,
+  Audio.cpp, Input.cpp, Link.cpp, Math.cpp, RetroEngine.cpp, Sprite.cpp,
+  Text.cpp) with sh-none-elf-gcc-8.2.0 plus VERBATIM decomp object TUs
+  straight from `tools/_decomp_raw/`
+  (`tools/_portspike/_p6/build_p6scene_objs.sh`). Green Hill Zone Act 1
+  runs continuously on it (massport plan §0; pool-streaming steady fps
+  56.56 per commit 44ed63d). `docs/WHOLE_GAME_MASSPORT_PLAN.md` §0
+  authority note already recorded this supersession (its G2).
+- **The Phase A table (A1-A9 "reimplement each subsystem in src/rsdk/")
+  and the §3 phase ladder (Phases 0-21, zone_desc_t/ZONES.IDX asset
+  model) describe the RETIRED hand-port track.** The forward plan is
+  `docs/WHOLE_GAME_MASSPORT_PLAN.md` §8 (execution sequencing) as
+  corrected by its §9 and positioned by its §10.
+- "Authoritative references" line "`tools/_decomp_raw/` — 87 mirrored
+  upstream files" is stale: the cache holds 1174 files (measured
+  2026-07-01; 894 batch-fetched per docs/decomp_port_status.md Phase
+  3.0-prep++ note).
+- Per-file port status now lives in `docs/decomp_port_status.md` (see
+  its 2026-07-01 two-track audit note; 45 classes registered in the
+  default Green Hill Zone build, 72 across all front-end flavors).
+
 ## 2026-05-26 — ARCHITECTURE LOCKED: Phase A (engine) → Phase B (objects) → Phase Z (Saturn-native rewrites)
 
 After both upstream-decomp research agents landed, the port has a new top-down architecture that supersedes all earlier piecemeal plans.

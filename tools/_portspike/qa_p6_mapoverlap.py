@@ -115,9 +115,17 @@ def main(argv):
                             "rsdkv5-src", "RSDKv5", "RSDK", "Graphics", "Animation.hpp")
     try:
         with open(anim_hpp, errors="ignore") as f:
-            ma = re.search(r"#define\s+P6_HW_ANIMPAK\s+(0x[0-9a-fA-F]+)", f.read())
-        if ma:
-            animpak = int(ma.group(1), 16) & 0xFFFFFFFF
+            # F-LAND-POSE: the define is now flavor-conditional (front-end arm = a CART
+            # address 0x2274xxxx, GHZ arm = the WRAM-H window). This gate guards the
+            # WRAM-H .bss clobber (#228), so pick the WRAM-H arm explicitly -- a naive
+            # first-match would grab the cart arm and compare _end against cart space
+            # (always GREEN = silently disarmed).
+            vals = re.findall(r"#define\s+P6_HW_ANIMPAK\s+(0x[0-9a-fA-F]+)", f.read())
+        for v in vals:
+            cand = int(v, 16) & 0xFFFFFFFF
+            if 0x06000000 <= cand < 0x06100000:
+                animpak = cand
+                break
     except OSError:
         pass
     ADVISORY_MARGIN = 0x1000  # below this, print a re-budget advisory (NOT a RED)

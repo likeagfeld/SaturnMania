@@ -12,6 +12,44 @@ file VERBATIM (or with minimal Saturn-side adaptations confined to a
 compile + link against the `src/rsdk/` API surface documented in
 `docs/RSDK_TO_SATURN_API_MAP.md`.
 
+## 2026-07-01 audit note — TWO TRACKS: `src/mania` targets below are the RETIRED hand-port; the LIVE build is the P6 engine track
+
+Measured audit pass (offline, read-only) at HEAD `cc9f333` on branch
+`ghzcutscene-intro-ghz-loop`:
+
+- The paragraph above describes the ORIGINAL strategy (port each decomp
+  `.c` onto the `src/rsdk/` compat layer as `src/mania/Objects/*`). That
+  hand-port track is RETIRED. The LIVE build is the P6 true-port engine
+  track (`tools/_portspike/_p6/` + `platform/Saturn/` + the `rsdkv5-src`
+  engine TUs, phases P6.1-P6.8): `build_p6scene_objs.sh` compiles the
+  UNMODIFIED RSDKv5 engine TUs (Reader/Scene/Storage/Object/Collision/
+  Animation/Audio/Input/Link/Math/RetroEngine/Sprite/Text) plus VERBATIM
+  decomp object TUs straight from `tools/_decomp_raw/` (w1 loop :306-313,
+  w2 :336-362, w4 :385-409, front-end blocks :415-538).
+- Rows updated 2026-07-01 with status `ENGINE_VERBATIM` name the engine
+  track (following the pre-existing Localization/LogHelpers/Options and
+  GHZCutsceneST row precedents). Rows still pointing at `src/mania/*`
+  with PORTED/BUILDS/PARTIAL statuses describe the retired hand-port
+  only; the GHZ Act 1 histogram table below (Phase 2.4-master) is a
+  hand-port-era snapshot kept for history.
+- `tools/_decomp_raw/` holds 1174 files (CLAUDE.md §2 "41 files" is stale).
+- Registered classes on the engine track: 27 pack
+  (`RSDK_REGISTER_OBJECT`, `p6_wave1_reg.c:156-189`) + 18 always-on
+  overlay (`register_object_full`, `p6_ovl_ghz.c:384-716`) = 45 in the
+  default Green Hill Zone shipping build; front-end flavors add LOGOS 2
+  + TITLE 3 (+2 default-off TitleBG/Title3DSprite per
+  P6_TITLEBG_SPRITES_OFF, `build_p6scene_objs.sh:93-101`) + MENU 10 +
+  AIZ 8 + GHZCUT 2 = 72 total.
+- Decomp-authority spot-audit result: the cached decomp is compiled
+  directly; 2 of 1174 cached files carry `#if`-gated Saturn arms with
+  the PC path verbatim in `#else` (`TitleBG.c:119-122` scanline-callback
+  install; `CutsceneHBH.c:186-214` palette no-ops), 1 generated header
+  diverges (`tools/_portspike/_p67d_sizing/include/Cutscene/
+  CutsceneHBH.h:50-62`, colors[128]->[1], gated), and 2 build-local sed
+  patches exist (MenuSetup `GameInfo->platform` REV02 arm,
+  `build_p6scene_objs.sh:460-465`; FXRuby GetTintLookupTable REV02 arm,
+  :505-506). No silent logic edits found in the cache.
+
 ## Status legend
 
 - `NOT_STARTED` — file has not yet been ported. The Saturn target
@@ -239,7 +277,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 
 | Decomp file | Status | Saturn target | Phase / Notes |
 |---|---|---|---|
-| `SonicMania/Game.c` | PORTED (Title subset) | `src/mania/Game.c` | Phase 1.1: LinkGameLogicDLL — TitleSetup/Logo/Sonic/BG/3DSprite registered. Gameplay-zone classes deferred to Phase 2. |
+| `SonicMania/Game.c` | ENGINE_VERBATIM role (P6 pack TU) | `tools/_portspike/_p6/p6_wave1_reg.c` | 2026-07-01 audit: the engine track mirrors Game.c InitGameLogic (p6_wave1_reg.c:111-189, per-class Game.c line citations inline; RegisterGlobalVariables :144-147). Supersedes the src/mania/Game.c Phase 1.1 hand-port row. |
 | `RSDKv5/RSDK/Graphics/Animation.cpp` | (engine) | `src/rsdk/animation.c` | BUILDS (Phase A3); gaps in docs/rsdk_compat_audit.md §3 |
 | `RSDKv5/RSDK/Graphics/Drawing.cpp` | (engine) | `src/rsdk/drawing.c` | BUILDS (Phase A4); gaps in docs/rsdk_compat_audit.md §4 |
 | `RSDKv5/RSDK/Scene/Object.cpp` | PORTED (Phase 1.1) | `src/rsdk/object.c` | static_vars allocator + drawGroup priority queues + static/late_update wired + RSDK_THIS macro |
@@ -262,13 +300,13 @@ remain unchanged so the current Saturn runtime keeps booting; the
 
 | Decomp file | Status | Saturn target | Phase / Notes |
 |---|---|---|---|
-| SonicMania/Objects/AIZ/AIZEggRobo.c | NOT_STARTED | src/mania/Objects/AIZ/AIZEggRobo.c | Phase 7: Angel Island Zone |
+| SonicMania/Objects/AIZ/AIZEggRobo.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_AIZ_TEST-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:610) | 2026-07-01 audit: verbatim TU compiled in the AIZ flavor (build_p6scene_objs.sh:497-518), OVL_FE-linked (build_shipping.sh:252). Commit cc9f333 (R3.4). |
 | SonicMania/Objects/AIZ/AIZEncoreTutorial.c | NOT_STARTED | src/mania/Objects/AIZ/AIZEncoreTutorial.c | Phase 7: Angel Island Zone |
-| SonicMania/Objects/AIZ/AIZKingClaw.c | NOT_STARTED | src/mania/Objects/AIZ/AIZKingClaw.c | Phase 7: Angel Island Zone |
+| SonicMania/Objects/AIZ/AIZKingClaw.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_AIZ_TEST-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:606) | 2026-07-01 audit: verbatim TU compiled in the AIZ flavor (build_p6scene_objs.sh:497-518), OVL_FE-linked (build_shipping.sh:252). Commit cc9f333 (R3.4 anim via AIZOBJ.PAK). |
 | SonicMania/Objects/AIZ/AIZRockPile.c | NOT_STARTED | src/mania/Objects/AIZ/AIZRockPile.c | Phase 7: Angel Island Zone |
-| SonicMania/Objects/AIZ/AIZSetup.c | NOT_STARTED | src/mania/Objects/AIZ/AIZSetup.c | Phase 7: Angel Island Zone |
-| SonicMania/Objects/AIZ/AIZTornado.c | NOT_STARTED | src/mania/Objects/AIZ/AIZTornado.c | Phase 7: Angel Island Zone |
-| SonicMania/Objects/AIZ/AIZTornadoPath.c | NOT_STARTED | src/mania/Objects/AIZ/AIZTornadoPath.c | Phase 7: Angel Island Zone |
+| SonicMania/Objects/AIZ/AIZSetup.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_AIZ_TEST-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:584) | 2026-07-01 audit: verbatim TU compiled in the AIZ flavor (build_p6scene_objs.sh:497-518), OVL_FE-linked (build_shipping.sh:252). Commit cc9f333 — all 9 intro beats play. CAVEAT (gated logic workaround, root cause open): beat-3 Tails Static->P2Enter does not fire on Saturn; a one-shot census nudge applies the decomp-exact action (p6_ovl_ghz.c:1115-1131, cites AIZSetup.c:414-415). |
+| SonicMania/Objects/AIZ/AIZTornado.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_AIZ_TEST-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:592) | 2026-07-01 audit: verbatim TU compiled in the AIZ flavor (build_p6scene_objs.sh:497-518), OVL_FE-linked (build_shipping.sh:252). Commit cc9f333 (R3 biplane; CRAM-bank collision fix R3.3). |
+| SonicMania/Objects/AIZ/AIZTornadoPath.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_AIZ_TEST-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:596) | 2026-07-01 audit: verbatim TU compiled in the AIZ flavor (build_p6scene_objs.sh:497-518), OVL_FE-linked (build_shipping.sh:252). StarPost deref satisfied by a real zeroed instance in p6_closure_edge.c (build_p6scene_objs.sh:321-328). Commit cc9f333. |
 | SonicMania/Objects/AIZ/Bloominator.c | NOT_STARTED | src/mania/Objects/AIZ/Bloominator.c | Phase 7: Angel Island Zone |
 | SonicMania/Objects/AIZ/EncoreIntro.c | NOT_STARTED | src/mania/Objects/AIZ/EncoreIntro.c | Phase 7: Angel Island Zone |
 | SonicMania/Objects/AIZ/FernParallax.c | NOT_STARTED | src/mania/Objects/AIZ/FernParallax.c | Phase 7: Angel Island Zone |
@@ -285,14 +323,14 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/BSS/BSS_Palette.c | NOT_STARTED | src/mania/Objects/BSS/BSS_Palette.c | Phase 5: Blue Spheres special stage |
 | SonicMania/Objects/BSS/BSS_Player.c | NOT_STARTED | src/mania/Objects/BSS/BSS_Player.c | Phase 5: Blue Spheres special stage |
 | SonicMania/Objects/BSS/BSS_Setup.c | NOT_STARTED | src/mania/Objects/BSS/BSS_Setup.c | Phase 5: Blue Spheres special stage |
-| SonicMania/Objects/Common/BGSwitch.c | NOT_STARTED | src/mania/Objects/Common/BGSwitch.c | Phase 2+: shared gimmick base (used by many zones) |
+| SonicMania/Objects/Common/BGSwitch.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:157) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w4 loop (:385-409), PACK-linked (:788); registered via RSDK_REGISTER_OBJECT (F.4 GHZ Act 1->2 BG switch). |
 | SonicMania/Objects/Common/BreakableWall.c | PORTED | src/mania/Objects/Common/BreakableWall.c | Phase 2.4-PLAT: invisible breakable wall on the RSDK entity engine; State_Wall/Floor/Ceiling break-on-spin via Player_CheckCollisionBox; Saturn-fit break = destroyEntity + 100 score (tile-shatter not ported, static FG.TMP) |
 | SonicMania/Objects/Common/Button.c | NOT_STARTED | src/mania/Objects/Common/Button.c | Phase 2+: shared gimmick base (used by many zones) |
 | SonicMania/Objects/Common/CollapsingPlatform.c | PORTED | src/mania/Objects/Common/CollapsingPlatform.c | Phase 2.4-PLAT: invisible collapsing platform on the RSDK entity engine; stood-trigger via Player_CheckCollisionBox + collapseDelay -> destroy/respawn; tile-debris + storedTiles[256] not ported (static FG.TMP, 256B slot stride) |
-| SonicMania/Objects/Common/Decoration.c | NOT_STARTED | src/mania/Objects/Common/Decoration.c | Phase 2+: shared gimmick base (used by many zones) |
+| SonicMania/Objects/Common/Decoration.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:655) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:268), registered with full decomp callbacks (mass-port batch 1; also serves the AIZ folder). |
 | SonicMania/Objects/Common/Eggman.c | NOT_STARTED | src/mania/Objects/Common/Eggman.c | Phase 2+: shared gimmick base (used by many zones) |
 | SonicMania/Objects/Common/FlingRamp.c | NOT_STARTED | src/mania/Objects/Common/FlingRamp.c | Phase 2+: shared gimmick base (used by many zones) |
-| SonicMania/Objects/Common/ForceSpin.c | PORTED | src/mania/Objects/Common/ForceSpin.c | Phase 2.4-PLAT: invisible force-spin trigger on the RSDK entity engine; Zone_RotateOnPivot bbox-test -> Saturn-fit force-roll (min gsp in booster dir + clear jumping); tube-roll state machine has no minimal-player analogue |
+| SonicMania/Objects/Common/ForceSpin.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:659) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:268), registered with full decomp callbacks — the real tube-roll states now run against the verbatim Player. Supersedes the Phase 2.4-PLAT Saturn-fit hand-port. |
 | SonicMania/Objects/Common/ForceUnstick.c | NOT_STARTED | src/mania/Objects/Common/ForceUnstick.c | Phase 2+: shared gimmick base (used by many zones) |
 | SonicMania/Objects/Common/GenericTrigger.c | NOT_STARTED | src/mania/Objects/Common/GenericTrigger.c | Phase 2+: shared gimmick base (used by many zones) |
 | SonicMania/Objects/Common/Palette.c | NOT_STARTED | src/mania/Objects/Common/Palette.c | Phase 2+: shared gimmick base (used by many zones) |
@@ -301,7 +339,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/Common/PlatformControl.c | NOT_STARTED | src/mania/Objects/Common/PlatformControl.c | Phase 2+: shared gimmick base (used by many zones) |
 | SonicMania/Objects/Common/PlatformNode.c | NOT_STARTED | src/mania/Objects/Common/PlatformNode.c | Phase 2+: shared gimmick base (used by many zones) |
 | SonicMania/Objects/Common/Projectile.c | NOT_STARTED | src/mania/Objects/Common/Projectile.c | Phase 2+: shared gimmick base (used by many zones) |
-| SonicMania/Objects/Common/SpinBooster.c | PORTED | src/mania/Objects/Common/SpinBooster.c | Phase 2.4-PLAT: invisible spin-booster trigger on the RSDK entity engine; Zone_RotateOnPivot bbox-test -> Saturn-fit force-roll + directional boost (ApplyRollVelocity onGround/air branches); auto-grip CMODE reattach has no minimal-player analogue (GHZ Act 1 boosters floor-aligned) |
+| SonicMania/Objects/Common/SpinBooster.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:663) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:268), registered with full decomp callbacks. Supersedes the Phase 2.4-PLAT Saturn-fit hand-port. |
 | SonicMania/Objects/Common/TilePlatform.c | NOT_STARTED | src/mania/Objects/Common/TilePlatform.c | Phase 2+: shared gimmick base (used by many zones) |
 | SonicMania/Objects/Common/Water.c | NOT_STARTED | src/mania/Objects/Common/Water.c | Phase 2+: shared gimmick base (used by many zones) |
 | SonicMania/Objects/Continue/ContinuePlayer.c | NOT_STARTED | src/mania/Objects/Continue/ContinuePlayer.c | Phase 5: Continue screen |
@@ -340,12 +378,12 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/Credits/TryAgain.c | NOT_STARTED | src/mania/Objects/Credits/TryAgain.c | Phase Z: end credits |
 | SonicMania/Objects/Credits/TryAgainE.c | NOT_STARTED | src/mania/Objects/Credits/TryAgainE.c | Phase Z: end credits |
 | SonicMania/Objects/Cutscene/ChaosEmerald.c | NOT_STARTED | src/mania/Objects/Cutscene/ChaosEmerald.c | Phase 4+: shared cutscene helpers |
-| SonicMania/Objects/Cutscene/CutsceneHBH.c | NOT_STARTED | src/mania/Objects/Cutscene/CutsceneHBH.c | Phase 4+: shared cutscene helpers |
+| SonicMania/Objects/Cutscene/CutsceneHBH.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_GHZCUT_BOOT-gated; gated palette shims) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:646) | 2026-07-01 audit: verbatim TU compiled in the GHZCUT flavor (build_p6scene_objs.sh:530-538), OVL_FE-linked (build_shipping.sh:264). Saturn-fit shims, all #if P6_GHZCUT_BOOT-gated with the PC path verbatim in #else: palette Setup/Store/Restore no-ops (CutsceneHBH.c:186-214; Heavies use resident CRAM blocks), colors[128]->[1] in the census header (_p67d_sizing/include/Cutscene/CutsceneHBH.h:50-62; RegisterObject 592 B pool cap), Draw registered via the p6_cuthbh_draw shim which CALLS the verbatim CutsceneHBH_Draw (p6_ovl_ghz.c:643-650). Commit cc9f333. |
 | SonicMania/Objects/Cutscene/CutsceneRules.c | NOT_STARTED | src/mania/Objects/Cutscene/CutsceneRules.c | Phase 4+: shared cutscene helpers |
-| SonicMania/Objects/Cutscene/CutsceneSeq.c | NOT_STARTED | src/mania/Objects/Cutscene/CutsceneSeq.c | Phase 4+: shared cutscene helpers |
+| SonicMania/Objects/Cutscene/CutsceneSeq.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_AIZ_TEST-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:588) | 2026-07-01 audit: verbatim TU compiled in the AIZ flavor (build_p6scene_objs.sh:497-518), OVL_FE-linked (build_shipping.sh:252). Commit cc9f333. |
 | SonicMania/Objects/Cutscene/FXExpandRing.c | NOT_STARTED | src/mania/Objects/Cutscene/FXExpandRing.c | Phase 4+: shared cutscene helpers |
 | SonicMania/Objects/Cutscene/FXFade.c | NOT_STARTED | src/mania/Objects/Cutscene/FXFade.c | Phase 4+: shared cutscene helpers |
-| SonicMania/Objects/Cutscene/FXRuby.c | NOT_STARTED | src/mania/Objects/Cutscene/FXRuby.c | Phase 4+: shared cutscene helpers |
+| SonicMania/Objects/Cutscene/FXRuby.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_AIZ_TEST-gated; 1 REV02 sed) | tools/_decomp_raw via _FXRuby_rev02.c (overlay; p6_ovl_ghz.c:618) | 2026-07-01 audit: verbatim TU with ONE build-local sed (GetTintLookupTable neutralized — REV02 table absent from RSDKFunctionTable; build_p6scene_objs.sh:499-506, cache untouched), OVL_FE-linked (build_shipping.sh:252). Ruby-warp fade rendered via VDP2 color offset (Tier-B.1, ST-058-R2 Ch.13). Commit cc9f333. |
 | SonicMania/Objects/Cutscene/FXSpinRay.c | NOT_STARTED | src/mania/Objects/Cutscene/FXSpinRay.c | Phase 4+: shared cutscene helpers |
 | SonicMania/Objects/Cutscene/FXTrail.c | NOT_STARTED | src/mania/Objects/Cutscene/FXTrail.c | Phase 4+: shared cutscene helpers |
 | SonicMania/Objects/Cutscene/FXWaveRing.c | NOT_STARTED | src/mania/Objects/Cutscene/FXWaveRing.c | Phase 4+: shared cutscene helpers |
@@ -357,7 +395,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/ERZ/ERZRider.c | NOT_STARTED | src/mania/Objects/ERZ/ERZRider.c | Phase 8: Egg Reverie boss |
 | SonicMania/Objects/ERZ/ERZSetup.c | NOT_STARTED | src/mania/Objects/ERZ/ERZSetup.c | Phase 8: Egg Reverie boss |
 | SonicMania/Objects/ERZ/ERZShinobi.c | NOT_STARTED | src/mania/Objects/ERZ/ERZShinobi.c | Phase 8: Egg Reverie boss |
-| SonicMania/Objects/ERZ/ERZStart.c | NOT_STARTED | src/mania/Objects/ERZ/ERZStart.c | Phase 8: Egg Reverie boss |
+| SonicMania/Objects/ERZ/ERZStart.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:164) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (inert Player-closure ref at GHZ scope). |
 | SonicMania/Objects/ERZ/KleptoMobile.c | NOT_STARTED | src/mania/Objects/ERZ/KleptoMobile.c | Phase 8: Egg Reverie boss |
 | SonicMania/Objects/ERZ/PhantomEgg.c | NOT_STARTED | src/mania/Objects/ERZ/PhantomEgg.c | Phase 8: Egg Reverie boss |
 | SonicMania/Objects/ERZ/PhantomGunner.c | NOT_STARTED | src/mania/Objects/ERZ/PhantomGunner.c | Phase 8: Egg Reverie boss |
@@ -366,7 +404,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/ERZ/PhantomMissile.c | NOT_STARTED | src/mania/Objects/ERZ/PhantomMissile.c | Phase 8: Egg Reverie boss |
 | SonicMania/Objects/ERZ/PhantomMystic.c | NOT_STARTED | src/mania/Objects/ERZ/PhantomMystic.c | Phase 8: Egg Reverie boss |
 | SonicMania/Objects/ERZ/PhantomRider.c | NOT_STARTED | src/mania/Objects/ERZ/PhantomRider.c | Phase 8: Egg Reverie boss |
-| SonicMania/Objects/ERZ/PhantomRuby.c | NOT_STARTED | src/mania/Objects/ERZ/PhantomRuby.c | Phase 8: Egg Reverie boss |
+| SonicMania/Objects/ERZ/PhantomRuby.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_AIZ_TEST-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:614) | 2026-07-01 audit: verbatim TU compiled in the AIZ flavor (build_p6scene_objs.sh:497-518), OVL_FE-linked (build_shipping.sh:252). CAVEAT (gated logic workaround, root cause open): beat-7 ruby is ACTIVE_BOUNDS while off-screen so its flash timer never ticks on Saturn; forced ACTIVE_NORMAL at cutscene_state>=7 (p6_ovl_ghz.c:1136-1147, #309). Commit cc9f333. |
 | SonicMania/Objects/ERZ/PhantomShield.c | NOT_STARTED | src/mania/Objects/ERZ/PhantomShield.c | Phase 8: Egg Reverie boss |
 | SonicMania/Objects/ERZ/PhantomShinobi.c | NOT_STARTED | src/mania/Objects/ERZ/PhantomShinobi.c | Phase 8: Egg Reverie boss |
 | SonicMania/Objects/ERZ/PKingAttack.c | NOT_STARTED | src/mania/Objects/ERZ/PKingAttack.c | Phase 8: Egg Reverie boss |
@@ -404,70 +442,70 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/FBZ/Tuesday.c | NOT_STARTED | src/mania/Objects/FBZ/Tuesday.c | Phase 7: Flying Battery Zone |
 | SonicMania/Objects/FBZ/TwistingDoor.c | NOT_STARTED | src/mania/Objects/FBZ/TwistingDoor.c | Phase 7: Flying Battery Zone |
 | SonicMania/Objects/FBZ/WarpDoor.c | NOT_STARTED | src/mania/Objects/FBZ/WarpDoor.c | Phase 7: Flying Battery Zone |
-| SonicMania/Objects/GHZ/Batbrain.c | PORTED | src/mania/Objects/GHZ/Batbrain.c | Phase 2.4h: GHZ Batbrain badnik on the RSDK entity engine; CheckPlayerInRange/DropToPlayer/Fly/FlyToCeiling states; RSDK.Rand(0,8) -> deterministic LCG; Player_CheckCollisionBox stomp/hurt; g_batbrain_atlas 11 frames |
-| SonicMania/Objects/GHZ/Bridge.c | PORTED | src/mania/Objects/GHZ/Bridge.c | Phase 2.4-PLAT: GHZ bridge gimmick — the SOLE visible class of the increment; draws GHZ/Bridge.bin planks + sine depression under player weight via Bridge_draw_only; atlas cd/BRIDGE.SP2 reproducible from extracted/Data/Sprites/GHZ/Bridge.bin |
+| SonicMania/Objects/GHZ/Batbrain.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:712) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:270), registered with full decomp callbacks (engine RSDK.Rand, no LCG substitute). Supersedes the Phase 2.4h hand-port. |
+| SonicMania/Objects/GHZ/Bridge.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:396) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:267), registered with full decomp callbacks (#181; BurningLog dep NULLed in p6_closure_edge.c). Supersedes the Phase 2.4-PLAT src/mania hand-port. |
 | SonicMania/Objects/GHZ/BurningLog.c | NOT_STARTED | src/mania/Objects/GHZ/BurningLog.c | Phase 2d: GHZ burning log |
-| SonicMania/Objects/GHZ/BuzzBomber.c | NOT_STARTED | src/mania/Objects/GHZ/BuzzBomber.c | Phase 2c: GHZ BuzzBomber badnik |
+| SonicMania/Objects/GHZ/BuzzBomber.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:700) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:270), registered with full decomp callbacks (badnik batch 2). |
 | SonicMania/Objects/GHZ/CheckerBall.c | NOT_STARTED | src/mania/Objects/GHZ/CheckerBall.c | Phase 2d: GHZ checker ball gimmick |
-| SonicMania/Objects/GHZ/Chopper.c | PORTED | src/mania/Objects/GHZ/Chopper.c | Phase 2.4h: GHZ Chopper badnik on the RSDK entity engine; Jump/Swim states (charge/Water branch inert per GHZ Act 1 scene); Player_CheckCollisionBox stomp/hurt; g_chopper_atlas 24 frames |
+| SonicMania/Objects/GHZ/Chopper.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:704) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:270), registered with full decomp callbacks. Supersedes the Phase 2.4h hand-port. |
 | SonicMania/Objects/GHZ/CorkscrewPath.c | NOT_STARTED | src/mania/Objects/GHZ/CorkscrewPath.c | Phase 2d: GHZ corkscrew path |
-| SonicMania/Objects/GHZ/Crabmeat.c | PORTED | src/mania/Objects/GHZ/Crabmeat.c | Phase 2.4h: GHZ Crabmeat badnik on the RSDK entity engine; Init/Moving/Shoot states; no-floor-ahead turn via Player_SurfaceY==SMS_NO_FLOOR; projectile spawn Saturn-fit no-op (FIXME 2.5); Player_CheckCollisionBox; g_crabmeat_atlas 22 frames |
+| SonicMania/Objects/GHZ/Crabmeat.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:696) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:270), registered with full decomp callbacks — real projectile spawn included (no Saturn-fit no-op). Supersedes the Phase 2.4h hand-port. |
 | SonicMania/Objects/GHZ/DDWrecker.c | NOT_STARTED | src/mania/Objects/GHZ/DDWrecker.c | Phase 2f: GHZ Act 1 boss (Death Egg Wrecker) |
 | SonicMania/Objects/GHZ/DERobot.c | NOT_STARTED | src/mania/Objects/GHZ/DERobot.c | Phase 2f: GHZ Act 2 boss |
 | SonicMania/Objects/GHZ/Fireball.c | NOT_STARTED | src/mania/Objects/GHZ/Fireball.c | Phase 2d: GHZ fireball hazard |
 | SonicMania/Objects/GHZ/GHZ2Outro.c | NOT_STARTED | src/mania/Objects/GHZ/GHZ2Outro.c | Phase 2: GHZ Act 2 outro cutscene |
 | SonicMania/Objects/GHZ/GHZCutsceneK.c | NOT_STARTED | src/mania/Objects/GHZ/GHZCutsceneK.c | Phase 2: GHZ Knuckles intro cutscene |
-| SonicMania/Objects/GHZ/GHZCutsceneST.c | NOT_STARTED | src/mania/Objects/GHZ/GHZCutsceneST.c | Phase 2: GHZ Sonic/Tails intro cutscene |
-| SonicMania/Objects/GHZ/GHZSetup.c | PORTED (Phase 2.1 subset) | src/mania/Objects/GHZ/GHZSetup.c | StageLoad triggers Saturn-side ghz_setup_foreground + ghz_setup_sky + CD-DA track 2 BGM. Other callbacks empty (per decomp). StaticUpdate palette rotation + DrawAniTiles deferred to Phase 2.3 (cosmetic). Full Act 1/Act 2 BGSwitch branching deferred to Phase 2.2 once TileLayer scroll-pos plumbing is wired. |
-| SonicMania/Objects/GHZ/Motobug.c | NOT_STARTED | src/mania/Objects/GHZ/Motobug.c | Phase 2c: GHZ Motobug badnik |
-| SonicMania/Objects/GHZ/Newtron.c | NOT_STARTED | src/mania/Objects/GHZ/Newtron.c | Phase 2c: GHZ Newtron badnik |
-| SonicMania/Objects/GHZ/SpikeLog.c | NOT_STARTED | src/mania/Objects/GHZ/SpikeLog.c | Phase 2d: GHZ spike log hazard |
+| SonicMania/Objects/GHZ/GHZCutsceneST.c | PORTED (P6 engine track, front-end-gated, UNCOMMITTED on cc9f333) | tools/_portspike/_p6/ (NOT src/mania/) | Task #309: ported VERBATIM on the P6.8 RSDKv5 engine (not the src/mania hand-port). Drives the AIZ->GHZCutscene->playable-GHZ handoff; all 4 cutscene beats (FadeIn/FinishRubyWarp/ExitHBH/SetupGHZ1) run, handoff to playable Green Hill Zone GREEN. Fade (VDP2 color-offset), 5 Heavies (HBHOBJ.SHT/PAK), and the live menu->intro->cutscene->GHZ loop all DONE+VERIFIED. OPEN (task #309 #2b): the cutscene BLACK SKY — Sonic/Tails warp in against black because the GHZ BG Outside layer is un-ported; the FG sky cells are populated-transparent and NO flat-fill works (4 shortcuts RED, gate tools/qa_ghzcut_sky.py). NEEDS a real VDP2 NBG behind the FG (AIZ-BG style, task #253 class). See memory ghzcutscene-sky-needs-bg-outside-render + ghzcutscene-handoff-budget-feasible. |
+| SonicMania/Objects/GHZ/GHZSetup.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:166) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w4 loop (:385-409), PACK-linked (:788); registered via RSDK_REGISTER_OBJECT (F.4 GHZ1->GHZ2 ATL trigger). Supersedes the Phase 2.1 src/mania subset. StaticUpdate palette rotation blocked engine-side by the DrawAniTile stub (object_census.json draw_stub_set). |
+| SonicMania/Objects/GHZ/Motobug.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:708) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:270), registered with full decomp callbacks (badnik batch 2). Supersedes the UPGRADED (Phase 2.4c) Entities.c hand-port row above. |
+| SonicMania/Objects/GHZ/Newtron.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:692) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:270), registered with full decomp callbacks (badnik batch 2). |
+| SonicMania/Objects/GHZ/SpikeLog.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:407) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:267), registered with full decomp callbacks (O3 step 1). |
 | SonicMania/Objects/GHZ/Splats.c | NOT_STARTED | src/mania/Objects/GHZ/Splats.c | Phase 2c: GHZ Splats badnik (cut-content) |
 | SonicMania/Objects/GHZ/WaterfallSound.c | NOT_STARTED | src/mania/Objects/GHZ/WaterfallSound.c | Phase 2: GHZ waterfall ambient sound |
 | SonicMania/Objects/GHZ/ZipLine.c | NOT_STARTED | src/mania/Objects/GHZ/ZipLine.c | Phase 2d: GHZ zip-line gimmick |
-| SonicMania/Objects/Global/ActClear.c | NOT_STARTED | src/mania/Objects/Global/ActClear.c | Phase 3: Act clear screen |
-| SonicMania/Objects/Global/Animals.c | NOT_STARTED | src/mania/Objects/Global/Animals.c | Phase 2: Animals (badnik release) |
+| SonicMania/Objects/Global/ActClear.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:156) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack; registered via RSDK_REGISTER_OBJECT (F.2 stageFinishCallback chain). |
+| SonicMania/Objects/Global/Animals.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:688) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:269; overlay-resident because Bridge_HandleCollisions references it intra-overlay per build_shipping.sh:198-199). |
 | SonicMania/Objects/Global/Announcer.c | NOT_STARTED | src/mania/Objects/Global/Announcer.c | Phase 4: Announcer voice |
 | SonicMania/Objects/Global/APICallback.c | NOT_STARTED | src/mania/Objects/Global/APICallback.c | Phase 1: API callback bridge |
-| SonicMania/Objects/Global/BoundsMarker.c | PORTED | src/mania/Objects/Global/BoundsMarker.c | Phase 2.4g.2: Camera bounds marker — second GHZ entity on the RSDK entity engine; writes Zone camera/player/death bounds as player crosses marker X |
-| SonicMania/Objects/Global/Camera.c | NOT_STARTED | src/mania/Objects/Global/Camera.c | Phase 3: Camera follow |
+| SonicMania/Objects/Global/BoundsMarker.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:158) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. Supersedes the Phase 2.4g.2 src/mania hand-port. |
+| SonicMania/Objects/Global/Camera.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:160) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (Player-wave closure, commit 1751544). |
 | SonicMania/Objects/Global/Competition.c | NOT_STARTED | src/mania/Objects/Global/Competition.c | Phase 4: Competition mode |
 | SonicMania/Objects/Global/COverlay.c | NOT_STARTED | src/mania/Objects/Global/COverlay.c | Phase 4: Competition overlay |
 | SonicMania/Objects/Global/Debris.c | NOT_STARTED | src/mania/Objects/Global/Debris.c | Phase 2: Debris particles |
-| SonicMania/Objects/Global/DebugMode.c | NOT_STARTED | src/mania/Objects/Global/DebugMode.c | Phase Z: Debug overlay |
+| SonicMania/Objects/Global/DebugMode.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:161) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (referenced by Player + HUD). |
 | SonicMania/Objects/Global/DialogRunner.c | NOT_STARTED | src/mania/Objects/Global/DialogRunner.c | Phase 4: Modal dialog |
-| SonicMania/Objects/Global/Dust.c | NOT_STARTED | src/mania/Objects/Global/Dust.c | Phase 2: Dust particles |
+| SonicMania/Objects/Global/Dust.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:163) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. |
 | SonicMania/Objects/Global/EggPrison.c | NOT_STARTED | src/mania/Objects/Global/EggPrison.c | Phase 2f: Egg prison capsule |
 | SonicMania/Objects/Global/EncoreRoute.c | NOT_STARTED | src/mania/Objects/Global/EncoreRoute.c | Phase Z: Encore route (Plus DLC) |
-| SonicMania/Objects/Global/Explosion.c | NOT_STARTED | src/mania/Objects/Global/Explosion.c | Phase 2: Explosion particles |
-| SonicMania/Objects/Global/GameOver.c | NOT_STARTED | src/mania/Objects/Global/GameOver.c | Phase 4: Game over screen |
-| SonicMania/Objects/Global/HUD.c | NOT_STARTED | src/mania/Objects/Global/HUD.c | Phase 3: HUD overlay |
-| SonicMania/Objects/Global/ImageTrail.c | NOT_STARTED | src/mania/Objects/Global/ImageTrail.c | Phase 2: Sonic image trail (high speed) |
+| SonicMania/Objects/Global/Explosion.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:684) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:269), registered with full decomp callbacks (badnik-break chain, batch 2). |
+| SonicMania/Objects/Global/GameOver.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:165) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. |
+| SonicMania/Objects/Global/HUD.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:167) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. HUD text render blocked engine-side by the DrawString stub (object_census.json draw_stub_set; massport plan S6-adjacent). |
+| SonicMania/Objects/Global/ImageTrail.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:169) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. |
 | SonicMania/Objects/Global/InvincibleStars.c | NOT_STARTED | src/mania/Objects/Global/InvincibleStars.c | Phase 2: Invincibility stars |
 | SonicMania/Objects/Global/InvisibleBlock.c | PORTED | src/mania/Objects/Global/InvisibleBlock.c | Phase 2.4g.1: Invisible-block collision helper — first GHZ entity on the RSDK entity engine (Scene1.bin object-table spawn -> rsdk_object_tick -> Player_CheckCollisionBox) |
 | SonicMania/Objects/Global/ItemBox.c | NOT_STARTED | src/mania/Objects/Global/ItemBox.c | Phase 3: Monitors / item boxes |
 | SonicMania/Objects/Global/Localization.c | ENGINE_VERBATIM | tools/_decomp_raw (pack TU, P6.7 wave-1) | UNMODIFIED TU compiled into the engine pack; full StageLoad chain proven on hardware (qa_p6_globals G8) |
-| SonicMania/Objects/Global/Music.c | NOT_STARTED | src/mania/Objects/Global/Music.c | Phase 1 (req): BGM playback (needed for title) |
+| SonicMania/Objects/Global/Music.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:173) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack; stage BGM via CD-DA (#182, commit c4b3059-era wiring). Whole-game 58-track CD-DA budget = massport plan §9.2 item 5 (Phase S-AUDIO, open). |
 | SonicMania/Objects/Global/NoSwap.c | NOT_STARTED | src/mania/Objects/Global/NoSwap.c | Phase 4: NoSwap helper |
-| SonicMania/Objects/Global/PauseMenu.c | NOT_STARTED | src/mania/Objects/Global/PauseMenu.c | Phase 4: Pause menu |
-| SonicMania/Objects/Global/PlaneSwitch.c | PORTED | src/mania/Objects/Global/PlaneSwitch.c | Phase 2.4g.3: Z-plane switch — third (largest, 106 inst) GHZ entity on the RSDK entity engine; writes player->collisionPlane (A/B) inside the rotated AABB window; two-plane surface-probe bridge in Player.c selects raw vs raw_alt path |
-| SonicMania/Objects/Global/Player.c | PARTIAL_2.5.1 | src/mania/Objects/Global/Player.c | Phase 2.5.1: decomp-style state selector (player_state_t GROUND/AIR/ROLL + switch(p->state) dispatch in Player_Tick) replacing the binary if(onGround) branch; Roll moveset ported (Player_Action_Roll Player.c:3330, Player_HandleRollDeceleration :3466, Player_State_Roll :3932, State_Ground roll-init :3849 minRollVel 0x8800). Deferred: crouch/spindash/lookup/dropdash/super/water/shields/hurt/death (2.5.2-2.5.9). |
+| SonicMania/Objects/Global/PauseMenu.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:175) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (REV02 compat arm precedent cited at PauseMenu.c:214-224 per :499 comment). |
+| SonicMania/Objects/Global/PlaneSwitch.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:400) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:267), registered with full decomp callbacks (#254 loop fix, 106 GHZ1 placements). Supersedes the Phase 2.4g.3 src/mania hand-port. |
+| SonicMania/Objects/Global/Player.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:176) | 2026-07-01 audit: the FULL verbatim decomp Player TU is compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (21-TU Player-wave closure, commit 1751544) — complete state machines + animation system, not a subset. Supersedes the PARTIAL_2.5.1/FR-1 src/mania hand-port rows entirely. Pack->overlay Ring_LoseRings forward via p6_closure_edge.c:344 (#258b). |
 | SonicMania/Objects/Global/ReplayRecorder.c | NOT_STARTED | src/mania/Objects/Global/ReplayRecorder.c | Phase Z: Replay recorder |
-| SonicMania/Objects/Global/Ring.c | NOT_STARTED | src/mania/Objects/Global/Ring.c | Phase 3: Rings |
-| SonicMania/Objects/Global/SaveGame.c | NOT_STARTED | src/mania/Objects/Global/SaveGame.c | Phase 5: Save data |
-| SonicMania/Objects/Global/ScoreBonus.c | NOT_STARTED | src/mania/Objects/Global/ScoreBonus.c | Phase 3: Score bonus popup |
-| SonicMania/Objects/Global/Shield.c | NOT_STARTED | src/mania/Objects/Global/Shield.c | Phase 3: Shields |
-| SonicMania/Objects/Global/SignPost.c | NOT_STARTED | src/mania/Objects/Global/SignPost.c | Phase 3: Signpost |
-| SonicMania/Objects/Global/Soundboard.c | NOT_STARTED | src/mania/Objects/Global/Soundboard.c | Phase 1: Sound effect dispatcher |
+| SonicMania/Objects/Global/Ring.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw via p6_ring2.cpp (overlay; p6_ovl_ghz.c:384) | 2026-07-01 audit: verbatim decomp Ring compiled as the overlay member p6_ring2.o (build_p6scene_objs.sh:282-284), registered with full decomp callbacks. Pack-side Ring_LoseRings/LoseHyperRings forward pack->overlay at runtime (p6_closure_edge.c:335-352, #258b; edge-audited). |
+| SonicMania/Objects/Global/SaveGame.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:177) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. CAVEAT: SaveGame_LoadFile/ResetPlayerState/SaveLoadedCB are STUBBED overlay-side for the menu (p6_menu_closure.c:247-273) — menu start runs the No-Save path; backup-RAM persistence (massport plan S7) still open. |
+| SonicMania/Objects/Global/ScoreBonus.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:178) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. |
+| SonicMania/Objects/Global/Shield.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:179) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. |
+| SonicMania/Objects/Global/SignPost.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:180) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (F.3: spawns ActClear -> GHZ1->GHZ2 advance, #232/#236). Sparkle-ring Ring_State_Sparkle/Draw_Sparkle are pack-side no-op stubs (p6_closure_edge.c:387-388, cosmetic, edge-witnessed). |
+| SonicMania/Objects/Global/Soundboard.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:182) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. |
 | SonicMania/Objects/Global/SpecialRing.c | NOT_STARTED | src/mania/Objects/Global/SpecialRing.c | Phase 5: Special stage ring |
 | SonicMania/Objects/Global/SpeedGate.c | NOT_STARTED | src/mania/Objects/Global/SpeedGate.c | Phase 2: Speed gate |
-| SonicMania/Objects/Global/Spikes.c | NOT_STARTED | src/mania/Objects/Global/Spikes.c | Phase 3: Spikes |
-| SonicMania/Objects/Global/Spring.c | NOT_STARTED | src/mania/Objects/Global/Spring.c | Phase 3: Springs |
+| SonicMania/Objects/Global/Spikes.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:415) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:267), registered with full decomp callbacks (Press = lone GHZ1-dead NULL per p6_closure_edge.c). Supersedes the Phase 2.4c static-subset src/mania hand-port row above. |
+| SonicMania/Objects/Global/Spring.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:392) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:267), registered with full decomp callbacks (O1 step 1, commit db9dfe4). |
 | SonicMania/Objects/Global/StarPost.c | NOT_STARTED | src/mania/Objects/Global/StarPost.c | Phase 3: Star post (checkpoint) |
 | SonicMania/Objects/Global/SuperSparkle.c | NOT_STARTED | src/mania/Objects/Global/SuperSparkle.c | Phase 5: Super-Sonic sparkle |
 | SonicMania/Objects/Global/TimeAttackGate.c | NOT_STARTED | src/mania/Objects/Global/TimeAttackGate.c | Phase Z: Time-attack gate |
 | SonicMania/Objects/Global/TitleCard.c | PORTED | src/mania/Objects/Global/TitleCard.c | Phase 2.4j.1: act-intro card on the RSDK engine (Bridge-model — registered class + module-static EntityTitleCard driven by titlecard_tick/_draw_only; g_titlecard_active freezes Player/jump/HUD). 6 states + 3 draw states + text trio ported; atlas TITLECARD.SP2/.MET reproducible from extracted Global/TitleCard.bin; Gate V-2.4j1 GREEN. Phase 2.4j.2: fixed user-reported act-intro defects (2026-05-29) — (1) oversized black slab + missing GREEN HILL/ZONE text: atlas failed to load because "TITLECARD.SP2" (13 chars) exceeded SGL GFS_FNAME_LEN=12 -> jo_fs_read_file NULL; renamed to TITLCARD (8-char base, 12-char file) + LWRAM-scratch loader (entity_atlas_load_ex bypasses jo_malloc OOM). (2) garbled/sheared ZONE letters: jo/SGL slDispSprite truncates VDP1 char-size width to `width & 0x1f8` (sprites.c:212) while DMA-copying data at the actual width (:220), so non-mult-8 widths >=8 (ZONE Z/O/N/E = 26/26/26/28) shear diagonally; build_entity_atlas.py now pads every SP2 frame width up to a multiple of 8 with transparent right-columns (pivots/origin unchanged, layout preserved) — applied to all 16 atlases for provenance consistency. Gate V-2.4j2 GREEN (P1 names<=12, P2 base<=8, P4 all widths mult-8); visually confirmed clean ZONE at 3fps |
-| SonicMania/Objects/Global/Zone.c | PORTED (bounds subset) | src/mania/Objects/Global/Zone.c | Phase 2.4g.2: camera/player/death bounds globals + zone_init_default_bounds (Zone.c:221-235) + zone_reset_bounds; full Zone state machine deferred |
+| SonicMania/Objects/Global/Zone.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:189) | 2026-07-01 audit: the FULL verbatim Zone TU is compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (incl. Zone_StoreEntities/ReloadStoredEntities for the F.4 act transition). Supersedes the Phase 2.4g.2 bounds-subset hand-port. |
 | SonicMania/Objects/HCZ/Blastoid.c | NOT_STARTED | src/mania/Objects/HCZ/Blastoid.c | Phase 7: Hydrocity Zone |
 | SonicMania/Objects/HCZ/BreakBar.c | NOT_STARTED | src/mania/Objects/HCZ/BreakBar.c | Phase 7: Hydrocity Zone |
 | SonicMania/Objects/HCZ/Buggernaut.c | NOT_STARTED | src/mania/Objects/HCZ/Buggernaut.c | Phase 7: Hydrocity Zone |
@@ -495,13 +533,13 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/HCZ/TwistingSlide.c | NOT_STARTED | src/mania/Objects/HCZ/TwistingSlide.c | Phase 7: Hydrocity Zone |
 | SonicMania/Objects/HCZ/WaterGush.c | NOT_STARTED | src/mania/Objects/HCZ/WaterGush.c | Phase 7: Hydrocity Zone |
 | SonicMania/Objects/HCZ/Whirlpool.c | NOT_STARTED | src/mania/Objects/HCZ/Whirlpool.c | Phase 7: Hydrocity Zone |
-| SonicMania/Objects/Helpers/BadnikHelpers.c | NOT_STARTED | src/mania/Objects/Helpers/BadnikHelpers.c | Phase 1+: helper utilities (used by many objects) |
+| SonicMania/Objects/Helpers/BadnikHelpers.c | ENGINE_VERBATIM (P6 GHZ overlay TU) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:680) | 2026-07-01 audit: verbatim TU (build_p6scene_objs.sh w4 loop :385-409) linked into the cart overlay (build_shipping.sh:269); pack-side BadnikBreak/BadnikBreakUnseeded forward pack->overlay at runtime (p6_closure_edge.c:362-381, badnik-break effect chain, batch 2). |
 | SonicMania/Objects/Helpers/ColorHelpers.c | NOT_STARTED | src/mania/Objects/Helpers/ColorHelpers.c | Phase 1+: helper utilities (used by many objects) |
 | SonicMania/Objects/Helpers/CompetitionSession.c | NOT_STARTED | src/mania/Objects/Helpers/CompetitionSession.c | Phase 1+: helper utilities (used by many objects) |
-| SonicMania/Objects/Helpers/DrawHelpers.c | NOT_STARTED | src/mania/Objects/Helpers/DrawHelpers.c | Phase 1+: helper utilities (used by many objects) |
+| SonicMania/Objects/Helpers/DrawHelpers.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:162) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack. |
 | SonicMania/Objects/Helpers/GameProgress.c | NOT_STARTED | src/mania/Objects/Helpers/GameProgress.c | Phase 1+: helper utilities (used by many objects) |
 | SonicMania/Objects/Helpers/LogHelpers.c | ENGINE_VERBATIM | tools/_decomp_raw (pack TU, P6.7 wave-1) | Verbatim + cited REV02 PrintText compat arm (PrintMessage is REV01-only) |
-| SonicMania/Objects/Helpers/MathHelpers.c | NOT_STARTED | src/mania/Objects/Helpers/MathHelpers.c | Phase 1+: helper utilities (used by many objects) |
+| SonicMania/Objects/Helpers/MathHelpers.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:172) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack; -u-rooted for menu UIControl PointInHitbox use (build_p6scene_objs.sh:737). |
 | SonicMania/Objects/Helpers/Options.c | ENGINE_VERBATIM | tools/_decomp_raw (pack TU, P6.7 wave-1) | UNMODIFIED TU; console StageLoad branch proven (SKU compat arm in APICallback.h) |
 | SonicMania/Objects/Helpers/ParticleHelpers.c | NOT_STARTED | src/mania/Objects/Helpers/ParticleHelpers.c | Phase 1+: helper utilities (used by many objects) |
 | SonicMania/Objects/Helpers/PlayerHelpers.c | NOT_STARTED | src/mania/Objects/Helpers/PlayerHelpers.c | Phase 1+: helper utilities (used by many objects) |
@@ -561,22 +599,22 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/Menu/E3MenuSetup.c | NOT_STARTED | src/mania/Objects/Menu/E3MenuSetup.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/ExtrasMenu.c | NOT_STARTED | src/mania/Objects/Menu/ExtrasMenu.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/LevelSelect.c | NOT_STARTED | src/mania/Objects/Menu/LevelSelect.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/LogoSetup.c | NOT_STARTED | src/mania/Objects/Menu/LogoSetup.c | Phase 4: menu system |
+| SonicMania/Objects/Menu/LogoSetup.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_LOGOS-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:424) | 2026-07-01 audit: verbatim TU compiled in the LOGOS flavor (build_p6scene_objs.sh:415-423), OVL_FE-linked (build_shipping.sh:210). Open: #266 splash sprite render gap, #272 Logos->Title noise band. |
 | SonicMania/Objects/Menu/MainMenu.c | NOT_STARTED | src/mania/Objects/Menu/MainMenu.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/ManiaModeMenu.c | NOT_STARTED | src/mania/Objects/Menu/ManiaModeMenu.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/MenuParam.c | NOT_STARTED | src/mania/Objects/Menu/MenuParam.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/MenuSetup.c | NOT_STARTED | src/mania/Objects/Menu/MenuSetup.c | Phase 4: menu system |
+| SonicMania/Objects/Menu/MenuSetup.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated; 1-line REV02 sed) | tools/_decomp_raw via _MenuSetup_rev02.c (overlay; p6_ovl_ghz.c:511) | 2026-07-01 audit: verbatim TU with ONE build-local sed (GameInfo->platform -> sku_platform, REV02 compat arm; build_p6scene_objs.sh:460-465 — cache untouched), OVL_FE-linked (build_shipping.sh:243). Commits 532f2c5/317a651. Menu start routes Mania Mode -> No Save -> AIZ intro (SetScene "Cutscenes"/"Angel Island Zone", decomp MenuSetup.c:1121). |
 | SonicMania/Objects/Menu/OptionsMenu.c | NOT_STARTED | src/mania/Objects/Menu/OptionsMenu.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/ThanksSetup.c | NOT_STARTED | src/mania/Objects/Menu/ThanksSetup.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/TimeAttackMenu.c | NOT_STARTED | src/mania/Objects/Menu/TimeAttackMenu.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/UIBackground.c | BUILDS | src/mania/Objects/Menu/UIBackground.c | Phase 3.2.a (Task #145, 2026-05-28): class registered; 27 entity instances per Menu/Scene1.bin now resolve at scene-load. Phase 3.2.b (Task #146, 2026-05-28): DrawNormal body ported per decomp L44-70 using new rsdk_fill_screen + rsdk_draw_circle + rsdk_draw_circle_outline primitives (Saturn: slBack1ColSet back-colour + NBG1-bitmap midpoint-circle scanlines). |
-| SonicMania/Objects/Menu/UIButton.c | BUILDS | src/mania/Objects/Menu/UIButton.c | Phase 3.2.c.1 (Task #148, 2026-05-28): full lifecycle + state machines (Update / Draw / Create / ProcessButtonCB / ButtonEnterCB / ButtonLeaveCB / SelectedCB / State_HandleButtonEnter/Leave/Selected) ported per decomp L12-898. UIChoice/UIResPicker/UIVsRoundPicker/UIWinSize cross-class dispatch gated NULL pending Phase 3.2.c.2. Touch I/O stubbed (no Saturn touchscreen). DrawParallelogram wires through new VDP1 polygon emitter (rsdk_draw_face). |
+| SonicMania/Objects/Menu/UIBackground.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:519) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484), OVL_FE-linked (build_shipping.sh:243); FillScreen routes to p6_fillscreen_saturn (p6_stubs.cpp M1b fix, build_p6scene_objs.sh:263-269). Supersedes the Phase 3.2.a/b src/mania hand-port. |
+| SonicMania/Objects/Menu/UIButton.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:523) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484), OVL_FE-linked (build_shipping.sh:243). UIChoice/UIResPicker/UIVsRoundPicker/UIWinSize cross-class edges are inert stubs in p6_menu_closure.c:196-206 (edge-witnessed). Supersedes the Phase 3.2.c.1 src/mania hand-port. |
 | SonicMania/Objects/Menu/UIButtonLabel.c | NOT_STARTED | src/mania/Objects/Menu/UIButtonLabel.c | Phase 3.2.c.2: UIHeading + UIText + UIInfoLabel + UIButtonLabel batch |
-| SonicMania/Objects/Menu/UIButtonPrompt.c | BUILDS | src/mania/Objects/Menu/UIButtonPrompt.c | Phase 3.2.c.1 (Task #148, 2026-05-28): full lifecycle ported per decomp L12-518. UI/Buttons.bin atlas loaded at StageLoad. Pad-type UIBUTTONPROMPT_SATURN_WHITE for 3-button/6-button/3D Analog Pad (atlas has one Saturn glyph variant). API_GetConfirmButtonFlip pinned 0 (A=confirm, B=back per Mega Drive convention). |
+| SonicMania/Objects/Menu/UIButtonPrompt.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:535) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484), OVL_FE-linked (build_shipping.sh:243); APICallback_GetConfirmButtonFlip stub returns false (p6_closure_edge.c:164). Supersedes the Phase 3.2.c.1 src/mania hand-port. |
 | SonicMania/Objects/Menu/UICarousel.c | NOT_STARTED | src/mania/Objects/Menu/UICarousel.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UICharButton.c | NOT_STARTED | src/mania/Objects/Menu/UICharButton.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIChoice.c | NOT_STARTED | src/mania/Objects/Menu/UIChoice.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/UIControl.c | BUILDS | src/mania/Objects/Menu/UIControl.c | Phase 3.2.a (Task #145, 2026-05-28): class registered; full ProcessInputs + tag-matching + per-control lifecycle ported. Saturn input shim extended for 3-button + 6-button + 3D Analog Control Pad. UIButton dispatch (SetupButtons / MenuChangeButtonInit / ProcessButtonInput) stubbed pending Phase 3.2.c (UIButton class port). |
+| SonicMania/Objects/Menu/UIControl.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:515) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484), OVL_FE-linked (build_shipping.sh:243). Supersedes the Phase 3.2.a src/mania hand-port. |
 | SonicMania/Objects/Menu/UICreditsText.c | NOT_STARTED | src/mania/Objects/Menu/UICreditsText.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIDialog.c | NOT_STARTED | src/mania/Objects/Menu/UIDialog.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIDiorama.c | NOT_STARTED | src/mania/Objects/Menu/UIDiorama.c | Phase 4: menu system |
@@ -585,21 +623,21 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/Menu/UIKeyBinder.c | NOT_STARTED | src/mania/Objects/Menu/UIKeyBinder.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UILeaderboard.c | NOT_STARTED | src/mania/Objects/Menu/UILeaderboard.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIMedallionPanel.c | NOT_STARTED | src/mania/Objects/Menu/UIMedallionPanel.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/UIModeButton.c | NOT_STARTED | src/mania/Objects/Menu/UIModeButton.c | Phase 4: menu system |
+| SonicMania/Objects/Menu/UIModeButton.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:545) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484, M1b), OVL_FE-linked (build_shipping.sh:243). |
 | SonicMania/Objects/Menu/UIOptionPanel.c | NOT_STARTED | src/mania/Objects/Menu/UIOptionPanel.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/UIPicture.c | NOT_STARTED | src/mania/Objects/Menu/UIPicture.c | Phase 4: menu system |
+| SonicMania/Objects/Menu/UIPicture.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_LOGOS-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:428) | 2026-07-01 audit: verbatim TU compiled in the LOGOS flavor (build_p6scene_objs.sh:415-423), OVL_FE-linked (build_shipping.sh:210). |
 | SonicMania/Objects/Menu/UIPopover.c | NOT_STARTED | src/mania/Objects/Menu/UIPopover.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIRankButton.c | NOT_STARTED | src/mania/Objects/Menu/UIRankButton.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIReplayCarousel.c | NOT_STARTED | src/mania/Objects/Menu/UIReplayCarousel.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIResPicker.c | NOT_STARTED | src/mania/Objects/Menu/UIResPicker.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/UISaveSlot.c | NOT_STARTED | src/mania/Objects/Menu/UISaveSlot.c | Phase 4: menu system |
+| SonicMania/Objects/Menu/UISaveSlot.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:560) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484, M2), OVL_FE-linked (build_shipping.sh:243). Seated by the dual-stride wide-scene sub-pool (588 B entity; commit da7ccaa). Save-file backing still stubbed (see SaveGame row) — No-Save path only. |
 | SonicMania/Objects/Menu/UIShifter.c | NOT_STARTED | src/mania/Objects/Menu/UIShifter.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UISlider.c | NOT_STARTED | src/mania/Objects/Menu/UISlider.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/UISubHeading.c | BUILDS | src/mania/Objects/Menu/UISubHeading.c | Phase 3.2.c.1 (Task #148, 2026-05-28): non-Plus lifecycle (Update / Draw / Create / StageLoad) ported per decomp L12-76. DrawParallelogram backdrop routes through new VDP1 polygon emitter. Plus-only SaveSelect helper block (UISubHeading_Initialize/HandleUnlocks/SetupActions/SaveButton_ActionCB, decomp L82-413) deferred — out of scope for Mania-only Saturn ship. |
+| SonicMania/Objects/Menu/UISubHeading.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:531) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484), OVL_FE-linked (build_shipping.sh:243). Supersedes the Phase 3.2.c.1 src/mania hand-port. |
 | SonicMania/Objects/Menu/UITABanner.c | NOT_STARTED | src/mania/Objects/Menu/UITABanner.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UITAZoneModule.c | NOT_STARTED | src/mania/Objects/Menu/UITAZoneModule.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIText.c | NOT_STARTED | src/mania/Objects/Menu/UIText.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/UITransition.c | NOT_STARTED | src/mania/Objects/Menu/UITransition.c | Phase 4: menu system |
+| SonicMania/Objects/Menu/UITransition.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:569) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484, M2), OVL_FE-linked (build_shipping.sh:243). Commit da7ccaa. |
 | SonicMania/Objects/Menu/UIUsernamePopup.c | NOT_STARTED | src/mania/Objects/Menu/UIUsernamePopup.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIVideo.c | NOT_STARTED | src/mania/Objects/Menu/UIVideo.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIVsCharSelector.c | NOT_STARTED | src/mania/Objects/Menu/UIVsCharSelector.c | Phase 4: menu system |
@@ -608,7 +646,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/Menu/UIVsScoreboard.c | NOT_STARTED | src/mania/Objects/Menu/UIVsScoreboard.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIVsZoneButton.c | NOT_STARTED | src/mania/Objects/Menu/UIVsZoneButton.c | Phase 4: menu system |
 | SonicMania/Objects/Menu/UIWaitSpinner.c | NOT_STARTED | src/mania/Objects/Menu/UIWaitSpinner.c | Phase 4: menu system |
-| SonicMania/Objects/Menu/UIWidgets.c | BUILDS | src/mania/Objects/Menu/UIWidgets.c | Phase 3.2.b (Task #146, 2026-05-28): class registered as service singleton. StageLoad + ApplyLanguage (LANGUAGE_EN-only NTSC-US) + StaticUpdate timer + SFX globals ported per decomp L12-89. Drawing helpers (DrawRectOutline_*, DrawParallelogram, DrawRightTriangle, DrawEquilateralTriangle, DrawTriJoinRect) carry decomp-faithful signatures; bodies stubbed pending Phase 3.2.c VDP1 polygon emitter. DrawUpDownArrows + DrawLeftRightArrows wired through rsdk_draw_sprite. |
+| SonicMania/Objects/Menu/UIWidgets.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_MENU-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:527) | 2026-07-01 audit: verbatim TU compiled in the MENU flavor (build_p6scene_objs.sh:471-484), OVL_FE-linked (build_shipping.sh:243); parallelogram/plate draws route through RSDK.DrawFace -> p6_drawface_saturn (M3 #295 fix, p6_pack_stubs.cpp forward, build_p6scene_objs.sh:273-280). Supersedes the Phase 3.2.b src/mania hand-port. |
 | SonicMania/Objects/Menu/UIWinSize.c | NOT_STARTED | src/mania/Objects/Menu/UIWinSize.c | Phase 4: menu system |
 | SonicMania/Objects/MMZ/BladePole.c | NOT_STARTED | src/mania/Objects/MMZ/BladePole.c | Phase 7: Mirage Saloon (MMZ) Zone |
 | SonicMania/Objects/MMZ/BuzzSaw.c | NOT_STARTED | src/mania/Objects/MMZ/BuzzSaw.c | Phase 7: Mirage Saloon (MMZ) Zone |
@@ -629,7 +667,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/MMZ/PohBee.c | NOT_STARTED | src/mania/Objects/MMZ/PohBee.c | Phase 7: Mirage Saloon (MMZ) Zone |
 | SonicMania/Objects/MMZ/RPlaneShifter.c | NOT_STARTED | src/mania/Objects/MMZ/RPlaneShifter.c | Phase 7: Mirage Saloon (MMZ) Zone |
 | SonicMania/Objects/MMZ/Scarab.c | NOT_STARTED | src/mania/Objects/MMZ/Scarab.c | Phase 7: Mirage Saloon (MMZ) Zone |
-| SonicMania/Objects/MMZ/SizeLaser.c | NOT_STARTED | src/mania/Objects/MMZ/SizeLaser.c | Phase 7: Mirage Saloon (MMZ) Zone |
+| SonicMania/Objects/MMZ/SizeLaser.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:181) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (inert Player-closure ref at GHZ scope). |
 | SonicMania/Objects/MMZ/SpikeCorridor.c | NOT_STARTED | src/mania/Objects/MMZ/SpikeCorridor.c | Phase 7: Mirage Saloon (MMZ) Zone |
 | SonicMania/Objects/MMZ/VanishPlatform.c | NOT_STARTED | src/mania/Objects/MMZ/VanishPlatform.c | Phase 7: Mirage Saloon (MMZ) Zone |
 | SonicMania/Objects/MSZ/Armadiloid.c | NOT_STARTED | src/mania/Objects/MSZ/Armadiloid.c | Phase 7: Mirage Saloon Zone |
@@ -688,7 +726,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/PGZ/Dragonfly.c | NOT_STARTED | src/mania/Objects/PGZ/Dragonfly.c | Phase 7: Press Garden Zone |
 | SonicMania/Objects/PGZ/FrostThrower.c | NOT_STARTED | src/mania/Objects/PGZ/FrostThrower.c | Phase 7: Press Garden Zone |
 | SonicMania/Objects/PGZ/HeavyShinobi.c | NOT_STARTED | src/mania/Objects/PGZ/HeavyShinobi.c | Phase 7: Press Garden Zone |
-| SonicMania/Objects/PGZ/Ice.c | NOT_STARTED | src/mania/Objects/PGZ/Ice.c | Phase 7: Press Garden Zone |
+| SonicMania/Objects/PGZ/Ice.c | ENGINE_VERBATIM (P6 pack TU) | tools/_decomp_raw (pack; p6_wave1_reg.c:168) | 2026-07-01 audit: verbatim TU compiled by build_p6scene_objs.sh w2 loop (:336-362) into the engine pack (inert Player-closure ref at GHZ scope). |
 | SonicMania/Objects/PGZ/IceBomba.c | NOT_STARTED | src/mania/Objects/PGZ/IceBomba.c | Phase 7: Press Garden Zone |
 | SonicMania/Objects/PGZ/IceSpring.c | NOT_STARTED | src/mania/Objects/PGZ/IceSpring.c | Phase 7: Press Garden Zone |
 | SonicMania/Objects/PGZ/Ink.c | NOT_STARTED | src/mania/Objects/PGZ/Ink.c | Phase 7: Press Garden Zone |
@@ -818,12 +856,12 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/SSZ/YoyoPulley.c | NOT_STARTED | src/mania/Objects/SSZ/YoyoPulley.c | Phase 7: Stardust Speedway Zone |
 | SonicMania/Objects/Summary/Summary.c | NOT_STARTED | src/mania/Objects/Summary/Summary.c | Phase 5: results summary |
 | SonicMania/Objects/Summary/SummaryEmerald.c | NOT_STARTED | src/mania/Objects/Summary/SummaryEmerald.c | Phase 5: results summary |
-| SonicMania/Objects/Title/Title3DSprite.c | NOT_STARTED | src/mania/Objects/Title/Title3DSprite.c | Phase 1: Title 3D sprite layer |
-| SonicMania/Objects/Title/TitleBG.c | NOT_STARTED | src/mania/Objects/Title/TitleBG.c | Phase 1: Title backdrop scanline FX |
+| SonicMania/Objects/Title/Title3DSprite.c | ENGINE_VERBATIM (P6 front-end overlay TU; compiled in TITLE flavor, registration default-gated OFF) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:495) | 2026-07-01 audit: verbatim TU compiled in the TITLE flavor (build_p6scene_objs.sh:430-446, CP5b.3 #272); registration behind P6_TITLE3D_ON (default off — 5 billboard rects would thrash the 10-slot title VDP1 cache, memory title-vdp1-slot-thrash). |
+| SonicMania/Objects/Title/TitleBG.c | ENGINE_VERBATIM (P6 front-end overlay TU; compiled in TITLE flavor, registration default-gated OFF) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:478) | 2026-07-01 audit: verbatim TU compiled in the TITLE flavor (build_p6scene_objs.sh:430-446). The ONLY cached-decomp Saturn gate outside CutsceneHBH: TitleBG.c:119-122 #if !defined(P6_FRONTEND_TITLE) skips the scanline-callback installs (PC path verbatim in the build without the flag); backdrop drives VDP2 natively (p6_vdp2_present_title_backdrop + RBG0 island #276). Registration excluded by default per P6_TITLEBG_SPRITES_OFF (build_p6scene_objs.sh:93-101; VDP1 slot thrash, CP5b.5). Open: #290 clouds NBG1/B1 vs RBG0/B0 bank conflict. |
 | SonicMania/Objects/Title/TitleEggman.c | NOT_STARTED | src/mania/Objects/Title/TitleEggman.c | Phase 1: Title Eggman cameo |
-| SonicMania/Objects/Title/TitleLogo.c | NOT_STARTED | src/mania/Objects/Title/TitleLogo.c | Phase 1: Title logos + ribbons + press start |
-| SonicMania/Objects/Title/TitleSetup.c | NOT_STARTED | src/mania/Objects/Title/TitleSetup.c | Phase 1: Title scene state machine |
-| SonicMania/Objects/Title/TitleSonic.c | NOT_STARTED | src/mania/Objects/Title/TitleSonic.c | Phase 1: Title Sonic body+finger anim |
+| SonicMania/Objects/Title/TitleLogo.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_TITLE-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:444) | 2026-07-01 audit: verbatim TU compiled in the TITLE flavor (build_p6scene_objs.sh:430-446), OVL_FE-linked (build_shipping.sh:219). Supersedes the src/mania Phase 1.2 hand-port row above. |
+| SonicMania/Objects/Title/TitleSetup.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_TITLE-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:440) | 2026-07-01 audit: verbatim TU compiled in the TITLE flavor (build_p6scene_objs.sh:430-446), OVL_FE-linked (build_shipping.sh:219). Supersedes the src/mania Phase 1.2 hand-port row above. |
+| SonicMania/Objects/Title/TitleSonic.c | ENGINE_VERBATIM (P6 front-end overlay TU, P6_FRONTEND_TITLE-gated) | tools/_decomp_raw (overlay; p6_ovl_ghz.c:453) | 2026-07-01 audit: verbatim TU compiled in the TITLE flavor (build_p6scene_objs.sh:430-446, CP5b.2 #269), OVL_FE-linked (build_shipping.sh:219). Supersedes the src/mania Phase 1.2 hand-port row above. |
 | SonicMania/Objects/TMZ/BallHog.c | NOT_STARTED | src/mania/Objects/TMZ/BallHog.c | Phase 7: Titanic Monarch Zone |
 | SonicMania/Objects/TMZ/CrashTest.c | NOT_STARTED | src/mania/Objects/TMZ/CrashTest.c | Phase 7: Titanic Monarch Zone |
 | SonicMania/Objects/TMZ/CrimsonEye.c | NOT_STARTED | src/mania/Objects/TMZ/CrimsonEye.c | Phase 7: Titanic Monarch Zone |

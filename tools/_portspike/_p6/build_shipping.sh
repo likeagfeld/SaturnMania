@@ -136,6 +136,19 @@ fi
 # Default GHZ leaves all three unset.
 if [ -n "${P6_FRONTEND_CHAIN:-}" ]; then
     export P6_FRONTEND_TITLE=1
+    # #315 game-speed fix (audit-1 headline): the chain runs logic at 60 Hz via the
+    # decomp-verbatim multi-tick (RetroEngine.cpp:392-412 shape; N = elapsed
+    # vblanks, clamped P6_TICK_CAP=4). Default ON for the chain; A/B with
+    # P6_TICK_CATCHUP="" (explicit empty). Plain GHZ + single-scene flavors
+    # untouched (byte-identical).
+    export P6_TICK_CATCHUP="${P6_TICK_CATCHUP-1}"
+    # #316 F1 (contract step 1): direct VDP1 command list -- every front-end
+    # sprite/fill emits into our double-buffered command block (p6_vdp1.c),
+    # linked into SGL's preamble chain by the vblank trampoline (p6_vdp2.c).
+    # The SGL sprite pipeline carries ZERO sprites -> the measured transfer
+    # tear (title 73% torn, landing empty plans) has nothing to break.
+    # Default ON for the chain; A/B with P6_DIRECT_VDP1="" (explicit empty).
+    export P6_DIRECT_VDP1="${P6_DIRECT_VDP1-1}"
 fi
 # CP5a (Task #267): the TITLE front-end flavor IMPLIES the LOGOS flavor (it reuses
 # every shared #if defined(P6_FRONTEND_LOGOS) machinery -- frontend_frame, the VDP1

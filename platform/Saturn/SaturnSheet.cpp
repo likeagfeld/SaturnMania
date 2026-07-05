@@ -71,7 +71,14 @@ typedef signed int int32;
 // R3.1 (#305): the AIZ_TEST flavor reuses THIS 16-slot table -- AIZOBJ.SHT lands at slot
 // 15 (the 1 margin). NO bump (a 17th slot shifted .bss past the front-end heap limit ->
 // #228 boot trap, MEASURED _end 0x060BA360 blue-screen). NSHEETS=12 unchanged.
-#define SATURNSHEET_SLOTS     16
+// STEP-3 GHZ CHAIN STAGING (2026-07-03, frontend-cart-map-recarve memory): +9 slots
+// for the handoff-seam staging of the 9 GHZ gameplay sheets (SONIC1/2/3, ITEMS,
+// DISPLAY, SHIELDS, TAILS1, GLOBJ, GHZOBJ) so the chain's landing renders players/
+// HUD/rings. .bss +288 B is SAFE in front-end flavors: with the player pack moved
+// to CART the old #228 wall (WRAM ANIMPAK 0x060B6C00) no longer applies here -- the
+// real ceiling is the GLOBALS window 0x060C8000, ~52 KB above the chain _end. The
+// R3.1 "17th slot trap" note below predates the pack relocation.
+#define SATURNSHEET_SLOTS     25
 #elif defined(P6_FRONTEND_TITLE)
 // CP5b.3 (#272): the TITLE flavor adds a 13th slot for TBG.SHT (Title/BG.gif, the
 // TitleBG + Title3DSprite mountains/water/billboard sheet) -- slot 12 (slots 9/10/11
@@ -115,7 +122,16 @@ typedef signed int int32;
 #define SATURNSHEET_VRAM_BASE 0x22720000u // front-end: above the GFS windows (0x22720000); 896 KB band store
 #define SATURNSHEET_VRAM_END  0x22800000u // top of the 4MB cart
 #define SATURNSHEET_RES_BASE  0x22400000u
-#define SATURNSHEET_RES_END   0x22700000u // ends at the GFS windows base (3 MB resident store)
+// F-LAND-SONIC (2026-07-03): CAP the resident bump-alloc BELOW the re-carved anim
+// pack windows (OBJ 0x22640000 + PLAYER 0x22680000..0x22691000, Animation.hpp
+// front-end arms). MEASURED: the player pack resolved INTACT at arm time (spr->
+// frames captured = pak+0x77C exactly) but Sonic's animation table read -1 later
+// -- the chain's cumulative MakeResident traffic (6 scenes vs the title-only
+// ~0x225E8000 fill this end was sized against) grew across 0x22680000 and smashed
+// the pack head (Tails' table at +0xACB4 survived = the exact symptom split).
+// Shortfall degrades gracefully: Stage's resident-fit check falls back to banded.
+#define SATURNSHEET_RES_END   0x225A0000u // FINAL CARVE: 1.625 MB resident store; packs at
+                                          // 0x225A0000/0x225E0000, SaturnLayout at 0x22600000+
 #else
 #define SATURNSHEET_VRAM_BASE 0x227A0000u // 4MB cart, after STG(3MB)+TMP(640KB)
 #define SATURNSHEET_VRAM_END  0x22800000u // top of the 4MB cart (384 KB store)
@@ -183,6 +199,19 @@ extern "C" int32 SaturnSheet_Stage(const void *blob, uint32 bytes)
     if (!(b[0] == 'S' && b[1] == 'H' && b[2] == 'B' && b[3] == '1'))
         return -1;
     uint32 vbase = (s_cursor + 1u) & ~1u;
+#if defined(P6_FRONTEND_TITLE)
+    // #2a band-store vs OBJANIMPAK overlap: the front-end TITLE band store base was
+    // lowered to 0x22720000 (for TSONIC) so it OVERLAPS the shared OBJANIMPAK cart
+    // window (Animation.hpp P6_HW_OBJANIMPAK 0x22760000 + CAP 0x40000 = 0x227A0000). A
+    // sheet staged in [0x22760000,0x227A0000) is CLOBBERED when HBHOBJ.PAK loads there
+    // -> SaturnSheet_FetchRect reads a garbage band dir -> the cutscene sprites drop
+    // (MEASURED dropreason=4 bucket-fetch, fetchret=0, shtSlot=9 HBHOBJ). GHZ's band
+    // store starts AT 0x227A0000 (adjacent, no overlap) so this is FRONT-END ONLY ->
+    // GHZ byte-identical. FIX: the bump-allocator SKIPS the pak window; sheets use
+    // [0x22720000,0x22760000) + [0x227A0000,0x22800000).
+    if (vbase < 0x227A0000u && vbase + bytes > 0x22760000u)
+        vbase = 0x227A0000u;
+#endif
     if (vbase + bytes > SATURNSHEET_VRAM_END)
         return -1;
 

@@ -4,7 +4,291 @@
 
 ---
 
+## 0. LATEST SESSION HANDOFF (2026-07-01) — GHZCutscene BLACK SKY (task #309 #2b)
+
+> New agent: read this section first, then the memory files it cites, then §1+
+> for the broader project. This is the single open piece of the AIZ-intro ->
+> GHZCutscene -> playable-Green-Hill-Zone chain. Everything else in that chain is
+> DONE + verified (see "GHZCutscene status" below). All work in this section is
+> **UNCOMMITTED on top of `cc9f333`** and is **`#if P6_GHZCUT_BOOT` / `#ifndef
+> P6_GHZCUT_NOFIX` gated -> the plain Green Hill Zone and AIZ shipping builds are
+> byte-identical.** The invariant "do not modify shared engine TUs / GHZ stays
+> byte-identical / all GHZCUT changes gated" is intact.
+
+### 0.0d UPDATE 2026-07-02 (close) — #312 CLOSED (builds 29-32)
+
+Final two items landed and verified: **(e) the pool-path DMA hardening**
+(un-gated slDMAWait before p6_pool_for's s_stage pack — same ST-238-R1 async
+class as the bucket fix; plain R0-R16 ALL GREEN + verify_done EXIT 0) and
+**the timeEnabled fix** (the #P0 act-clock force ran AFTER InitObjects and
+clobbered GHZCutsceneST_Create's false — moved to just BEFORE InitObjects =
+PC ordering; R6 timer=1 still GREEN for acts, the cutscene HUD TIME now holds
+0'00"00, VIEWED _g32_4.png). Magenta 0 across builds 31-32. Task #312 is
+COMPLETE: the GHZCutscene plays end-to-end clean with HUD (frozen timer),
+players fanning in + landing, claw + Phantom Ruby, all Heavies, placed rings.
+Ruby INK_ADD flash-instant = the documented additive-drawn-opaque engine
+limitation (not a garble). ALL WORK UNCOMMITTED pending the user's commit
+call. Open neighbors: #313 title crawl (pre-existing), the live-loop
+menu->AIZ->GHZCut slot-count check, Fan coverage is DONE via the pak (not the
+atlas).
+
+### 0.0c UPDATE 2026-07-02 (final) — #312 builds 30-31: the GHZCutscene plays END-TO-END clean
+
+**Build 30 (players restored):** ROOT CAUSE of the invisible players = an
+ASSET-PIPELINE clobber, not code: HBHOBJ.PAK has TWO emitters and the mech-1
+HBHPAL rebuild ran `build_heavy_atlas` STANDALONE, silently dropping the
+rewritten player bins from the pak (5 entries instead of 7) -> players loaded
+ORIGINAL DATA.RSDK bins -> unstaged sheets -> the wrap-guard dropped them.
+`build_player_atlas.py` is the AUTHORITATIVE emitter -- re-run it after ANY
+heavy rebuild (30-second detector: parse the ANM1 directory). Result: wrap255
+93->3, VIEWED _g30b_10.png = Sonic+Tails FANNING in + golden claw + PHANTOM
+RUBY + 4 Heavies + HUD = the complete dig-site.
+**Build 31 (climax stripes):** measured fmax[b0]=23>22 at the ExitHBH beat
+(every actor restages in one frame -> intra-frame slot reuse stripes) AND
+fmax[b1 192x64]=0 = dead VRAM -> GHZCUT-gated bucket re-geometry {16x20 x20,
+64x80 x24, 160x160 x8, 248x160 x1} (tiny bucket absorbs digits/rings/chains;
+VRAM 430,848->373,760 B). RED->GREEN: fmax 23 -> 6/20+12/24, magenta
+10,443->0 across the burst, post-climax beat VIEWED clean (players LANDED,
+placed rings visible). Remaining small items in task #312; everything
+UNCOMMITTED pending the user's commit call.
+
+### 0.0b UPDATE 2026-07-02 (later) — #312 staging + close-out sweep (builds 29+)
+
+**#312(a) DONE + VERIFIED (build 29):** ITEMS.SHT (slot 13) + DISPLAY.SHT
+(slot 14) staged pre-scene-load (decomp-verified both render: census places
+HUD:1 + Ring:6; GHZCutsceneST suppresses neither). Witnesses: ringsheet 13 /
+dispsheet 14 (were -1), bind_demand 2->4, wrap255 1442->93 (fan-only
+residual). VIEWED _g29_9.png: **the HUD renders authentic** (SCORE/TIME/RINGS
++ Sonic x3 life icon) over the clean dig-site; magenta gate 0/0/0/0.
+**Close-out proofs:** plain Green Hill Zone build -> qa_p6_ghz_regression
+R0-R16 ALL GREEN + verify_done.ps1 EXIT 0 (the gated #311/#312 changes leave
+shipping intact). **Title re-verify BLOCKED by a PRE-EXISTING regression**
+(task #313, A/B-PROVEN independent of this session: gate identical with the
+slDMAWait compiled out): the title intro island fly-in crawls at ~1-2fps and
+the logo screen never arrives in 185s. TOOLING gotchas recorded in #313:
+front-end builds regenerate game.cue with the malformed _arc.wav track (run
+tools/build_cdda.py after EVERY front-end build before game.cue QA — the
+title gate's first run measured Mednafen's ERROR DIALOG, not the game);
+qa_title_fg_stable's settled classifier is fooled by island pixel mass.
+Remaining in #312: player Fan-frame atlas coverage (players invisible during
+the warp-in beats — ANI_FAN is their PRIMARY anim for beats 1-2), ruby flash
+beats verify, SceneInfo->timeEnabled HUD-timer nit, commit checkpoint.
+
+### 0.0a UPDATE 2026-07-02 — #311 GARBLE CLOSED: dig-site renders authentic (builds 24-28)
+
+**Task #311 (GHZCutscene sprite garble) is CLOSED** — six mechanisms bisected,
+five fixed (one retracted), each RED-gated + savestate-measured + VIEWED
+(_g28_9.png: all four Heavies authentic, black rects gone, waterfall + flowers
++ full stage clean; magenta gate 0/0/0/0). Full forensics + reusable engine
+contracts in memory `ghzcutscene-heavies-garble-palette-and-sheets`. The two
+NEW mechanisms this session:
+- **Mech 4 (build 26):** `jo_dma_copy` == `slDMACopy` is ASYNC (ST-238-R1:
+  "terminates soon after DMA is initiated") — the next restage's pack loop
+  overwrote the shared `s_stage` staging buffer while the prior transfer was
+  in flight -> torn VDP1 textures. Fix: `slDMAWait()` before the pack in
+  `p6_title_restage_content` (bucket flavors only; plain GHZ p6_vdp1.o
+  untouched). The SAME race exists in plain GHZ `p6_pool_for` ->
+  `jo_sprite_replace`/`jo_sprite_add` — filed in #312(e) as an un-gated
+  engine fix requiring a full Green Hill Zone regression.
+- **Mech 6 (build 28):** anims whose sheets are UNSTAGED carry sheetID -1 ->
+  uint8 wraps 255 -> `p6_vdp1HandleBySurface[255]` OOB read lands on handle
+  0 = GHCOBJ -> the HUD digits / placed Rings / player Fan frames sampled the
+  claw sheet (the "black rects" = its solid-white regions). Signature-matched
+  against Global/HUD.bin + Ring.bin + Players Fan frames. Fix: GHZCUT-gated
+  sheetID >= SURFACE_COUNT drop guard (`p6_w_draw_wrap255` = 1442 by frame
+  55; slot-11 fetches -> 0; b0 fmax 17->4). Rendering those objects properly
+  = #312(a/b) staging (ITEMS.SHT/DISPLAY.SHT + Fan-frame coverage).
+Diagnostic instruments kept (GHZCUT-gated, gate-consumed): the g11
+fetch+stage ring (`qa_g11_ring.py`), the VRAM readback gate
+(`qa_g11_vram.py` — cmd-list-vs-texture NOISE caveat inside), the armed
+per-frame bucket-demand latch. Everything UNCOMMITTED; #312 carries the
+close-out sweep (plain-GHZ byte-identical proof + title/menu golden
+re-verify + commit checkpoint).
+
+### 0.0 UPDATE 2026-07-01 (final) — #310 SKY FIXED: GREEN + VIEWED
+
+**The GHZCutscene sky renders.** Build 10 turned qa_ghzcut_sky.py GREEN on every
+settled frame (sky-region mean RGB (57,50,107), n=17325px) and the frames were
+VIEWED: sky + clouds + mountains + trees + water behind the warp-in actors. Two
+root causes, both measured (full forensics in memory
+`ghzcutscene-sky-needs-bg-outside-render`):
+1. **The occluder (9 black builds):** `p6_fillscreen_saturn` drew FXRuby's
+   FillScreen(alphas 1,0,0) as a full-screen HALF-transparent VDP1 quad every
+   frame (VDP1 cmd slot 27, framebuffer 0x8000). On PC that's 1/256 = invisible.
+   Fix: no-draw gate `sum < 3` in `p6_vdp1.c` (UN-gated engine-fidelity fix —
+   the faithful quantization of a sub-visible alpha. Plain-build re-verified
+   2026-07-02: _end 0x060b5a40 (3008 B under ANIMPAK), qa_p6_ghz_regression
+   R0-R16 ALL GREEN, verify_done.ps1 exit 0).
+2. **The renderer (correct since build 7):** exact-AIZ 4-plane NBG arm
+   (`p6_vdp2_ghzcut_bg_frame`) + `cd/AGHCBG.{CHR,MAP,PAL}` from
+   `tools/build_ghzcut_bg.py` (86 tiles 4-bpp, lossless gate 0/3.1M px).
+Post-GREEN hardening in the same pass:
+- Build 11: diagnostics stripped (5 markers/counters, dead
+  `p6_vdp2_ghzcut_sky_plane`, stale comments). Exit 0.
+- Builds 12-13: **CRAM collision #3 fixed** — PAL_BASE=112 stomped the LIVE
+  merged Sonic+Tails cutscene player palette (block 7; proven via savestate
+  CRAM[1856..1871] tail). Relocated to banks 4-7 (CRAM[64..127]; no tile in any
+  of the 5 layers reads those slots, no decomp palette writer targets them,
+  every sprite colno >=256). Build 12 went RED (magenta sky): the engine's
+  bank0 palette flush rewrites CRAM[0..255] EVERY frame (witnesses proved my
+  upload ran, then was overwritten). Build 13 re-asserts the 64 words per frame
+  in p6_vdp2_ghzcut_bg_frame -> GREEN + VIEWED: sky correct AND the players now
+  render with their full palette (the build-10 wash-strips/raw-rect box on
+  Sonic+Tails are gone).
+- OPEN (separate task): entity-anchored garble strips on the Heavies —
+  measured leads in the memory hub (HBH pixels index up to 255 vs 128-color
+  HBHPAL blocks; CutsceneHBH fxAnimator -1-clear handling; PC loads Heavy
+  colors at stage indices 128-255 per CutsceneHBH.c:195).
+
+### 0.1 The symptom + the DEFINITIVE root cause (measured)
+
+When the AIZ intro hands off and the GHZCutscene renders (`currentSceneFolder ==
+"GHZCutscene"`), Sonic and Tails warp in against a **black upper screen** — the
+user's "Sonic in the ground like a corpse." Root cause, MEASURED and definitive:
+the GHZCutscene foreground (VDP2 NBG1) sky region is **populated with TRANSPARENT
+tiles** — real pattern-name cells carrying their own non-zero char index, authored
+by the game to **reveal the GHZ "BG Outside" background layer** behind them. That
+BG layer is **not ported on Saturn**, so nothing renders behind the transparent FG
+-> black. This is the same missing-layer class as task #253 (GHZ1 BG parallax +
+water) and the AIZ BG that was already solved (task #301 / R2.5).
+
+### 0.2 Four flat-fill shortcuts were tried, ALL built + gate-tested + register-verified RED
+
+RED gate: `python tools/qa_ghzcut_sky.py <state.mcs>` — the upper-center sky region
+must read sky-blue (b>70 & b>r+25 & b>=g); RED = black (0,0,0).
+
+| # | Shortcut | Result | Hard evidence |
+|---|---|---|---|
+| 1 | VDP2 back-screen color (`slBack1ColSet` + CRAM[255]=0xF180 via `p6_present_backcol`) | **overscan border ONLY** (PARTIAL WIN, kept) | blue border rendered; back-screen never shows through a transparent higher-layer region — it only frames the overscan |
+| 2 | NBG0 solid sky plane, 8bpp | still black | SGL `slScrAutoDisp` non-deterministically DROPS an NBG whose char base is in VRAM bank B1 |
+| 3 | NBG0 solid sky plane, 4bpp | still black | same SGL bank-B1 drop |
+| 4 | Fill FG char 0 opaque sky-blue (`p6_vdp2_ghzcut_sky_plane`) | still black | char-0 VRAM `peek16 0x25E00000 = 0xFFFF` (fill took) + `peek16 0x25F001FE = 0xF180` (CRAM[255] sky) CONFIRMED, yet `_skyV_15/16.png` sky still black -> **the sky cells are NOT char-0** (they are populated-transparent, per 0.1) |
+
+**Conclusion: no flat fill can work.** A back-screen color cannot reach behind a
+transparent scroll layer; a lone NBG-from-B1 will not stay armed; and the sky cells
+are populated-transparent so filling the empty/char-0 tile does nothing. The sky
+needs a **real VDP2 NBG plane rendered behind the FG.**
+
+### 0.3 THE NEXT STEP (the real fix) — render the GHZ BG Outside layer as a VDP2 NBG
+
+Build it exactly like the AIZ background that already works:
+- Reference implementation: `p6_vdp2_aiz_bg_frame` in `tools/_portspike/_p6/p6_vdp2.c`
+  (~line 1469). AIZ BG arms reliably from bank B1 ONLY because it uses a **complete
+  4-plane cycle-pattern**: `slScrCycleSet(0x55FEEEEE, 0xFFFEEEEE, 0x123FEEEE,
+  0x0467EEEE)` (nibbles: 0=N0 PN, 1=N1 PN, 4=N0 char, 5=N1 char, E=CPU, F=no-access).
+  Do NOT try to arm a lone NBG0-from-B1 (that was shortcuts 2/3).
+- Asset: the GHZ BG Outside tileset needs to be built into a Saturn-native tile/map
+  the same way the AIZ BG was (`tools/build_aiz_4bpp.py` is the template; the GHZ BG
+  Outside layer comes from `extracted/Data/Stages/GHZCutscene/` — parse the scene's
+  TileLayer list to find the BG-Outside layer index).
+- CRAM discipline (binding, R3.3 #306): the BG palette bank MUST NOT stomp the FG's
+  bank0 (CRAM[0..255]) or the VDP1 sprite bank1 (CRAM[256..511]). Use PAL_BASE >= 32
+  (CRAM[512+]) — exactly what the AIZ BG does. See memory
+  `aiz-r3-tornado-respool-trap-and-animpack-gap`.
+- Alternative (if the full BG is out of scope this session): accept the flat-blue
+  overscan (#1) as an explicit stopgap AND revert the ineffective char-0 fill (#4).
+  This is a product decision — surface it to the user, do not decide unilaterally.
+
+### 0.4 Exact in-tree state (what is wired right now, all gated)
+
+- `tools/_portspike/_p6/p6_io_main.cpp:5700-5745` — `p6_isGHZCut` detection;
+  `p6_present_backcol = 0xF180` (fix #1, the kept partial win); `p6_fg_blank_char_override
+  = -1` (the separate live-render fix, keep it); and the `p6_vdp2_ghzcut_sky_plane()`
+  call at 5742-5743 (fix #4, harmless but ineffective — it fills an FG char that the
+  sky cells don't use). All under `#ifndef P6_GHZCUT_NOFIX`.
+- `tools/_portspike/_p6/p6_vdp2.c:257` — `__attribute__((used)) unsigned short
+  p6_present_backcol = 0x8000u;` (global; 0x8000=black default, 0xF180=Mania sky-blue).
+- `p6_vdp2.c:258` — `#define P6_GHZCUT_SKY_COL 0xF180u`.
+- `p6_vdp2.c:1290-1308` — `p6_vdp2_ghzcut_sky_plane()` (fills FG char 0 at 0x25E00000
+  with palidx 255; witnesses `p6_w_ghzcut_sky`, `p6_w_ghzcut_mpab`). This is fix #4.
+- `p6_vdp2.c:1746-1799` — `p6_present_compute` sets `cram[255] = p6_present_backcol`
+  when armed; `p6_present_config` sets the back-screen to `p6_present_backcol`.
+- `tools/qa_ghzcut_sky.py` — the RED gate (created this session).
+- `_cutdata.cue` — a data-only cue (`FILE "game.iso" BINARY / TRACK 01 MODE1/2048`)
+  used for CAPTURE only, because the Docker CueMaker emits a malformed `_arc.wav`
+  audio track that crashes Mednafen. Use this cue when booting a capture.
+
+### 0.5 Build + capture + gate recipe (verified this session)
+
+Build flavors (env flags to `build_shipping.sh`): `P6_GHZCUT_BOOT` (compiles all
+GHZCUT additions; implies AIZ_TEST -> MENU), `P6_GHZCUT_DIRECTBOOT` (boot straight
+to the cutscene), `P6_GHZCUT_HOLD` (implies DIRECTBOOT; pins the FXRuby fade so the
+reveal is capturable), `P6_GHZCUT_HOLD_WHITE=0` (pins fadeBlack=1/fadeWhite=0 = a
+CLEAN reveal, the flavor used to see the sky), `P6_GHZCUT_SEAMTEST` (live-seam gate),
+`P6_GHZCUT_NOFIX` (A/B RED-proof: disables the sky fix so the gate fires RED).
+
+```
+# Build (watchdog form; ~10-15 min; needs >= ~1.5 GB free host RAM for the LTO proof-pack):
+MSYS_NO_PATHCONV=1 docker run --rm --name skybuild \
+  -e P6_GHZCUT_HOLD=1 -e P6_GHZCUT_HOLD_WHITE=0 \
+  -v "D:/sonicmaniasaturn":/work -w /work joengine-saturn:latest \
+  bash tools/_portspike/_p6/build_shipping.sh
+# Then the CD-DA host post-step (Docker has no python; CueMaker's audio cue is malformed):
+python tools/build_cdda.py cd_audio/track02.wav track03.wav --cue-out game.cue --iso game.iso
+# Capture a settled cutscene state (use the data-only cue to dodge the _arc.wav crash):
+pwsh tools/qa_savestate.ps1 -Cue _cutdata.cue -SaveFrame <~15-18> -Out samples/_sky.mcs
+# Gate + always VIEW the screenshot (a folder/register gate is a PROXY; gotcha #4):
+python tools/qa_ghzcut_sky.py samples/_sky.mcs
+```
+
+### 0.6 Build-environment gotchas hit this session (do not re-discover)
+
+- **Do NOT wrap the build in a `docker inspect` name-guard loop** — the container
+  name has not registered yet when the poll runs (race), and the guard kills the
+  build's OWN container. Launch directly; key off the outer `docker run` EXIT code +
+  the `DONE [...]` line + a fresh `game.iso` mtime.
+- An empty log + old ISO right after the container exits is **flush lag, not
+  failure** — wait for the exit code.
+- Empty build logs / Mednafen "exited during window acquisition" were **host-RAM
+  OOMs from concurrent agents**, not code faults. Check free RAM before building;
+  run captures with the host quiet; kill stray `mednafen` + remove
+  `.mednafen/mednafen.lck` before a capture.
+- One WRONG register read cost a sub-agent a build: **MPABN1 is 0x25F80044, not
+  0x25F80042** (0x42 is NBG0's own C/D-plane register). See the corrected VDP2 map
+  and the mcs WRAM-H byte-pair-swap in memory
+  `saturn-vdp2-nbg-behind-fg-register-facts` and skill gotchas #8/#10.
+
+### 0.7 GHZCutscene status (context — the sky is the LAST open piece)
+
+DONE + verified (all in memory `ghzcutscene-handoff-budget-feasible`): offline
+budget GREEN; GATE-1 handoff (AIZ -> GHZCutscene -> playable GHZ via direct-boot);
+Tier-B.1 FXRuby fade (VDP2 color-offset); Tier-B.2 five Heavies (HBHOBJ.SHT/PAK);
+GATE-2 live menu->intro->cutscene->GHZ loop + the live-render blank-char fix. OPEN:
+this section's black sky (#2b), and the pre-existing caveat #2 (post-handoff playable
+GHZ renders FG only — Player/object sprites unbound because the front-end skips
+GHZANIM/GHZOBJ). Caveat #2a (cutscene player sprites) had one attempt reverted.
+
+### 0.8 Durable record (memory files written this session)
+
+- `memory/ghzcutscene-sky-needs-bg-outside-render.md` — the sky root cause + 4 dead
+  shortcuts + the BG-Outside fix.
+- `memory/saturn-vdp2-nbg-behind-fg-register-facts.md` — corrected VDP2 map
+  registers, the map-address encode formula, SGL NBG-from-B1 drop, back-screen =
+  overscan only, mcs WRAM-H pair-swap.
+- `memory/ghzcutscene-handoff-budget-feasible.md` — updated with caveat #2b.
+- Skill `FIELD-TESTED ENGINE-PORT GOTCHAS` bumped to v2.7.0 (gotchas #6-#11).
+
+---
+
 ## 1. Executive Summary
+
+> **2026-07-01 POSITION NOTE (audit pass; measured).** Sections 1-11 and
+> the Phase 1.x/2.x/3.x entries below describe the RETIRED hand-rolled
+> demo track (`src/main.c` + `src/mania/` + `src/rsdk/`). Two claims are
+> measured-stale: (a) "The RSDKv5 C++ engine ... cannot fit inside the
+> Saturn's SH-2 budget" and §2's "Why not a direct port" — FALSIFIED by
+> the live P6 engine track, which compiles the UNMODIFIED RSDKv5 engine
+> TUs + VERBATIM decomp object TUs (`tools/_portspike/_p6/
+> build_p6scene_objs.sh`) and runs Green Hill Zone Act 1 continuously
+> (steady fps 56.56 after the camera-local pool, commit `44ed63d`);
+> (b) "Current build state" below describes the retired demo, not the
+> live build. The LIVE position is: §0 above (in-flight GHZCutscene sky
+> fix), `docs/WHOLE_GAME_MASSPORT_PLAN.md` §8-§10 (forward plan +
+> 2026-07-01 position), and `docs/decomp_port_status.md` (per-file
+> status, 2026-07-01 two-track note). Boot chain live at `cc9f333`:
+> menu -> Mania Mode (No-Save) -> AIZ intro (9 beats) -> GHZCutscene ->
+> playable Green Hill Zone. Keep reading below ONLY for hand-port-era
+> history and the asset-conversion tooling background.
 
 This project is a from-scratch Sega Saturn homebrew port of a Sonic-Mania-style 2D platformer. The repo lives at `D:\sonicmaniasaturn\` on Windows 11 and produces a bootable `game.iso` + `game.cue` pair runnable on **Mednafen Saturn core** (used for automated QA) and ultimately on real Saturn hardware via the **Satiator ODE** (a real-hardware optical drive emulator).
 

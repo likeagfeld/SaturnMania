@@ -120,7 +120,21 @@
  * SATURNSHEET_SLOTS TOGETHER tripped the #228 orphan-.bss overlap (GFS GfsMng ptr
  * corruption -> boot trap PC=0x06000956); keep the .bss delta minimal -- raise only
  * this table (+24 B), leave SATURNSHEET_SLOTS and the staged-sheet set unchanged. */
+#if defined(P6_GHZCUT_BOOT)
+/* Task #311: the GHZCutscene direct-boot binds 2 more surfaces (GHCOBJ.SHT =
+ * GHZCutscene/Objects.gif for the AIZKingClaw + Platform crate, RUBYOBJ.SHT =
+ * Global/PhantomRuby.gif) on top of the HBHOBJ+PLROBJ demand. 14 = 12 + 2.
+ * GATED so the plain GHZ table (144 B .bss) is byte-identical; the +24 B lives
+ * only in the GHZCUT flavors (same NSHEETS-only rule as the 12 bump below).
+ * STEP-3 GHZ CHAIN STAGING (2026-07-03): +9 more for the handoff-staged GHZ
+ * gameplay sheets (players/HUD/items/shields/global+GHZ objects). NSHEETS-only
+ * per the #243 rule; +216 B .bss safe in front-end flavors (real ceiling =
+ * GLOBALS 0x060C8000, ~52 KB headroom post pack-relocation -- see the
+ * frontend-cart-map-recarve memory). 23 = 14 + 9. */
+#define P6_VDP1_NSHEETS 23
+#else
 #define P6_VDP1_NSHEETS 12
+#endif
 
 /* qa_p6_draw.py D5 witness: number of distinct rects resident on VDP1.
  * __attribute__((used)) defeats LTO name-collapse so the gate can locate it
@@ -142,16 +156,74 @@ __attribute__((used)) int p6_w_vdp1_drops = 0;
 __attribute__((used)) int p6_w_vdp1_evicts = 0;
 /* W14: jo_sprite_add_8bits_image failures (the silent no-drop exit). */
 __attribute__((used)) int p6_w_vdp1_joaddfail = 0;
+#if defined(P6_FRONTEND_TITLE)
+/* #313 boundary probe (2026-07-02): the title FG dies in [60,120) capture frames
+ * while p6_w_vdp1_landed keeps +15/frame. MEASURED (savestate + LIBSGL disasm):
+ * SGL system byte GBR+0x73 (0x060FFC73, set=1 as SpriteEntry's FIRST insn before
+ * ANY reject condition, cleared each slSynch at 0x0604bdbe) reads 0 at deep
+ * frames, and the CommandBuf mailbox base (0x060F9D38) holds only slSynch's own
+ * op=4 -- ZERO sprite commands enter the mailbox all frame. These witnesses read
+ * the SGL-side counters IMMEDIATELY AFTER each jo_sprite_draw3D emit: if flag_post
+ * stays 0 the call chain jo_sprite_draw3D -> slDispSprite -> SpriteEntry is broken
+ * BEFORE SGL; if flag=1 but accept(GBR+0x74) lags attempt(GBR+0xAA), SpriteEntry
+ * is REJECTING (Z-window/count) and the snap_* one-shot captures the operands. */
+__attribute__((used)) int p6_w_sgl_flag_post = -9; /* GBR+0x73 after the LAST emit */
+__attribute__((used)) int p6_w_sgl_aa_post   = -9; /* GBR+0xAA attempts after last emit */
+__attribute__((used)) int p6_w_sgl_74_post   = -9; /* GBR+0x74 accepts  after last emit */
+__attribute__((used)) int p6_w_sgl_missing   = 0;  /* emits where flag stayed 0 (cumulative) */
+__attribute__((used)) int p6_w_sgl_rejgap    = 0;  /* max(attempt-accept) seen (cumulative) */
+__attribute__((used)) int p6_w_sgl_snap68    = 0;  /* GBR+0x68 at first reject (Z-window base) */
+__attribute__((used)) int p6_w_sgl_snapac    = -9; /* GBR+0xAC at first reject (shift count) */
+static void p6_sgl_emit_probe(void)
+{
+    volatile unsigned char  *f73 = (volatile unsigned char  *)0x060FFC73u;
+    volatile unsigned short *aa  = (volatile unsigned short *)0x060FFCAAu;
+    volatile unsigned short *s74 = (volatile unsigned short *)0x060FFC74u;
+    int gap;
+    p6_w_sgl_flag_post = (int)*f73;
+    p6_w_sgl_aa_post   = (int)*aa;
+    p6_w_sgl_74_post   = (int)*s74;
+    if (!*f73) ++p6_w_sgl_missing;
+    gap = (int)*aa - (int)*s74;
+    if (gap > p6_w_sgl_rejgap) {
+        p6_w_sgl_rejgap = gap;
+        p6_w_sgl_snap68 = (int)*(volatile unsigned long *)0x060FFC68u;
+        p6_w_sgl_snapac = (int)*(volatile unsigned char *)0x060FFCACu;
+    }
+}
+#endif
 /* CP4c BLUE-SCREEN diag: WHICH drop branch in p6_slot_for fired last, + the
  * last attempted fetch's (slot,w,h). 1=oversize(w/h>box) 2=no-fetch-fn-or-
  * fetch-failed 3=jo_sprite_add failed. lastfetch packs (shtSlot<<24)|(w<<12)|h ;
  * fetchret = the s_fetchFn return (1 ok / 0 fail). FRONT-END ONLY so the GHZ
  * hot-path p6_slot_for (60 fps-sensitive) stays byte-identical. */
-#if defined(P6_FRONTEND_LOGOS)
+#if defined(P6_FRONTEND_LOGOS) || defined(P6_GHZCUT_BOOT)
 __attribute__((used)) int p6_w_vdp1_dropreason = 0;
 __attribute__((used)) int p6_w_vdp1_lastfetch  = 0;
 __attribute__((used)) int p6_w_vdp1_fetchret   = -1;
 __attribute__((used)) int p6_w_vdp1_lastwh     = 0; /* (w<<16)|h of the last slot_for call */
+/* #311 mech-4 draw-time bisect (chain rect 258,492,16,16): djb2 of the DRAW-time
+ * fetch result + of the same region after the s_stage copy. Reload-time expected
+ * = 0x0b35cf05 (measured byte-exact twice). */
+__attribute__((used)) int p6_w_draw_fetch_h = -9;
+__attribute__((used)) int p6_w_draw_stage_h = -9;
+/* v2 ring: last 4 GHCOBJ-slot (11) fetches -- (sx<<16|sy), (w<<16|h), djb2.
+ * v3 (build 25): the ring records at the LIVE bucket fetch site
+ * (p6_title_pool_for); p6_w_g11_stage[] pairs each entry with the djb2 of the
+ * s_stage content-packed box AFTER p6_title_restage_content (pw*h bytes,
+ * pw = mult-8 padded w) -- fetch-vs-stage split localises a pack-loop tear. */
+__attribute__((used)) int p6_w_g11_rect[4]  = { -9, -9, -9, -9 };
+__attribute__((used)) int p6_w_g11_wh[4]    = { -9, -9, -9, -9 };
+__attribute__((used)) int p6_w_g11_hash[4]  = { -9, -9, -9, -9 };
+__attribute__((used)) int p6_w_g11_stage[4] = { -9, -9, -9, -9 };
+__attribute__((used)) int p6_w_g11_n        = 0;
+#endif
+/* #2a diag: tag WHICH p6_title_pool_for / p6_slot_for drop branch fired (GHZCUT only;
+ * every other flavor is a no-op so the hot path stays byte-identical). */
+#if defined(P6_GHZCUT_BOOT)
+#define P6_DR(n) (p6_w_vdp1_dropreason = (n))
+#else
+#define P6_DR(n) ((void)0)
 #endif
 /* W18 (Task #227, qa_p6_entdraw.py): the UNBOUND-SURFACE silent drop. A
  * DrawSprite blit whose surface never bound (handle < 0) returned early
@@ -193,16 +265,35 @@ __attribute__((used)) int p6_w_vdp1_maxh      = 0; /* tallest single sprite this
  * the bucket slot count). All reset in p6_vdp1_perf_reset; the savestate holds the
  * captured frame's values. MENU flavor only (the GHZ/Title p6_vdp1.o is unchanged). */
 __attribute__((used)) int p6_w_restage_dbl = 0; /* intra-frame double-restage (the garble) */
-__attribute__((used)) int p6_w_buck0_fmax  = 0; /* per-frame restages (misses) in b0 (64x80) */
-__attribute__((used)) int p6_w_buck1_fmax  = 0; /* per-frame restages (misses) in b1 (192x64) */
-__attribute__((used)) int p6_w_buck2_fmax  = 0; /* per-frame restages (misses) in b2 (160x160) */
-__attribute__((used)) int p6_w_buck3_fmax  = 0; /* per-frame restages (misses) in b3 (248x160) */
+__attribute__((used)) int p6_w_buck0_fmax  = 0; /* per-frame restages (misses) in bucket idx0 (box per P6_BUCK) */
+__attribute__((used)) int p6_w_buck1_fmax  = 0; /* per-frame restages (misses) in bucket idx1 */
+__attribute__((used)) int p6_w_buck2_fmax  = 0; /* per-frame restages (misses) in bucket idx2 */
+__attribute__((used)) int p6_w_buck3_fmax  = 0; /* per-frame restages (misses) in bucket idx3 */
 /* s_buckMiss[bk] accumulates restages (cache misses -> evict+restage) for bucket bk
  * THIS frame; perf_reset latches the per-frame MAX into p6_w_buckN_fmax. A frame whose
  * miss count for a bucket EXCEEDS that bucket's slot count means >=1 slot was restaged
  * MID-FRAME after an earlier draw already referenced its jo_id -> stale-command garble.
  * s_restageEpoch increments per frame; s_buckMiss is the within-frame tally. */
+#if defined(P6_GHZCUT_BOOT)
+/* #314 punch-list 1: the GHZCUT chain flavor has FIVE buckets (the 176x56 wide bucket
+ * below); witness + tally arrays follow. */
+__attribute__((used)) int p6_w_buck4_fmax  = 0; /* per-frame restages (misses) in bucket idx4 */
+int p6_buckMiss[5] = { 0, 0, 0, 0, 0 }; /* non-static: bumped from p6_title_pool_for */
+#else
 int p6_buckMiss[4] = { 0, 0, 0, 0 }; /* non-static: bumped from p6_title_pool_for */
+#endif
+#endif
+
+#if defined(P6_FRONTEND_MENU)
+/* #317 restage-split: the per-miss restage (p6_title_restage_content) is the ~200ms
+ * front-end draw hog (cb==blit==draw, dma bracket in the DEAD p6_pool_for read 0).
+ * Split it into the BLOCKING slDMAWait (SCU-DMA contention w/ the per-frame VDP2
+ * scroll DMA -- the sgl-audio-vs-scroll-cpu-dma-conflict class) vs the byte stage-
+ * copy + async jo_dma_copy. wait_v>>work_v => slDMAWait is the lever. */
+extern volatile unsigned int p6_perf_vbl_count;
+__attribute__((used)) int p6_w_rst_wait_v = 0; /* vblanks in slDMAWait() (summed/frame) */
+__attribute__((used)) int p6_w_rst_work_v = 0; /* vblanks in stage-copy + jo_dma_copy (summed/frame) */
+__attribute__((used)) int p6_w_rst_calls  = 0; /* cumulative restage (miss) count */
 #endif
 
 __attribute__((used)) void p6_vdp1_perf_reset(void) /* called at p6_ghz_frame top */
@@ -215,6 +306,11 @@ __attribute__((used)) void p6_vdp1_perf_reset(void) /* called at p6_ghz_frame to
     if (p6_buckMiss[2] > p6_w_buck2_fmax) p6_w_buck2_fmax = p6_buckMiss[2];
     if (p6_buckMiss[3] > p6_w_buck3_fmax) p6_w_buck3_fmax = p6_buckMiss[3];
     p6_buckMiss[0] = p6_buckMiss[1] = p6_buckMiss[2] = p6_buckMiss[3] = 0;
+    p6_w_rst_wait_v = 0; p6_w_rst_work_v = 0; /* #317: per-frame restage split reset */
+#if defined(P6_GHZCUT_BOOT)
+    if (p6_buckMiss[4] > p6_w_buck4_fmax) p6_w_buck4_fmax = p6_buckMiss[4];
+    p6_buckMiss[4] = 0;
+#endif
 #endif
 }
 
@@ -279,7 +375,11 @@ static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MA
  * JO_VDP1_USER_AREA_SIZE 466,232 (49,464 B margin). b3 reuses the existing s_slots[]
  * (n_max capped at 4) + the p6_w_vdp1_slots coldn, so the GHZ/Logos builds (no
  * P6_FRONTEND_TITLE) keep the single-pool path byte-identical. */
+#if defined(P6_GHZCUT_BOOT)
+#define P6_NB 5 /* #314 punch-list 1: + the 176x56 WIDE bucket (see the GHZCUT table below) */
+#else
 #define P6_NB 4
+#endif
 /* M1b: the MENU scene draws MANY small sprites (the 4 mode rows = icon+shadow+text
  * each, + headings/prompts) -- far more distinct rects than the Title's ~9. With the
  * Title bucket counts (6/6/6/4 = 22 slots) the menu THRASHED the LRU (MEASURED
@@ -290,7 +390,65 @@ static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MA
  * 40*5,120 + 8*12,288 + 3*25,600 + 2*39,680 = 459,264 B < JO_VDP1_USER_AREA_SIZE
  * (466,232; 6,968 B margin). The TITLE/Logos flavor keeps 6/6/6/4 (this #if is the only
  * difference; the GHZ build has no buckets). */
-#if defined(P6_FRONTEND_MENU)
+#if defined(P6_GHZCUT_BOOT)
+/* Task #311 (GHZCutscene right-pile garble) -- the M1b thrash class, b2 edition.
+ * MEASURED (build 18, _late.mcs): the cutscene camera parks at x=0 so the WHOLE
+ * dig-site cluster (5 CutsceneHBH 56x95 + claw + ruby + crate, world x 196-364)
+ * draws at the right third. The 56x95 Heavies route to b2 (160x160; 95>80 skips
+ * b0, 95>64 skips b1) -- and the MENU sizing gives b2 ONE slot -> all Heavy draws
+ * in a frame share it: the VDP1 cmd list showed FOUR 56x95 draws with the SAME
+ * SRCA 0x057800, and that texture VIEWED = garbage static (mid-frame re-stage
+ * mutating __jo_sprite_def after earlier draws queued = the documented M1b
+ * red/blue/white horizontal-band garble). Sizing for the cutscene working set:
+ * #312 climax re-geometry (build 31) -- MEASURED (_climax30.mcs @ the ExitHBH
+ * beat + VIEWED _g30b_11.png stripes): fmax[b0] = 23 MISSES > 22 slots when
+ * every actor (claw + 5 Heavies + ruby + platform + players + HUD) restages in
+ * ONE frame -> intra-frame slot reuse -> the stale-command stripe garble. And
+ * fmax[b1] = 0 across the WHOLE run: NOTHING in this scene is 65-192 px wide x
+ * <=64 tall -> the 192x64 bucket was DEAD VRAM (73,728 B). FIX: repurpose b1 as
+ * a TINY 16x20 bucket absorbing the small-rect flood (HUD digits 9x14 -- the
+ * climax TIME readout alone is ~5 -- world rings 12x16, claw chains 16x14/16,
+ * small claw bits 16x13), which drops b0's demand well under capacity; grow b0
+ * 22->24 for margin. Router order stays ascending (tiny FIRST). A future
+ * 65-192-wide flat sprite routes to b2 (8 slots, measured fmax 3 -- headroom).
+ * #314 punch-list 1 (CHAIN menu row-art garble, _chain__46.png) -- the M1b class
+ * AGAIN, this time a FLAVOR INTERACTION: the chain build uses THIS (GHZCUT) bucket
+ * table for EVERY scene it visits, including the MENU -- and this table had NO
+ * bucket for the menu's wide-flat working set. Per the M1b census (measured, see
+ * the P6_FRONTEND_MENU branch below): ~10 MainIcons rects 88-120w x 38-44h + 4-6
+ * TextEN labels 86-176w x 22h + the 176w Sound label = ~14-16 distinct wide-flat
+ * rects PER FRAME. Routing under the old 4-bucket GHZCUT table: w>64 skips the
+ * 64x80 bucket -> everything <=160w piled into the 160x160 bucket (8 slots) and
+ * the >160w labels into the catch-all (P6_VDP1_NSLOTS==1 slot, GHZCUT implies
+ * MENU) -> demand 14-16 vs capacity 9 -> intra-frame LRU reuse -> the documented
+ * M1b stale-CMDSIZE band garble on the row icons. (The direct menu boot was clean
+ * because its OWN branch below has the 192x64 x18 bucket.) FIX: a FIFTH bucket,
+ * 176x56 WIDE, sized 15 -- and it ALSO catches the title's wide-flats (ribbon
+ * center 176x52, press-start 174x11, gametitle 137x46, ringbottom 120x25) that
+ * previously shared the 1-slot catch-all on the chain's title leg. Funding trims
+ * are MEASURED, not guessed (fmax witnesses, climax capture): tiny fmax=6 -> 20
+ * becomes 8; 64x80 fmax=12 -> 24 becomes 12 (worst full-restage frame exactly
+ * fills 12 distinct slots -> no intra-frame reuse). Heavies bucket unchanged.
+ * INDEX ORDER (first-fit router; tiny FIRST, catch-all LAST):
+ *   idx0 TINY 16x20  x 8: digits + rings + chains (climax fmax 6)
+ *   idx1      64x80  x12: players fan 41x21/48x24 + claw arms + crate 64x60
+ *                         + ruby 32x32 + HUD labels 41x14 (climax fmax 12)
+ *   idx2 WIDE 176x56 x15: menu icons/labels ~14-16, title ribbon/press-start/
+ *                         gametitle/ringbottom (route: w<=176 AND h<=56)
+ *   idx3    160x160  x 8: the 5 Heavies 56x95 + emblem 144x144 + fx margin
+ *   idx4    248x160  x 1: catch-all (Sonic title body 241x137 -- sole occupant,
+ *                         one draw/frame -> 1 slot cannot intra-frame collide)
+ * VRAM (8bpp 1 B/px): 8*320 + 12*5,120 + 15*9,856 + 8*25,600 + 1*39,680 =
+ * 456,320 B < JO_VDP1_USER_AREA_SIZE 466,232 (9,912 B margin for the FillScreen
+ * occluder + fade quads). .bss delta = -24 slots +15 slots (28 B each) = -252 B
+ * + 24 B (witness/miss/bucket entries) = NET -228 B (#228-safe, _end DOWN).
+ * GHZCUT implies MENU so this branch MUST precede the MENU one. */
+#define P6_BK0 8
+#define P6_BK1 12
+#define P6_BKW 15            /* idx2 WIDE 176x56 (menu rows + title wide-flats) */
+#define P6_BK2 8
+#define P6_GHZCUT_TINY_B1 1  /* idx0 box = 16x20 (see the P6_BUCK table below) */
+#elif defined(P6_FRONTEND_MENU)
 /* M1b STRIPED-ICON FIX (this session) -- MEASURED root cause + sizing.
  *
  * The UIModeButton rows draw (decomp UIModeButton_Draw:45-74, per frame): the icon
@@ -320,14 +478,33 @@ static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MA
 #define P6_BK1 6
 #define P6_BK2 6
 #endif
-static P6Vdp1Slot s_buck0[P6_BK0];               /* 64x80   */
-static P6Vdp1Slot s_buck1[P6_BK1];               /* 192x64  */
+static P6Vdp1Slot s_buck0[P6_BK0];               /* 64x80 (GHZCUT: 16x20 tiny) */
+static P6Vdp1Slot s_buck1[P6_BK1];               /* 192x64 (GHZCUT: 64x80) */
+#if defined(P6_GHZCUT_BOOT)
+static P6Vdp1Slot s_buckW[P6_BKW];               /* 176x56 WIDE (#314 punch-list 1) */
+#endif
 static P6Vdp1Slot s_buck2[P6_BK2];               /* 160x160 */
-/* bucket 3 (248x160 catch-all) reuses s_slots[] + p6_w_vdp1_slots. */
+/* final bucket (248x160 catch-all) reuses s_slots[] + p6_w_vdp1_slots. */
 static int s_buck0n = 0, s_buck1n = 0, s_buck2n = 0;
+#if defined(P6_GHZCUT_TINY_B1)
+/* #312: FIRST-FIT order is a router invariant (smallest-suitable select below) --
+ * the tiny bucket must come FIRST, the catch-all LAST. Index mapping to the slot
+ * arrays is by POSITION (arr[0]=s_buck0 etc), so s_buck0 holds the TINY slots,
+ * s_buck1 the 64x80 slots, s_buckW the 176x56 WIDE slots (#314) in this flavor;
+ * the fmax witnesses follow the same order (buck0_fmax = tiny, buck2_fmax = wide).
+ * ROUTE CHECK (hand-verified per rect class): HUD digit 9x14 / ring 12x16 / chain
+ * 16x16 -> tiny; fan 48x24 / ruby 32x32 / crate 64x60 / finger 50x62 -> 64x80;
+ * menu icon 120x44 / label 176x22 / ribbon 176x52 / press-start 174x11 -> WIDE
+ * (h<=56); Heavy 56x95 (h>56) / emblem 144x144 -> 160x160; Sonic body 241x137
+ * (w>176 skips WIDE, w>160 skips 160x160) -> catch-all. */
+static const struct { int bw, bh; } P6_BUCK[P6_NB] = {
+    { 16, 20 }, { 64, 80 }, { 176, 56 }, { 160, 160 }, { P6_SPR_MAXW, P6_SPR_MAXH }
+};
+#else
 static const struct { int bw, bh; } P6_BUCK[P6_NB] = {
     { 64, 80 }, { 192, 64 }, { 160, 160 }, { P6_SPR_MAXW, P6_SPR_MAXH }
 };
+#endif
 /* smallest-first bucket select; shared by the router AND the stride cull so the
  * box used for placement and the box used for the off-screen-wrap check agree. */
 static int p6_bucket_for(int w, int h)
@@ -443,6 +620,28 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
 {
     int pw = (w + 7) & ~7;          /* content width padded to the VDP1 mult-8 unit */
     int x, y;
+#if defined(P6_FRONTEND_MENU)
+    unsigned int _w0, _wk0;         /* #317 restage-split vbl timestamps */
+#endif
+    /* #311 mech-4 ROOT FIX: jo_dma_copy == slDMACopy, which is ASYNCHRONOUS --
+     * ST-238-R1: "slDMACopy terminates soon after DMA is initiated. To wait
+     * until the transfer is completed, use slDMAWait." The pack loop below
+     * OVERWRITES s_stage; if the PREVIOUS restage's transfer is still reading
+     * it, that slot's VRAM receives a torn mix of both rects (MEASURED:
+     * qa_g11_vram.py RED on build 25 -- the frame's single 48x24 command held
+     * 16-wide strips of the NEXT rect over black, while the same restage's
+     * post-return s_stage hash was byte-exact). Waiting HERE (not after the
+     * copy) keeps the DMA overlapped with the next miss's banded fetch. */
+    /* A/B-verified (2026-07-02): the title FG-broken gate reads IDENTICAL with
+     * this wait compiled out (34/37 vs 34/38 head=0 frames) -- the title
+     * regression PRE-DATES the wait and is filed separately. The wait stays:
+     * it fixes the MEASURED GHZCUT tear (qa_g11_vram RED->clean screenshots). */
+#if defined(P6_FRONTEND_MENU)
+    _w0 = p6_perf_vbl_count; slDMAWait(); p6_w_rst_wait_v += (int)(p6_perf_vbl_count - _w0);
+    _wk0 = p6_perf_vbl_count; ++p6_w_rst_calls;   /* start of stage-copy + DMA-issue */
+#else
+    slDMAWait();
+#endif
     for (y = 0; y < h; ++y) {
         unsigned char *dst = s_stage + y * pw;
         const unsigned char *src = srcPx + y * srcStride;
@@ -459,6 +658,9 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
     jo_dma_copy(s_stage,
                 (void *)(JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[jo_id].adr)),
                 (unsigned int)(pw * h));
+#if defined(P6_FRONTEND_MENU)
+    p6_w_rst_work_v += (int)(p6_perf_vbl_count - _wk0);
+#endif
     return pw;
 }
 
@@ -539,6 +741,11 @@ static unsigned short p6_rgb888_to_555(unsigned int c)
     return (unsigned short)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
 }
 
+#if defined(P6_DIRECT_VDP1)
+/* #316 F1: forward decl -- the direct-list emitters are defined below the fill. */
+static void p6_dl_poly(unsigned short rgb555, int x0, int y0, int x1, int y1,
+                       int x2, int y2, int x3, int y3, int half);
+#endif
 __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int aG, int aB)
 {
     int sum, avg, spr;
@@ -547,12 +754,25 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
     int isWhite = (rb >= 0xE0 && gb >= 0xE0 && bb >= 0xE0); /* Flash 0xF0F0F0 / near-white */
 
     ++p6_w_fill_calls;
+    /* #313 A/B-3 note (2026-07-02): suppressing THIS draw entirely did NOT stop
+     * the flash-end die-off (still 0 sprite cmds at deep frames) -- the scaled
+     * fill quad is exonerated as the trigger. Recovery lives in p6_io_main.cpp
+     * (slInitSprite re-arm on detected dead pipeline). */
     if (aR < 0) aR = 0; else if (aR > 255) aR = 255;
     if (aG < 0) aG = 0; else if (aG > 255) aG = 255;
     if (aB < 0) aB = 0; else if (aB > 255) aB = 255;
     sum = aR + aG + aB;
-    if (sum <= 0)
-        return; /* fully transparent -> the content shows through (decomp early-out) */
+    if (sum < 3)
+        return; /* avg alpha rounds to 0 -> invisible on PC (per-channel /256 blend),
+                 * so draw NOTHING. MEASURED (#310, build 9): the old `sum <= 0` gate
+                 * let FXRuby's pinned fadeBlack=1 (alphas 1,0,0) emit a full-screen
+                 * HALF-TRANSPARENT black quad EVERY frame (VDP1 cmd list slot 27,
+                 * 320x320 SCAL HALF) whose texels persisted as 0x8000 in the
+                 * framebuffer -> the sprite layer rendered OPAQUE BLACK over the
+                 * upper display = the "black sky" that survived 9 builds of correct
+                 * VDP2 state. On PC those alphas change one channel by 1/256 =
+                 * invisible; sum<3 (avg==0) reproduces that exactly and leaves
+                 * every real fade ramp (sum >= 3) untouched. */
 
     /* COLOUR SELECT (3 cases):
      *  - black (TitleSetup/MenuSetup FadeBlack 0x000000) -> the lazy black sprite.
@@ -594,6 +814,19 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
         return; /* alloc failed (VRAM full) -> skip rather than draw garbage */
 
     avg = sum / 3;
+#if defined(P6_DIRECT_VDP1)
+    /* #316 F1: the fill is a Comm=4 flat polygon in the direct list (exact,
+     * no scale-20 hack). Painter order replaces the Z logic below: the menu
+     * backdrop (drawGroup 0) emits FIRST = behind; the black/white fades
+     * (last drawGroup) emit LAST = on top -- the decomp's own draw order. */
+    {
+        unsigned short c = isBlack ? 0x8000
+                         : (isWhite ? 0xFFFF : p6_rgb888_to_555(color));
+        p6_dl_poly(c, -160, -120, 159, -120, 159, 103, -160, 103, (avg < 170));
+        ++p6_w_fill_drawn;
+        return;
+    }
+#endif
     /* 16x16 sprite * uniform 20.0 = 320x320 -> covers the 320x240 frame, centred.
      * Z-DEPTH: the black/white intro fades (TitleSetup/MenuSetup Draw, the LAST
      * drawGroup) must composite ON TOP of the content -> Z=450 (the content Z), where
@@ -611,6 +844,108 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
     ++p6_w_fill_drawn;
 }
 #endif
+
+#if defined(P6_DIRECT_VDP1)
+/* =============================================================================
+ * #316 F1 -- DIRECT VDP1 COMMAND LIST (contract step 1; design + probe results
+ * in the direct-vdp1-command-list-design memory + docs/feature_checklists/
+ * frontend_full_chain_parity.md). Replaces jo_sprite_draw3D/slDispSprite for
+ * EVERY front-end sprite: the SGL slave mailbox/plan machinery carries zero
+ * sprites, so the measured transfer tear (title 73% torn post-settle, landing
+ * 60-75% empty plans) has nothing left to break.
+ *
+ * MEASURED FOUNDATION: SGL's transferred preamble chains 0x00 sysclip -> 0x20
+ * userclip -> 0x40 localcoord(160,120) -> 0x60 END (probe dump, byte-exact).
+ * The vblank trampoline (p6_vdp2.c) rewrites 0x60 each vblank as a duplicate
+ * localcoord + JP=assign -> p6_dl_link (probe: renders through 1,652 vblanks
+ * including every deep-title frame where the SGL pipeline was dead).
+ *
+ * Command format per ST-013-R3 sec 6 (vdp1-reference.md): 32-byte commands;
+ * CMDCTRL Comm=0 normal sprite / 4 polygon, Dir bits 4-5 = H/V flip, END
+ * bit15; CMDPMOD 0x00A0 = ECD + 256-color-bank mode (the byte-identical value
+ * the SGL slave used to build, per the #313 SpriteBuf dumps); +0x0003 =
+ * CL_Half for fades/ink; CMDCOLR = color bank (palblock*256, matching jo
+ * colno semantics incl. the per-Heavy blocks 2-6 + player block 7); CMDSRCA/
+ * CMDSIZE copied VERBATIM from __jo_sprite_def[jid].adr/.size -- the content-
+ * size restage already maintains the exact TEXDEF, so vertex A is simply the
+ * RSDK top-left minus the localcoord origin, flipped or not (HF/VF mirror
+ * within the content bbox, which IS the drawn rect).
+ *
+ * Double buffer: two 62-command halves at VDP1 VRAM 0x2000/0x2800 (inside
+ * SGL's reserved command area, beyond its empty-plan transfer reach; jo
+ * textures live higher). The frame builds the inactive half in decomp
+ * ProcessObjectDrawLists order (painter order == the decomp's drawGroup
+ * order -- MORE faithful than SGL's Z-sort); p6_dl_end publishes the half to
+ * the vblank trampoline. A LOAD-frame return skips begin/end -> the last
+ * completed half keeps displaying (same persistence contract as before). */
+#define P6_DL_A    0x2000u
+#define P6_DL_B    0x2800u
+#define P6_DL_MAX  62
+volatile unsigned int p6_dl_link = 0;  /* (half base)>>3 for the vblank trampoline; 0 until first end */
+static int s_dl_half = 0;              /* half being BUILT */
+static int s_dl_n    = 0;
+static int s_dl_ink  = 0;              /* sticky CL_Half (p6_vdp1_set_ink) */
+__attribute__((used)) int p6_w_dl_cmds_max = 0; /* per-frame max commands */
+__attribute__((used)) int p6_w_dl_drops    = 0; /* emits past P6_DL_MAX */
+__attribute__((used)) int p6_w_dl_frames   = 0; /* completed lists */
+
+static volatile unsigned short *p6_dl_next(void)
+{
+    unsigned int base = 0x25C00000u + (s_dl_half ? P6_DL_B : P6_DL_A);
+    return (volatile unsigned short *)(base + (unsigned int)s_dl_n * 32u);
+}
+
+void p6_dl_begin(void)
+{
+    s_dl_n = 0;
+}
+
+static void p6_dl_sprite(int jid, int x, int y, int flipX, int flipY, int palblk)
+{
+    volatile unsigned short *p;
+    if (s_dl_n >= P6_DL_MAX) { ++p6_w_dl_drops; return; }
+    p = p6_dl_next();
+    p[0]  = (unsigned short)((flipX ? 0x0010u : 0) | (flipY ? 0x0020u : 0)); /* Comm=0 + Dir */
+    p[1]  = 0;                                                   /* CMDLINK (JP=next) */
+    p[2]  = (unsigned short)(0x00A0u | (s_dl_ink ? 0x0003u : 0)); /* PMOD */
+    p[3]  = (unsigned short)(palblk << 8);                       /* CMDCOLR = bank */
+    p[4]  = __jo_sprite_def[jid].adr;                            /* CMDSRCA */
+    p[5]  = __jo_sprite_def[jid].size;                           /* CMDSIZE */
+    p[6]  = (unsigned short)(short)(x - 160);                    /* XA */
+    p[7]  = (unsigned short)(short)(y - 120);                    /* YA */
+    p[8] = p[9] = p[10] = p[11] = p[12] = p[13] = p[14] = 0;
+    ++s_dl_n;
+}
+
+static void p6_dl_poly(unsigned short rgb555, int x0, int y0, int x1, int y1,
+                       int x2, int y2, int x3, int y3, int half)
+{
+    volatile unsigned short *p;
+    if (s_dl_n >= P6_DL_MAX) { ++p6_w_dl_drops; return; }
+    p = p6_dl_next();
+    p[0]  = 0x0004;                                              /* Comm=4 polygon */
+    p[1]  = 0;
+    p[2]  = (unsigned short)(0x00C0u | (half ? 0x0003u : 0));    /* ECD|SPD (+CL_Half) */
+    p[3]  = rgb555;                                              /* flat RGB (MSB set) */
+    p[4]  = 0; p[5] = 0;
+    p[6]  = (unsigned short)(short)x0; p[7]  = (unsigned short)(short)y0;
+    p[8]  = (unsigned short)(short)x1; p[9]  = (unsigned short)(short)y1;
+    p[10] = (unsigned short)(short)x2; p[11] = (unsigned short)(short)y2;
+    p[12] = (unsigned short)(short)x3; p[13] = (unsigned short)(short)y3;
+    p[14] = 0;
+    ++s_dl_n;
+}
+
+void p6_dl_end(void)
+{
+    volatile unsigned short *p = p6_dl_next();
+    p[0] = 0x8000;                                               /* END */
+    if (s_dl_n > p6_w_dl_cmds_max) p6_w_dl_cmds_max = s_dl_n;
+    p6_dl_link = (unsigned int)((s_dl_half ? P6_DL_B : P6_DL_A) >> 3);
+    s_dl_half ^= 1;
+    ++p6_w_dl_frames;
+}
+#endif /* P6_DIRECT_VDP1 */
 
 #if defined(P6_FRONTEND_MENU)
 /* =============================================================================
@@ -715,6 +1050,21 @@ static void p6_pal_mirror(const unsigned short *pal565)
     }
 }
 
+#if defined(P6_GHZCUT_BOOT)
+/* #311 mechanism 5: PC sprites read the LIVE stage palette (RotatePalette
+ * cycles included) -- the one-shot first-bind p6_pal_mirror freezes bank1 at
+ * load time, so cycled entries diverge (MEASURED _ring26.mcs: 65/256 entries,
+ * bank1[255]=0x8000 frozen black vs live bank0[255]=0xf180 water blue -> the
+ * dig-site strips sampling the sheet's solid-white block drew SOLID BLACK).
+ * The front-end frame calls this per frame with the live fullPalette[0],
+ * mirroring the engine's own per-frame bank0 flush. GHZCUT-gated: every other
+ * flavor's p6_vdp1.o is byte-identical. */
+void p6_vdp1_pal_remirror(const unsigned short *pal565)
+{
+    p6_pal_mirror(pal565);
+}
+#endif
+
 #if defined(P6_FRONTEND_TITLE)
 static int p6_title_ensure_prealloc(void); /* fwd: eager bucket VRAM reservation */
 /* CP5b.7 content-size (#277): the TITLE first-bind init -- mirror the sprite palette
@@ -808,8 +1158,15 @@ void p6_vdp1_frontend_pal_reset(void)
     {
         P6Vdp1Slot *bk[P6_NB];
         int bn, j, n;
+#if defined(P6_GHZCUT_BOOT)
+        /* #314: 5-bucket flavor -- positional order matches P6_BUCK (tiny, 64x80,
+         * WIDE, 160x160, catch-all). */
+        static const int bkcnt[P6_NB] = { P6_BK0, P6_BK1, P6_BKW, P6_BK2, P6_VDP1_NSLOTS };
+        bk[0] = s_buck0; bk[1] = s_buck1; bk[2] = s_buckW; bk[3] = s_buck2; bk[4] = s_slots;
+#else
         static const int bkcnt[P6_NB] = { P6_BK0, P6_BK1, P6_BK2, P6_VDP1_NSLOTS };
         bk[0] = s_buck0; bk[1] = s_buck1; bk[2] = s_buck2; bk[3] = s_slots;
+#endif
         for (bn = 0; bn < P6_NB; ++bn) {
             n = bkcnt[bn];
             for (j = 0; j < n; ++j) {
@@ -856,9 +1213,18 @@ void p6_vdp1_frontend_pal_reset(void)
  * (no append-only leak). Body is the verbatim pre-CP5b.7 p6_slot_for with
  * s_slots->slots, p6_w_vdp1_slots->*coldn, P6_VDP1_NSLOTS->n_max, P6_SPR_MAXW/H->
  * boxw/boxh. */
+#if defined(P6_FRONTEND_MENU)
+/* #317: measure the LRU miss-DMA cost (slDMAWait + stage-copy + jo_sprite_replace) in
+ * VBLANKS, to split the ~200ms entity-cb hog into blit-DMA vs object-Draw-logic. */
+extern volatile unsigned int p6_perf_vbl_count;
+extern int p6_w_draw_dma_v;
+#endif
 static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
                        int boxw, int boxh, int sheet, int sx, int sy, int w, int h)
 {
+#if defined(P6_FRONTEND_MENU)
+    unsigned int _dvdma0;
+#endif
     int i, x, y, victim;
     const unsigned char *srcPx;
     int srcStride;
@@ -875,10 +1241,13 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
             return i;
         }
     }
+#if defined(P6_FRONTEND_MENU)
+    _dvdma0 = p6_perf_vbl_count; /* #317: start of the MISS path (fetch+stage+DMA) */
+#endif
     /* A fixed boxw x boxh slot cannot hold an oversize frame. */
     if (w > boxw || h > boxh) {
         ++p6_w_vdp1_drops;
-#if defined(P6_FRONTEND_LOGOS)
+#if defined(P6_FRONTEND_LOGOS) || defined(P6_GHZCUT_BOOT)
         p6_w_vdp1_dropreason = 1;
 #endif
         return -1;
@@ -892,7 +1261,7 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
         /* W12b banded miss: fetch the rect rows from the VDP2 band store
          * through the runtime pointer (see root-cause note above). s_fetch
          * holds the bare rect (stride w); the CACHE KEY keeps sheet sx/sy. */
-#if defined(P6_FRONTEND_LOGOS)
+#if defined(P6_FRONTEND_LOGOS) || defined(P6_GHZCUT_BOOT)
         p6_w_vdp1_lastfetch = ((s_sheets[sheet].shtSlot & 0xFF) << 24)
                             | ((w & 0xFFF) << 12) | (h & 0xFFF);
         p6_w_vdp1_fetchret = s_fetchFn
@@ -911,6 +1280,11 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
 #endif
         srcPx     = s_fetch;
         srcStride = w;
+        /* #311 mech-4: the g11 fetch ring lives at the BUCKET fetch site
+         * (p6_title_pool_for) -- MEASURED (build 24, _ring24.mcs): this
+         * p6_pool_for site is DEAD CODE in the GHZCUT flavor (ring n stayed 0;
+         * p6_slot_for routes every draw through the P6_FRONTEND_TITLE bucket
+         * path, which GHZCUT implies). */
     }
 
     /* Stage into the FIXED boxw x boxh box: content top-left, the rest transparent
@@ -918,6 +1292,14 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
      * jo_sprite_replace re-DMAs exactly boxw*boxh bytes, so the staged box
      * dimensions MUST equal the pre-allocated slot's (boxw x boxh -- guaranteed:
      * same pool = same box). s_stage is 248x160 = big enough for either box. */
+    /* #312(e) same-class hardening as p6_title_restage_content: jo_sprite_add/
+     * jo_sprite_replace below DMA from s_stage via jo_dma_copy == slDMACopy,
+     * which is ASYNC (ST-238-R1: "terminates soon after DMA is initiated") --
+     * a PRIOR miss's transfer may still be reading s_stage when this pack
+     * overwrites it -> that slot's VRAM tears (the GHZCUT bucket edition was
+     * MEASURED, qa_g11_vram build 25; this pool path shares the exact pattern:
+     * sprites.c:172-174). Wait out any in-flight transfer before repacking. */
+    slDMAWait();
     for (y = 0; y < boxh; ++y) {
         unsigned char *dst = s_stage + y * boxw;
         if (y < h) {
@@ -929,6 +1311,18 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
             for (x = 0; x < boxw; ++x) dst[x] = 0;
         }
     }
+#if defined(P6_GHZCUT_BOOT)
+    /* #311 mech-4 bisect stage-side: hash the SAME 16x16 content region out of
+     * the staged box (rows at boxw stride). Match vs p6_w_draw_fetch_h = the
+     * stage copy is clean -> the tear is the jo DMA/slot layer. */
+    if (sx == 258 && sy == 492 && w == 16 && h == 16 && !s_sheets[sheet].px) {
+        unsigned int hh = 5381; int ky, kx;
+        for (ky = 0; ky < 16; ++ky)
+            for (kx = 0; kx < 16; ++kx)
+                hh = ((hh << 5) + hh) ^ s_stage[ky * boxw + kx];
+        p6_w_draw_stage_h = (int)hh;
+    }
+#endif
     img.width  = boxw;
     img.height = boxh;
     img.data   = s_stage;
@@ -963,6 +1357,9 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
         jo_sprite_replace(&img, slots[victim].jo_id);
         ++p6_w_vdp1_evicts;
     }
+#if defined(P6_FRONTEND_MENU)
+    p6_w_draw_dma_v += (int)(p6_perf_vbl_count - _dvdma0); /* #317: MISS fetch+stage+DMA cost */
+#endif
 
     slots[victim].sheet   = sheet;
     slots[victim].sx      = sx;
@@ -1002,20 +1399,41 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
             return i;
         }
     }
-    if (w > b->bw || h > b->bh) { ++p6_w_vdp1_drops; return -1; } /* oversize for bucket */
+    if (w > b->bw || h > b->bh) { ++p6_w_vdp1_drops; P6_DR(3); return -1; } /* oversize for bucket */
 
     if (s_sheets[sheet].px) {
         srcPx     = s_sheets[sheet].px + sy * s_sheets[sheet].w + sx;
         srcStride = s_sheets[sheet].w;
     }
     else {
+        P6_DR(4);
+#if defined(P6_GHZCUT_BOOT)
+        p6_w_vdp1_lastfetch = ((s_sheets[sheet].shtSlot & 0xFF) << 24) | ((w & 0xFFF) << 12) | (h & 0xFFF);
+        p6_w_vdp1_fetchret  = s_fetchFn ? s_fetchFn(s_sheets[sheet].shtSlot, sx, sy, w, h, s_fetch) : -2;
+        if (p6_w_vdp1_fetchret <= 0) { ++p6_w_vdp1_drops; return -1; }
+#else
         if (!s_fetchFn
             || !s_fetchFn(s_sheets[sheet].shtSlot, sx, sy, w, h, s_fetch)) {
             ++p6_w_vdp1_drops;
             return -1;
         }
+#endif
         srcPx     = s_fetch;
         srcStride = w;
+#if defined(P6_GHZCUT_BOOT)
+        /* #311 mech-4 v3: THIS is the live fetch site (every GHZCUT draw routes
+         * through the bucket path). Hash every GHCOBJ-slot (11) draw-time fetch
+         * into the g11 ring; offline compares each against the gif crop of the
+         * SAME rect (qa_g11_ring.py). */
+        if (s_sheets[sheet].shtSlot == 11) {
+            unsigned int hh = 5381; int k, n = w * h;
+            for (k = 0; k < n; ++k) hh = ((hh << 5) + hh) ^ s_fetch[k];
+            p6_w_g11_rect[p6_w_g11_n & 3] = (sx << 16) | sy;
+            p6_w_g11_wh[p6_w_g11_n & 3]   = (w << 16) | h;
+            p6_w_g11_hash[p6_w_g11_n & 3] = (int)hh;
+            ++p6_w_g11_n;
+        }
+#endif
     }
 
     /* LRU victim among this bucket's pre-allocated slots (all jo_id >= 0). */
@@ -1025,10 +1443,21 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
         for (i = 1; i < b->n; ++i)
             if (b->slots[i].lastUse < oldest) { oldest = b->slots[i].lastUse; victim = i; }
     }
-    if (b->slots[victim].jo_id < 0) { ++p6_w_vdp1_drops; return -1; } /* prealloc failed */
+    if (b->slots[victim].jo_id < 0) { ++p6_w_vdp1_drops; P6_DR(5); return -1; } /* prealloc failed */
     if (b->slots[victim].sheet >= 0) ++p6_w_vdp1_evicts;             /* reuse of a live slot */
 
     pw = p6_title_restage_content(b->slots[victim].jo_id, srcPx, srcStride, w, h);
+#if defined(P6_GHZCUT_BOOT)
+    /* #311 mech-4 v3 stage-side pair: djb2 of the content-packed s_stage box the
+     * restage just DMA'd (pw*h bytes, mult-8 pad zeros included). Written at the
+     * ordinal the fetch ring just recorded -- fetch-clean + stage-dirty convicts
+     * the pack loop; both clean pushes the tear into the DMA/TEXDEF layer. */
+    if (s_sheets[sheet].shtSlot == 11 && !s_sheets[sheet].px) {
+        unsigned int hh = 5381; int k, n = pw * h;
+        for (k = 0; k < n; ++k) hh = ((hh << 5) + hh) ^ s_stage[k];
+        p6_w_g11_stage[(p6_w_g11_n - 1) & 3] = (int)hh;
+    }
+#endif
 #if defined(P6_FRONTEND_MENU)
     /* M1b witness: tally this restage (cache miss) against the owning bucket so
      * perf_reset can latch the per-frame demand (p6_w_buckN_fmax). bk is recovered
@@ -1064,8 +1493,14 @@ static int p6_title_ensure_prealloc(void)
     int cnt[P6_NB];
 
     if (s_buckets_prealloc) return 1;
+#if defined(P6_GHZCUT_BOOT)
+    /* #314: 5-bucket flavor -- same positional order as P6_BUCK + pal_reset. */
+    arr[0] = s_buck0; arr[1] = s_buck1; arr[2] = s_buckW; arr[3] = s_buck2; arr[4] = s_slots;
+    cnt[0] = P6_BK0; cnt[1] = P6_BK1; cnt[2] = P6_BKW; cnt[3] = P6_BK2; cnt[4] = P6_VDP1_NSLOTS;
+#else
     arr[0] = s_buck0; arr[1] = s_buck1; arr[2] = s_buck2; arr[3] = s_slots;
     cnt[0] = P6_BK0; cnt[1] = P6_BK1; cnt[2] = P6_BK2; cnt[3] = P6_VDP1_NSLOTS; /* NSLOTS==4 */
+#endif
     for (bi = 0; bi < P6_NB; ++bi) {
         s_buckets[bi].slots = arr[bi];
         s_buckets[bi].n     = cnt[bi];
@@ -1102,7 +1537,7 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
      * content -- NOT the box -- and the fill witnesses sum the real CMDSIZE area. */
     int bk = p6_bucket_for(w, h);
     int pw = (w + 7) & ~7, ph = h;
-    if (bk < 0) { ++p6_w_vdp1_drops; return -1; } /* oversize (w>248 or h>160) */
+    if (bk < 0) { ++p6_w_vdp1_drops; P6_DR(6); return -1; } /* oversize (w>248 or h>160) */
     s = p6_title_pool_for(&s_buckets[bk], sheet, sx, sy, w, h, &pw, &ph);
     if (s < 0) return -1;
     s_last_box_w = pw; s_last_box_h = ph;
@@ -1131,8 +1566,14 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
 __attribute__((used)) int p6_w_ink_half_blits = 0;
 void p6_vdp1_set_ink(int half)
 {
+#if defined(P6_DIRECT_VDP1)
+    /* #316 F1: the sticky ink threads into the direct emit's PMOD CL_Half. */
+    s_dl_ink = half;
+    if (half) ++p6_w_ink_half_blits;
+#else
     if (half) { jo_sprite_enable_half_transparency(); ++p6_w_ink_half_blits; }
     else      { jo_sprite_disable_half_transparency(); }
+#endif
 }
 #endif
 
@@ -1209,6 +1650,25 @@ static int p6_box_in_stride(int x, int flipX, int w, int h)
  * hardcoded jo_sprite_set_palette(1). GHZCUT-only (#else keeps p6_vdp1.o the same). */
 __attribute__((used)) int p6_heavy_palblock = 1;
 #define P6_BLIT_PALBLOCK p6_heavy_palblock
+
+/* Task #309 caveat #2a (cutscene PLAYERS render): the CORRECTED palette route --
+ * SURFACE-DRIVEN, NOT the shared engine draw loop (the attempt-1 regression wrapped
+ * ProcessObjectDrawLists in the shared RSDKv5 Object.cpp and killed the WHOLE VDP1
+ * sprite path). p6_plr_sheet_slot = the SaturnSheet slot of the staged PLROBJ.SHT
+ * (set once at stage time by p6_io_main.cpp; -1 == not staged == every blit keeps its
+ * normal block). In the blit functions, when the surface being drawn IS the player
+ * sheet, the colno is forced to block 7 (CRAM[1792], the merged Sonic+Tails palette)
+ * for THAT blit only -- every other surface keeps P6_BLIT_PALBLOCK. Both players share
+ * the ONE merged block so no per-character logic is needed. p6_w_plr_cut_landed counts
+ * player-sheet blits that reached a VDP1 slot this frame (the gate's per-frame witness;
+ * timing-noisy, NOT gate-failing -- the binding/anim/palette signals + the screenshot
+ * are the proof). DOC: colno = CMDCOLR high byte (ST-013-R3 sec 6.4); SPCTL Type-3
+ * full-11-bit DC + SPCAOS=0 -> CRAM addr = colno + char-pixel (ST-058-R2 sec 10.1). */
+__attribute__((used)) int p6_plr_sheet_slot   = -1;
+/* int (not int32): this is the jo-side C TU where the RSDK int32 typedef isn't in
+ * scope; SH-2 int is 32-bit so the gate's peek_u32 reads it identically. */
+__attribute__((used)) int p6_w_plr_cut_landed = 0;
+#define P6_BLIT_PLAYER_PALBLOCK 7
 #else
 #define P6_BLIT_PALBLOCK 1
 #endif
@@ -1246,13 +1706,36 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
     p6_w_vdp1_contentpx += w * h;
     if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
     if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
-    jo_sprite_set_palette(P6_BLIT_PALBLOCK);
-    /* Task #241 + CP5b.7: the slot is a fixed s_last_box_w x s_last_box_h box with
-     * content in the top-left corner; the box CENTER sits at content-top-left +
-     * box/2, so placing the center there lands the content at engine top-left (x,y). */
-    jo_sprite_draw3D(jid,
-                     x + s_last_box_w / 2 - JO_TV_WIDTH_2,
-                     y + s_last_box_h / 2 - JO_TV_HEIGHT_2, 450);
+    {
+        int palblk;
+#if defined(P6_GHZCUT_BOOT)
+        /* #2a SURFACE-DRIVEN player palette: the PLROBJ sheet routes to block 7. */
+        if (sheet == p6_plr_sheet_slot && p6_plr_sheet_slot >= 0) {
+            palblk = P6_BLIT_PLAYER_PALBLOCK;
+            ++p6_w_plr_cut_landed;
+        } else {
+            palblk = P6_BLIT_PALBLOCK;
+        }
+#else
+        palblk = P6_BLIT_PALBLOCK;
+#endif
+#if defined(P6_DIRECT_VDP1)
+        /* #316 F1: direct command -- CMDSIZE is the restaged CONTENT, so vertex A
+         * is simply the RSDK top-left minus the localcoord origin. */
+        p6_dl_sprite(jid, x, y, 0, 0, palblk);
+#else
+        jo_sprite_set_palette(palblk);
+        /* Task #241 + CP5b.7: the slot is a fixed s_last_box_w x s_last_box_h box with
+         * content in the top-left corner; the box CENTER sits at content-top-left +
+         * box/2, so placing the center there lands the content at engine top-left (x,y). */
+        jo_sprite_draw3D(jid,
+                         x + s_last_box_w / 2 - JO_TV_WIDTH_2,
+                         y + s_last_box_h / 2 - JO_TV_HEIGHT_2, 450);
+#if defined(P6_FRONTEND_TITLE)
+        p6_sgl_emit_probe(); /* #313: did this emit reach SGL SpriteEntry? */
+#endif
+#endif
+    }
 }
 
 /* W14c (Task #227): flipped draw -- the DrawSprite FX_FLIP arm. VDP1 HF/VF
@@ -1304,16 +1787,42 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
     p6_w_vdp1_contentpx += w * h;
     if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
     if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
-    jo_sprite_set_palette(P6_BLIT_PALBLOCK);
-    if (flipX)
-        jo_sprite_enable_horizontal_flip();
-    if (flipY)
-        jo_sprite_enable_vertical_flip();
-    jo_sprite_draw3D(jid,
-                     (flipX ? x + w - s_last_box_w / 2 : x + s_last_box_w / 2) - JO_TV_WIDTH_2,
-                     (flipY ? y + h - s_last_box_h / 2 : y + s_last_box_h / 2) - JO_TV_HEIGHT_2, 450);
-    if (flipX)
-        jo_sprite_disable_horizontal_flip();
-    if (flipY)
-        jo_sprite_disable_vertical_flip();
+    {
+        int palblk;
+#if defined(P6_GHZCUT_BOOT)
+        /* #2a SURFACE-DRIVEN player palette (this is the REAL DrawSprite path -- the
+         * decomp Player_Draw FX_FLIP arm always lands here): the PLROBJ sheet -> block 7. */
+        if (sheet == p6_plr_sheet_slot && p6_plr_sheet_slot >= 0) {
+            palblk = P6_BLIT_PLAYER_PALBLOCK;
+            ++p6_w_plr_cut_landed;
+        } else {
+            palblk = P6_BLIT_PALBLOCK;
+        }
+#else
+        palblk = P6_BLIT_PALBLOCK;
+#endif
+#if defined(P6_DIRECT_VDP1)
+        /* #316 F1: HF/VF mirror WITHIN the content bbox (CMDSIZE == content after
+         * the restage), and the caller's (x,y) is already the flip-adjusted RSDK
+         * top-left (Drawing.cpp:2796-2808) -- so vertex A is (x,y) either way.
+         * No box-compensation math, no sticky jo attributes. */
+        p6_dl_sprite(jid, x, y, flipX, flipY, palblk);
+#else
+        jo_sprite_set_palette(palblk);
+        if (flipX)
+            jo_sprite_enable_horizontal_flip();
+        if (flipY)
+            jo_sprite_enable_vertical_flip();
+        jo_sprite_draw3D(jid,
+                         (flipX ? x + w - s_last_box_w / 2 : x + s_last_box_w / 2) - JO_TV_WIDTH_2,
+                         (flipY ? y + h - s_last_box_h / 2 : y + s_last_box_h / 2) - JO_TV_HEIGHT_2, 450);
+        if (flipX)
+            jo_sprite_disable_horizontal_flip();
+        if (flipY)
+            jo_sprite_disable_vertical_flip();
+#if defined(P6_FRONTEND_TITLE)
+        p6_sgl_emit_probe(); /* #313: did this emit reach SGL SpriteEntry? */
+#endif
+#endif
+    }
 }

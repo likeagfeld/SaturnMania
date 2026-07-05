@@ -241,6 +241,23 @@ void p6_vdp2_arm_sprites_only(void)
  * r5=0>>3=0, g5=96>>3=12, b5=224>>3=28 -> 0x8000 | (28<<10) | (12<<5) | 0 = 0xF180. */
 #define P6_TITLE_SKY_COL  0xF180u
 
+#if defined(P6_GHZCUT_BOOT)
+/* Task #309 #2b (GHZCutscene "black sky" / "Sonic in the ground like a corpse"):
+ * the FG present (p6_present_config) hardwired the VDP2 backdrop to 0x8000
+ * (black), so the cutscene's revealed scene showed Sonic/Tails warping in
+ * (ANI_FAN, arms out) against a BLACK void. MEASURED (extracted/Data/Stages/
+ * GHZCutscene/Scene1.bin + StageConfig.bin): "BG Outside" (512x24, fully
+ * populated) is the hills/horizon band, but its SKY region is transparent
+ * (palette index 0) -- so in RSDK the GHZ sky is a flat CLEAR color behind the
+ * BG layers. A sky-blue backdrop is therefore the decomp-true base. This global
+ * lets the GHZCut load path (p6_io_main.cpp) set it; the default 0x8000 keeps
+ * every other front-end scene (Title/AIZ) and the #else literal path below
+ * (GHZ shipping) byte-identical. Mania sky-blue == P6_TITLE_SKY_COL (0xF180 =
+ * RGB(0,96,224), measured from the Mania Horizon layer render). */
+__attribute__((used)) unsigned short p6_present_backcol = 0x8000u;
+#define P6_GHZCUT_SKY_COL 0xF180u
+#endif
+
 /* Park the island so its bbox (plane px 384..640) sits low-center in 320x240.
  * island top px 384 -> screen y ~96 => scroll_y = 384 - 96 = 288.
  * island center x 512 -> screen center x 160 => scroll_x = 512 - 160 = 352. */
@@ -730,9 +747,21 @@ static unsigned char p6_island_map16[16];
 /* Build the RBG0 map for the island layer (64x64 tiles, 2-word PND), reusing the
  * A0 cells already uploaded by p6_vdp2_upload_cells. Empty cells -> blank char
  * (transparent -> NBG1 backdrop shows through). One PL_SIZE_2x2 plane (4 pages). */
-static void p6_island_build_map(const unsigned short *islandLay, int islandWShift, int blank)
+/* Forward decls: the FG page + vblank-DMA machinery is defined later in this
+ * TU (P6_FG_PAGE :1757, p6_fg_dma_pending :1777); the island arm reuses that
+ * proven B0 delivery path (see the CHAIN FIX note below). */
+#define P6_FG_PAGE_ADDR 0x227F0000u /* MUST equal P6_FG_PAGE (:1757) */
+extern volatile int p6_fg_dma_pending;
+static const unsigned short *s_isl_lay = 0;   /* cached arm args for the heal  */
+static int s_isl_wshift = 0, s_isl_blank = 0;
+__attribute__((used)) int p6_w_title_map_heals = 0; /* B0-empty re-stages seen */
+__attribute__((used)) int p6_w_title_heal_called = 0;   /* DIAG heal entry count */
+__attribute__((used)) int p6_w_title_isl_layptr  = 0;   /* DIAG cached s_isl_lay */
+__attribute__((used)) int p6_w_title_map_probe_nz = -1; /* DIAG probe saw content */
+
+static void p6_island_build_map_to(volatile Uint16 *map,
+                                   const unsigned short *islandLay, int islandWShift, int blank)
 {
-    volatile Uint16 *map = (volatile Uint16 *)P6_RBG0_MAP;
     int x, y;
     for (y = 0; y < 64; ++y) {
         for (x = 0; x < 64; ++x) {
@@ -792,7 +821,22 @@ void p6_vdp2_title_island_rbg0_arm(const unsigned short *islandLay, int islandWS
         for (i = 0; i < 128; ++i) dst[i] = 0;
     }
 
-    p6_island_build_map(islandLay, islandWShift, blank);
+    /* CHAIN FIX (punch v2 item 1, MEASURED _v9_title_early/_v9_title.mcs:
+     * island_armed=1 yet B0 0x25E40000 ALL-ZERO at t=48 AND t=55, with
+     * p6_w_fg_dma=3..5 FIRING). ROOT: P6_VDP2_MAP == P6_RBG0_MAP == 0x25E40000
+     * (:35/:697); the p6_fg_vblank slDMAXCopy (:1868) copies P6_FG_PAGE -> B0
+     * every vblank. During the TITLE there is no GHZ foreground, so FG_PAGE is
+     * stale/zero -> the DMA ERASES this island map every vblank, one raster
+     * before the display reads it -> blank island. The one-shot direct write is
+     * correct but gets stomped. FIX: (1) cache the arm args so the per-frame
+     * heal can rewrite B0 DIRECTLY (no DMA, no FG_PAGE); (2) the DMA is gated
+     * OFF while the island is armed (p6_fg_vblank :1868, guarded on
+     * p6_w_title_island_armed). Direct write here + heal every frame = B0 always
+     * carries the map at frame end regardless of any residual clobber. */
+    p6_island_build_map_to((volatile Uint16 *)P6_RBG0_MAP, islandLay, islandWShift, blank);
+    s_isl_lay    = islandLay;
+    s_isl_wshift = islandWShift;
+    s_isl_blank  = blank;
 
     /* RPT constant fields (ST-058 Fig 6.3, ROTSCROLL layout SL_DEF.H:480-512). The
      * 0x60-byte RPT is laid out as: XST(+0) YST(+4) ZST(+8) dXST(+0xC) dYST(+0x10)
@@ -864,6 +908,36 @@ void p6_vdp2_title_island_rbg0_arm(const unsigned short *islandLay, int islandWS
     slPriorityRbg0(2);  /* RBG0 island ABOVE NBG1 backdrop (pri 1), BELOW VDP1 sprites (7) */
 
     p6_w_title_island_armed = 1;
+}
+
+/* Per-frame B0 self-heal (CHAIN FIX companion, called from the frontend island
+ * block): probe the island-head region of the RBG0 map (page 0 rows 8..23 =
+ * u16 words 512..1536 -- the build shifts the landmass there, see the +16
+ * source shift in p6_island_build_map_to). Healthy maps early-out in ~1-16
+ * reads; if the whole band reads ZERO the map was wiped (or never landed) ->
+ * re-stage into P6_FG_PAGE + re-queue the vblank slDMAXCopy, and count it so
+ * a savestate localizes any ACTIVE clobberer (heals stuck >1 = per-frame
+ * enemy; ==1 = the one-shot load-storm loss). */
+void p6_vdp2_title_island_map_heal(void)
+{
+    ++p6_w_title_heal_called;            /* DIAG: heal reached (before any early-out) */
+    p6_w_title_isl_layptr = (int)(unsigned int)s_isl_lay; /* DIAG: is the cached arg NULL? */
+    if (!s_isl_lay)
+        return;
+    volatile Uint16 *map = (volatile Uint16 *)P6_RBG0_MAP;
+    int i, nz = 0;
+    for (i = 512; i < 1536; i += 8) {
+        if (map[i]) { nz = 1; break; }
+    }
+    p6_w_title_map_probe_nz = nz;        /* DIAG: did the probe see B0 content? */
+    if (!nz) {
+        /* Rewrite the map DIRECTLY to B0 (NOT via FG_PAGE/DMA -- that path was
+         * the clobberer, see the arm note). Cheap: only fires on an empty read;
+         * heals>1 = a per-frame clobberer still active (the DMA gate below
+         * should keep this at <=1 -- the initial load-storm loss). */
+        p6_island_build_map_to(map, s_isl_lay, s_isl_wshift, s_isl_blank);
+        ++p6_w_title_map_heals;
+    }
 }
 
 /* Per-frame: rebuild the per-line coefficient table + the angle-dependent RPT
@@ -1244,7 +1318,237 @@ void p6_vdp2_aiz_blank_setup(int charIdx)
         cel[base + i] = 0; /* all palette-index-0 -> VDP2 transparent */
     p6_fg_blank_char_override = charIdx;
 }
+#endif
 
+#if defined(P6_GHZCUT_BOOT) || defined(P6_AIZ_TEST)
+/* =====================================================================
+ * F2a TEAR KILLER (2026-07-03): the 1s black singles across the cutscene +
+ * landing legs are the SGL per-vblank register-image transfer tearing (a
+ * mid-rebuild flush ships BGON/CYC defaults -- layers off for that frame;
+ * torn savestates read BGON=0x0040 while every static authority is healthy).
+ * Fix = the F1-R1 pattern applied to VDP2: the 4-plane arms PUBLISH the
+ * critical composition registers; the fg vblank hook AND the engine frame-top
+ * REPLAY them with direct writes, so whatever SGL's DMA left behind is
+ * overwritten before the frame displays. The full SET travels together
+ * (BGON + all four CYC pairs + PRINA/PRINB) -- the historical BGON-only ISR
+ * force was proven useless because the transitional AUTO cycle killed the
+ * fetches regardless of BGON (see the #302-RESOLVED note in the AIZ arm).
+ * ===================================================================== */
+volatile unsigned short p6_vdp2_mir_bgon   = 0;
+volatile unsigned int   p6_vdp2_mir_cyc[4] = { 0, 0, 0, 0 };
+volatile unsigned short p6_vdp2_mir_prina  = 0;
+volatile unsigned short p6_vdp2_mir_prinb  = 0;
+volatile int            p6_vdp2_mir_valid  = 0;
+
+void p6_vdp2_mirror_publish(unsigned short bgon, unsigned int c0, unsigned int c1,
+                            unsigned int c2, unsigned int c3,
+                            unsigned short prina, unsigned short prinb)
+{
+    p6_vdp2_mir_bgon   = bgon;
+    p6_vdp2_mir_cyc[0] = c0;
+    p6_vdp2_mir_cyc[1] = c1;
+    p6_vdp2_mir_cyc[2] = c2;
+    p6_vdp2_mir_cyc[3] = c3;
+    p6_vdp2_mir_prina  = prina;
+    p6_vdp2_mir_prinb  = prinb;
+    p6_vdp2_mir_valid  = 1;
+}
+
+void p6_vdp2_mirror_apply(void)
+{
+    if (!p6_vdp2_mir_valid)
+        return;
+    volatile Uint16 *r = (volatile Uint16 *)0x25F80000u;
+    /* CYCA0L..CYCB1U at 0x10..0x1E (ST-058-R2 p.85): 32-bit pattern hi16 -> L
+     * (T0-T3), lo16 -> U (T4-T7), the same split slScrCycleSet lands. */
+    for (int c = 0; c < 4; ++c) {
+        r[(0x10 + c * 4) / 2] = (Uint16)(p6_vdp2_mir_cyc[c] >> 16);
+        r[(0x12 + c * 4) / 2] = (Uint16)(p6_vdp2_mir_cyc[c] & 0xFFFFu);
+    }
+    r[0xF8 / 2] = p6_vdp2_mir_prina;
+    r[0xFA / 2] = p6_vdp2_mir_prinb;
+    r[0x20 / 2] = p6_vdp2_mir_bgon;
+}
+
+/* Folder-change teardown: stop replaying stale values across a seam (called
+ * next to the p6_vdp2_bg_owns_disp handbacks). */
+void p6_vdp2_mirror_reset(void)
+{
+    p6_vdp2_mir_valid = 0;
+}
+
+/* #302 FLICKER FIX (#314 punch-list 3, mechanism A): one-way latch -- once a
+ * 4-plane BG frame (p6_vdp2_aiz_bg_frame / p6_vdp2_ghzcut_bg_frame) has armed
+ * the display, the FG present's TRANSITIONAL 2-screen slScrAutoDisp + the
+ * slPriorityNbg1(1) write are SUPPRESSED (see the present epilogue). MEASURED
+ * (chain video episode map): metronomic 1-2-display-frame full blackouts every
+ * ~0.5-2.6s during the AIZ fly-in + the GHZCutscene FIRST half, STOPPING for
+ * 75s when the camera parks mid-cutscene; each episode lasts ~one engine frame
+ * (~0.25s at 4fps). The present's 2-screen arm rewrites BGON + the CYCx AUTO
+ * cycle IMMEDIATELY (SCROLL.TXT:80-82) WITHOUT the B1 N0/N2/N3 fetch codes; the
+ * full arm + manual slScrCycleSet lands ms later (after the per-frame BG
+ * streaming work) -- an SGL vblank register-image flush inside that window
+ * displays a BG-less (black) frame. This also explains why the 5-build
+ * BGON-force-to-0x47 rule-out (see the note in p6_vdp2_aiz_bg_frame) never
+ * helped: with the transitional AUTO cycle live, the BG char fetches are
+ * absent regardless of BGON. Latch is one-way per boot (the chain never
+ * returns to a non-BG scene). DECLARED OUTSIDE the GHZCUT-only region so the
+ * AIZ-only flavor compiles too. The witness mirrors it for savestate reads. */
+int p6_vdp2_bg_owns_disp = 0;
+__attribute__((used)) int p6_w_bg_owns_disp = 0;
+#endif
+
+#if defined(P6_GHZCUT_BOOT)
+/* Task #309 #2b REAL FIX (2026-07-01) -- render the GHZ "BG Outside" layer behind
+ * the transparent FG, replacing the abandoned flat-fill shortcuts above. MEASURED
+ * (tools/render_scene.py + _bgo_probe2.py): GHZCutscene scene TileLayer 0 = 512x24,
+ * 100%-populated sky+clouds+hills+water, palette stage-bank 1 (indices 128-191).
+ * The FG sky region is transparent (FG Low top rows 82% empty, FG High 93%), so a
+ * VDP2 NBG0 BEHIND NBG1 shows through. Mirrors the PROVEN AIZ BG path
+ * (p6_vdp2_aiz_bg_upload/frame) -- 4-bpp char in bank B1, CRAM offset 32, per-frame
+ * re-config + MANUAL slScrCycleSet (SGL's auto-allocator drops a B1-char NBG).
+ * Asset: tools/build_ghzcut_bg.py -> GHCBG.CHR (86 tiles) / .MAP (64x64 2-word PND
+ * window) / .PAL (4x16 u16 BAKED BGR555, copied straight to CRAM -- no runtime-pal
+ * dependency). Refs: memory saturn-vdp2-aiz-bg-nbg-recipe +
+ * saturn-vdp2-nbg-behind-fg-register-facts (ST-058-R2 PRINA/BGON-TPON/CYCxx). */
+#define P6_GHCBG_CHR_B1   0x25E60000u  /* B1: 4-bpp compact char (AIZ BG idle during GHZCut) */
+#define P6_GHCBG_MAP_B1   0x25E70000u  /* B1: NBG0 PND map window                            */
+#define P6_GHCBG_CEL_BASE 0x25E00000u  /* slPageNbg0 char base; charno 0x3000 reaches into B1 */
+/* CRAM banks 4-7 (CRAM[64..127]). Third relocation, both prior slots MEASURED
+ * occupied: PAL_BASE=32 stomped the Gunner HBHPAL block (Heavies claim
+ * CRAM[512..1791] -- colno=(2+cid)*256 and their pixels index up to 255);
+ * PAL_BASE=112 stomped the LIVE merged Sonic+Tails cutscene player palette
+ * (block 7 -- savestate CRAM[1856..1871] shows its blue/orange tail beyond my
+ * 64-word write, so the build_player_atlas loader IS live there). [64..127] is
+ * free 3 ways: tile histogram over all 5 layers = 0 px in banks 4-7; the decomp
+ * palette writers hit 181-184/197-200/128-255 only; every sprite colno >=256.
+ * MUST match tools/build_ghzcut_bg.py PAL_BASE (the PND palette field is baked). */
+#define P6_GHCBG_PAL_BASE 4
+__attribute__((used)) int p6_w_ghcbg_loaded = 0; /* CHR words copied to B1        */
+__attribute__((used)) int p6_w_ghcbg_cram1  = 0; /* CRAM[PAL_BASE*16+1] first real sky color */
+__attribute__((used)) int p6_w_ghcbg_nbg0   = 0; /* 1 after NBG0 arm             */
+/* Build-13: the engine's bank0 palette flush re-writes CRAM[0..255] every frame
+ * (GHZSetup RotatePalette cycles run per StaticUpdate) -- a one-shot upload into
+ * banks 4-7 is overwritten by the NEXT flush with the stage-global player rows.
+ * MEASURED (build 12, _skypal4.mcs): witnesses prove the upload ran (loaded=5504
+ * words, cram1 read back 0x9404 at upload time) yet settled CRAM[64..79] = the
+ * engine's colors, 0/16 mine -> magenta sky. Since NO tile in any of the 5 scene
+ * layers reads slots 64-127 (0 px, measured), re-asserting them each frame harms
+ * nothing that displays: keep a copy and rewrite CRAM at the top of the per-frame
+ * arm (same config-every-frame pattern the AIZ recipe mandates for registers). */
+static Uint16 s_ghcbg_pal[64];
+static int    s_ghcbg_pal_n = 0;
+/* Build-9: EXACT AIZ map placement. The savestate register file is a per-vblank
+ * REWRITE TRANSIENT (measured: the WORKING AIZ fly-in state reads BGON=0x0040 /
+ * CYC*=0xFEEEEEEE while visibly rendering 3 BG planes) -- so the display authority
+ * is SGL's internal allocator/buffer, and the only sound strategy is to make every
+ * allocator-visible input IDENTICAL to the proven AIZ configuration: N0 map in B1,
+ * N2/N3 maps in B0 (the AIZ addresses 0x25E48000/0x25E4C000, free in GHZCut), all
+ * char in B1, AIZ priorities. The same 64x64 PND image is copied to all three map
+ * locations (N2/N3 duplicate the sky behind N0). */
+#define P6_GHCBG_MAP2_B0  0x25E48000u  /* B0: NBG2 map (the AIZ BG1 slot, free here) */
+#define P6_GHCBG_MAP3_B0  0x25E4C000u  /* B0: NBG3 map (the AIZ BG3 slot, free here) */
+void p6_vdp2_ghzcut_bg_upload(const unsigned short *chr_cart, int chr_words,
+                              const unsigned short *pal_cart, int pal_words,
+                              const unsigned short *map_cart, int map_words)
+{
+    volatile Uint16 *chr  = (volatile Uint16 *)P6_GHCBG_CHR_B1;
+    volatile Uint16 *map  = (volatile Uint16 *)P6_GHCBG_MAP_B1;
+    volatile Uint16 *map2 = (volatile Uint16 *)P6_GHCBG_MAP2_B0;
+    volatile Uint16 *map3 = (volatile Uint16 *)P6_GHCBG_MAP3_B0;
+    volatile Uint16 *cram = (volatile Uint16 *)0x25F00000u;
+    int i;
+    for (i = 0; i < chr_words; ++i) chr[i] = chr_cart[i];
+    if (pal_words > 64) pal_words = 64;
+    for (i = 0; i < pal_words; ++i) {                   /* baked BGR555 -> CRAM banks 4-7 */
+        cram[P6_GHCBG_PAL_BASE * 16 + i] = pal_cart[i];
+        s_ghcbg_pal[i] = pal_cart[i];                   /* per-frame re-assert copy */
+    }
+    s_ghcbg_pal_n = pal_words;
+    for (i = 0; i < map_words; ++i) {
+        map[i]  = map_cart[i];
+        map2[i] = map_cart[i];
+        map3[i] = map_cart[i];
+    }
+    p6_w_ghcbg_loaded = chr_words;
+    p6_w_ghcbg_cram1  = (int)cram[P6_GHCBG_PAL_BASE * 16 + 1];
+}
+/* Per-frame NBG0 arm (config EVERY frame -- a config-once NBG gets dropped from
+ * SGL's cycle allocation). sx = horizontal parallax scroll.
+ *
+ * FULL 4-PLANE ARM (build-7 fix, MEASURED basis): with a 2-plane arm
+ * (NBG0ON|NBG1ON|SPRON) every register/CRAM/VRAM byte verified CORRECT in settled
+ * savestates (BGON 0x43, CYCB1 0x0467EEEE, MPABN0 0x3030, PRINA 0x0201, my CRAM +
+ * char + PND all present, FG PNDs transparent, no windows/CC/CRAOF) at frames 3 AND
+ * 17 -- yet the TOP of the live display stayed black with a working band lower down.
+ * SGL writes slScrAutoDisp/slScrCycleSet registers IMMEDIATELY (SCROLL.TXT:80-82),
+ * and the FG present re-arms NBG1ON|SPRON each frame, for which SGL's auto-allocator
+ * emits a cycle WITHOUT the B1 N0 fetch; my later slScrCycleSet restores it. On the
+ * live raster the registers therefore FLIP MID-FRAME every frame: top scanlines
+ * render under the allocator's no-N0 pattern (black), lower ones under mine (the
+ * observed working band). A between-frames savestate always shows the last write =
+ * mine = "perfect". The AIZ BG never shows this because its arm is the COMPLETE
+ * 4-plane shape (p6_vdp2_aiz_bg_frame) whose auto-allocated cycle agrees with the
+ * manual pattern (memory saturn-vdp2-aiz-bg-nbg-recipe: NBG-from-B1 survives ONLY
+ * inside the full 4-plane setup). So mirror AIZ exactly: N2+N3 armed too, pointed at
+ * the SAME map (harmless duplicates behind the FG; fixed inter-plane order keeps N0
+ * in front of N3 at equal priority, ST-058-R2). */
+void p6_vdp2_ghzcut_bg_frame(int sx)
+{
+    /* Re-assert the sky banks EVERY frame -- the engine's bank0 palette flush
+     * overwrites them between frames (see the MEASURED build-12 note above). */
+    if (s_ghcbg_pal_n > 0) {
+        volatile Uint16 *cram = (volatile Uint16 *)0x25F00000u;
+        int i;
+        for (i = 0; i < s_ghcbg_pal_n; ++i)
+            cram[P6_GHCBG_PAL_BASE * 16 + i] = s_ghcbg_pal[i];
+    }
+    slCharNbg0(COL_TYPE_16, CHAR_SIZE_2x2);
+    slPageNbg0((void *)P6_GHCBG_CEL_BASE, 0, PNB_2WORD);
+    slPlaneNbg0(PL_SIZE_2x2);
+    slMapNbg0((void *)P6_GHCBG_MAP_B1, (void *)P6_GHCBG_MAP_B1,
+              (void *)P6_GHCBG_MAP_B1, (void *)P6_GHCBG_MAP_B1);
+    slScrPosNbg0(toFIXED(sx), toFIXED(0));
+    slCharNbg2(COL_TYPE_16, CHAR_SIZE_2x2);
+    slPageNbg2((void *)P6_GHCBG_CEL_BASE, 0, PNB_2WORD);
+    slPlaneNbg2(PL_SIZE_2x2);
+    slMapNbg2((void *)P6_GHCBG_MAP2_B0, (void *)P6_GHCBG_MAP2_B0,
+              (void *)P6_GHCBG_MAP2_B0, (void *)P6_GHCBG_MAP2_B0);
+    slScrPosNbg2(toFIXED(sx), toFIXED(0));
+    slCharNbg3(COL_TYPE_16, CHAR_SIZE_2x2);
+    slPageNbg3((void *)P6_GHCBG_CEL_BASE, 0, PNB_2WORD);
+    slPlaneNbg3(PL_SIZE_2x2);
+    slMapNbg3((void *)P6_GHCBG_MAP3_B0, (void *)P6_GHCBG_MAP3_B0,
+              (void *)P6_GHCBG_MAP3_B0, (void *)P6_GHCBG_MAP3_B0);
+    slScrPosNbg3(toFIXED(sx), toFIXED(0));
+    /* Priorities VERBATIM from the proven p6_vdp2_aiz_bg_frame: N2=1 (farthest),
+     * N3=2, N0=2 (N0 in front of N3 by fixed order at equal pri), FG N1=3. */
+    slPriorityNbg2(1);
+    slPriorityNbg3(2);
+    slPriorityNbg0(2);
+    slPriorityNbg1(3);
+    slScrAutoDisp(NBG0ON | NBG1ON | NBG2ON | NBG3ON | SPRON);
+    /* Manual cycle AFTER auto-disp (the proven AIZ 4-plane pattern verbatim --
+     * and now it MATCHES the map placement: N1/N2/N3 PN in B0, N0 PN + all
+     * BG char in B1, exactly the AIZ bank layout). */
+    slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu);
+    p6_w_ghcbg_nbg0 = 1;
+    /* #302 mechanism A: this full arm now OWNS the display -- the FG present
+     * stops emitting its transitional 2-screen arm (see the latch above). */
+    p6_vdp2_bg_owns_disp = 1;
+    p6_w_bg_owns_disp    = 1;
+    /* F2a (tear killer): publish the critical composition registers so the
+     * per-vblank + frame-top re-assert can replay them -- a torn SGL register-
+     * image transfer (BGON back to defaults mid-rebuild = the 1s black singles)
+     * can no longer survive to the displayed frame. BGON 0x004F / PRINA 0x0302 /
+     * PRINB 0x0201 = the MEASURED healthy landing values (savestate 2026-07-03);
+     * CYC = the manual pattern above verbatim. */
+    p6_vdp2_mirror_publish(0x004F, 0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu,
+                           0x0302, 0x0201);
+}
+#endif
+
+#if defined(P6_AIZ_TEST)
 /* =====================================================================
  * R2.1 (AIZ Background render): the 4-bpp AIZ Background plane on VDP2 NBG0.
  *
@@ -1464,13 +1768,23 @@ void p6_vdp2_aiz_bg_frame(int bg4_sx, int bg1_sx, int bg3_sx)
                   0xFFFEEEEEu,   /* A1: idle                                     */
                   0x123FEEEEu,   /* B0: N1 PN(T0) + N2 PN(T1) + N3 PN(T2)        */
                   0x0467EEEEu);  /* B1: N0 PN + N0 char + N2 char(T2) + N3 char(T3) */
-    /* DEFERRED (separate front-end task, NOT a BG-arming bug): the AIZ fly-in shows a
-     * ~30% periodic full-screen black. MEASURED NOT to be this VDP2 plane arming -- a
-     * vblank-ISR force of the BGON hardware reg to 0x47 (savestate-confirmed all-planes-
-     * on) left the ~30% black UNCHANGED across 5 builds. The black is downstream
-     * (VDP1 framebuffer / front-end-rate class, shared with the title #276/#241), to be
-     * investigated at that layer. BG1 itself renders correctly (BGON=0x47, clouds). */
+    /* #302 RESOLVED (was DEFERRED here): the AIZ fly-in ~30% periodic full-screen
+     * black was NOT this arm's register VALUES -- it was the per-frame ORDER: the
+     * FG present's transitional 2-screen slScrAutoDisp rewrote BGON + the CYCx
+     * AUTO cycle (no B1 fetch codes) ms BEFORE this full arm + manual cycle
+     * landed; a vblank register-image flush in that window displayed a BG-less
+     * (black) frame. That is why the 5-build vblank-ISR BGON-force-to-0x47
+     * rule-out never helped: with the transitional AUTO cycle live, the BG char
+     * fetches are absent regardless of BGON. Fixed by the p6_vdp2_bg_owns_disp
+     * latch (the present skips its arm once this fn owns the display). */
     p6_w_aiz_bg_nbg0 = 1;
+    p6_vdp2_bg_owns_disp = 1;
+    /* F2a (tear killer): publish for the per-vblank + frame-top replay -- same
+     * full register set as the GHZCUT arm (BGON alone was proven useless by the
+     * 5-build rule-out above; the CYC patterns must ride along). */
+    p6_vdp2_mirror_publish(0x004F, 0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu,
+                           0x0302, 0x0201);
+    p6_w_bg_owns_disp    = 1;
 }
 #endif
 
@@ -1504,12 +1818,109 @@ __attribute__((used)) volatile int p6_fg_dma_pending = 0; /* present->vblank han
 __attribute__((used)) volatile int p6_fg_scroll_x  = 0;   /* latest camera (vblank reads) */
 __attribute__((used)) volatile int p6_fg_scroll_y  = 0;
 
+#if defined(P6_DIRECT_VDP1_PROBE)
+/* #316 DIRECT-VDP1 PROBE (path-3 bypass, session-1 increment -- see the
+ * direct-vdp1-command-list-design memory). Verifies the ONE unknown before the
+ * emit-layer swap: vblank ordering (SGL's SCU plan transfer vs jo user vblank
+ * callbacks vs draw start). MEASURED FOUNDATION (_blk1.mcs dump): SGL's
+ * transferred preamble chains 0x00 sysclip -> 0x20 userclip -> 0x40 localcoord
+ * (160,120) -> 0x60 END(0x8000) via JP=assign links. THE PROBE: each vblank,
+ * (1) latch what sits at 0x60 at callback entry (0x8000 = SGL re-transferred
+ * before us; 0x100A = our last patch survived = no re-transfer this vblank),
+ * (2) rewrite 0x60 as a harmless duplicate localcoord(160,120) with JP=assign
+ * -> CMDLINK 0x2000>>3, where a one-shot red 32x32 Comm=4 polygon + END lives
+ * (ST-013-R3 command format per vdp1-reference.md: CMDCTRL/LINK/PMOD/COLR/
+ * XA..YD; polygon CMDCOLR = MSB|RGB555). GREEN = the red square renders at a
+ * DEEP title frame (t>=50s) where #313 has killed every SGL-pipeline sprite --
+ * proving the direct path survives where the slave plan dies. NOTE: the patch
+ * SKIPS any live SGL sprite chain past 0x60, so the probe flavor deliberately
+ * sacrifices SGL sprites -- diagnostic build only, never shipping. */
+__attribute__((used)) int p6_w_dv1_end60   = 0; /* CMDCTRL at 0x60 at cb entry */
+__attribute__((used)) int p6_w_dv1_edsr    = 0; /* EDSR at cb entry            */
+__attribute__((used)) int p6_w_dv1_patches = 0; /* trampoline rewrites         */
+static int s_dv1_armed = 0;
+#endif
 /* Vblank callback: DMA the cart page to the VDP2 NBG1 map (only when it changed)
  * + arm the hardware scroll every vblank for smooth sub-tile panning even when
  * the game loop runs below 60 Hz. Registered via jo_core_add_vblank_callback. */
 void p6_fg_vblank(void)
 {
+#if defined(P6_DIRECT_VDP1)
+    /* #316 F1 (production): patch SGL's END cell at 0x60 into a duplicate
+     * localcoord(160,120) + JP=assign -> the last COMPLETED direct-list half
+     * (p6_dl_link, published by p6_dl_end in p6_vdp1.c). Probe-proven topology:
+     * renders through 1,652 consecutive vblanks including the frames where the
+     * SGL transfer machinery is torn. With the emit swap SGL's plan is
+     * permanently empty, so 0x60 is always the END cell we replace. Idempotent
+     * per vblank; p6_dl_link==0 until the first completed frame (leave END). */
+    {
+        extern volatile unsigned int p6_dl_link;
+        if (p6_dl_link) {
+            volatile Uint16 *cmd = (volatile Uint16 *)0x25C00000u;
+            cmd[0x60 / 2] = 0x100A;
+            cmd[0x62 / 2] = (Uint16)p6_dl_link;
+            cmd[0x64 / 2] = 0; cmd[0x66 / 2] = 0;
+            cmd[0x68 / 2] = 0; cmd[0x6A / 2] = 0;
+            cmd[0x6C / 2] = 160; cmd[0x6E / 2] = 120;
+        }
+    }
+#endif
+#if defined(P6_GHZCUT_BOOT) || defined(P6_AIZ_TEST)
+    /* F2a tear killer: replay the published composition registers every vblank
+     * so a torn SGL register-image flush cannot ship a BG-less frame. */
+    p6_vdp2_mirror_apply();
+#endif
+#if defined(P6_DIRECT_VDP1_PROBE)
+    {
+        volatile Uint16 *cmd = (volatile Uint16 *)0x25C00000u;
+        p6_w_dv1_end60 = (int)cmd[0x60 / 2];
+        p6_w_dv1_edsr  = (int)(*(volatile Uint16 *)0x25D00010u);
+        if (!s_dv1_armed) {
+            /* One-shot: the red polygon at VDP1 VRAM 0x2000 (inside SGL's
+             * reserved command area, beyond any transfer reach in the probe
+             * flavor) + END at 0x2020. Comm=4 polygon, PMOD ECD|SPD, COLR =
+             * MSB|red. Vertices relative to localcoord(160,120): a 32x32
+             * square at screen (20,20)-(52,52). */
+            volatile Uint16 *p = (volatile Uint16 *)(0x25C00000u + 0x2000u);
+            p[0x00 / 2] = 0x0004;            /* CMDCTRL: JP=next, Comm=polygon */
+            p[0x02 / 2] = 0x0000;            /* CMDLINK (unused, JP=next)      */
+            p[0x04 / 2] = 0x00C0;            /* CMDPMOD: ECD|SPD, replace      */
+            p[0x06 / 2] = 0x801F;            /* CMDCOLR: MSB|R=31 (pure red)   */
+            p[0x08 / 2] = 0; p[0x0A / 2] = 0;
+            p[0x0C / 2] = (Uint16)(short)-140; p[0x0E / 2] = (Uint16)(short)-100;
+            p[0x10 / 2] = (Uint16)(short)-108; p[0x12 / 2] = (Uint16)(short)-100;
+            p[0x14 / 2] = (Uint16)(short)-108; p[0x16 / 2] = (Uint16)(short)-68;
+            p[0x18 / 2] = (Uint16)(short)-140; p[0x1A / 2] = (Uint16)(short)-68;
+            p[0x1C / 2] = 0;
+            ((volatile Uint16 *)(0x25C00000u + 0x2020u))[0] = 0x8000; /* END */
+            s_dv1_armed = 1;
+        }
+        /* Trampoline: 0x60 becomes duplicate localcoord(160,120) + JP=assign
+         * -> 0x2000. XA/YA at +0x0C/+0x0E per the measured SGL localcoord. */
+        cmd[0x60 / 2] = 0x100A;
+        cmd[0x62 / 2] = (Uint16)(0x2000u >> 3);
+        cmd[0x64 / 2] = 0; cmd[0x66 / 2] = 0;
+        cmd[0x68 / 2] = 0; cmd[0x6A / 2] = 0;
+        cmd[0x6C / 2] = 160; cmd[0x6E / 2] = 120;
+        ++p6_w_dv1_patches;
+    }
+#endif
+    /* punch v2 item 1: the FG-page->B0 DMA and the RBG0 island map share
+     * B0 0x25E40000 (P6_VDP2_MAP == P6_RBG0_MAP). While the title island is
+     * armed there is NO GHZ foreground, so this DMA would copy a stale/zero
+     * FG_PAGE over the island map every vblank (MEASURED: B0 all-zero despite
+     * the direct arm write). Skip it entirely during the title island leg --
+     * the island map is written directly to B0 by the arm + per-frame heal. */
+    /* #317 fix: p6_w_title_island_armed is defined ONLY under P6_FRONTEND_TITLE
+     * (this file:189); this DMA path compiles for ALL flavors, so plain GHZ (no
+     * title) referenced an undeclared symbol -> build break. Plain GHZ has no
+     * title island -> the guard is a no-op there; restore the pre-island
+     * `if (p6_fg_dma_pending)` for it (byte-identical) + keep the skip for title. */
+#if defined(P6_FRONTEND_TITLE)
+    if (p6_fg_dma_pending && !p6_w_title_island_armed) {
+#else
     if (p6_fg_dma_pending) {
+#endif
         slDMAXCopy((void *)P6_FG_PAGE, (void *)P6_VDP2_MAP,
                    (Uint32)(4096u * 4u), Sinc_Dinc_Long); /* 4096 cells x 4 B */
         p6_fg_dma_pending = 0;
@@ -1693,6 +2104,14 @@ static void p6_present_compute(int layer, int scroll_x, int scroll_y,
         unsigned short b5 = v & 0x1F;
         cram[c] = (Uint16)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
     }
+#if defined(P6_GHZCUT_BOOT)
+    /* Task #309 #2b: the FG palette upload above wrote CRAM[255] from fullPalette;
+     * override it to the cutscene sky-blue so the NBG0 sky plane (which fills its
+     * cells with palette index 255) renders sky-blue. Only when the GHZCut sky is
+     * armed (p6_present_backcol != black); index 255 is FG-unused (MEASURED). */
+    if (p6_present_backcol != 0x8000u)
+        cram[255] = p6_present_backcol;
+#endif
 }
 
 /* Master-ONLY (ST-202 / dual-cpu-reference.md:142-148: only the master controls
@@ -1711,6 +2130,30 @@ static void p6_present_config(int scroll_x, int scroll_y)
      * smooth sub-tile panning); publish the latest camera for it to read. */
     p6_fg_scroll_x = scroll_x;
     p6_fg_scroll_y = scroll_y;
+#if defined(P6_GHZCUT_BOOT) || defined(P6_AIZ_TEST)
+    /* #302 FLICKER FIX (#314 punch-list 3, mechanism A): once a 4-plane BG frame
+     * owns the display (p6_vdp2_bg_owns_disp latch, see its block comment), this
+     * present MUST NOT emit its transitional 2-screen slScrAutoDisp NOR the
+     * slPriorityNbg1(1) write -- both rewrite live registers ms before the BG
+     * frame's full arm restores them, and a vblank register-image flush in that
+     * window displays a BG-less (black) frame (the measured metronomic flicker).
+     * Pre-BG frames (latch 0) keep the original 2-screen arm verbatim. */
+    if (!p6_vdp2_bg_owns_disp) {
+        slPriorityNbg1(1); /* FG below the VDP1 sprites (pri 7) -- pre-BG frames only */
+#if defined(P6_GHZCUT_BOOT)
+        slBack1ColSet((void *)P6_VDP2_BAK, p6_present_backcol);
+#else
+        slBack1ColSet((void *)P6_VDP2_BAK, 0x8000);
+#endif
+        slScrAutoDisp(NBG1ON | SPRON);
+    }
+#if defined(P6_GHZCUT_BOOT)
+    else {
+        /* Back-screen covers the overscan border only (#309 #2b) -- safe to keep. */
+        slBack1ColSet((void *)P6_VDP2_BAK, p6_present_backcol);
+    }
+#endif
+#else
     slPriorityNbg1(1); /* FG plane BELOW the VDP1 sprites (HUD/Sonic/Tails at pri 7)
                         * so the characters render IN FRONT of the foreground plane
                         * (plants/totems), not behind it. No other VDP2 layer competes
@@ -1718,6 +2161,7 @@ static void p6_present_config(int scroll_x, int scroll_y)
                         * layering needs a behind/front FG split -- a later refinement. */
     slBack1ColSet((void *)P6_VDP2_BAK, 0x8000);
     slScrAutoDisp(NBG1ON | SPRON);
+#endif
 }
 
 /* Public entry (the pack calls this extern "C"). A1: compute + config both on the
@@ -1837,7 +2281,16 @@ void p6_present_join_config(int sx, int sy)
  *   draws BLACK last (FXRuby.c:42-45) so black dominates -> apply the black
  *   offset. Single offset-A write/frame; disable when both <= 0.
  * ========================================================================== */
-#define P6_GHZCUT_FADE_SCREENS  (NBG1ON | SPRON)
+/* F-CUT-1 (user-reported "cinematic fucked" silhouette; VIEWED _r1__160: FG +
+ * sprites solid black while the sky/BG planes stayed LIT for the whole ~18 s
+ * fade window): the NBG1|SPR mask above predates #310 -- the 4-plane sky BG
+ * (NBG0/NBG2/NBG3, p6_vdp2_ghzcut_bg_frame) is NOT offset, so the decomp's
+ * whole-screen FillScreen wash (FXRuby.c draw; GHZCutsceneST.c:88-89 seeds
+ * fadeBlack=fadeWhite=0x200, :144-153 ramps -16/tick) renders as an FG-only
+ * silhouette. Decomp-authoritative coverage = EVERY visible screen: extend the
+ * mask to the BG planes (CLOFEN bits 0-3 + 6 per ST-058-R2 Ch.13 :10266-10283).
+ * The back screen is overscan-only (field gotcha #6) -- not included. */
+#define P6_GHZCUT_FADE_SCREENS  (NBG0ON | NBG1ON | NBG2ON | NBG3ON | SPRON)
 
 void p6_vdp2_fade_apply(int fadeWhite, int fadeBlack)
 {
@@ -1885,16 +2338,43 @@ void p6_vdp2_fade_reset(void)
  * as p6_pal_mirror (p6_vdp1.c:705) and the AIZ-BG bank upload above. NO jo +1
  * pre-shift: the sprite reads CRAM[block+pixel] directly (the +1 shift is a jo
  * VDP2-NBG-palnum quirk, not the raw-CRAM sprite-bank path). */
-void p6_vdp2_hbh_pal_upload(const unsigned short *palData /* HBHPAL.BIN, 5*128 u16 */)
+void p6_vdp2_hbh_pal_upload(const unsigned short *palData /* HBHPAL.BIN, 5*256 u16 */)
 {
+    /* Task #311: full 256-entry blocks. Lower 128 = the Heavy gif GCT (as before);
+     * upper 128 = the decomp CutsceneHBH tempPal colorSet (the colors PC writes to
+     * stage indices 128-255 via SetPaletteEntry, CutsceneHBH.c:195) -- the half
+     * that 11.5-28.1% of every Heavy's sprite pixels index (MEASURED; unloaded it
+     * read junk CRAM = the garble strips). */
     volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
     int n, i;
     if (!palData)
         return;
     for (n = 0; n < 5; ++n) {
         int base = 512 + 256 * n;           /* CRAM[512/768/1024/1280/1536] */
-        for (i = 0; i < 128; ++i)
-            cram[base + i] = palData[n * 128 + i];
+        for (i = 0; i < 256; ++i)
+            cram[base + i] = palData[n * 256 + i];
     }
+}
+
+/* Task #309 caveat #2a (cutscene PLAYERS render): upload the merged player palette
+ * (cd/PLRPAL.BIN, ONE 256-color block) to CRAM block 7 = CRAM[1792..2047]. Mirrors
+ * p6_vdp2_hbh_pal_upload exactly (raw CRAM write, no jo +1 pre-shift -- the VDP1 8bpp
+ * sprite reads CRAM[colno+pixel] directly; SPCTL=0x23 Type-3 full-11-bit DC + SPCAOS=0,
+ * ST-058-R2 sec 10.1; CMDCOLR high-byte = colno, ST-013-R3 sec 6.4). Block 7 is the
+ * ONLY free 256-aligned block above the 5 Heavy blocks (CRAM[512..1663]) and below the
+ * 2048-entry CRAM limit -- disjoint from FG bank0 [0..255], sprite bank1 [256..511], and
+ * the Heavies -> R3.3-collision-proof. The merged block carries Sonic's color at every
+ * Sonic-Fan index AND Tails' color at every Tails-Fan index (build_player_atlas.py S4
+ * verified ZERO real conflict), so BOTH players render faithfully from this ONE block.
+ * The per-blit colno=1792 is selected SURFACE-DRIVEN in p6_vdp1.c (the PLROBJ sheet),
+ * never in the shared engine draw loop. */
+void p6_vdp2_player_pal_upload(const unsigned short *palData /* PLRPAL.BIN, 256 u16 */)
+{
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    int i;
+    if (!palData)
+        return;
+    for (i = 0; i < 256; ++i)
+        cram[1792 + i] = palData[i];
 }
 #endif /* P6_GHZCUT_BOOT */

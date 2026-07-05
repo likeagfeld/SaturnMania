@@ -468,6 +468,20 @@ extern "C" int p6_w_draw_sort;
 extern "C" int p6_w_draw_cb;
 extern "C" int p6_w_draw_maxgrp;
 extern "C" int p6_w_draw_nents;
+#if defined(P6_FRONTEND_MENU)
+// #317 front-end perf: the front-end DrawLists section is ~200ms/frame (12 vblanks) --
+// far past the FRT wrap (~78ms at cks=1), so draw_sort/draw_cb (FRT ticks) cannot
+// measure it. These are VBLANK deltas (32-bit p6_perf_vbl_count, wrap-free at 16.67ms
+// resolution) around the three unmeasured sub-parts to localize the hog: the drawgroup
+// hookCB(), the entity draw() loop, and the tile-layer ProcessParallax/scanline loop.
+// Gated on P6_FRONTEND_MENU (chain-only via ENG_DEFS) -> plain GHZ .o byte-identical.
+// (p6_perf_vbl_count already extern-declared at the top of this OBJPROF block.)
+extern "C" int p6_w_draw_hook_v;
+extern "C" int p6_w_draw_cb_v;
+extern "C" int p6_w_draw_tile_v;
+extern "C" int p6_w_draw_blit_v;  // #317: vblanks inside the Saturn blit calls
+extern "C" int p6_w_draw_dma_v;   // #317: vblanks inside the LRU miss-DMA path
+#endif
 // LOCKED-60 (#243): loop1 scan occupancy -- sizes the trim + explains the growth.
 extern "C" int p6_w_scan_pop;
 extern "C" int p6_w_scan_maxslot;
@@ -660,7 +674,42 @@ void RSDK::ProcessObjects()
     unsigned short _ps_tA = p6_perf_frt_get(), _ps_tB = _ps_tA, _ps_tC = _ps_tA, _ps_tD = _ps_tA;
     p6_w_scan_pop = 0; p6_w_scan_maxslot = 0; p6_w_scan_bounds = 0;
 #endif
+#if defined(P6_FRONTEND_MENU)
+    // #317 OBJ TRIM (front-end only): loop1 scans all 1216 slots (~8-11ms/tick x4 ticks
+    // MEASURED = the entire front-end obj cost; loop2/3 trivial) but the front-end
+    // populates only [0, ~362]. Scene entities load CONTIGUOUSLY from RESERVE and stay
+    // put; dynamic RSDK.CreateEntity uses the TEMP region [TEMPENTITY_START, ENTITY_COUNT)
+    // -- which is ALWAYS scanned below. So skip the EMPTY scene-middle [scanHi+margin,
+    // TEMPENTITY_START). High-water = the true highest-populated scene slot last frame
+    // (+ 96 spawn-margin), FULL-scanned for a WARMUP window after any scene change so a
+    // new scene's (possibly startup-staggered) entities are always seen. Plain GHZ takes
+    // none of this -> Scene_Object.o byte-identical.
+    static int32 s_feScanHi  = RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT;
+    static char  s_feFolder[16] = { 0 };
+    static int32 s_feWarmup  = 8;
+    {
+        int32 _fchg = 0;
+        for (int32 _c = 0; _c < 16; ++_c) {
+            if (s_feFolder[_c] != currentSceneFolder[_c]) _fchg = 1;
+            s_feFolder[_c] = currentSceneFolder[_c];
+        }
+        if (_fchg) s_feWarmup = 8;
+    }
+    if (s_feWarmup > 0) { --s_feWarmup; s_feScanHi = RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT; }
+    int32 s_feSceneEnd = s_feScanHi + 96;
+    if (s_feSceneEnd > RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT)
+        s_feSceneEnd = RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT;
+    int32 s_feLocalMax = RESERVE_ENTITY_COUNT;
+#endif
     for (int32 e = 0; e < ENTITY_COUNT; ++e) {
+#if defined(P6_FRONTEND_MENU)
+        // skip the EMPTY scene-middle; reserve [0,RESERVE) + temp [TEMPENTITY_START,..)
+        // are never skipped (both below/above the condition window).
+        if (e >= s_feSceneEnd && e < RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT) {
+            e = RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT - 1;   // ++e -> TEMPENTITY_START
+            continue;
+        }
+#endif
 #if RETRO_PLATFORM == RETRO_SATURN
 #if defined(P6_FRONTEND_MENU)
         // Task #298 (M2): the front-end iterates via RSDK_ENTITY_AT(e) so the wide-scene
@@ -708,6 +757,9 @@ void RSDK::ProcessObjects()
         sceneInfo.entity = RSDK_ENTITY_AT(e);
 #endif
         if (sceneInfo.entity->classID) {
+#if defined(P6_FRONTEND_MENU)
+            if (e < RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT && e > s_feLocalMax) s_feLocalMax = e;
+#endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
             ++p6_w_scan_pop; p6_w_scan_maxslot = e; // e == PHYSICAL slot (gate wants < 768 post-shrink)
             { uint8 _av = (uint8)sceneInfo.entity->active;
@@ -861,6 +913,9 @@ void RSDK::ProcessObjects()
 
         sceneInfo.entitySlot++;
     }
+#if defined(P6_FRONTEND_MENU)
+    s_feScanHi = s_feLocalMax; // #317: high-water for next frame's scene-region trim
+#endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SHADOW_COMPARE)
     // SCAN-SPLIT PARITY: compare the real interleaved inRange (loop1 sets it ONCE in
     // the switch, NOT re-evaluated after the own-update move) to the frame-start
@@ -1211,6 +1266,11 @@ void RSDK::ProcessObjectDrawLists()
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
         // LOCKED-60 (#243): per-frame reset of the DrawLists sub-attribution witnesses.
         p6_w_draw_sort = 0; p6_w_draw_cb = 0; p6_w_draw_maxgrp = 0; p6_w_draw_nents = 0;
+#if defined(P6_FRONTEND_MENU)
+        // #317: per-frame reset of the vblank sub-brackets (hookCB / entity-cb / tile-layer).
+        p6_w_draw_hook_v = 0; p6_w_draw_cb_v = 0; p6_w_draw_tile_v = 0;
+        p6_w_draw_blit_v = 0; p6_w_draw_dma_v = 0; // #317 blit vs object-logic split
+#endif
 #endif
         for (int32 s = 0; s < videoSettings.screenCount; ++s) {
             currentScreen             = &screens[s];
@@ -1230,8 +1290,14 @@ void RSDK::ProcessObjectDrawLists()
                 if (engine.drawGroupVisible[l]) {
                     DrawList *list = &drawGroups[l];
 
+#if defined(P6_FRONTEND_MENU)
+                    unsigned int _dvhook0 = p6_perf_vbl_count;
+#endif
                     if (list->hookCB)
                         list->hookCB();
+#if defined(P6_FRONTEND_MENU)
+                    p6_w_draw_hook_v += (int)(p6_perf_vbl_count - _dvhook0);
+#endif
 
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
                     if (list->entityCount > p6_w_draw_maxgrp) p6_w_draw_maxgrp = list->entityCount;
@@ -1255,6 +1321,9 @@ void RSDK::ProcessObjectDrawLists()
                       p6_w_draw_sort += (int)(unsigned short)(_ds1 - _ds0); _ds0 = _ds1; }
 #endif
 
+#if defined(P6_FRONTEND_MENU)
+                    unsigned int _dvcb0 = p6_perf_vbl_count;
+#endif
                     for (int32 i = 0; i < list->entityCount; ++i) {
                         sceneInfo.entitySlot = list->entries[i];
                         validDraw            = false;
@@ -1273,6 +1342,10 @@ void RSDK::ProcessObjectDrawLists()
                     }
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
                     p6_w_draw_cb += (int)(unsigned short)(p6_perf_frt_get() - _ds0);
+#endif
+#if defined(P6_FRONTEND_MENU)
+                    p6_w_draw_cb_v += (int)(p6_perf_vbl_count - _dvcb0);
+                    unsigned int _dvtile0 = p6_perf_vbl_count;
 #endif
 
                     for (int32 i = 0; i < list->layerCount; ++i) {
@@ -1303,6 +1376,9 @@ void RSDK::ProcessObjectDrawLists()
                         }
 #endif
                     }
+#if defined(P6_FRONTEND_MENU)
+                    p6_w_draw_tile_v += (int)(p6_perf_vbl_count - _dvtile0);
+#endif
 
 #if RETRO_USE_MOD_LOADER
                     RunModCallbacks(MODCB_ONDRAW, INT_TO_VOID(l));

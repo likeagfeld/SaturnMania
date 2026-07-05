@@ -322,6 +322,10 @@ extern int32 p6_w_hbh_aniframes, p6_w_hbh_landed; /* Tier-B.2 witnesses (p6_io_m
 extern int32 p6_w_hbh_count, p6_w_hbh_vis, p6_w_hbh_posy, p6_w_hbh_posx,
              p6_w_hbh_handle, p6_w_hbh_camy, p6_w_hbh_animid; /* Tier-B.2 DIAG */
 extern ObjectCutsceneHBH *CutsceneHBH;
+/* #2a cutscene-PLAYERS witnesses (defined in p6_io_main; the overlay has SLOT_PLAYER1/2
+ * entity access so it writes the per-entity ones). */
+extern int32 p6_w_plr_cut_anif, p6_w_plr_cut_anif2, p6_w_plr_cut_aniid,
+             p6_w_plr_cut_surf, p6_w_plr_cut_handle;
 #endif
 
 /* I3b 2b: the camera-local-pool MATERIALIZE, overlay-resident (new engine code -> cart per the
@@ -896,6 +900,30 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         p6_w_hbh_handle = (hs >= 0) ? p6_vdp1_handle_for_surface(hs) : -5;
     }
     p6_w_hbh_camy = (int32)(ScreenInfo ? ScreenInfo->position.y : -1);
+    /* #2a cutscene-PLAYERS render witnesses: SLOT_PLAYER1 (Sonic) + SLOT_PLAYER2 (Tails)
+     * are reserve-slot entities the engine ticks. The cutscene holds them at ANI_FAN
+     * (GHZCutsceneST.c:173/198/219). Once Sonic.bin/Tails.bin resolve from HBHOBJ.PAK
+     * (build_player_atlas.py folded them in) the animator.frames pointer is non-NULL.
+     * The atlas sheet "Cutscene/Players.gif" must be bound to a VDP1 handle (handle>=0)
+     * or every Player_Draw blit drops (the #181 unbound-surface class). */
+    {
+        EntityPlayer *p1 = RSDK_GET_ENTITY(SLOT_PLAYER1, Player);
+        EntityPlayer *p2 = RSDK_GET_ENTITY(SLOT_PLAYER2, Player);
+        if (p1 && p1->classID) {
+            p6_w_plr_cut_anif  = (p1->animator.frames != NULL) ? 1 : 0;
+            p6_w_plr_cut_aniid = (int32)p1->animator.animationID;
+        }
+        if (p2 && p2->classID)
+            p6_w_plr_cut_anif2 = (p2->animator.frames != NULL) ? 1 : 0;
+        /* the player atlas sheet bind state, INDEPENDENT of the entities (the surface
+         * exists once Player_StageLoad's LoadSpriteAnimation resolved the rewritten
+         * Sonic.bin which references "Cutscene/Players.gif"). */
+        {
+            int32 ps = (int32)(int16)RSDK.LoadSpriteSheet("Cutscene/Players.gif", SCOPE_STAGE);
+            p6_w_plr_cut_surf   = ps;
+            p6_w_plr_cut_handle = (ps >= 0) ? p6_vdp1_handle_for_surface(ps) : -5;
+        }
+    }
 #endif
 #if defined(P6_FRONTEND_LOGOS)
     /* CP4 (E2/E3): latch the front-end classIDs once they resolve. Called from
@@ -1100,6 +1128,34 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         if (p2f && Player && p2f->classID == Player->classID
                 && (void *)p2f->state == (void *)AIZSetup_PlayerState_Static) {
             p2f->state = AIZSetup_PlayerState_P2Enter;
+        }
+    }
+    /* #316 AIZ PAN-BACK FIX (MEASURED root cause: SLOT_CAMERA1 state==StateMachine_None
+     * (0x00000000), NOT Camera_State_FollowXY (0x06022bc4), target==player1 CORRECT, @ the
+     * Heavies beat -- qa_ci INV-camera Delta=9686 on _aizwork.mcs). The AIZTornadoPath camera-
+     * follow restore (AIZTornadoPath_State_SetPlayerCamera :169-173 + State_ExitTornadoSequence
+     * :197-204 -> camera->state=Camera_State_FollowXY; player->camera=camera; AIZTornadoPath->
+     * camera=NULL) never completed on Saturn, so the camera froze at the path-start (~1150) while
+     * the AIZSetup run-right beats drove Sonic to the Heavies (~10836) = the user's "pans back to
+     * the beach". Mirror the decomp's OWN restore from the per-tick census (identical pattern to
+     * the #308/#309 nudges above -- apply the decomp transition the Saturn dispatch didn't fire):
+     * while the cutscene is in the run-right beats (cutscene_state 1..3 = EnterAIZJungle..P2FlyIn,
+     * Sonic hopped off + running/skidding/Tails-flyin) and the camera is still stuck in None,
+     * restore FollowXY + reattach the player camera + release the path's camera grip. Gated 1..3
+     * so beat0 (EnterAIZ path-driven fly-in framing) and beat4+ (EnterClaw AIZSetup.c:456
+     * DELIBERATELY detaches player->camera + lerps to the claw) are untouched. Idempotent one-shot
+     * (guard fails the moment state!=None). AIZ-only (#if P6_AIZ_TEST -> ships in the chain via
+     * P6_GHZCUT_BOOT; compiled out of plain GHZ -> byte-identical). RED gate: qa_ci --mode
+     * gameplay must flip INV-camera from 9686 to <=200. */
+    if (p6_w_aiz_cutscene_state >= 1 && p6_w_aiz_cutscene_state <= 3) {
+        extern void Camera_State_FollowXY(void);
+        EntityCamera *camf = (EntityCamera *)RSDK.GetEntity(P6_AIZ_SLOT_CAMERA1);
+        EntityPlayer *p1f  = RSDK_GET_ENTITY(SLOT_PLAYER1, Player);
+        if (camf && p1f && (void *)camf->state == NULL) {
+            camf->state = Camera_State_FollowXY;
+            p1f->camera = camf;
+            if (AIZTornadoPath)
+                AIZTornadoPath->camera = NULL;
         }
     }
     /* #309 beat 7 (RubyAppear): the PhantomRuby is ACTIVE_BOUNDS (PhantomRuby.c:53) and

@@ -719,3 +719,50 @@ checks cont_frames only). FOUR inconsistent ANIMPAK ceilings exist (0x060B6600 d
 scansplit S0, 0x060B7800 Animation.hpp comment, 0x060B8000 mapoverlap) -- reconcile to ONE
 before any WRAM-H work. (The 64 B "headroom" in §8 was the scan-split's own squeeze, not the
 shipping baseline.)
+
+---
+
+## (10) POSITION UPDATE (2026-07-01 audit pass; measured, offline, HEAD cc9f333 branch ghzcutscene-intro-ghz-loop)
+
+Same authority pattern as §7/§9: dated corrections against on-disk ground truth. No plan
+re-write — the walls, waves, and sequencing above stand; the following STATUS facts moved.
+
+1. **A1 camera-local pool: I3b STREAMING + lifecycle are LANDED, not "next build" (§8.4 A1
+   stale).** Measured commit chain: I2 indirection `b72ae46`; I3b.1 remap table `1189a17`;
+   I3b.2 physical iteration `78f627d`/`7ea172e`; **I3b 2b streaming LIVE (1216->702 physical,
+   GHZ-green) `1b1111c`**; lifecycle bit + BACKTRACK RED->GREEN `aae5418`/`b6ebdb8`/`0f70e7c`;
+   stream-scan narrowed 3.5->0.75 ms, steady fps 35.76->**56.56** `44ed63d`. On-disk:
+   `Object.hpp:540` (`SaturnSlotToPoolSlot` = live remap-table lookup), `Object.cpp:526`
+   (`p6_stream_tick`). REMAINING from §7.5: I5 x-wide tier (>=1088) + I6 oversize-class
+   registration (CollapsingPlatform/TitleCard/UICreditsText) — the open #263 scope — plus the
+   §9.2-3 manager-span pin (PlatformControl) before dense zones.
+2. **Registered classes: 31 (census 2026-06-17) -> 45 default / 72 all-flavors.** Default
+   Green Hill Zone shipping build: 27 pack (`RSDK_REGISTER_OBJECT`, `p6_wave1_reg.c:156-189`)
+   + 18 always-on overlay (`register_object_full`, `p6_ovl_ghz.c:384-716`). Front-end flavors
+   add LOGOS 2, TITLE 3 (+2 default-off TitleBG/Title3DSprite per P6_TITLEBG_SPRITES_OFF,
+   `build_p6scene_objs.sh:93-101`), MENU 10, AIZ 8, GHZCUT 2. `docs/object_census.json`
+   `registered_objects=31` is a 2026-06-17 snapshot — re-run the census before using it.
+3. **S6 boot chain: landed BEYOND the spec on the engine track.** Logos (CP4 #265/#266) ->
+   Title (CP5a/b #267-#276, Mode-7 island RBG0 `a056b7d`) -> Menu (M1/M2 `532f2c5`/`317a651`/
+   `da7ccaa`) -> Mania Mode -> No-Save -> AIZ intro (all 9 beats) -> GHZCutscene (4 beats +
+   fade + 5 Heavies) -> playable Green Hill Zone (`cc9f333`). NOT the S6 "NEW GAME -> GHZ1"
+   direct route: the save path is stubbed (`p6_menu_closure.c:247-273` SaveGame/Options/
+   Localization edges) -> **S7 save + the S6 save-select branch remain open.** In-flight
+   UNCOMMITTED on cc9f333: the GHZCutscene BLACK-SKY fix #309-#2b/#310 (GHZ "BG Outside"
+   TileLayer 0 -> VDP2 NBG0; HANDOFF.md §0 owns the live log).
+4. **§9.6 ceiling reconciliation: RESOLVED on-disk.** Single live define `P6_HW_ANIMPAK =
+   0x060B6C00` (`Animation.hpp:55`, RECLAIM 2026-06-19) and `qa_p6_mapoverlap.py:102` tracks
+   the LIVE define (no more hardcoded 0x060B8000). Stale COMMENTS remain at `p6_ovl_api.h:38`
+   (0x060B7800) and `build_p6scene_objs.sh:365` ("ANIMPAK floor 0x060BA000") — comments only,
+   not defines.
+5. **Gate hygiene (verify_done.ps1 wiring drift):** 13 gates wired in the COMMITTED
+   verify_done.ps1 exist only as UNTRACKED working-tree files (qa_fr1_parity_gate,
+   qa_ghz_6sensor_gate, qa_ghz_collision_cparity_gate, qa_ghz_colwindow_cparity_gate,
+   qa_ghz_colwindow_gate, qa_ghz_crash_gate, qa_ghz_fall_through_gate,
+   qa_ghz_fgcel_lwram_gate, qa_ghz_gameplay_cd_silence_gate, qa_ghz_lwram_layout_gate,
+   qa_hud_present_gate, qa_jo_sprite_budget_gate, qa_player_pack_fgcel_gate — `git ls-files`
+   empty for all 13). A fresh clone fails those gates file-not-found. Also: verify_done.ps1
+   wires 48 gate scripts total but only ONE engine-track gate (qa_p6_mapoverlap, :1493); the
+   ~127 `tools/_portspike/qa_*.py` engine gates run per-session, outside the exit-0 runner.
+   Folding the engine-track regression union (§5) into verify_done (or a successor runner)
+   is open work.
