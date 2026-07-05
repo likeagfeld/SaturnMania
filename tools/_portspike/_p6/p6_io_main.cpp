@@ -3827,6 +3827,7 @@ int32 SaturnSheet_Stage(const void *blob, uint32 bytes);
 void SaturnSheet_SetHash(int32 slot, const uint32 *hash);
 int32 SaturnSheet_MakeResident(int32 slot);
 void  SaturnSheet_ResReset(void); // #317 draw/inflate hog: reclaim dead RES at the seam
+void  SaturnSheet_SetScratch(void **bufp, uint32 cap); // #317: inflate scratch
 int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
                             int32 w, int32 h, uint8 *dst); // #311 fetch bisect
 #if defined(P6_GHZCUT_BOOT)
@@ -4495,6 +4496,33 @@ extern "C" void p6_scene_run(void)
                     p6_vdp2_player_pal_upload((const unsigned short *)P6_LW_ENTITYLIST);
             }
         }
+#if defined(P6_FRONTEND_MENU)
+        // #317 cutscene diag+fix: wire the inflate scratch (the plain-GHZ stage path at
+        // ~:4077 is #if !FRONTEND_TITLE -> the chain skips it), count that this block
+        // runs (p6_w_cut_calls), capture MakeResident(HBHOBJ)'s return, then promote the
+        // Heavies + players + HUD. The store is empty (Edit A reclaimed pre-FG-mount) so
+        // they should all fit. p6_w_mkres_reason (SaturnSheet) names any failure.
+        {
+            // #317 draw/inflate hog (GHZCutscene): promote the staged cutscene sheets to
+            // resident (zero-inflate FetchRect). MEASURED cause of the prior misses
+            // (mkres witness): this block runs while the RES store is STILL FULL of the
+            // resident TITLE sheets (1576KB, TSONIC 1MB), so HBHOBJ (221KB) failed the
+            // MakeResident bounds check. Reclaim HERE, right before the promotes -- this
+            // block runs BEFORE the cutscene's p6_scene_load_and_arm FG mount, so the
+            // reclaim is clobber-safe and the title sheets (never drawn in the cutscene)
+            // free the store. Also wire the inflate scratch (the plain-GHZ path @~:4077
+            // is #if !P6_FRONTEND_TITLE, which the chain skips). Result: 14.44 -> 0.00
+            // inflations/frame at the GHZCutscene (qa_frontend_inflate_gate GREEN); the
+            // GHZ landing (its own seam reclaim, 606fbfb) is unaffected. Front-end only
+            // -> plain GHZ byte-identical (this whole seam is chain-gated).
+            static void *p6_cutScr = (void *)P6_LW_LAYSCRATCH;
+            SaturnSheet_SetScratch(&p6_cutScr, 0x8000);
+            SaturnSheet_ResReset();
+            if (p6_w_dispsht_slot >= 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
+            if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
+            if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
+        }
+#endif
         // Task #311 (residual garble): stage the 2 sheets the scene's OTHER drawing
         // entities reference -- both were UNSTAGED so their DrawSprite rects sampled
         // a WRONG surface (the #181 class: fragmentary sprite parts + magenta filler,
