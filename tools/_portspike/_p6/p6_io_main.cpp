@@ -7497,9 +7497,19 @@ static void p6_frontend_frame(void)
                 s |= ((int32)((uint32)tileLayers[i].saturnSlot & 0xF)) << (i * 4);
             p6_w_aiz_slots = s;
         }
-        p6_vdp2_present_ghz_camera(fgl,
-                                   screens[0].position.x, screens[0].position.y,
-                                   (const unsigned short *)fullPalette[0], &ph, &nb);
+        // SEGMENT B / rank6 (#318): this AIZ FG-Low present re-arms NBG1ON|SPRON and
+        // DROPS RBG0ON. It must run ONLY for the scenes that actually have an FG-Low
+        // present (AIZ/GHZCutscene/GHZ) -- NOT Title/Menu/Logos. On the Title leg the
+        // island RBG0 arm above (p6_vdp2_title_island_rbg0_frame) then survives to the
+        // settled frame instead of being clobbered black (the "title backdrop broken"
+        // report). Menu/Logos never needed this present (they run no FG-Low plane).
+        if (currentSceneFolder
+            && (!strcmp(currentSceneFolder, "AIZ")
+                || !strcmp(currentSceneFolder, "GHZCutscene")
+                || !strcmp(currentSceneFolder, "GHZ")))
+            p6_vdp2_present_ghz_camera(fgl,
+                                       screens[0].position.x, screens[0].position.y,
+                                       (const unsigned short *)fullPalette[0], &ph, &nb);
         // M3.2 FG probe: the present just bound SaturnLayout slot 0 -> layer fgl (FG-Low).
         // Read 4 in-window tiles to see if the windowed accessor returns the varied AIZ
         // FG-Low or a uniform constant (binding/window/refill vs page-build discriminator).
