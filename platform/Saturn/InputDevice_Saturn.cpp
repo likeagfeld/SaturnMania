@@ -157,6 +157,21 @@ void InputDeviceSaturn::UpdateInput()
     this->prevButtonMasks = this->buttonMasks;
     this->buttonMasks     = held;
 
+#if defined(P6_GHZ_AUTORUN)
+    // DIAGNOSTIC (gated, NON-SHIPPING): hold RIGHT while the playable Green Hill
+    // Zone is loaded so the live-mem QA harness can drive Sonic across the level
+    // and measure traversal / physics / camera parity. Live controller[] injection
+    // is defeated because the verbatim ProcessInput rewrites controller[] from this
+    // backend every frame (MEASURED 2026-07-05: WRITE_CORE_RAM lands but is cleared
+    // each tick, Sonic dx=0); forcing the bit HERE at the pad source propagates
+    // cleanly through the edge logic. currentSceneFolder-gated to GHZ so the chain's
+    // title/menu/AIZ auto-nav is untouched. Only present when -DP6_GHZ_AUTORUN is
+    // passed (a diagnostic flavor); plain/chain shipping builds are byte-identical.
+    if (RSDK::currentSceneFolder[0] == 'G' && RSDK::currentSceneFolder[1] == 'H'
+        && RSDK::currentSceneFolder[2] == 'Z' && RSDK::currentSceneFolder[3] == 0)
+        this->buttonMasks |= P6_PAD_RIGHT;
+#endif
+
     int32 changedKeys = (int32)(uint16)(~this->prevButtonMasks & (this->buttonMasks ^ this->prevButtonMasks));
     if (changedKeys) {
         this->inactiveTimer[0] = 0;

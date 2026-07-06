@@ -229,7 +229,7 @@ $CC ${CXXFLAGS/-O2/-Os} $ENG_DEFS $CORE_INC \
     -c -o "$P6/Input_Input.o" "$SRC/RSDK/Input/Input.cpp"
 
 echo "[7s] InputDevice_Saturn.o (Saturn SMPC pad device backend -- the AudioDevice_Saturn precedent; SGL Smpc_Peripheral snapshot reader, KBInputDevice.cpp:681-806 registration/Update/Process mirror; census: text 760 B / data 50 B) ..."
-$CC ${CXXFLAGS/-O2/-Os} $ENG_DEFS $CORE_INC \
+$CC ${CXXFLAGS/-O2/-Os} $ENG_DEFS ${P6_GHZ_AUTORUN:+-DP6_GHZ_AUTORUN} $CORE_INC \
     -c -o "$P6/InputDevice_Saturn.o" "$PLAT/InputDevice_Saturn.cpp"
 
 echo "[7t] CppRuntime_Saturn.o (freestanding operator new/delete -> newlib malloc/free -- the InitSaturnPadDevice registration news the device + the InputDevice virtual-dtor D0 references operator delete; census: text 76 B, gc keeps only the referenced operators) ..."

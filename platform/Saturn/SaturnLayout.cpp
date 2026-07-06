@@ -119,6 +119,11 @@ static uint32 s_layer_res[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 // band-inflate path. 0 = OFF (collision correct, stall present). The dedicated bank-1
 // allocator below stays for the eventual re-enable.
 static int s_layResEnable = 1; // #249/#250 MEASUREMENT: resident ON to pin the 0x060E0000 corruption (t1hash/badframe)
+// NOTE (2026-07-05): DISPROVEN as the cause of the empty-tile fall-through -- with
+// resident OFF (p6_w_lay_resident=0) the 26 corrupt empty tiles at 0x060E0000
+// PERSIST identically, and t1hash==golden 0x643A3A5D, so the corruption is BAKED
+// INTO LoadTileConfig's pack (Scene.cpp packedCollisionMasks write), NOT the
+// resident pre-inflate. Real fix is in the pack seam; this flag is irrelevant.
 
 // band-inflate scratch: caller-provided (DATASET_TMP; the zone's largest raw
 // band -- GHZ 32,768 B). W11b: POINTER-INDIRECT -- the engine's storage GC

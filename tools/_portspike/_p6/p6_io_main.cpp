@@ -5752,6 +5752,23 @@ extern "C" void p6_vdp2_ghzcut_bg_upload(const unsigned short *chr_cart, int chr
                                          const unsigned short *map_cart, int map_words);
 extern "C" void p6_vdp2_ghzcut_bg_frame(int sx);
 #endif
+#if defined(P6_FRONTEND_MENU)
+// #319 GHZ death->respawn (camera-local pool RELOAD, task #263). On a SAME-FOLDER GHZ
+// reload the pool's remap/inv is left NON-IDENTITY from the first compact, so InitObjects
+// (which runs BEFORE the compact and places entities via RSDK_ENTITY_AT->remap) mis-places
+// the scene entities + the Player marker -> Player_LoadSprites finds nothing -> SLOT_PLAYER1
+// stays TYPE_BLANK. FIX = reset the pool to the pre-first-load state (identity remap +
+// scene_phys=SCENEENTITY_COUNT + dummy=-1) BEFORE InitObjects, and re-arm the compact one-
+// shot, so the reload runs IDENTICALLY to the proven-safe first load (InitObjects creates all
+// ~1041 entities -- fits the 445,440B dual-stride backing at NARROW=344 -- then the compact
+// re-classifies/re-shrinks + rebuilds ALL streaming state from scratch: remap/inv/free-list/
+// resident-list/lifecycle/scene_phys). MEASURED-safe: the first load does exactly this.
+// p6_pool_remap_init (:7878) + p6_eng_pool_flip (:7857) are defined later -> forward-declare.
+// CHAIN-gated (#if P6_FRONTEND_MENU) -> plain GHZ Scene_*.o byte-identical.
+extern "C" void p6_pool_remap_init(void);
+extern "C" void p6_eng_pool_flip(int32 sphys, int32 dummy);
+static int32 s_ghz_compact_rearm = 0; // set by the reload reset; re-arms the compact one-shot
+#endif
 static void p6_scene_load_and_arm(void)
 {
     // #250: MEASURED root cause of the garbled FG after a DEATH reload. A same-
@@ -5785,6 +5802,22 @@ static void p6_scene_load_and_arm(void)
         (strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "GHZ") == 0);
 #else
     const int32 p6_isGHZ = 1; // DEFAULT build only ever loads GHZ here
+#endif
+#if defined(P6_FRONTEND_MENU)
+    // #319 GHZ death->respawn (task #263 pool RELOAD): on a SAME-FOLDER GHZ reload, reset the
+    // camera-local pool to the pre-first-load state BEFORE InitObjects (:5992) so the reload
+    // replicates the proven-safe first load (see the forward-decl comment above). p6_folderReload
+    // ==1 == same folder (a death reload OR a GHZ1->GHZ2 act advance); the FIRST GHZ load
+    // (GHZCutscene->GHZ folder change) has p6_folderReload==0 so it is UNTOUCHED (byte-identical
+    // to today). p6_pool_remap_init resets remap/inv to identity so InitObjects' RSDK_ENTITY_AT
+    // placement is correct; p6_eng_pool_flip restores scene_phys=SCENEENTITY_COUNT + dummy=-1
+    // (the boot defaults); s_ghz_compact_rearm re-arms the compact one-shot (consumed at :6104)
+    // so the compact re-runs after InitObjects and rebuilds ALL streaming state from scratch.
+    if (p6_folderReload && p6_isGHZ) {
+        p6_pool_remap_init();                    // remap[i]=inv[i]=i (identity), remap_ready=1
+        p6_eng_pool_flip(SCENEENTITY_COUNT, -1); // scene_phys=SCENEENTITY_COUNT, dummy=-1 (defaults)
+        s_ghz_compact_rearm = 1;                 // re-arm the compact one-shot (consumed below)
+    }
 #endif
     // F.2: (re)mount the windowed band store for the zone being loaded BEFORE
     // LoadSceneFolder's SaturnLayout_Bind (Scene.cpp:439/444). No-op on a same-
@@ -6102,6 +6135,11 @@ static void p6_scene_load_and_arm(void)
     // is skipped for a non-GHZ UI scene (the 4 Logos entities don't need it).
     if (p6_isGHZ) {
         static int s_compact_done = 0;
+#if defined(P6_FRONTEND_MENU)
+        // #319: a GHZ reload (above) re-armed the compact -> re-run it on this reload so the
+        // pool re-shrinks + rebuilds streaming state cleanly (mirrors the first load).
+        if (s_ghz_compact_rearm) { s_compact_done = 0; s_ghz_compact_rearm = 0; }
+#endif
         if (!s_compact_done && s_ovl.compact_fn) {
             s_compact_done = 1;
             p6_scan_update_near(cameraCount > 0 ? (int32)(cameras[0].position.x >> 16) : 0);
@@ -7307,6 +7345,30 @@ static void p6_frontend_frame(void)
                 return;
             }
         }
+        // #319 DEATH-RESPAWN (+ GHZ1->GHZ2 act advance): a SAME-FOLDER GHZ reload. Decomp
+        // Player_HandleDeath (Player.c:2089-2091) -> Zone_StartFadeOut_MusicFade -> Zone_State_
+        // FadeOut (Zone.c:812) -> RSDK.LoadScene() -> ENGINESTATE_LOAD, currentSceneFolder still
+        // "GHZ". The forward chain-hop seams above are one-shots to NEW folders, so a GHZ->GHZ
+        // reload falls through to the swallow below -> the TYPE_BLANK'd player never respawns.
+        // Un-swallow: actually reload. The pool RELOAD reset in p6_scene_load_and_arm (gated
+        // p6_folderReload && p6_isGHZ) re-creates the Player at SLOT_PLAYER1; folderReload stays
+        // 1 so the tileset/sheets stay resident (#250-safe, no re-decode/garble). Re-apply both
+        // players' animators + restore the camera/ATL bounds exactly as the GHZCut->GHZ handoff.
+        if (currentSceneFolder && !strcmp(currentSceneFolder, "GHZ")) {
+            p6_scene_load_and_arm();
+            for (int32 pfix = 0; pfix < 2; ++pfix) {
+                uint8    *pent = (uint8 *)RSDK_ENTITY_AT(pfix);
+                Animator *pa   = (Animator *)(pent + 104);
+                uint16    paf  = *(uint16 *)(pent + 176);
+                if (paf < SPRFILE_COUNT && pa->animationID >= 0
+                    && pa->animationID < spriteAnimationList[paf].animCount) {
+                    int32 pfid = (pa->frameID >= 0 && pa->frameID < 0x100) ? pa->frameID : 0;
+                    SetSpriteAnimation(paf, (uint16)pa->animationID, pa, true, pfid);
+                }
+            }
+            p6_titlecard_atl_restore();
+            return;
+        }
 #endif
         sceneInfo.state = ENGINESTATE_REGULAR; // hold the splash; do not load Title (unported)
     }
@@ -7354,6 +7416,20 @@ static void p6_frontend_frame(void)
     // foreach_all iterate the full TitleLogo set -> all logo pieces flip visible + blit.
     fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
     foreachStackPtr = foreachStackList;
+    // #318 rank34 PERF: maintain p6_scan_near for the playable GHZ landing so the
+    // ProcessObjects loop1 I3d far-cull (Object.cpp, gated s_feIsGHZ) is CORRECT. The
+    // chain's p6_frontend_frame (unlike p6_ghz_frame) never seeded p6_scan_near -> the
+    // cull skipped EVERY scene slot and FROZE the level (MEASURED 2026-07-06, reverted).
+    // Build the sorted-by-x index once on GHZ entry, then update the near-set from the
+    // camera x each frame BEFORE ProcessObjects. Indexing MATCHES the cull byte-for-byte:
+    // p6_scan_index_build encodes slot=e (pool slot), p6_scan_update_near sets
+    // p6_scan_near[e], the cull tests p6_scan_near[_L] with _L=e. GHZ-only (folder gate);
+    // Title/Menu/AIZ front-end scenes are untouched (their loop1 still iterates every slot).
+    if (currentSceneFolder && !strcmp(currentSceneFolder, "GHZ")) {
+        static int32 s_ghz_scanidx_built = 0;
+        if (!s_ghz_scanidx_built) { p6_scan_index_build(); s_ghz_scanidx_built = 1; }
+        p6_scan_update_near(cameraCount > 0 ? (int32)(cameras[0].position.x >> 16) : 0);
+    }
 #if defined(P6_TICK_CATCHUP)
     /* #315 GAME-SPEED FIX (audit-1 headline, user "animation jumps / not decomp
      * authoritative"): the frontend ticked logic ONCE per RENDERED frame, so game
