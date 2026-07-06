@@ -6904,6 +6904,15 @@ static void p6_frontend_frame(void)
                     p6_vdp1HandleBySurface[i] = -1;
                 p6_vdp1HandlesInit = false;
                 p6_vdp1_frontend_pal_reset();
+                // SEGMENT D / rank23 (#318): reset the TITLE-leg VDP2 latches so the
+                // title backdrop/island/cloud code (gated on p6_w_title_backdrop_done,
+                // ~:7371) does NOT run during the AIZ intro and fight the AIZ FG present
+                // -> the ~30% black flicker (#302). The Title set these; only the GHZ
+                // handoff reset island_armed, so they leaked through the whole
+                // Menu+AIZ+GHZCutscene arc. Zero all three at this Menu->AIZ seam.
+                p6_w_title_backdrop_done = 0;
+                p6_w_title_island_armed  = 0;
+                p6_w_title_clouds_armed  = 0;
                 p6_w_chain3_fired = 1;
                 p6_aiz_reload();
                 return;
