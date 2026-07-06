@@ -7096,6 +7096,44 @@ static void p6_frontend_frame(void)
                     if (n > 0)
                         p6_w_objapk_bytes = n;
                 }
+                // SEGMENT E / rank20 (#318): the LIVE AIZ->GHZCutscene chain seam staged
+                // ONLY HBHOBJ.PAK, never the scene-object sheets -- so the dig-site claw +
+                // crate (GHZCutscene/Objects.gif), the PhantomRuby, the HUD and the placed
+                // Rings carried sheetID -1 (invisible / wrong-surface: the black frame).
+                // Stage them HERE (GFS idle, before load+arm), verbatim from
+                // p6_ghzcut_reload:6655-6708 (the direct-boot path the CHAIN never runs).
+                {
+                    unsigned char *sbuf = (unsigned char *)0x22480000u;
+                    RETRO_HASH_MD5(ph);
+                    int sn = rsdk_storage_load_to_lwram("GHCOBJ.SHT", sbuf, 0x10000);
+                    p6_w_ghcobj_sn = sn;
+                    if (sn > 0) {
+                        int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
+                        p6_w_ghcobj_slot = slot;
+                        if (slot >= 0) { GEN_HASH_MD5("GHZCutscene/Objects.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
+                    }
+                    sn = rsdk_storage_load_to_lwram("RUBYOBJ.SHT", sbuf, 0x10000);
+                    p6_w_rubyobj_sn = sn;
+                    if (sn > 0) {
+                        int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
+                        p6_w_rubyobj_slot = slot;
+                        if (slot >= 0) { GEN_HASH_MD5("Global/PhantomRuby.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
+                    }
+                    sn = rsdk_storage_load_to_lwram("ITEMS.SHT", sbuf, 0x10000);
+                    p6_w_itemsht_sn = sn;
+                    if (sn > 0) {
+                        int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
+                        p6_w_itemsht_slot = slot;
+                        if (slot >= 0) { GEN_HASH_MD5("Global/Items.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
+                    }
+                    sn = rsdk_storage_load_to_lwram("DISPLAY.SHT", sbuf, 0x10000);
+                    p6_w_dispsht_sn = sn;
+                    if (sn > 0) {
+                        int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
+                        p6_w_dispsht_slot = slot;
+                        if (slot >= 0) { GEN_HASH_MD5("Global/Display.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
+                    }
+                }
                 // #302 mechanism-A latch: the AIZ BG frame owned the display; hand it
                 // back to the present across this folder change (the AIZ planes would
                 // otherwise keep displaying VRAM the GHZCutscene load rewrites). The
