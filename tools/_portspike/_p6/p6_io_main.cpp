@@ -530,6 +530,7 @@ void p6_vdp2_blank(void);
 // published half into SGL's preamble chain.
 extern "C" void p6_dl_begin(void);
 extern "C" void p6_dl_end(void);
+extern "C" void p6_dl_backfill(unsigned short rgb555); /* SEGMENT A #318: Logos black backfill */
 extern "C" void p6_vdp2_mirror_apply(void);
 extern "C" void p6_vdp2_mirror_reset(void);
 #if defined(P6_DIRECT_VDP1)
@@ -7627,6 +7628,13 @@ static void p6_frontend_frame(void)
     // ProcessObjectDrawLists (and the FillScreen fades) writes a VDP1 command
     // into the inactive half in the decomp's own draw-list order.
     p6_dl_begin();
+    // SEGMENT A (#318): the Logos splash arms SPRON-only (no VDP2 backdrop) so the
+    // stale VDP1 framebuffer shows through in the bottom rows (the pink #272 noise
+    // band, 320x224-vs-320x240 geometry). Emit an opaque black quad FIRST (behind
+    // every UIPicture sprite) to cover it. Logos-ONLY: Title/Menu/AIZ/GHZCutscene
+    // composite VDP2 backdrops an opaque VDP1 quad would occlude.
+    if (currentSceneFolder && !strcmp(currentSceneFolder, "Logos"))
+        p6_dl_backfill(0x8000u);
 #endif
     ProcessObjectDrawLists(); // emits the UIPicture VDP1 sprite list (jo swaps it)
 #if defined(P6_FRONTEND_MENU)

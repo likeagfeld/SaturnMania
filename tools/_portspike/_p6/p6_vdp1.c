@@ -945,6 +945,21 @@ void p6_dl_end(void)
     s_dl_half ^= 1;
     ++p6_w_dl_frames;
 }
+
+/* SEGMENT A (#318 visual-arc, Logos pink-band): opaque full-screen black backfill,
+ * emitted FIRST in the front-end direct list (right after p6_dl_begin) so the stale
+ * VDP1 framebuffer bottom rows -- the Logos pink noise band (#272), left where the
+ * 320x224 display geometry differs from the 320x240 fill/erase the front-end assumes
+ * -- are painted over BEHIND every UI sprite (VDP1 is painter-order: first command =
+ * drawn behind). Oversized quad (-176..176, -136..136 in the direct list's centred
+ * VDP1 coords) covers the whole framebuffer + overscan. The caller GATES this to the
+ * Logos scene: Title/Menu/AIZ/GHZCutscene composite VDP2 backdrops that an opaque
+ * VDP1 quad would occlude. p6_dl_poly is file-static; this is the cross-TU entry.
+ * Front-end only (this whole block is #if P6_DIRECT_VDP1). */
+void p6_dl_backfill(unsigned short rgb555)
+{
+    p6_dl_poly(rgb555, -176, -136, 176, -136, 176, 136, -176, 136, 0);
+}
 #endif /* P6_DIRECT_VDP1 */
 
 #if defined(P6_FRONTEND_MENU)
