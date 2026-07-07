@@ -74,7 +74,7 @@ ground truth for what GHZ Act 1 spawns.
 | (unresolved global) | 7 | n/a | hash 875e224b… not in StageConfig/GameConfig strings |
 | Batbrain | 7 | PORTED | Phase 2.4h — RSDK entity engine (CheckPlayerInRange/DropToPlayer/Fly/FlyToCeiling; RSDK.Rand(0,8) -> deterministic LCG; FlyToCeiling stops at startPos.y). Collision via Player_CheckCollisionBox. Draw via g_batbrain_atlas (11 frames) |
 | Water | 6 | **NOT_STARTED** | |
-| StarPost | 4 | **NOT_STARTED** | checkpoint — gameplay-critical |
+| StarPost | 4 | IN_PROGRESS (BUILDS) | Phase 2.4k — RSDK entity engine. pole+ball+stars atlas (STARPOST.SP2+MET). Per-entity ballAnimator. Inline AABB touch (no Player_CheckCollisionTouch). fill_starpost_attributes (id@+136 vsRemove@+140). Local build verification needed (cd/STARPOST.SP2 asset required). |
 | SpinBooster | 4 | **NOT_STARTED** | |
 | SpecialRing | 3 | **NOT_STARTED** | bonus-stage entry |
 | TimeAttackGate | 3 | **NOT_STARTED** | TA mode only |
@@ -463,7 +463,7 @@ remain unchanged so the current Saturn runtime keeps booting; the
 | SonicMania/Objects/Global/SpeedGate.c | NOT_STARTED | src/mania/Objects/Global/SpeedGate.c | Phase 2: Speed gate |
 | SonicMania/Objects/Global/Spikes.c | NOT_STARTED | src/mania/Objects/Global/Spikes.c | Phase 3: Spikes |
 | SonicMania/Objects/Global/Spring.c | NOT_STARTED | src/mania/Objects/Global/Spring.c | Phase 3: Springs |
-| SonicMania/Objects/Global/StarPost.c | NOT_STARTED | src/mania/Objects/Global/StarPost.c | Phase 3: Star post (checkpoint) |
+| SonicMania/Objects/Global/StarPost.c | IN_PROGRESS | src/mania/Objects/Global/StarPost.c | Phase 2.4k: RSDK entity port. Local build+atlas build verification needed. |
 | SonicMania/Objects/Global/SuperSparkle.c | NOT_STARTED | src/mania/Objects/Global/SuperSparkle.c | Phase 5: Super-Sonic sparkle |
 | SonicMania/Objects/Global/TimeAttackGate.c | NOT_STARTED | src/mania/Objects/Global/TimeAttackGate.c | Phase Z: Time-attack gate |
 | SonicMania/Objects/Global/TitleCard.c | PORTED | src/mania/Objects/Global/TitleCard.c | Phase 2.4j.1: act-intro card on the RSDK engine (Bridge-model — registered class + module-static EntityTitleCard driven by titlecard_tick/_draw_only; g_titlecard_active freezes Player/jump/HUD). 6 states + 3 draw states + text trio ported; atlas TITLECARD.SP2/.MET reproducible from extracted Global/TitleCard.bin; Gate V-2.4j1 GREEN. Phase 2.4j.2: fixed user-reported act-intro defects (2026-05-29) — (1) oversized black slab + missing GREEN HILL/ZONE text: atlas failed to load because "TITLECARD.SP2" (13 chars) exceeded SGL GFS_FNAME_LEN=12 -> jo_fs_read_file NULL; renamed to TITLCARD (8-char base, 12-char file) + LWRAM-scratch loader (entity_atlas_load_ex bypasses jo_malloc OOM). (2) garbled/sheared ZONE letters: jo/SGL slDispSprite truncates VDP1 char-size width to `width & 0x1f8` (sprites.c:212) while DMA-copying data at the actual width (:220), so non-mult-8 widths >=8 (ZONE Z/O/N/E = 26/26/26/28) shear diagonally; build_entity_atlas.py now pads every SP2 frame width up to a multiple of 8 with transparent right-columns (pivots/origin unchanged, layout preserved) — applied to all 16 atlases for provenance consistency. Gate V-2.4j2 GREEN (P1 names<=12, P2 base<=8, P4 all widths mult-8); visually confirmed clean ZONE at 3fps |

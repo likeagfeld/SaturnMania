@@ -71,6 +71,7 @@
 #include "Objects/Common/BreakableWall.h"      /* Phase 2.4-PLAT (Task #155) */
 #include "Objects/Common/SpinBooster.h"        /* Phase 2.4-PLAT (Task #155) */
 #include "Objects/Global/TitleCard.h"          /* Phase 2.4j.1 (Task #156) */
+#include "Objects/Global/StarPost.h"           /* Phase 2.4k */
 #include "Objects/Common/Entities.h"
 #include "Objects/Menu/LogoSetup.h"   /* Phase 3.1 Path B (Task #123) */
 /* Phase 3.2 + 3.2b REVERTED 2026-05-28 — MenuSetup include removed. */
@@ -735,6 +736,21 @@ void mania_engine_init(void)
                             TitleCard_Create,
                             TitleCard_StageLoad,
                             (void **)&TitleCard);
+
+    /* Phase 2.4k — StarPost checkpoint pole.
+     * GHZ Act 1 has 2 StarPost instances. drawGroup[0]=2 (same layer as
+     * badniks). Drawing via StarPost_draw_only; registration so
+     * StageLoad + Create + Update fire from the RSDK engine. */
+    rsdk_object_register_ex("StarPost",
+                            sizeof(EntityStarPost),
+                            sizeof(ObjectStarPost),
+                            StarPost_Update,
+                            StarPost_LateUpdate,
+                            StarPost_StaticUpdate,
+                            StarPost_Draw,
+                            StarPost_Create,
+                            StarPost_StageLoad,
+                            (void **)&StarPost);
 
     /* Phase 3.2 + 3.2b REVERTED 2026-05-28 — rsdk_object_register_ex
      * call for MenuSetup removed. */
@@ -1992,6 +2008,10 @@ void mania_ghz_draw_only(void)
          * classes (CollapsingPlatform/ForceSpin/BreakableWall/SpinBooster)
          * have no draw_only walker — they are FG-tilemap/trigger entities. */
         Bridge_draw_only(cx, cy);
+        /* Phase 2.4k — StarPost checkpoint pole + ball + stars.
+         * drawGroup[0]=2 per decomp StarPost_Create; drawn at the same
+         * Z as other GHZ entities. */
+        StarPost_draw_only(cx, cy);
         signpost_tick_and_draw(&g_ghz_world, &g_ghz_player, cx, cy);
 
         /* === Sonic sprite draw (frozen at spawn during the card freeze). */

@@ -120,6 +120,58 @@ static void fill_planeswitch_attributes(const rsdk_scene_t *scene,
     }
 }
 
+/* Phase 2.4k — multi-attribute fill for StarPost.
+ *
+ * StarPost_Serialize registers, in order (StarPost.c:405-410):
+ *   idx1  id        (VAR_ENUM,  int32)  -> EntityStarPost subclass +4 (= +136)
+ *   idx2  direction (VAR_UINT8, uint8)  -> RSDK_ENTITY base direction (= +63)
+ *   idx3  vsRemove  (VAR_BOOL,  bool32) -> EntityStarPost subclass +8 (= +140)
+ *
+ * fill_first_attribute cannot be used for StarPost because the generic path
+ * writes to +132 which is StateMachine(state) -- a fn-pointer overwritten
+ * by Create. StarPost's id lives at +136 (after the state ptr). We write
+ * id to +136 here (BEFORE Create) and vsRemove to +140; Create then writes
+ * the state ptr to +132 without disturbing +136/+140. direction is written
+ * into the RSDK_ENTITY base field at +63 (uint8 direction; same offset used
+ * by TitleLogo, TitleBG, etc. via the fill_first_attribute precedent for
+ * direction fields).
+ *
+ * Offsets: MANIA_RSDK_ENTITY_BASE_BYTES = 132;
+ *   id        @ 132+4 = 136  (first subclass field after StateMachine ptr)
+ *   vsRemove  @ 132+8 = 140  (second subclass field)
+ *   direction @ base+63      (RSDK_ENTITY uint8 direction field) */
+static void fill_starpost_attributes(const rsdk_scene_t *scene,
+                                     const rsdk_scene_entity_t *se,
+                                     rsdk_entity_t *ent)
+{
+    const rsdk_scene_class_t *C = &scene->classes[se->class_index];
+    uint8_t *base = (uint8_t *)ent;
+
+    /* idx1 = id (VAR_ENUM, int32) -> +136 */
+    if (C->var_count > 1) {
+        uint32_t id = rsdk_entity_attr_u32(scene, se, 1);
+        uint8_t *p = base + MANIA_RSDK_ENTITY_BASE_BYTES + 4;
+        p[0] = (uint8_t)(id        & 0xFF);
+        p[1] = (uint8_t)((id >> 8) & 0xFF);
+        p[2] = (uint8_t)((id >> 16)& 0xFF);
+        p[3] = (uint8_t)((id >> 24)& 0xFF);
+    }
+    /* idx2 = direction (VAR_UINT8, uint8) -> RSDK_ENTITY base offset 63 */
+    if (C->var_count > 2) {
+        uint32_t dir = rsdk_entity_attr_u32(scene, se, 2);
+        base[63] = (uint8_t)(dir & 0xFF);
+    }
+    /* idx3 = vsRemove (VAR_BOOL, bool32) -> +140 */
+    if (C->var_count > 3) {
+        uint32_t vsr = rsdk_entity_attr_u32(scene, se, 3);
+        uint8_t *p = base + MANIA_RSDK_ENTITY_BASE_BYTES + 8;
+        p[0] = (uint8_t)(vsr        & 0xFF);
+        p[1] = (uint8_t)((vsr >> 8) & 0xFF);
+        p[2] = (uint8_t)((vsr >> 16)& 0xFF);
+        p[3] = (uint8_t)((vsr >> 24)& 0xFF);
+    }
+}
+
 rsdk_scene_info_t g_rsdk_scene_info;
 
 /* Phase 1.18 — entity-driven path diagnostic counters.
@@ -449,6 +501,13 @@ static bool rsdk_load_scene_impl(bool run_stage_load)
                 if (cn[0] == 'P' && cn[1] == 'l' && cn[2] == 'a' && cn[3] == 'n'
                     && cn[4] == 'e' && cn[5] == 'S') {
                     fill_planeswitch_attributes(&s_current_scene, se, ent);
+                }
+                /* Phase 2.4k — StarPost: id at +136, direction at +63,
+                 * vsRemove at +140. Cannot use fill_first_attribute because
+                 * +132 is StateMachine(state) overwritten by Create. */
+                if (cn[0] == 'S' && cn[1] == 't' && cn[2] == 'a' && cn[3] == 'r'
+                    && cn[4] == 'P' && cn[5] == 'o') {
+                    fill_starpost_attributes(&s_current_scene, se, ent);
                 }
             }
             /* Phase 1.3 — Re-run Create with the now-populated type field.

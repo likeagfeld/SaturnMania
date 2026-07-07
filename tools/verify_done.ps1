@@ -1476,6 +1476,35 @@ if ($crashRc -eq 2) {
 # Capture source: qa_gate.png, synthesised by Gate 3.5's content-aware
 # picker (frame with the most saturated-red SONIC-banner px = settled title).
 W ""
+# Gate V-2.4k: StarPost port on the RSDK entity engine (Phase 2.4k).
+#
+# Positioned BEFORE Gate V1 (V1 hard-exits RED, so any gate after it never
+# runs). P1 = StarPost.h+.c exist + rsdk_object_register_ex("StarPost") in
+# Game.c + StarPost_Create/Update in game.map (when available). P2 =
+# StarPost_draw_only defined in StarPost.c + called from mania_ghz_draw_only
+# in Game.c. P3 = StarPost_load_assets in entities_load_assets in Entities.c.
+# P4 = extern entity_atlas_t g_starpost_atlas in entity_atlas.h. P5 =
+# fill_starpost_attributes in scene.c (needed because StarPost.id is at offset
+# +136, not the generic +132 that fill_first_attribute targets).
+#
+# Decomp: tools/_decomp_raw/SonicMania_Objects_Global_StarPost.c/.h
+# GHZ Act 1 has 2 StarPost instances. drawGroup = Zone->objectDrawGroup[0]=2.
+W ""
+W "Gate V-2.4k: StarPost on RSDK entity engine (Phase 2.4k)..." Yellow
+$v24kOut = py -3 (Join-Path $PSScriptRoot "qa_phase2_4k_starpost_gate.py") 2>&1
+$v24kRc = $LASTEXITCODE
+$v24kOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|OK") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($v24kRc -ne 0) {
+    W "FAIL: Gate V-2.4k -- StarPost not wired onto the RSDK engine" Red
+    exit 1
+}
+W "  OK (StarPost registered + draw_only wired + load_assets wired + atlas extern + fill_starpost_attributes)" Green
+
+W ""
 # ---------------------------------------------------------------------------
 # Gate V-MAPOVERLAP: no overlapping allocated output sections (P6.7 W12b,
 # Task #227, 2026-06-12). The pack's orphan .bss.*/.data.* sections were
