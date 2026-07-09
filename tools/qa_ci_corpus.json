@@ -1,0 +1,10 @@
+{
+  "_comment": "Per-scene savestate corpus for qa_ci.py. Add a scene = one row. Fields: name (label), state (.mcs path, relative to repo root), mode (gameplay|cutscene|ui), slots (pool walk depth), note. mode drives INV-camera severity: gameplay=HARD, cutscene=ADVISORY (camera scripted away at some beats), ui=no player/camera invariants. Capture fresh per build with qa_ci.py --capture (uses qa_savestate.ps1); analyze stored states instantly otherwise.",
+  "scenes": [
+    { "name": "title",          "state": "_f1_title.mcs",              "mode": "ui",        "slots": 400, "note": "F1 title screen (attract)", "capture": { "saveframe": 24 } },
+    { "name": "ghz_landing_v11", "state": "_v11_land_right.mcs",       "mode": "gameplay",  "slots": 400, "note": "verified-good GHZ landing (regression sentinel: cam~709 vs plr~717 = 8px)" },
+    { "name": "ghz_landing",    "state": "_f1_land.mcs",               "mode": "gameplay",  "slots": 400, "note": "GHZ landing (post AIZ->GHZCutscene handoff)" },
+    { "name": "ghzcut_handoff", "state": "samples/_ghzcut_handoff.mcs", "mode": "gameplay", "slots": 400, "note": "GHZCutscene->GHZ handoff, camera tracks" },
+    { "name": "aiz_cutscene",   "state": "samples/_aizwork.mcs",       "mode": "cutscene",  "slots": 400, "note": "AIZ intro at the Heavies beat (camera pan-back anomaly lives here)" }
+  ]
+}
