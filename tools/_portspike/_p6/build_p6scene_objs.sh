@@ -314,8 +314,14 @@ for w1 in Global_Localization:Game_Localization \
 done
 # #181: the bridge-warp flag also gates p6_brg_witness's per-frame onScreen rescan
 # in this game-side TU (shipping keeps the one-shot latch -- perf-safe).
+# GL1 (2026-07-06): thread P6_GHZCUT_BOOT so the chain GHZ-landing act card
+# (p6_titlecard_spawn/tick/draw, all inside #if defined(P6_GHZCUT_BOOT)) compiles
+# INTO p6_wave1_reg.o -- p6_io_main.cpp references them from its own
+# P6_GHZCUT_BOOT block, so without this the final link fails with undefined
+# p6_titlecard_* (the block compiled to nothing here). Plain GHZ (no flag) is
+# unaffected -- the block + the references both vanish together.
 "$CC" -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} -I"$GINC" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} -I"$GINC" -I"$NEWLIB" \
     -c -o "$P6/p6_wave1_reg.o" "$P6/p6_wave1_reg.c"
 # Player-wave closure boundary (NULL class ptrs + witnessed inert stubs +
 # sprintf-over-vsprintf; rationale in-file).

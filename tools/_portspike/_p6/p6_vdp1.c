@@ -914,6 +914,14 @@ static void p6_dl_sprite(int jid, int x, int y, int flipX, int flipY, int palblk
     p[6]  = (unsigned short)(short)(x - 160);                    /* XA */
     p[7]  = (unsigned short)(short)(y - 120);                    /* YA */
     p[8] = p[9] = p[10] = p[11] = p[12] = p[13] = p[14] = 0;
+#if defined(P6_GHZCUT_BOOT)
+    /* GL1 diag: capture the emitted CMDCOLR|CMDSRCA|CMDPMOD for a glyph draw
+     * (palblk 2 == TCH_GLYPH_PALBLK) so the actual block/addr is measured. */
+    if (palblk == 2) {
+        extern int p6_w_tcg_cmd;
+        p6_w_tcg_cmd = ((int)p[3] << 16) | (int)p[4];
+    }
+#endif
     ++s_dl_n;
 }
 
@@ -959,6 +967,185 @@ void p6_dl_end(void)
 void p6_dl_backfill(unsigned short rgb555)
 {
     p6_dl_poly(rgb555, -176, -136, 176, -136, 176, 136, -176, 136, 0);
+}
+
+/* =============================================================================
+ * GL1 (Task, 2026-07-06): TitleCard direct-list primitives -- the chain-native
+ * render path for the GHZ-landing act card. The chain runs P6_DIRECT_VDP1, so
+ * the ported src/mania TitleCard's SGL draws (slPutPolygon / jo_sprite_draw3D)
+ * would emit into the DEAD SGL command buffer (the vblank trampoline redirects
+ * VDP1 to the direct list at 0x2000/0x2800). The pack RSDK DrawRectangle is a
+ * no-op and DrawFace crashes the pack's first frame (p6_pack_stubs.cpp:52,67).
+ * So the card draws through these cross-TU wrappers over the file-static
+ * p6_dl_poly, mirroring the p6_dl_backfill seam.
+ *
+ * Coordinate contract: the caller passes RSDK screen-relative PIXELS (origin
+ * top-left 0,0; the decomp TitleCard verts are already screen-relative). The
+ * direct list's localcoord origin is (160,120) (p6_dl_poly emits XA=x, the
+ * preamble sets localcoord 160,120 per the #316 F1 note), so a screen pixel
+ * (px,py) maps to command coord (px-160, py-120). rgb are 8-bit; convert to
+ * VDP1 direct RGB555 with the opaque MSB (same as p6_plate_rgb555 / the poly
+ * flat-colour field p[3]). half=0 (opaque replace; the card is drawn over a
+ * suppressed-gameplay overlay so no blend needed). p6_dl_poly clamps to
+ * P6_DL_MAX and counts drops, same as every other emit. */
+static unsigned short p6_dl_rgb555_8(int r8, int g8, int b8)
+{
+    unsigned int r5 = ((unsigned)r8 & 0xFF) >> 3;
+    unsigned int g5 = ((unsigned)g8 & 0xFF) >> 3;
+    unsigned int b5 = ((unsigned)b8 & 0xFF) >> 3;
+    return (unsigned short)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
+}
+
+/* Flat-colour 4-vertex polygon at screen-relative pixels. verts are 4 (x,y)
+ * pairs in the array order the decomp uses (0-1-2-3). */
+void p6_dl_face(const int *px, const int *py, int r8, int g8, int b8)
+{
+    unsigned short c = p6_dl_rgb555_8(r8, g8, b8);
+    p6_dl_poly(c,
+               px[0] - 160, py[0] - 120,
+               px[1] - 160, py[1] - 120,
+               px[2] - 160, py[2] - 120,
+               px[3] - 160, py[3] - 120,
+               0);
+}
+
+/* Axis-aligned filled rect (x,y,w,h) at screen-relative pixels. */
+void p6_dl_rect(int x, int y, int w, int h, int r8, int g8, int b8)
+{
+    int px[4], py[4];
+    px[0] = x;     py[0] = y;
+    px[1] = x + w; py[1] = y;
+    px[2] = x + w; py[2] = y + h;
+    px[3] = x;     py[3] = y + h;
+    p6_dl_face(px, py, r8, g8, b8);
+}
+
+/* GL1 (2026-07-06): draw a SHEET RECT as a VDP1 SPRITE into the open direct list,
+ * with a CALLER-SUPPLIED CRAM block. This is the glyph-blit path for the TitleCard
+ * zone-name letters (Global/Display.gif rects from the already-staged DISPLAY.SHT):
+ * unlike p6_vdp1_blit (which forces P6_BLIT_PALBLOCK = block 1, the GHZ object bank)
+ * the glyphs need block 2 (colno 512, where p6_vdp2_titlecard_pal_upload put the
+ * Display GCT). Same fetch+emit as p6_vdp1_blit: p6_slot_for does the SaturnSheet
+ * FetchRect + LRU and returns a jo sprite id; p6_dl_sprite emits the VDP1 sprite
+ * command with CMDCOLR = palblk<<8. (x,y) is the RSDK screen TOP-LEFT already
+ * pivot-composed by the caller (pos + pivot, DrawSpriteFlipped Drawing.cpp:2785).
+ * No title-stride cull (GHZCUT is not P6_FRONTEND_TITLE). Cross-TU entry over the
+ * file-static p6_slot_for/p6_dl_sprite, mirroring p6_dl_face/p6_dl_rect. */
+/* GL1 DEDICATED GLYPH CACHE (2026-07-06): the TitleCard glyphs are STATIC (the
+ * same ~16 Display.gif rects every frame). Routing them through the shared 40-slot
+ * LRU pool (p6_slot_for) THRASHED: at the GHZ landing the card's 15 glyphs compete
+ * with the GHZ scene's animating sprites, so glyphs get EVICTED + re-DMA'd every
+ * frame -> the documented mid-frame async-slDMACopy tear (p6_vdp1.c:257-275) ->
+ * MEASURED non-deterministic magenta garble (consecutive card frames differ by
+ * 16.9M px). Fix: a SEPARATE fixed cache that allocates each distinct glyph ONCE
+ * (keyed by sx,sy) and NEVER evicts -> after frame 1 every glyph is resident, no
+ * per-frame DMA, no tear. Staged CONTENT-EXACT (w x h, not a 64x64 box) from the
+ * RESIDENT DISPLAY.SHT (memcpy fetch, no inflate) so pixel-0 transparency handles
+ * the letter background. GHZCUT-only; the cache is tiny (24 * 4KB VRAM worst-case,
+ * content-exact is far less). */
+#define P6_TCGLYPH_SLOTS 24
+static struct { int sx, sy, jo_id; } s_tcglyph[P6_TCGLYPH_SLOTS];
+static int s_tcglyph_n = 0;
+
+static int p6_tcglyph_slot(int sheet, int sx, int sy, int w, int h)
+{
+    int i, x, y;
+    const unsigned char *srcPx;
+    int srcStride;
+    int pw; /* VDP1 8bpp sprite WIDTH must be a multiple of 8 (jo sprites.c:296 +
+             * CMDSIZE = width&0x1f8, sprites.c:212). A non-mult-8 glyph (ZONE=26/28,
+             * 'I'=6, 'V'=20 ...) DMAs its true-width rows but the VDP1 reads a
+             * width&~7 stride -> the rows shift -> diagonal garbage. Pad the staged
+             * width UP to the next mult-8, filling the pad columns with index 0
+             * (VDP1-transparent) so the DMA stride == the CMDSIZE stride. */
+    jo_img_8bits img;
+    /* cache hit: this glyph rect was already staged -> reuse (no DMA). */
+    for (i = 0; i < s_tcglyph_n; ++i)
+        if (s_tcglyph[i].sx == sx && s_tcglyph[i].sy == sy)
+            return s_tcglyph[i].jo_id;
+    if (s_tcglyph_n >= P6_TCGLYPH_SLOTS)
+        return -1;
+    pw = (w + 7) & ~7;
+    if (pw > P6_SPR_MAXW || h > P6_SPR_MAXH)
+        return -1;
+    /* fetch the rect (resident memcpy or banded inflate) into s_fetch. */
+    if (s_sheets[sheet].px) {
+        srcPx     = s_sheets[sheet].px + sy * s_sheets[sheet].w + sx;
+        srcStride = s_sheets[sheet].w;
+    } else {
+        if (!s_fetchFn || !s_fetchFn(s_sheets[sheet].shtSlot, sx, sy, w, h, s_fetch))
+            return -1;
+        srcPx     = s_fetch;
+        srcStride = w;
+    }
+    /* stage into a PADDED-WIDTH (mult-8) box, content left, index-0 pad right. */
+    for (y = 0; y < h; ++y) {
+        unsigned char *dst = s_stage + y * pw;
+        const unsigned char *src = srcPx + y * srcStride;
+        for (x = 0; x < w; ++x)  dst[x] = src[x];
+        for (; x < pw; ++x)      dst[x] = 0;   /* transparent pad */
+    }
+    slDMAWait(); /* let any prior transfer finish before this add's DMA. */
+    /* diag: hash the FIRST staged glyph's content -> proves the fetch is real
+     * (non-zero, varied) vs all-0/all-255 garbage. + count how many of the pw*h
+     * staged bytes are index 255 (white). */
+    if (s_tcglyph_n == 0) {
+        extern int p6_w_tcg_stagehash; extern int p6_w_tcg_white;
+        unsigned int hh = 5381; int k, nwhite = 0, tot = pw * h;
+        for (k = 0; k < tot; ++k) { hh = ((hh << 5) + hh) ^ s_stage[k]; if (s_stage[k] == 255) ++nwhite; }
+        p6_w_tcg_stagehash = (int)hh;
+        p6_w_tcg_white = (nwhite << 16) | (tot & 0xFFFF);
+    }
+    img.width  = pw;
+    img.height = h;
+    img.data   = s_stage;
+    {
+        int id = jo_sprite_add_8bits_image(&img);
+        if (id < 0) { ++p6_w_vdp1_joaddfail; return -1; }
+        /* jo_sprite_add's jo_dma_copy (= slDMACopy) is ASYNC ("terminates soon
+         * after DMA is initiated", ST-238-R1). Multiple glyphs stage into the ONE
+         * s_stage on the SAME frame, so WITHOUT a wait the next glyph overwrites
+         * s_stage while THIS add's DMA is still reading it -> the sprite VRAM gets
+         * the WRONG (later) glyph's bytes (MEASURED: the glyph VRAM read back
+         * all-0xFF = a later all-white-ish stage, not the staged letter). Wait for
+         * THIS add's transfer to finish before returning (so the caller's next
+         * glyph re-stage is safe). Only paid on the one-time cold stage (cache hits
+         * skip this whole path). Mirrors the pool's slDMAWait (p6_vdp1.c:1396). */
+        slDMAWait();
+        s_tcglyph[s_tcglyph_n].sx    = sx;
+        s_tcglyph[s_tcglyph_n].sy    = sy;
+        s_tcglyph[s_tcglyph_n].jo_id = id;
+        return s_tcglyph[s_tcglyph_n++].jo_id;
+    }
+}
+
+/* GL1 glyph diagnostics (read live to root-cause the glyph render). */
+__attribute__((used)) int p6_w_tcg_n       = 0;  /* distinct glyphs staged */
+__attribute__((used)) int p6_w_tcg_lastjid = -1; /* jo id of the last glyph drawn */
+__attribute__((used)) int p6_w_tcg_lastsz  = 0;  /* __jo_sprite_def[jid].size (CMDSIZE) */
+__attribute__((used)) int p6_w_tcg_lastwh  = 0;  /* (w<<16)|h requested */
+__attribute__((used)) int p6_w_tcg_stagehash = 0;/* djb2 of the FIRST glyph's stage bytes */
+__attribute__((used)) int p6_w_tcg_white     = 0;/* (whiteCount<<16)|totalPx of the FIRST glyph */
+__attribute__((used)) int p6_w_tcg_cmd       = 0;/* (CMDCOLR<<16)|CMDSRCA of a glyph draw command */
+
+void p6_dl_glyph(int sheet, int x, int y, int w, int h, int sx, int sy, int palblk)
+{
+    int jid;
+    if (sheet < 0 || sheet >= s_sheet_count) {
+        ++p6_w_vdp1_handle_drops;
+        p6_w_vdp1_lastdrop_h = sheet;
+        return;
+    }
+    jid = p6_tcglyph_slot(sheet, sx, sy, w, h);
+    if (jid < 0)
+        return;
+    p6_w_tcg_n       = s_tcglyph_n;
+    p6_w_tcg_lastjid = jid;
+    p6_w_tcg_lastsz  = (int)__jo_sprite_def[jid].size;
+    p6_w_tcg_lastwh  = (w << 16) | (h & 0xFFFF);
+    ++p6_w_vdp1_landed;
+    ++p6_w_vdp1_cmds;
+    p6_dl_sprite(jid, x, y, 0, 0, palblk);
 }
 #endif /* P6_DIRECT_VDP1 */
 

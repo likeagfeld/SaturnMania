@@ -2377,4 +2377,29 @@ void p6_vdp2_player_pal_upload(const unsigned short *palData /* PLRPAL.BIN, 256 
     for (i = 0; i < 256; ++i)
         cram[1792 + i] = palData[i];
 }
+
+/* GL1 (2026-07-06): upload the Global/Display.gif GCT (cd/DISPCARD.BIN, ONE
+ * 256-color block) to CRAM block 2 = CRAM[512..767] for the TitleCard zone-name
+ * GLYPHS. MIRRORS p6_vdp2_player_pal_upload / p6_vdp2_hbh_pal_upload exactly (raw
+ * CRAM write, no jo +1 pre-shift -- a VDP1 8bpp sprite reads CRAM[colno+pixel]
+ * directly; SPCTL=0x23 Type-3 full-11-bit DC + SPCAOS=0, ST-058-R2 sec 10.1;
+ * CMDCOLR high-byte = colno, ST-013-R3 sec 6.4).
+ *
+ * WHY BLOCK 2 (colno 512): at the GHZ landing the 5 GHZCutscene-Heavy blocks
+ * (CRAM[512..1663], blocks 2-6) are FREE -- the Heavies exit in the GHZCutscene
+ * ExitHBH beat, so p6_heavy_palblock stays 1 and NO landing draw routes to
+ * 512+ (p6_ovl_ghz.c:840 sets 2+cid only inside the CutsceneHBH Draw shim, which
+ * never runs in the landed GHZ scene). Block 0 (FG), block 1 (general sprite
+ * bank = the GHZ object palette), and block 7 (players) are all in use, so block
+ * 2 is the ONLY collision-free home for the glyph palette. The glyph blits select
+ * colno=512 surface-driven (p6_vdp1.c p6_dl_glyph). GHZCUT-only. */
+void p6_vdp2_titlecard_pal_upload(const unsigned short *palData /* DISPCARD.BIN, 256 u16 */)
+{
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    int i;
+    if (!palData)
+        return;
+    for (i = 0; i < 256; ++i)
+        cram[512 + i] = palData[i];
+}
 #endif /* P6_GHZCUT_BOOT */

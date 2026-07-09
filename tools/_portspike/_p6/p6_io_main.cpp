@@ -1158,6 +1158,7 @@ __attribute__((used)) int32 p6_w_plr_cut_surf  = -9;
 __attribute__((used)) int32 p6_w_plr_cut_handle = -9;
 extern "C" int p6_plr_sheet_slot;                       // p6_vdp1.c (surface-route selector)
 extern "C" void p6_vdp2_player_pal_upload(const unsigned short *palData); // p6_vdp2.c
+extern "C" void p6_vdp2_titlecard_pal_upload(const unsigned short *palData); // p6_vdp2.c (GL1 glyph pal -> CRAM block 2)
 #endif
 __attribute__((used)) int32 p6_w_aiz_nlayers  = 0;  // diag: non-null tileLayer count (FG-Low index for the M3.0b present)
 __attribute__((used)) int32 p6_w_aiz_bg_filebytes = -1; // R2.1: AIZBG.CHR GFS bytes (62720 expected)
@@ -1196,6 +1197,7 @@ __attribute__((used)) int32 p6_w_aiz_tornado_frames  = -1;
 __attribute__((used)) int32 p6_w_aiz_torn_aniframes  = -2;
 __attribute__((used)) int32 p6_w_aiz_torn_animid     = -2;
 __attribute__((used)) int32 p6_w_aiz_torn_count      = -2;
+__attribute__((used)) int32 p6_w_aiz_sonicsht_slot   = -9; // #321: SaturnSheet slot of Players/Sonic1.gif at AIZ (>=0 = staged -> wing renders)
 // R3.4 (#306 follow-on) AIZ cutscene actor anim-load latches: AIZKingClaw->aniFrames
 // (AIZ/Claw.bin, beat 4 EnterClaw) + AIZEggRobo->aniFrames (AIZ/AIZEggRobo.bin, the
 // Heavies). -1/0xFFFF == LoadSpriteAnimation FAILED (.bin not in AIZOBJ.PAK -- the
@@ -2586,6 +2588,27 @@ extern "C" void p6_widescene_reset(void); // Task #298: reset the wide-scene sub
 extern "C" void p6_player_newgame_reset(void); // #P0: zero Player->rings/powerups before InitObjects (game-side)
 extern "C" void p6_titlecard_atl_restore(void); // punch v2 items 6/7: TitleCard.c:504-514 ATL camera hand-back
                                                 // (chain seam only; no TitleCard object registered yet)
+#if defined(P6_GHZCUT_BOOT)
+// GL1 (2026-07-06): the chain GHZ-landing act card (p6_wave1_reg.c). Colored
+// slide-in "GREEN HILL ZONE" card drawn into the direct VDP1 list. Spawned at
+// the GHZCutscene->GHZ handoff, ticked in the frontend frame, drawn in the
+// p6_dl_begin/end block. Gated so plain GHZ is byte-identical.
+extern "C" void p6_titlecard_spawn(const char *zone_name, int actID, int display_slot);
+extern "C" void p6_titlecard_tick(void);
+extern "C" void p6_titlecard_draw(void);
+extern "C" int32 p6_titlecard_is_active(void);
+extern "C" int32 p6_w_tc_state;      // TC_STATE_* (-1 = never spawned)
+extern "C" int32 p6_w_tc_draw_faces; // direct-list poly cmds emitted last draw
+// GL1 glyph diagnostics (defined here; the seam writes them).
+__attribute__((used)) int32 p6_w_tc_pal_bytes = -1; // DISPCARD.BIN load size (>=512 == uploaded)
+__attribute__((used)) int32 p6_w_tc_disp_slot = -9; // Display.gif SaturnSheet slot handed to the card
+__attribute__((used)) int32 p6_w_tc_clofen   = -1; // (CLOFEN<<16)|COAR read back at the landing (wash diag)
+__attribute__((used)) int32 p6_w_tc_cram2    = -1; // (CRAM[512+33]<<16)|CRAM[512+255] -- glyph palette readback
+__attribute__((used)) int32 p6_w_tc_cram01   = -1; // (CRAM[512+0]<<16)|CRAM[512+1] -- transparent+outline slots
+__attribute__((used)) int32 p6_w_tc_cram2hash= -1; // djb2 of CRAM block 2 (vs DISPCARD)
+__attribute__((used)) int32 p6_w_tc_gvramhash= -1; // djb2 of the last glyph's 768 VRAM bytes
+__attribute__((used)) int32 p6_w_tc_gvram0   = -1; // first 4 pixel bytes of the glyph VRAM
+#endif
 extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash); // #181 diag: banded-slot lookup by path hash
 // Perf Phase 1 (Task #211): jo-side timing primitives (p6_perf.c). The true-60Hz
 // vblank tally (registered via jo_core_add_vblank_callback in main.c) + the
@@ -6555,6 +6578,37 @@ static void p6_aiz_reload(void)
         if (n > 0)
             p6_w_objapk_bytes = n;
     }
+    // AIZ-SONIC-VIS FIX (#321, agent-rooted, data-driven): the fly-in Tornado renders but
+    // SONIC's top-wing sprite is MISSING. Live-proven: Sonic (slot0) IS correctly riding the
+    // Tornado (Player_State_Static, visible=1, x tracks 92->6274) -- NOT a logic/position bug.
+    // The RENDER cause: the chain build (#if P6_FRONTEND_TITLE) gates OUT the 9 GHZ gameplay
+    // sheets at boot and only stages Players/Sonic*.gif at the far-later GHZ-handoff seam, so
+    // during AIZ the Sonic1.gif surface has saturnSheetSlot==-1 -> Player_Draw's DrawSprite finds
+    // no VDP1 handle -> the wing is empty. IDENTICAL class to R3.1 (Tornado invisible until
+    // AIZOBJ.SHT staged) and #244 (Tails). FIX: stage SONIC1/2/3.SHT HERE (banded, NO
+    // MakeResident; idempotent via SaturnSheet_FindSlot). Palette needs no upload -- the arm
+    // below runs p6_pal_mirror(fullPalette[0]) (Sonic's global colors -> sprite CRAM bank 1),
+    // the same path the Tornado uses. All inside p6_aiz_reload (#if P6_AIZ_TEST reach) -> plain
+    // GHZ byte-identical. Gate: tools/qa_aiz_sonic_wing.py (p6_w_aiz_sonicsht_slot>=0 in AIZ).
+    {
+        static const char *sonicSht[3]  = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT" };
+        static const char *sonicPath[3] = { "Players/Sonic1.gif", "Players/Sonic2.gif",
+                                            "Players/Sonic3.gif" };
+        for (int32 si = 0; si < 3; ++si) {
+            RETRO_HASH_MD5(sph);
+            GEN_HASH_MD5(sonicPath[si], sph);
+            if (SaturnSheet_FindSlot((const uint32 *)sph) >= 0)
+                continue;
+            int ssn = rsdk_storage_load_to_lwram(sonicSht[si], (void *)P6_LW_ENTITYLIST, 0x10000);
+            if (ssn > 0) {
+                int32 sslot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)ssn);
+                if (sslot >= 0)
+                    SaturnSheet_SetHash(sslot, (const uint32 *)sph);
+            }
+        }
+        { RETRO_HASH_MD5(sph1); GEN_HASH_MD5("Players/Sonic1.gif", sph1);
+          p6_w_aiz_sonicsht_slot = SaturnSheet_FindSlot((const uint32 *)sph1); }
+    }
     p6_scene_load_and_arm();
     p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
     // A1: the engine LoadScene of folder AIZ finished (LoadSceneFolder re-strcpy's
@@ -7264,14 +7318,20 @@ static void p6_frontend_frame(void)
                     };
                     int32 ghzGslot[9] = { -1,-1,-1,-1,-1,-1,-1,-1,-1 };
                     for (int32 gi = 0; gi < 9; ++gi) {
+                        // #321: REUSE the AIZ-staged Sonic sheets (SONIC1/2/3 banded earlier in
+                        // p6_aiz_reload) instead of double-staging -> keeps the band store under
+                        // 640KB (double-stage overflowed -> SaturnSheet_Stage returns -1 -> the
+                        // landing sheets fail to bind). Net band-store usage unchanged.
+                        RETRO_HASH_MD5(gph);
+                        GEN_HASH_MD5(ghzShtPaths[gi], gph);
+                        int32 existing = SaturnSheet_FindSlot((const uint32 *)gph);
+                        if (existing >= 0) { ghzGslot[gi] = existing; continue; }
                         int gsn = rsdk_storage_load_to_lwram(ghzShtFiles[gi],
                                                              (void *)P6_LW_ENTITYLIST, 0x10000);
                         if (gsn > 0) {
                             int32 gslot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST,
                                                             (uint32)gsn);
                             if (gslot >= 0) {
-                                RETRO_HASH_MD5(gph);
-                                GEN_HASH_MD5(ghzShtPaths[gi], gph);
                                 SaturnSheet_SetHash(gslot, (const uint32 *)gph);
                                 ghzGslot[gi] = gslot;
                             }
@@ -7342,6 +7402,58 @@ static void p6_frontend_frame(void)
                 // TitleCard is registered yet, so run the verbatim excerpt here.
                 // Gate: tools/qa_chain_camera_follow.py (RED on pre-fix state).
                 p6_titlecard_atl_restore();
+#if defined(P6_GHZCUT_BOOT)
+                // GL1 (2026-07-06): spawn the "GREEN HILL ZONE / ACT 1" act card on
+                // the arrival, exactly as the direct-boot Game.c:2157 does
+                // (titlecard_spawn("GREEN HILL", TC_ACT_1)). The card slides in
+                // (colored strips + BG + decor), holds, then slides away. Ticked +
+                // drawn in p6_frontend_frame (this same one-shot handoff block is the
+                // decomp-faithful spawn site: TitleCard is created by the arriving
+                // GHZ scene). p6_titlecard_atl_restore above already did the decomp's
+                // TitleCard_State_ShowingTitle ATL camera hand-back (the card re-runs
+                // it at its own actionTimer==16, harmless if already cleared).
+                //
+                // GL1 GLYPHS (this iteration): the zone-name LETTERS ("GREEN HILL"/
+                // "ZONE"/act digit) are Global/Display.gif rects on the already-staged
+                // DISPLAY.SHT. (a) Re-resolve its SaturnSheet slot (staged above in the
+                // 9-sheet loop, slot local to that block) and hand it to the card as
+                // the glyph source. (b) Upload the Display GCT to CRAM block 2
+                // (CRAM[512..767]) -- FREE at the landing (the 5 GHZCutscene Heavies
+                // that own blocks 2-6 have exited), disjoint from the FG (0), the GHZ
+                // object bank (1), and the players (7). The glyph blits select colno
+                // 512 (p6_dl_glyph -> CMDCOLR, ST-013-R3 sec 6.4 + ST-058-R2 sec 10.1).
+                {
+                    // GL1 FIX (magenta-garble root cause): the glyph draw path
+                    // p6_dl_glyph(sheet,...) indexes p6_vdp1.c's s_sheets[] VDP1
+                    // registry (the SAME index space p6_vdp1_blit uses via
+                    // p6_vdp1HandleBySurface), NOT the storage-layer SaturnSheet
+                    // slot. The prior code handed SaturnSheet_FindSlot()'s slot
+                    // (a DIFFERENT index space; =17) to p6_dl_glyph, which read
+                    // s_sheets[17] = an unrelated bound sheet (Sonic/flame frames)
+                    // -> the letters rendered as magenta sprite garbage (MEASURED
+                    // _shots/game-260709-075150.png). Resolve Display.gif's engine
+                    // surface, then its VDP1 s_sheets handle (== what a HUD
+                    // DrawSprite would blit through). p6_vdp1_handle_for_surface is
+                    // defined above (p6_io_main.cpp:1906).
+                    int32 dsurf    = (int32)(int16)LoadSpriteSheet("Global/Display.gif", SCOPE_STAGE);
+                    int32 dispSlot = (dsurf >= 0 && dsurf < SURFACE_COUNT)
+                                         ? p6_vdp1_handle_for_surface(dsurf) : -1;
+                    // Upload the Display palette to CRAM block 2 for the glyphs.
+                    // NOTE: this runs AFTER p6_scene_load_and_arm(), so the entity
+                    // list at P6_LW_ENTITYLIST is LIVE -- use P6_LW_LAYSCRATCH (a
+                    // transient 0x8000 band-scratch, dead at this point) as the load
+                    // buffer, NOT the entity list (which loading 512 B into would
+                    // corrupt player entity 0). p6_w_tc_active doubles as the upload
+                    // witness; add a dedicated one so a load MISS is visible.
+                    int pn = rsdk_storage_load_to_lwram("DISPCARD.BIN",
+                                                        (void *)P6_LW_LAYSCRATCH, 0x800);
+                    p6_w_tc_pal_bytes = pn;
+                    if (pn >= 256 * 2)
+                        p6_vdp2_titlecard_pal_upload((const unsigned short *)P6_LW_LAYSCRATCH);
+                    p6_titlecard_spawn("GREEN HILL", 0 /* TC_ACT_1 */, (int)dispSlot);
+                    p6_w_tc_disp_slot = dispSlot;
+                }
+#endif
                 return;
             }
         }
@@ -7476,6 +7588,13 @@ static void p6_frontend_frame(void)
 #else
     ProcessObjects();
     ProcessSceneTimer();
+#endif
+#if defined(P6_GHZCUT_BOOT)
+    // GL1 (2026-07-06): advance the GHZ act card once per frontend frame (its
+    // slide timing is the decomp entity Update cadence). Only ticks while the
+    // card is live at the GHZ landing; no-op elsewhere (state stays DONE/-1).
+    if (currentSceneFolder && !strcmp(currentSceneFolder, "GHZ"))
+        p6_titlecard_tick();
 #endif
     fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
     p6_w_perf_cyc_obj = P6_FRT_DELTA(fe_t0, fe_t1);
@@ -7778,6 +7897,16 @@ static void p6_frontend_frame(void)
     p6_menu_layout_scroll_latch();
     p6_menu_start_witness_root(); // M2: gc-root the start-game witnesses (overlay -R import)
 #endif
+#if defined(P6_GHZCUT_BOOT) && defined(P6_DIRECT_VDP1)
+    // GL1 (2026-07-06): emit the GHZ act card LAST into the open direct list so
+    // its colored strips/BG/decor paint OVER every gameplay sprite (VDP1 is
+    // painter-order: last command = in front). Only at the GHZ landing; no-op
+    // once the card slides away (state DONE). This is the chain analogue of the
+    // src/mania titlecard_draw_only, but through p6_dl_face/p6_dl_rect so it
+    // lands in the LIVE (displayed) command list rather than the dead SGL one.
+    if (currentSceneFolder && !strcmp(currentSceneFolder, "GHZ"))
+        p6_titlecard_draw();
+#endif
 #if defined(P6_DIRECT_VDP1)
     // #316 F1: close + publish the list (END command, half flip, trampoline
     // target). A seam/LOAD frame that returned earlier never reaches this --
@@ -7797,12 +7926,73 @@ static void p6_frontend_frame(void)
     // live FXRuby fade fields (and, under P6_GHZCUT_HOLD, pins them to freeze the
     // cutscene at a visible wash); the engine applies the offset to NBG1+SPR here,
     // AFTER ProcessObjectDrawLists so it is the last VDP2 state before slSynch.
+    //
+    // GL1 SATURATION FIX (2026-07-06): the TitleCard's colored strips are VDP1
+    // sprites on the SPR layer, which this fade offsets (slColOffsetAUse includes
+    // SPRON). A residual FXRuby WHITE fade lingering at the GHZ landing therefore
+    // washes the card pastel (MEASURED _shots/214050: the 0x000000 decor bar
+    // rendered GRAY = ~+64 white offset). In the decomp the FXRuby arrival flash
+    // COMPLETES before the TitleCard slides in (the card shows on a clean screen;
+    // TitleCard_State_SetupBGElements runs after FXRuby's RubyFX/fade), so any
+    // offset still set when the card is up is a Saturn artifact of the fade not
+    // clearing post-handoff. While the card is active, force the offset OFF
+    // (CLOFEN clear, ST-058-R2 Ch.13) so the strips render at SOURCE saturation.
+    // Gated to the GHZ landing + card-active window; the arrival flash itself
+    // (before the card spawns) is untouched. p6_w_ghzcut_fade records the raw
+    // FXRuby value for the RED-first witness even when we override it.
     if (s_ovl.fade_fn) {
         int fade_w = 0, fade_b = 0;
         s_ovl.fade_fn(&fade_w, &fade_b);
-        p6_vdp2_fade_apply(fade_w, fade_b);
+#if defined(P6_GHZCUT_BOOT) && defined(P6_DIRECT_VDP1)
+        if (currentSceneFolder && !strcmp(currentSceneFolder, "GHZ")
+            && p6_titlecard_is_active()) {
+            p6_vdp2_fade_apply(0, 0); // clear the wash so the card renders saturated
+        } else
+#endif
+            p6_vdp2_fade_apply(fade_w, fade_b);
         p6_w_ghzcut_fade = (fade_w << 16) | (fade_b & 0xFFFF);
     }
+#if defined(P6_GHZCUT_BOOT) && defined(P6_DIRECT_VDP1)
+    // GL1 wash diagnostic: read back the ACTUAL VDP2 colour-offset registers
+    // (ST-058-R2 Ch.13: CLOFEN 0x25F80110 enable-mask, CLOFSL 0x25F80112 A/B
+    // select, COAR 0x25F80114 red offset) so a persistent wash is measured, not
+    // guessed. If CLOFEN!=0 / COAR!=0 while the card is up, the offset is the
+    // wash source and slColOffsetOff did not take (SGL per-vblank rewrite, field
+    // gotcha #12). Packed: (CLOFEN<<16)|COAR (COAR is a signed 9-bit two's-comp).
+    {
+        volatile uint16 *vr = (volatile uint16 *)0x25F80110u;
+        p6_w_tc_clofen = ((int32)vr[0] << 16) | (int32)vr[2]; // [0]=CLOFEN [2]=COAR
+        // GL1 glyph-palette diagnostic: read back CRAM block 2 (the Display GCT the
+        // glyphs sample). CRAM[512] word address = 0x25F00000 + 512*2 = 0x25F00400.
+        // idx 33 (dark gray 0xA0C7) at [33], idx 255 (white 0xFFFF) at [255].
+        volatile uint16 *cr = (volatile uint16 *)(0x25F00000u + 512u * 2u);
+        p6_w_tc_cram2 = ((int32)cr[33] << 16) | (int32)cr[255]; // [33]=gray [255]=white
+        // idx 0/1 (should be 0x8000 black each) + a hash of all 256 block-2 entries
+        // (compare to DISPCARD). And read the glyph VRAM byte 0 + a hash: the glyph's
+        // CMDSRCA*8 gives the VRAM addr; the last glyph (act "1", jid 59) is at a
+        // known addr. Read the FIRST glyph's VRAM (captured addr) to see the pixel
+        // indices actually in VRAM (magenta => index 0; letter => 1/33/255).
+        p6_w_tc_cram01 = ((int32)cr[0] << 16) | (int32)cr[1];
+        {
+            unsigned int hh = 5381; int k;
+            for (k = 0; k < 256; ++k) hh = ((hh << 5) + hh) ^ cr[k];
+            p6_w_tc_cram2hash = (int32)hh;
+        }
+        // Glyph VRAM readback: p6_w_tcg_cmd low 16 = CMDSRCA (addr/8). VRAM byte addr
+        // = JO_VDP1_VRAM(0x25C00000) + CMDSRCA*8. Read the first 4 pixel bytes + hash
+        // 768 bytes so we know if the VRAM holds the staged letter indices or garbage.
+        extern int p6_w_tcg_cmd;
+        {
+            unsigned int srca = (unsigned int)(p6_w_tcg_cmd & 0xFFFF);
+            volatile uint8 *gv = (volatile uint8 *)(0x25C00000u + srca * 8u);
+            unsigned int hh = 5381; int k;
+            for (k = 0; k < 768; ++k) hh = ((hh << 5) + hh) ^ gv[k];
+            p6_w_tc_gvramhash = (int32)hh;
+            p6_w_tc_gvram0 = ((int32)gv[0] << 24) | ((int32)gv[1] << 16)
+                           | ((int32)gv[2] << 8) | (int32)gv[3];
+        }
+    }
+#endif
 #endif
     fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
     p6_w_perf_cyc_draw = P6_FRT_DELTA(fe_t0, fe_t1);
