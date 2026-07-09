@@ -90,6 +90,12 @@ OBJ_BINS = [
     # Platform_StageLoad's LoadSpriteAnimation("GHZ/Platform.bin") takes the fast
     # pack path (aniFrames=-1 would DrawRect gray 64x32 placeholders, Platform.c:144).
     "GHZ/Platform.bin",
+    # Batch 3 step 3: Batbrain (7 authored GHZ1 entities, MEASURED 0 live at the
+    # chain landing despite being registered since Batch 2). 251 B, 11 frames,
+    # sheet GHZ/Objects.gif == GHZOBJ.SHT. Moves the anim off the STG slow path
+    # (the Batch-2 badniks' +9.8KB STG load) onto the cart fast path; the R21
+    # aniFrames witness + gate row pin the load status for the live re-measure.
+    "GHZ/Batbrain.bin",
 ]
 OBJ_OUT = os.path.join(ROOT, "cd", "GHZOBJ.PAK")
 OBJ_CAP = 0x40000  # 256 KB cart window (0x22760000..0x227A0000 has 320 KB clear)
