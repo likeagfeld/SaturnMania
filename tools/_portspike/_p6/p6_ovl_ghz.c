@@ -481,6 +481,18 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityPlatform), (unsigned)sizeof(ObjectPlatform),
                               Platform_Update, Platform_LateUpdate, Platform_StaticUpdate,
                               Platform_Draw, Platform_Create, Platform_StageLoad, Platform_Serialize);
+    /* BATCH 3 step 4: InvisibleBlock (18 authored GHZ1 entities, incl. the 7
+     * ceiling guards at y=-104..-120 and the loop-mouth blockers). Fully
+     * self-contained verbatim TU (Global/InvisibleBlock.c, 137 L, read
+     * end-to-end): externals = Player_CheckCollisionBox (pack, rooted) +
+     * DebugMode/Zone/globals (pack). Anim = Global/ItemBox.bin (already in the
+     * cart GHZOBJ.PAK from step 1; visible=false in-game -- DrawSprites is
+     * debug-only). Entity 120 B <= 344 narrow stride. */
+    api->register_object_full((void **)&InvisibleBlock, "InvisibleBlock",
+                              (unsigned)sizeof(EntityInvisibleBlock), (unsigned)sizeof(ObjectInvisibleBlock),
+                              InvisibleBlock_Update, InvisibleBlock_LateUpdate, InvisibleBlock_StaticUpdate,
+                              InvisibleBlock_Draw, InvisibleBlock_Create, InvisibleBlock_StageLoad,
+                              InvisibleBlock_Serialize);
 #if defined(P6_FRONTEND_LOGOS)
     /* CP4: the Logos splash objects. Register order is irrelevant (the engine
      * LoadGameConfig matches by md5(name)); these resolve their classIDs the same
@@ -1599,6 +1611,9 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     /* Batch 3 step 2: full Platform (R22/R23). */
     if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;
     if (Platform) p6_w_platform_aniframes = (int32)(int16)Platform->aniFrames;
+    /* Batch 3 step 4: InvisibleBlock (R24). */
+    if (InvisibleBlock && InvisibleBlock->classID)
+        p6_w_invblock_classid = (int32)InvisibleBlock->classID;
 
     /* Batch 2 anim-load latches (range-independent; -1 == LoadSpriteAnimation failed,
      * which on STG-overflow is the R13 sentinel for these slow-path anims). */
