@@ -118,8 +118,35 @@ RetroArch at real speed with sound.
 `CLAUDE.md` is the working manual for anyone touching this repo; `BIBLE.md` holds
 the phase plan.
 
+## Thanks and credits
+
+This project exists because of other people's work, and it's worth being explicit
+about that:
+
+- **[RSDKModding's Sonic Mania decompilation](https://github.com/RSDKModding/Sonic-Mania-Decompilation)**
+  — the game logic itself. Every object this port runs (`Player`, `Ring`,
+  `TitleCard`, the AIZ cutscene, all of it) is their decompilation, translated
+  mechanically, not rewritten. This port's rule is that their code is the source
+  of truth.
+- **[RSDKModding's RSDKv5 decompilation](https://github.com/RSDKModding/RSDKv5-Decompilation)**
+  — the engine. It defines the contract the Saturn backend implements, and large
+  parts of it compile straight into this build.
+- **[Jo Engine](https://jo-engine.org/) by Johannes Fetz** — the Saturn hardware
+  layer and the bundled `sh-none-elf` GCC toolchain this whole thing builds with.
+- **Sega's SGL library and the Saturn technical manuals** (the ST-series developer
+  documents) — every VDP1/VDP2/SCSP register decision here traces back to them.
+- **Mednafen** and the **Beetle Saturn** libretro core — the Saturn emulation this
+  project tests against, and whose accuracy made the memory-level QA harness
+  possible.
+- And obviously **Christian Whitehead, Headcannon, PagodaWest Games, and Sega**,
+  who made Sonic Mania in the first place.
+
+If you're an author of any of the above and want something credited differently,
+open an issue.
+
 ## Legal
 
 No Sonic Mania content is committed here. Bring your own legally obtained
-`Data.rsdk`. The decompilation is community-authored; the Saturn port code is
-original work.
+`Data.rsdk`. The decompilations are community-authored projects with their own
+licenses; the Saturn port code is original work. This is a non-commercial fan
+technical project, unaffiliated with Sega.
