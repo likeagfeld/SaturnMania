@@ -874,8 +874,46 @@ int p6_overlay_entry(p6_ovl_api *api)
 static void p6_ghzcut_fade_fn(int *outWhite, int *outBlack)
 {
     int w = 0, b = 0;
+    /* #324 (AIZ draw-bracket tail hog): this runs EVERY front-end frame, and
+     * foreach_all walks the WHOLE entity pool filtering classID -- MEASURED
+     * (live chain forensic _drawprof_F1.jsonl 2026-07-09): p6_w_draw_tail =
+     * 6,523 FRT ticks (7.8 ms) per frame on the AIZ legs, ~= the entire
+     * unattributed fly-in draw residue. Cache the found FXRuby entity; re-scan
+     * only when the cache is empty or the slot was recycled (classID changed --
+     * scene reloads reset the pool, so the stale-slot check is the classID
+     * compare against the live FXRuby object). */
+    static EntityFXRuby *s_fadeFx = 0;
+    if (s_fadeFx && FXRuby && s_fadeFx->classID == FXRuby->classID) {
+#if defined(P6_GHZCUT_HOLD)
+        s_fadeFx->fadeWhite = P6_GHZCUT_HOLD_WHITE;
+        s_fadeFx->fadeBlack = (P6_GHZCUT_HOLD_WHITE > 0) ? 0 : 1;
+#endif
+        if (outWhite) *outWhite = (int)s_fadeFx->fadeWhite;
+        if (outBlack) *outBlack = (int)s_fadeFx->fadeBlack;
+        return;
+    }
+    s_fadeFx = 0;
+    /* #324 round 2 (MEASURED _drawprof_G2.jsonl: the cache above zeroed the
+     * GHZCutscene tail, 6.5k -> 22 ticks, but the AIZ legs still paid the full
+     * absent-scan every frame -- FXRuby doesn't EXIST there until the ruby
+     * beats). DECOMP-EXACT skip: the only FXRuby CREATE_ENTITY sites on the AIZ
+     * intro are the RubyFX/Flash beats (AIZSetup.c:595 + :811, cutscene beats
+     * >= 7), so while the pack's beat census reads < 6 no FXRuby can exist --
+     * return the same 0/0 the full scan would find, without walking the pool.
+     * Post-AIZ scenes keep the census at its final value (>= 6) -> unchanged. */
+    {
+        extern int p6_w_aiz_cutscene_state; /* pack beat census (game.elf global) */
+        /* 0..5 only: -1 = census never ran (pre-AIZ legs / GHZCUT direct-boot
+         * flavors, where the cutscene's own FXRuby must still be found). */
+        if (p6_w_aiz_cutscene_state >= 0 && p6_w_aiz_cutscene_state < 6) {
+            if (outWhite) *outWhite = 0;
+            if (outBlack) *outBlack = 0;
+            return;
+        }
+    }
     foreach_all(FXRuby, fx)
     {
+        s_fadeFx = fx;
 #if defined(P6_GHZCUT_HOLD)
         /* Freeze the cutscene for the capture. Pin BEFORE reading so the returned
          * values reflect the held state. FadeIn (GHZCutsceneST.c:142-154) returns

@@ -1781,6 +1781,11 @@ __attribute__((used)) int32 p6_w_draw_tile_v = 0; // vblanks in the tile-layer l
 // in p6_vdp1.c). blit_v>>rest => blit-bound; dma_v~=blit_v => the eviction re-DMA.
 __attribute__((used)) int32 p6_w_draw_blit_v = 0; // vblanks inside p6_vdp1_blit_flipped calls
 __attribute__((used)) int32 p6_w_draw_dma_v  = 0; // vblanks inside the LRU miss DMA (p6_pool_for)
+// #324: FRT ticks in the draw-bracket TAIL (after ProcessObjectDrawLists+p6_dl_end,
+// i.e. the fade/titlecard/diag epilogue up to fe_t1). MEASURED RED (live chain,
+// _drawprof.jsonl 2026-07-09): AIZ fly-in cyc_draw = 13.7k ticks (16.3ms) while
+// draw_cb = 558 -- the cost sat in this tail, not the entity draw() loops.
+__attribute__((used)) int32 p6_w_draw_tail   = 0;
 #endif
 // LOCKED-60 (#243): loop1 scan occupancy -- sizes the maxOccupiedSlot trim AND
 // explains the 5.82->15.95ms scan growth. pop = populated slots (classID!=0);
@@ -4580,6 +4585,16 @@ extern "C" void p6_scene_run(void)
             if (p6_w_dispsht_slot >= 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
             if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
             if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
+            // #324 (GHZCutscene DrawLists hog): the seam staged GHCOBJ (claw+crate)
+            // + RUBYOBJ (PhantomRuby, 41-frame anim) + ITEMS but never PROMOTED
+            // them -- MEASURED (live chain _drawprof.jsonl 2026-07-09): 23 banded
+            // FetchRect inflates/frame at the cutscene (p6_w_sht_fetches), each a
+            // 16-bit band copy + miniz inflate, driving the draw cb bracket to
+            // 135k FRT ticks (161 ms) and 2.1 fps. Promote them with the same
+            // MakeResident pattern (tiny sheets; the store was just reclaimed).
+            if (p6_w_ghcobj_slot  >= 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
+            if (p6_w_rubyobj_slot >= 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
+            if (p6_w_itemsht_slot >= 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
         }
 #endif
         // Task #311 (residual garble): stage the 2 sheets the scene's OTHER drawing
@@ -7304,6 +7319,32 @@ static void p6_frontend_frame(void)
                         p6_w_dispsht_slot = slot;
                         if (slot >= 0) { GEN_HASH_MD5("Global/Display.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
                     }
+#if defined(P6_FRONTEND_MENU)
+                    // #324 GHZCutscene DrawLists hog (RED-gated, qa_drawcost_gate G3/G4):
+                    // the sheets staged above stay BANDED through the whole cutscene --
+                    // MEASURED (live chain forensic _drawprof_F1.jsonl 2026-07-09): 22.4
+                    // FetchRect inflates/frame (claw + ruby + HUD + rings), draw cb
+                    // bracket 124k FRT ticks (148 ms), 2.3 fps. The p6_scene_run promote
+                    // block (p6_io_main.cpp:~4580) is BOOT-ONLY -- these slots are staged
+                    // at THIS live seam and had no promotion site (resmask read 0x7F00 =
+                    // only the boot+AIZ-seam promotes). Mirror the GHZ-landing seam
+                    // pattern (:7436): reclaim the AIZ-leg residents (aizobj + player
+                    // sheets, never drawn in the cutscene) then promote the cutscene
+                    // working set. Budget: PLR(~64K) + HBH(512x432=221K) + GHC(512x512=
+                    // 262K) + RUBY(256x128=32K) + ITEMS(256x128=32K) + DISPLAY(256x256=
+                    // 64K) = ~675 KB < the 1.625 MB store. MakeResident is bounds-checked
+                    // (overflow -> stays banded, no corruption). Scratch is wired since
+                    // the boot block. Front-end only -> plain GHZ byte-identical.
+                    {
+                        SaturnSheet_ResReset();
+                        if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
+                        if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
+                        if (p6_w_ghcobj_slot  >= 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
+                        if (p6_w_rubyobj_slot >= 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
+                        if (p6_w_itemsht_slot >= 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
+                        if (p6_w_dispsht_slot >= 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
+                    }
+#endif
                 }
                 // #302 mechanism-A latch: the AIZ BG frame owned the display; hand it
                 // back to the present across this folder change (the AIZ planes would
@@ -7959,6 +8000,9 @@ static void p6_frontend_frame(void)
 #endif
     p6_w_perf_cyc_fgbg = P6_FRT_DELTA(fe_fgbg_t0, p6_perf_frt_get()); // #322 (see above)
     fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
+#if defined(P6_FRONTEND_MENU)
+    unsigned short fe_tpod = fe_t0; // #324: tail bracket start (updated post-dl_end)
+#endif
 #ifndef P6_TITLE_NODRAW
 #if defined(P6_DIRECT_VDP1)
     // #316 F1: open the direct command list -- every blit inside
@@ -7997,6 +8041,9 @@ static void p6_frontend_frame(void)
     // target). A seam/LOAD frame that returned earlier never reaches this --
     // the previous completed half keeps displaying (persistence contract).
     p6_dl_end();
+#endif
+#if defined(P6_FRONTEND_MENU)
+    fe_tpod = p6_perf_frt_get(); // #324: DrawLists+emit done; tail (fade/card/diag) follows
 #endif
 #else
     // CP5b.7 A/B: skip ALL title VDP1 sprite emit (no sprites added to the SGL sort
@@ -8037,13 +8084,19 @@ static void p6_frontend_frame(void)
             p6_vdp2_fade_apply(fade_w, fade_b);
         p6_w_ghzcut_fade = (fade_w << 16) | (fade_b & 0xFFFF);
     }
-#if defined(P6_GHZCUT_BOOT) && defined(P6_DIRECT_VDP1)
+#if defined(P6_GHZCUT_BOOT) && defined(P6_DIRECT_VDP1) && !defined(P6_PERF_NOSCAN)
     // GL1 wash diagnostic: read back the ACTUAL VDP2 colour-offset registers
     // (ST-058-R2 Ch.13: CLOFEN 0x25F80110 enable-mask, CLOFSL 0x25F80112 A/B
     // select, COAR 0x25F80114 red offset) so a persistent wash is measured, not
     // guessed. If CLOFEN!=0 / COAR!=0 while the card is up, the offset is the
     // wash source and slColOffsetOff did not take (SGL per-vblank rewrite, field
     // gotcha #12). Packed: (CLOFEN<<16)|COAR (COAR is a signed 9-bit two's-comp).
+    // #324: this whole block (256-entry CRAM djb2 + 768-byte VDP1-VRAM djb2 +
+    // CRAM/VDP2 register reads) ran EVERY shipping frame inside the DrawLists
+    // FRT bracket -- a per-frame diagnostic in the hot loop (the
+    // perf-diagnostic-in-hotloop rule: CPU reads of CRAM/VDP1-VRAM during active
+    // display eat bus-priority wait states). NOSCAN-stripped from shipping;
+    // rebuild with P6_NOSCAN= (empty) to re-arm the GL1 witnesses.
     {
         volatile uint16 *vr = (volatile uint16 *)0x25F80110u;
         p6_w_tc_clofen = ((int32)vr[0] << 16) | (int32)vr[2]; // [0]=CLOFEN [2]=COAR
@@ -8082,6 +8135,9 @@ static void p6_frontend_frame(void)
     fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
     p6_w_perf_cyc_draw = P6_FRT_DELTA(fe_t0, fe_t1);
     p6_w_perf_vbl_draw = (int32)(fe_v1 - fe_v0);
+#if defined(P6_FRONTEND_MENU)
+    p6_w_draw_tail = P6_FRT_DELTA(fe_tpod, fe_t1); // #324: fade/card/diag epilogue cost
+#endif
 
     p6_w_perf_cyc_total = p6_w_perf_cyc_input + p6_w_perf_cyc_obj
                         + p6_w_perf_cyc_draw + p6_w_perf_cyc_present;

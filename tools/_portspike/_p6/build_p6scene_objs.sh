@@ -742,6 +742,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_MENU:+-u _p6_w_menusetup_classid -u _p6_w_uicontrol_classid -u _p6_w_menu_objcount} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_treebuilt -u _p6_w_menu_modebtn_classid -u _p6_w_menu_vdp1_landed} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_edge_calls -u _p6_w_menu_edge_last} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_draw_tail} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_saveslot_classid -u _p6_w_menu_input_seen} \
     ${P6_FRONTEND_MENU:+-u _p6_w_uitrans_present -u _p6_w_uitrans_state -u _p6_w_uitrans_timer -u _p6_w_uitrans_istrans -u _p6_w_uitrans_active} \
     ${P6_FRONTEND_MENU:+-u _p6_w_active_btn_actioncb -u _p6_w_active_btn_id -u _p6_w_active_btn_count} \

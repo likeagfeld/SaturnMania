@@ -294,6 +294,11 @@ extern volatile unsigned int p6_perf_vbl_count;
 __attribute__((used)) int p6_w_rst_wait_v = 0; /* vblanks in slDMAWait() (summed/frame) */
 __attribute__((used)) int p6_w_rst_work_v = 0; /* vblanks in stage-copy + jo_dma_copy (summed/frame) */
 __attribute__((used)) int p6_w_rst_calls  = 0; /* cumulative restage (miss) count */
+/* #324: per-frame FRT ticks inside p6_title_restage_content (the direct VDP1-VRAM
+ * pack below). GREEN-side witness for the restage-cost lever; reset with the other
+ * per-frame tallies in p6_vdp1_perf_reset. Chain-only (P6_FRONTEND_MENU). */
+extern unsigned short p6_perf_frt_get(void);
+__attribute__((used)) int p6_w_rst_cyc = 0;
 #endif
 
 __attribute__((used)) void p6_vdp1_perf_reset(void) /* called at p6_ghz_frame top */
@@ -307,6 +312,7 @@ __attribute__((used)) void p6_vdp1_perf_reset(void) /* called at p6_ghz_frame to
     if (p6_buckMiss[3] > p6_w_buck3_fmax) p6_w_buck3_fmax = p6_buckMiss[3];
     p6_buckMiss[0] = p6_buckMiss[1] = p6_buckMiss[2] = p6_buckMiss[3] = 0;
     p6_w_rst_wait_v = 0; p6_w_rst_work_v = 0; /* #317: per-frame restage split reset */
+    p6_w_rst_cyc = 0;                         /* #324: per-frame restage FRT reset */
 #if defined(P6_GHZCUT_BOOT)
     if (p6_buckMiss[4] > p6_w_buck4_fmax) p6_w_buck4_fmax = p6_buckMiss[4];
     p6_buckMiss[4] = 0;
@@ -443,9 +449,20 @@ static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MA
  * occluder + fade quads). .bss delta = -24 slots +15 slots (28 B each) = -252 B
  * + 24 B (witness/miss/bucket entries) = NET -228 B (#228-safe, _end DOWN).
  * GHZCUT implies MENU so this branch MUST precede the MENU one. */
+/* #324 re-carve (RED-gated, qa_drawcost_gate G1/G2; live chain forensic
+ * _drawprof_F1.jsonl 2026-07-09): the 64x80 bucket (idx1) THRASHED -- per-frame
+ * miss maxima p6_w_buck1_fmax = 14 (AIZ claw beats), 16-17 (GHZCutscene), 17
+ * (GHZ landing) vs 12 slots -> demand > capacity -> the LRU cycled EVERY frame
+ * (~11.6 restages/frame at the claw = the measured DrawLists hog). The WIDE
+ * 176x56 bucket measured fmax = 10 max across the whole chain (menu leg
+ * included) vs 15 slots -> 4 dead slots. Re-carve: 64x80 12 -> 18 (covers the
+ * worst measured 17 + 1), WIDE 15 -> 11 (measured 10 + 1). VRAM (8bpp 1 B/px):
+ * 8*320 + 18*5,120 + 11*9,856 + 8*25,600 + 1*39,680 = 447,616 B <
+ * JO_VDP1_USER_AREA_SIZE 466,232 (18,616 B margin). .bss +2 slots * 28 B =
+ * +56 B (front-end flavors only; chain _end headroom ~38 KB). */
 #define P6_BK0 8
-#define P6_BK1 12
-#define P6_BKW 15            /* idx2 WIDE 176x56 (menu rows + title wide-flats) */
+#define P6_BK1 18
+#define P6_BKW 11            /* idx2 WIDE 176x56 (menu rows + title wide-flats) */
 #define P6_BK2 8
 #define P6_GHZCUT_TINY_B1 1  /* idx0 box = 16x20 (see the P6_BUCK table below) */
 #elif defined(P6_FRONTEND_MENU)
@@ -621,45 +638,78 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
     int pw = (w + 7) & ~7;          /* content width padded to the VDP1 mult-8 unit */
     int x, y;
 #if defined(P6_FRONTEND_MENU)
-    unsigned int _w0, _wk0;         /* #317 restage-split vbl timestamps */
+    unsigned short _rt0 = p6_perf_frt_get(); /* #324 restage FRT bracket */
+    ++p6_w_rst_calls;
 #endif
-    /* #311 mech-4 ROOT FIX: jo_dma_copy == slDMACopy, which is ASYNCHRONOUS --
-     * ST-238-R1: "slDMACopy terminates soon after DMA is initiated. To wait
-     * until the transfer is completed, use slDMAWait." The pack loop below
-     * OVERWRITES s_stage; if the PREVIOUS restage's transfer is still reading
-     * it, that slot's VRAM receives a torn mix of both rects (MEASURED:
-     * qa_g11_vram.py RED on build 25 -- the frame's single 48x24 command held
-     * 16-wide strips of the NEXT rect over black, while the same restage's
-     * post-return s_stage hash was byte-exact). Waiting HERE (not after the
-     * copy) keeps the DMA overlapped with the next miss's banded fetch. */
-    /* A/B-verified (2026-07-02): the title FG-broken gate reads IDENTICAL with
-     * this wait compiled out (34/37 vs 34/38 head=0 frames) -- the title
-     * regression PRE-DATES the wait and is filed separately. The wait stays:
-     * it fixes the MEASURED GHZCUT tear (qa_g11_vram RED->clean screenshots). */
-#if defined(P6_FRONTEND_MENU)
-    _w0 = p6_perf_vbl_count; slDMAWait(); p6_w_rst_wait_v += (int)(p6_perf_vbl_count - _w0);
-    _wk0 = p6_perf_vbl_count; ++p6_w_rst_calls;   /* start of stage-copy + DMA-issue */
-#else
-    slDMAWait();
-#endif
-    for (y = 0; y < h; ++y) {
-        unsigned char *dst = s_stage + y * pw;
-        const unsigned char *src = srcPx + y * srcStride;
-        for (x = 0; x < w; ++x) dst[x] = src[x];
-        for (; x < pw; ++x) dst[x] = 0;        /* mult-8 right pad transparent */
+    /* #324 (front-end DrawLists hog): SYNCHRONOUS long-word pack STRAIGHT INTO the
+     * slot's reserved VDP1 VRAM -- replaces the slDMAWait + s_stage byte-pack +
+     * async jo_dma_copy round trip. MEASURED (live chain profile _drawprof.jsonl,
+     * 2026-07-09): the AIZ claw beats run ~11.6 restages/frame and the draw()
+     * callback FRT bracket (p6_w_draw_cb) reads 36k-66k ticks (43-78 ms @ cks=1);
+     * GHZCutscene reads 135k (161 ms) at 17 restages/frame. p6_w_rst_wait_v == 0
+     * across the whole chain, so the cost was NOT slDMAWait -- it was the
+     * CART->CART byte pack (s_stage lives in the A-bus extended-RAM cart in the
+     * front-end flavors: every content byte = 1 wait-stated cart read + 1 cart
+     * write, then the DMA re-reads it a third time). The direct pack:
+     *   - is doc-legal: "Byte access and word access are both possible from the
+     *     CPU" on VDP1 VRAM, and CPU access has priority over drawing
+     *     (VDP1 manual / ST-013-R3, VRAM section: lines re "byte access (VRAM)"
+     *     p.19); a longword store = two word accesses on the B-bus.
+     *   - quarters the cart reads (aligned u32 shift-merge loads) and removes
+     *     the cart writes + the DMA's second read pass entirely.
+     *   - structurally retires the #311/#312 mid-frame async-DMA tear class for
+     *     this path: no shared staging buffer, no in-flight transfer to wait out
+     *     (the slDMAWait is gone WITH its hazard, not despite it).
+     * dst rows are long-aligned: CGadr*8 is 8-byte aligned (jo TEXDEF) and pw is
+     * mult-8. SH-2 is big-endian so a u32 load/store preserves the 4-pixel byte
+     * order. TITLE/chain flavor only -- plain GHZ (p6_pool_for) byte-identical. */
+    {
+        unsigned int dstA = (unsigned int)JO_VDP1_VRAM
+                          + (unsigned int)JO_MULT_BY_8(__jo_sprite_def[jo_id].adr);
+        for (y = 0; y < h; ++y) {
+            volatile unsigned int *dst =
+                (volatile unsigned int *)(dstA + (unsigned int)(y * pw));
+            const unsigned char *src = srcPx + (unsigned int)(y * srcStride);
+            unsigned int al = (unsigned int)src & 3u;
+            int nfull = w >> 2;              /* whole content longwords this row */
+            if (al == 0) {
+                const unsigned int *s32 = (const unsigned int *)src;
+                for (x = 0; x < nfull; ++x) dst[x] = s32[x];
+            }
+            else {
+                /* shift-merge: aligned u32 loads at an arbitrary src offset. May
+                 * read up to 3 bytes past the row's content end -- always inside
+                 * the sheet allocation (rows continue; the resident store / the
+                 * 39,680 B s_fetch buffer pad the final row), and cart reads have
+                 * no side effects. Big-endian merge: (prev<<sh)|(next>>(32-sh)). */
+                const unsigned int *s32 = (const unsigned int *)(src - al);
+                unsigned int sh = al << 3, ish = 32u - sh;
+                unsigned int prev = s32[0];
+                for (x = 0; x < nfull; ++x) {
+                    unsigned int nxt = s32[x + 1];
+                    dst[x] = (prev << sh) | (nxt >> ish);
+                    prev = nxt;
+                }
+            }
+            x = nfull << 2;
+            if (x < w) {                     /* 1..3 tail content bytes + zero pad */
+                unsigned int v = 0; int k;
+                for (k = 0; x + k < w; ++k)
+                    v |= (unsigned int)src[x + k] << (24 - (k << 3));
+                dst[nfull] = v;
+                x = (nfull + 1) << 2;
+            }
+            for (; x < pw; x += 4)           /* mult-8 right pad transparent */
+                dst[x >> 2] = 0;
+        }
     }
     __jo_sprite_def[jo_id].width  = (unsigned short)pw;
     __jo_sprite_def[jo_id].height = (unsigned short)h;
     /* HVsize TEXDEF (== jo __internal_jo_sprite_add:212 / SGL ST-238-R1 TEXDEF macro):
      * the hardware CMDSIZE VDP1 rasterises. pw is mult-8 so (pw & 0x1f8) == pw (pw<=504). */
     __jo_sprite_def[jo_id].size   = (unsigned short)(JO_MULT_BY_32(pw & 0x1f8) | (h & 0xff));
-    /* DMA the content-packed bytes (pw*h, 8bpp = 1 B/px) into the slot's reserved VRAM
-     * base (mirrors jo_sprite_replace's copy, sprites.c:172-174, COL_256). */
-    jo_dma_copy(s_stage,
-                (void *)(JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[jo_id].adr)),
-                (unsigned int)(pw * h));
 #if defined(P6_FRONTEND_MENU)
-    p6_w_rst_work_v += (int)(p6_perf_vbl_count - _wk0);
+    p6_w_rst_cyc += (int)(unsigned short)(p6_perf_frt_get() - _rt0);
 #endif
     return pw;
 }
@@ -1622,11 +1672,13 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
 #endif
         srcPx     = s_fetch;
         srcStride = w;
-#if defined(P6_GHZCUT_BOOT)
+#if defined(P6_GHZCUT_BOOT) && !defined(P6_PERF_NOSCAN)
         /* #311 mech-4 v3: THIS is the live fetch site (every GHZCUT draw routes
          * through the bucket path). Hash every GHCOBJ-slot (11) draw-time fetch
          * into the g11 ring; offline compares each against the gif crop of the
-         * SAME rect (qa_g11_ring.py). */
+         * SAME rect (qa_g11_ring.py). #324: a per-draw djb2 over w*h bytes is a
+         * hot-loop diagnostic (perf-diagnostic-in-hotloop rule) -- NOSCAN-stripped
+         * from shipping; rebuild with P6_NOSCAN= (empty) to re-arm the ring. */
         if (s_sheets[sheet].shtSlot == 11) {
             unsigned int hh = 5381; int k, n = w * h;
             for (k = 0; k < n; ++k) hh = ((hh << 5) + hh) ^ s_fetch[k];
@@ -1649,14 +1701,18 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
     if (b->slots[victim].sheet >= 0) ++p6_w_vdp1_evicts;             /* reuse of a live slot */
 
     pw = p6_title_restage_content(b->slots[victim].jo_id, srcPx, srcStride, w, h);
-#if defined(P6_GHZCUT_BOOT)
-    /* #311 mech-4 v3 stage-side pair: djb2 of the content-packed s_stage box the
-     * restage just DMA'd (pw*h bytes, mult-8 pad zeros included). Written at the
-     * ordinal the fetch ring just recorded -- fetch-clean + stage-dirty convicts
-     * the pack loop; both clean pushes the tear into the DMA/TEXDEF layer. */
+#if defined(P6_GHZCUT_BOOT) && !defined(P6_PERF_NOSCAN)
+    /* #311 mech-4 v3 stage-side pair: djb2 of the content-packed box the restage
+     * just wrote (pw*h bytes, mult-8 pad zeros included). #324: the restage now
+     * packs DIRECTLY into the slot's VDP1 VRAM (s_stage is no longer written), so
+     * hash the VRAM itself -- byte reads are doc-legal on VDP1 VRAM (VDP1 manual
+     * "Byte access and word access are both possible from the CPU"). Also a
+     * hot-loop diagnostic -> NOSCAN-stripped from shipping (P6_NOSCAN= to re-arm). */
     if (s_sheets[sheet].shtSlot == 11 && !s_sheets[sheet].px) {
+        const volatile unsigned char *vr = (const volatile unsigned char *)
+            (JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[b->slots[victim].jo_id].adr));
         unsigned int hh = 5381; int k, n = pw * h;
-        for (k = 0; k < n; ++k) hh = ((hh << 5) + hh) ^ s_stage[k];
+        for (k = 0; k < n; ++k) hh = ((hh << 5) + hh) ^ vr[k];
         p6_w_g11_stage[(p6_w_g11_n - 1) & 3] = (int)hh;
     }
 #endif
