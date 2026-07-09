@@ -142,3 +142,6 @@ tools/__pycache__/
 _aizref_*.png
 _sincos256.txt
 _wraml_broken.bin
+tools/retroarch/
+_*.jsonl
+*.jsonl
