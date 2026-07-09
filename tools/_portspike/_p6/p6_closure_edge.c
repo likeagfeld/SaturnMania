@@ -94,7 +94,10 @@ ObjectCrate *Crate               = NULL;
 ObjectIce *Ice                   = NULL;
 ObjectBigSqueeze *BigSqueeze     = NULL;
 ObjectSpikeCorridor *SpikeCorridor = NULL;
-ObjectDebris *Debris             = NULL;
+ObjectDebris *Debris             = NULL; // Batch 3: rewired per-frame to the OVERLAY's
+                                         // registered Debris (s_ovl.debris_slot) so
+                                         // Shield.c:194+'s CREATE_ENTITY(Debris,
+                                         // Debris_State_Move,...) sparks spawn live.
 ObjectERZOutro *ERZOutro         = NULL;
 ObjectFXFade *FXFade             = NULL;
 ObjectFXRuby *FXRuby             = NULL;
@@ -111,7 +114,17 @@ ObjectFXTrail *FXTrail           = NULL;
 ObjectFarPlane *FarPlane         = NULL;
 ObjectHCZSetup *HCZSetup         = NULL;
 ObjectIceSpring *IceSpring       = NULL;
-ObjectItemBox *ItemBox           = NULL;
+ObjectItemBox *ItemBox           = NULL; // Batch 3: rewired per-frame to the OVERLAY's
+                                         // registered ItemBox (s_ovl.itembox_slot, the
+                                         // #235 Ring-seam) -- pack readers Zone.c:380 /
+                                         // SaveGame.c:133,295 / Ice.c:235 then see the
+                                         // live classID. NULL only until the overlay loads.
+// Batch 3 (ItemBox port): the verbatim ItemBox references the LRZ conveyor-physics
+// object (State_Broken/Break/Conveyor, ItemBox.c:241/250/365). LRZ-only; GHZ1-dead.
+// NULL == unregistered; the HandleLRZConvPhys stub below covers the link-time fn ref
+// (runtime-guarded: every call site requires LRZConvItem non-NULL or a state only
+// entered when it is non-NULL).
+ObjectLRZConvItem *LRZConvItem   = NULL;
 ObjectKleptoMobile *KleptoMobile = NULL;
 ObjectLottoMachine *LottoMachine = NULL;
 ObjectOOZSetup *OOZSetup         = NULL;
@@ -289,16 +302,80 @@ void CutsceneSeq_StartSequence(void *manager, ...)
     (void)manager;
     P6_EDGE(8);
 }
-void Debris_State_Move(void) { P6_EDGE(9); }
+// Batch 3 (Debris port): Shield.c (PACK) assigns Debris_State_Move as the lightning-
+// shield spark's state -> the spark entity's StateMachine_Run lands HERE (the pack
+// symbol), not on the overlay's real impl. Forward pack->overlay via the runtime
+// pointer (set by p6_io_main from s_ovl.debris_state_move_fn once the overlay entry
+// runs) -- the #258b Ring_LoseRings pattern. Until then the stub no-ops as before.
+extern void *p6_ovl_debris_state_move_raw;
+void Debris_State_Move(void)
+{
+    if (p6_ovl_debris_state_move_raw) {
+        ((void (*)(void))p6_ovl_debris_state_move_raw)();
+        return;
+    }
+    P6_EDGE(9);
+}
 void FXRuby_State_Shrinking(void) { P6_EDGE(10); }
+// Batch 3 (ItemBox port): the real ItemBox is OVERLAY-resident. PACK callers bind
+// here: Ice.c:600 calls ItemBox_Break (PGZ-dead in GHZ1 but forwarded for closure);
+// SaveGame.c:138 ASSIGNS ItemBox_State_Broken to recalled broken boxes -> their
+// StateMachine_Run lands on the pack symbol -> forward runs the real broken-state
+// body. KNOWN DIVERGENCE (documented in p6_ovl_api.h): SaveGame.c:300's POINTER
+// compare (state == ItemBox_State_Broken) sees this pack address while live broken
+// boxes carry the OVERLAY address -> broken boxes are not re-recorded on ATL store.
+// Forward pointers set by p6_io_main from s_ovl.itembox_*_fn (the #258b pattern).
+extern void *p6_ovl_itembox_break_raw;
+extern void *p6_ovl_itembox_state_broken_raw;
+extern void *p6_ovl_itembox_state_falling_raw;
+extern void *p6_ovl_itembox_state_idle_raw;
 void ItemBox_Break(EntityItemBox *itemBox, EntityPlayer *player)
 {
+    if (p6_ovl_itembox_break_raw) {
+        ((void (*)(EntityItemBox *, EntityPlayer *))p6_ovl_itembox_break_raw)(itemBox, player);
+        return;
+    }
     (void)itemBox; (void)player;
     P6_EDGE(11);
 }
-void ItemBox_State_Broken(void) { P6_EDGE(12); }
-void ItemBox_State_Falling(void) { P6_EDGE(13); }
-void ItemBox_State_Idle(void) { P6_EDGE(14); }
+void ItemBox_State_Broken(void)
+{
+    if (p6_ovl_itembox_state_broken_raw) {
+        ((void (*)(void))p6_ovl_itembox_state_broken_raw)();
+        return;
+    }
+    P6_EDGE(12);
+}
+void ItemBox_State_Falling(void)
+{
+    if (p6_ovl_itembox_state_falling_raw) {
+        ((void (*)(void))p6_ovl_itembox_state_falling_raw)();
+        return;
+    }
+    P6_EDGE(13);
+}
+void ItemBox_State_Idle(void)
+{
+    if (p6_ovl_itembox_state_idle_raw) {
+        ((void (*)(void))p6_ovl_itembox_state_idle_raw)();
+        return;
+    }
+    P6_EDGE(14);
+}
+// Batch 3 (ItemBox port): the LRZ conveyor-physics helper (LRZConvItem.h:48
+// `Vector2 LRZConvItem_HandleLRZConvPhys(void *e)`). Every ItemBox call site is
+// runtime-dead while LRZConvItem is NULL (State_Broken/Break guard on the global;
+// State_Conveyor is only entered when it is non-NULL, ItemBox.c:168-171). Inert
+// zero-offset stub; the histogram flags any unexpected crossing.
+Vector2 LRZConvItem_HandleLRZConvPhys(void *e)
+{
+    Vector2 none;
+    none.x = 0;
+    none.y = 0;
+    (void)e;
+    P6_EDGE(68);
+    return none;
+}
 void KleptoMobile_StateArm_Cutscene(void) { P6_EDGE(15); }
 void KleptoMobile_StateArm_Idle(void) { P6_EDGE(16); }
 void KleptoMobile_StateHand_Boss(void) { P6_EDGE(17); }
@@ -391,6 +468,11 @@ void Ring_Draw_Sparkle(void)  { P6_EDGE(60); }
 // see the Platform NULL above). Inert stubs, header signatures void(void).
 void Platform_State_Falling2(void) { P6_EDGE(63); }
 void Platform_State_Hold(void) { P6_EDGE(64); }
+// Batch 3 (ItemBox port): ItemBox_HandlePlatformCollision (ItemBox.c:998) also
+// references Platform_State_Fall. Inert stub until the full Game_Platform.o joins
+// the overlay (Batch 3 step 2) -- the overlay's own definition then wins intra-
+// overlay and this pack stub goes dead (kept only by its -u root, ~8 B).
+void Platform_State_Fall(void) { P6_EDGE(69); }
 // SignPost competition + achievement edges (competition branches are DEAD in
 // Mania mode -- never reached at runtime; the achievement unlock fires on a
 // signpost pass but the API call is a no-op on Saturn).

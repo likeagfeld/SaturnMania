@@ -58,7 +58,12 @@ NAMES = ["_p6_w_cont_frames", "_p6_w_brg_classid", "_p6_w_brg_frames",
          # table (else the last surface(s) bind -1 -> invisible, the #181 class that
          # re-bit when Batch 2's Explosions/Animals consumed extra bind slots).
          "_p6_w_ghzobj_surf_handle", "_p6_w_bind_demand", "_p6_w_bind_count",
-         "_p6_w_bd_found", "_p6_w_bd_handle"]
+         "_p6_w_bd_found", "_p6_w_bd_handle",
+         # Batch 3 (2026-07-09 GHZ gameplay-parity sweep): per-object registration +
+         # range-independent anim-load witnesses (p6_io_main defs, overlay-written).
+         "_p6_w_itembox_classid", "_p6_w_itembox_aniframes",
+         "_p6_w_debris_classid", "_p6_w_invstars_classid",
+         "_p6_w_batbrain_aniframes"]
 
 
 def capture(out):
@@ -136,6 +141,16 @@ def main(argv):
         # in shipping; R16 hard-checks only on a diag build (NOSCAN off, scan present).
         ("R16 live badnik handle BOUND (>=0; -1==diag-only/skipped)", (v["_p6_w_bd_found"], v["_p6_w_bd_handle"]),
             lambda t: t[0] == -1 or (t[0] is not None and t[0] > 0 and t[1] is not None and t[1] >= 0)),
+        # Batch 3 step 1 (2026-07-09): ItemBox (38 authored GHZ1 monitors) + its
+        # CREATE_ENTITY closure Debris + InvincibleStars join the confirmed union.
+        # ItemBox anim = Global/ItemBox.bin from the cart GHZOBJ.PAK (fast path);
+        # Debris/InvincibleStars load no GHZ anim (InvincibleStars' Global/
+        # Invincible.bin is ABSENT from DATA.RSDK -> classid-only row).
+        ("R17 ItemBox registered (classid>0)",      v["_p6_w_itembox_classid"],   lambda x: x and x > 0),
+        ("R18 ItemBox anim LOADED (aniFrames>=0)",  v["_p6_w_itembox_aniframes"], lambda x: x is not None and 0 <= x < 0x400),
+        ("R19 Debris registered (classid>0)",       v["_p6_w_debris_classid"],    lambda x: x and x > 0),
+        ("R20 InvincibleStars registered (classid>0)", v["_p6_w_invstars_classid"], lambda x: x and x > 0),
+        ("R21 Batbrain anim LOADED (aniFrames>=0)", v["_p6_w_batbrain_aniframes"], lambda x: x is not None and 0 <= x < 0x400),
     ]
     # Surface the global anim-load diagnostics so a RED above is pinpointed inline
     # (no forensic dig). lastfail = (sprfile_id<<16)|frameCount (bit15: animCount fail);

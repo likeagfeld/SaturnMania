@@ -825,6 +825,18 @@ __attribute__((used)) int32 p6_w_b2_registered = 0; // mass-port Batch 2 (badnik
 // Per-object classID latch (diagnostic for the b2 count): index order =
 // {BadnikHelpers,Explosion,Animals,Newtron,Crabmeat,BuzzBomber,Chopper,Motobug,Batbrain}.
 __attribute__((used)) int32 p6_w_b2_cids[9] = {0,0,0,0,0,0,0,0,0};
+// Batch 3 (2026-07-09, GHZ gameplay-parity sweep): per-object registration +
+// range-independent anim-load witnesses (written by p6_ghz_ovl_witness, ld -R).
+// classid>0 == registered + StageLoad ran; aniframes in [0,0x400) == the object's
+// LoadSpriteAnimation succeeded ((int16)-cast so 0xFFFF reads -1 == FAILED).
+__attribute__((used)) int32 p6_w_itembox_classid    = 0;  // ItemBox->classID
+__attribute__((used)) int32 p6_w_itembox_aniframes  = -2; // ItemBox->aniFrames (Global/ItemBox.bin)
+__attribute__((used)) int32 p6_w_debris_classid     = 0;  // Debris->classID (StageLoad loads nothing)
+__attribute__((used)) int32 p6_w_invstars_classid   = 0;  // InvincibleStars->classID
+__attribute__((used)) int32 p6_w_platform_classid   = 0;  // Platform->classID (Batch 3 step 2)
+__attribute__((used)) int32 p6_w_platform_aniframes = -2; // Platform->aniFrames (GHZ/Platform.bin)
+__attribute__((used)) int32 p6_w_invblock_classid   = 0;  // InvisibleBlock->classID (Batch 3 step 3)
+__attribute__((used)) int32 p6_w_batbrain_aniframes = -2; // Batbrain->aniFrames (GHZ/Batbrain.bin, cart pack)
 __attribute__((used)) int32 p6_w_explosion_aniframes = -2; // Explosion->aniFrames (-1=load failed, >=0=armed; chain TU)
 __attribute__((used)) int32 p6_w_animals_aniframes   = -2; // Animals->aniFrames   (-1=load failed, >=0=armed; chain TU)
 __attribute__((used)) int32 p6_w_newtron_aniframes   = -2; // Newtron->aniFrames   (per-badnik load-status latch)
@@ -834,6 +846,14 @@ __attribute__((used)) int32 p6_w_newtron_aniframes   = -2; // Newtron->aniFrames
 // (set after the overlay entry runs). 0 until then (stub no-ops, as before).
 extern "C" void *p6_ovl_loserings_raw = 0;
 extern "C" void *p6_ovl_losehyperrings_raw = 0;
+// Batch 3: pack->overlay forward pointers for the ItemBox/Debris ports (see
+// p6_closure_edge.c -- SaveGame assigns ItemBox_State_Broken, Shield assigns
+// Debris_State_Move; both bind to pack stubs that forward through these).
+extern "C" void *p6_ovl_itembox_break_raw = 0;
+extern "C" void *p6_ovl_itembox_state_broken_raw = 0;
+extern "C" void *p6_ovl_itembox_state_falling_raw = 0;
+extern "C" void *p6_ovl_itembox_state_idle_raw = 0;
+extern "C" void *p6_ovl_debris_state_move_raw = 0;
 // BATCH 2 (badnik break chain): pack->overlay forward pointers for the badnik-break
 // path. Game_Player.o's Player_CheckBadnikBreak calls BadnikHelpers_BadnikBreak-
 // Unseeded -> binds to the p6_closure_edge STUB, which forwards here to the overlay's
@@ -1573,6 +1593,13 @@ extern void *Ring;
 // foreach_active(Animals,...) -- a PACK ref reached on act-clear -- sees the live
 // classID rather than NULL-derefing. Same Ring-seam pattern as `Ring` above.).
 extern void *Animals;
+// Batch 3: the pack's ItemBox/Debris object pointers (NULL placeholders in
+// p6_closure_edge; rewired to the overlay's registered objects in p6_ghz_frame /
+// p6_frontend_frame -- pack readers: Zone.c:380 foreach_active(ItemBox) at ATL
+// store, SaveGame.c:133/295 broken-box recall, Ice.c:235 (PGZ-dead),
+// Shield.c:194+ CREATE_ENTITY(Debris,...). Same Ring-seam pattern as above.).
+extern void *ItemBox;
+extern void *Debris;
 // F.5: the verbatim SignPost TU defines `ObjectSignPost *SignPost;` (C linkage).
 // Its first field is the registered classID (uint16 @ off 0); entities of that
 // class carry the same classID -> a drift-proof entity locator.
@@ -3327,6 +3354,13 @@ static void p6_ghz_frame(void)
     if (s_ovl.animals_slot && *(void **)s_ovl.animals_slot) {
         Animals = *(void **)s_ovl.animals_slot;
     }
+    // Batch 3: same seam for ItemBox/Debris -- pack readers (Zone_StoreEntities'
+    // foreach_active(ItemBox), SaveGame's broken-box recall, Shield's Debris
+    // spark CREATE_ENTITY) see the overlay's live objects instead of NULL.
+    if (s_ovl.itembox_slot && *(void **)s_ovl.itembox_slot)
+        ItemBox = *(void **)s_ovl.itembox_slot;
+    if (s_ovl.debris_slot && *(void **)s_ovl.debris_slot)
+        Debris = *(void **)s_ovl.debris_slot;
 
     // Per-section attribution: FRT (sub-78ms precision) + VBLANK (overflow-immune
     // for >78ms sections -- the real discriminator). vb0/vb1 = true-60Hz tally.
@@ -4651,6 +4685,12 @@ extern "C" void p6_scene_run(void)
         p6_ovl_losehyperrings_raw = s_ovl.losehyperrings_fn;
         p6_ovl_badnikbreak_unseeded_raw = s_ovl.badnikbreak_unseeded_fn; // Batch 2 badnik-break forward
         p6_ovl_badnikbreak_raw          = s_ovl.badnikbreak_fn;
+        // Batch 3: ItemBox/Debris pack->overlay call forwards (p6_closure_edge stubs).
+        p6_ovl_itembox_break_raw         = s_ovl.itembox_break_fn;
+        p6_ovl_itembox_state_broken_raw  = s_ovl.itembox_state_broken_fn;
+        p6_ovl_itembox_state_falling_raw = s_ovl.itembox_state_falling_fn;
+        p6_ovl_itembox_state_idle_raw    = s_ovl.itembox_state_idle_fn;
+        p6_ovl_debris_state_move_raw     = s_ovl.debris_state_move_fn;
     }
 
     globalObjectIDs[0] = TYPE_DEFAULTOBJECT; // RetroEngine.cpp:1230
@@ -6999,6 +7039,11 @@ static void p6_frontend_frame(void)
         Ring = *(void **)s_ovl.staticvars_slot;
     if (s_ovl.animals_slot && *(void **)s_ovl.animals_slot)
         Animals = *(void **)s_ovl.animals_slot;
+    // Batch 3: ItemBox/Debris seams (harmless on front-end scenes -- no entities).
+    if (s_ovl.itembox_slot && *(void **)s_ovl.itembox_slot)
+        ItemBox = *(void **)s_ovl.itembox_slot;
+    if (s_ovl.debris_slot && *(void **)s_ovl.debris_slot)
+        Debris = *(void **)s_ovl.debris_slot;
 
     // CP4 SCOPE: LogoSetup auto-advances (RSDK.LoadScene -> ++listPos -> Title)
     // once all 4 logos have displayed. The Title scene's objects are NOT ported

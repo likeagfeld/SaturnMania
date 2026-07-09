@@ -78,11 +78,24 @@ ORD = {
     # tracking call. APICallback is backlog plumbing (NULL'd, not a registered object),
     # so a hit here is non-gameplay (a no-op on Saturn), NOT a shadowed ported object.
     65: ("APICallback_TrackEnemyDefeat", "APICallback"),
+    # Batch 2 forward (badnik-break): fires only if the overlay forward is UNWIRED.
+    66: ("BadnikHelpers_BadnikBreakUnseeded/Break", "BadnikHelpers"),
+    # Batch 3 (2026-07-09 GHZ gameplay-parity sweep): 68 = the LRZ conveyor helper
+    # (LRZ-only; GHZ1-dead by NULL-guard). 69 = the Platform_State_Fall pack stub
+    # (referenced by the overlay ItemBox; dead once Game_Platform.o joins the
+    # overlay -- the intra-overlay definition wins over the -R import).
+    68: ("LRZConvItem_HandleLRZConvPhys", "LRZConvItem"),
+    69: ("Platform_State_Fall", "Platform"),
 }
 
 # Objects whose REAL code is ported (overlay or pack). A stub hit for ANY of these
 # is a HARD failure -- the ported object's behavior is silently shadowed.
-PORTED = {"Ring", "Spring", "Bridge", "PlaneSwitch", "SpikeLog", "Spikes"}
+# Batch 3: + ItemBox/Debris. Their pack stubs FORWARD to the overlay impls and
+# return BEFORE P6_EDGE when wired -- so a nonzero hit means the forward is
+# unwired == the ported behavior is shadowed (the #258 class). InvincibleStars
+# has no stubs (fully overlay-internal).
+PORTED = {"Ring", "Spring", "Bridge", "PlaneSwitch", "SpikeLog", "Spikes",
+          "ItemBox", "Debris"}
 
 
 def main(argv):

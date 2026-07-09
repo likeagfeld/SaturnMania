@@ -80,6 +80,11 @@ OBJ_BINS = [
                             # cold (only with a shield) -> cart-resident like the rest.
     "GHZ/Bridge.bin",
     "GHZ/SpikeLog.bin",
+    # Batch 3 (2026-07-09, GHZ gameplay-parity sweep): ItemBox monitors (69 frames,
+    # sheet Global/Items.gif == ITEMS.SHT, staged at the GHZ landing). Cart-resident
+    # per the #254 lever -- the historical STG slow-path overflow for this exact .bin
+    # is on record (p6_ovl_ghz.c ForceUnstick note: pool 153600, at_fail 152376).
+    "Global/ItemBox.bin",
 ]
 OBJ_OUT = os.path.join(ROOT, "cd", "GHZOBJ.PAK")
 OBJ_CAP = 0x40000  # 256 KB cart window (0x22760000..0x227A0000 has 320 KB clear)

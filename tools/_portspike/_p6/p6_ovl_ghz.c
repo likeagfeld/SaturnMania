@@ -324,6 +324,13 @@ static void p6_aizplat_Serialize(void)
     RSDK_EDITABLE_VAR(Platform, VAR_INT32, angle);
 }
 #endif
+/* Batch 3 (2026-07-09, GHZ gameplay-parity sweep): witnesses for the newly ported
+ * objects (DEFINED in p6_io_main.cpp; written here via ld -R). classid>0 ==
+ * registered+resolved; aniframes in [0,0x400) == LoadSpriteAnimation succeeded. */
+extern int32 p6_w_itembox_classid, p6_w_itembox_aniframes;
+extern int32 p6_w_debris_classid, p6_w_invstars_classid;
+extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
+extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
 extern int32 p6_w_explosion_aniframes; /* Explosion->aniFrames (load-status latch) */
 extern int32 p6_w_animals_aniframes;   /* Animals->aniFrames */
@@ -451,6 +458,36 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntitySpikes), (unsigned)sizeof(ObjectSpikes),
                               Spikes_Update, Spikes_LateUpdate, Spikes_StaticUpdate,
                               Spikes_Draw, Spikes_Create, Spikes_StageLoad, Spikes_Serialize);
+    /* BATCH 3 step 1 (2026-07-09, GHZ gameplay parity): ItemBox (the monitors --
+     * 38 authored GHZ1 entities, Scene1.bin parse: types 0 Ring/1-4 shields/
+     * 5 invincible/6 sneakers/7 1UP/10 Eggman/11 hyper-ring) + its CREATE_ENTITY
+     * closure Debris (ItemBox_Break spawns 6 shards, ItemBox.c:831) and
+     * InvincibleStars (ITEMBOX_INVINCIBLE GivePowerup derefs
+     * InvincibleStars->classID UNGUARDED, ItemBox.c:511-512 -- 3 authored
+     * invincibility monitors at slots 14/300/593 make this a live crash without
+     * the port). All three are VERBATIM decomp TUs (Global/ItemBox.c, Global/
+     * Debris.c, Global/InvincibleStars.c) compiled into this overlay. Entity
+     * sizes 240/140/272 <= 344 narrow scene stride (entity_sizes_103.json).
+     * ItemBox anim = Global/ItemBox.bin (cart GHZOBJ.PAK, sheet Global/Items.gif
+     * == ITEMS.SHT staged at the GHZ landing); Debris_StageLoad loads nothing;
+     * InvincibleStars' Global/Invincible.bin is ABSENT from DATA.RSDK (verified
+     * against extracted/ + the _unnamed hash set) -> LoadSpriteAnimation returns
+     * -1 gracefully, identical to the PC build against this datapack.
+     * ItemBox/Debris are GLOBAL GameConfig objects -> classIDs resolve in every
+     * scene; entities exist only where authored (GHZ). */
+    api->register_object_full((void **)&ItemBox, "ItemBox",
+                              (unsigned)sizeof(EntityItemBox), (unsigned)sizeof(ObjectItemBox),
+                              ItemBox_Update, ItemBox_LateUpdate, ItemBox_StaticUpdate,
+                              ItemBox_Draw, ItemBox_Create, ItemBox_StageLoad, ItemBox_Serialize);
+    api->register_object_full((void **)&Debris, "Debris",
+                              (unsigned)sizeof(EntityDebris), (unsigned)sizeof(ObjectDebris),
+                              Debris_Update, Debris_LateUpdate, Debris_StaticUpdate,
+                              Debris_Draw, Debris_Create, Debris_StageLoad, Debris_Serialize);
+    api->register_object_full((void **)&InvincibleStars, "InvincibleStars",
+                              (unsigned)sizeof(EntityInvincibleStars), (unsigned)sizeof(ObjectInvincibleStars),
+                              InvincibleStars_Update, InvincibleStars_LateUpdate, InvincibleStars_StaticUpdate,
+                              InvincibleStars_Draw, InvincibleStars_Create, InvincibleStars_StageLoad,
+                              InvincibleStars_Serialize);
 #if defined(P6_FRONTEND_LOGOS)
     /* CP4: the Logos splash objects. Register order is irrelevant (the engine
      * LoadGameConfig matches by md5(name)); these resolve their classIDs the same
@@ -797,6 +834,15 @@ int p6_overlay_entry(p6_ovl_api *api)
      * pack's NULL Animals placeholder (ActClear.c:903 foreach_active) gets rewired
      * to the live object each frame (p6_io_main, the #235 Ring-seam). */
     api->animals_slot = (void *)&Animals;
+    /* BATCH 3: pack-global rewire slots + call forwards for ItemBox/Debris (pack
+     * readers Zone/SaveGame/Ice/Shield -- see p6_ovl_api.h + p6_closure_edge.c). */
+    api->itembox_slot             = (void *)&ItemBox;
+    api->debris_slot              = (void *)&Debris;
+    api->itembox_break_fn         = (void *)ItemBox_Break;
+    api->itembox_state_broken_fn  = (void *)ItemBox_State_Broken;
+    api->itembox_state_falling_fn = (void *)ItemBox_State_Falling;
+    api->itembox_state_idle_fn    = (void *)ItemBox_State_Idle;
+    api->debris_state_move_fn     = (void *)Debris_State_Move;
     /* I3b 2b: the pack drives the materialize one-shot at load (s_ovl.materialize_fn). */
     api->materialize_fn = p6_ovl_materialize;
     /* I3b 2b: the pack drives the COMPACTION one-shot at load (s_ovl.compact_fn) -- relocates all
@@ -1573,6 +1619,15 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         for (int i = 0; i < 9; ++i) if (p6_w_b2_cids[i] > 0) ++b2;
         p6_w_b2_registered = b2;
     }
+    /* Batch 3 registration + anim-load latches (range-independent; -1 ==
+     * LoadSpriteAnimation failed; the R17+ gate rows in qa_p6_ghz_regression). */
+    if (ItemBox && ItemBox->classID) p6_w_itembox_classid = (int32)ItemBox->classID;
+    if (ItemBox) p6_w_itembox_aniframes = (int32)(int16)ItemBox->aniFrames;
+    if (Debris && Debris->classID) p6_w_debris_classid = (int32)Debris->classID;
+    if (InvincibleStars && InvincibleStars->classID)
+        p6_w_invstars_classid = (int32)InvincibleStars->classID;
+    if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
+
     /* Batch 2 anim-load latches (range-independent; -1 == LoadSpriteAnimation failed,
      * which on STG-overflow is the R13 sentinel for these slow-path anims). */
     if (Explosion) p6_w_explosion_aniframes = (int32)(int16)Explosion->aniFrames;

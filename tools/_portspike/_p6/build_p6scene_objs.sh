@@ -389,6 +389,12 @@ done
 #  - the 6 badniks join the OVERLAY link (build_shipping.sh [3b]); they reference
 #    Player_CheckBadnikBreak/ProjectileHurt (pack) via -R game.elf, kept by the
 #    -u roots added below.
+# BATCH 3 (GHZ gameplay-parity sweep, 2026-07-09): ItemBox (38 authored GHZ1
+# monitors) + its CREATE_ENTITY closure Debris (break shards, ItemBox.c:831; also
+# Shield.c:194 sparks) + InvincibleStars (ITEMBOX_INVINCIBLE deref, ItemBox.c:511;
+# 3 authored invincibility monitors). All three OVERLAY-resident (build_shipping.sh
+# [3b]); pack readers reach them via the itembox/debris rewire seams + the
+# p6_closure_edge forwards. Platform/InvisibleBlock follow in their own steps.
 for w4 in Common_BGSwitch:Game_BGSwitch \
           GHZ_GHZSetup:Game_GHZSetup \
           GHZ_Bridge:Game_Bridge \
@@ -408,7 +414,10 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           GHZ_BuzzBomber:Game_BuzzBomber \
           GHZ_Chopper:Game_Chopper \
           GHZ_Motobug:Game_Motobug \
-          GHZ_Batbrain:Game_Batbrain; do
+          GHZ_Batbrain:Game_Batbrain \
+          Global_ItemBox:Game_ItemBox \
+          Global_Debris:Game_Debris \
+          Global_InvincibleStars:Game_InvincibleStars; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
@@ -699,6 +708,17 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _DrawHelpers_DrawHitboxOutline \
     -u _Platform -u _Press -u _Crate -u _Ice -u _BigSqueeze -u _SpikeCorridor \
     -u _Platform_State_Falling2 -u _Platform_State_Hold \
+    -u _Platform_State_Fall \
+    -u _LRZConvItem -u _LRZConvItem_HandleLRZConvPhys \
+    -u _Player_GiveRings -u _Player_GiveLife -u _Player_ApplyShield \
+    -u _Player_UpdatePhysicsState -u _Player_TryTransform \
+    -u _Zone_StartTeleportAction -u _Music_PlayJingle -u _Music_JingleFadeOut \
+    -u _CompetitionSession_GetSession -u _Shield -u _ImageTrail \
+    -u _p6_ovl_itembox_break_raw -u _p6_ovl_itembox_state_broken_raw \
+    -u _p6_ovl_itembox_state_falling_raw -u _p6_ovl_itembox_state_idle_raw \
+    -u _p6_ovl_debris_state_move_raw \
+    -u _p6_w_itembox_classid -u _p6_w_itembox_aniframes \
+    -u _p6_w_debris_classid -u _p6_w_invstars_classid -u _p6_w_batbrain_aniframes \
     ${P6_GHZCUT_BOOT:+-u _FXTrail} \
     ${P6_GHZCUT_BOOT:+-u _p6_w_hbh_slot -u _p6_w_hbh_aniframes -u _p6_w_hbh_landed -u _p6_heavy_palblock} \
     ${P6_GHZCUT_BOOT:+-u _p6_w_hbh_count -u _p6_w_hbh_vis -u _p6_w_hbh_posy -u _p6_w_hbh_posx -u _p6_w_hbh_handle -u _p6_w_hbh_camy -u _p6_w_hbh_animid} \

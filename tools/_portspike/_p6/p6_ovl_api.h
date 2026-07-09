@@ -64,13 +64,27 @@
 // p6_io_main.cpp) so it -- and every region above it -- stays put when OVL leaves
 // WRAM-H (zero #249 risk; the freed 0x2A00 WRAM-H window is left as _end slack).
 #define P6_OVL_BASE   0x02690000u   /* CACHED cart alias (exec); cache-through twin 0x22690000 (load) */
-#define P6_OVL_WINDOW 0x20000u      /* 128 KB cart window. Mass-port Batch 2 adds the 6 badnik TUs
-                                     * (Newtron/Crabmeat/BuzzBomber/Chopper/Motobug/Batbrain, ~40 KB of
-                                     * code) on top of Ring+Spring+Bridge+PlaneSwitch+SpikeLog+Spikes+
-                                     * Batch1; ends 0x226B0000, still below the GFS windows (0x22700000)
-                                     * -- the gap above the GHZ1 layout high-water 0x22686900 is ~485 KB,
-                                     * so this is amply clear. (Chain TUs BadnikHelpers/Explosion/Animals
-                                     * live in the PACK, not here -- Game_Player.o references them.) */
+#define P6_OVL_WINDOW 0x28000u      /* 160 KB cart window. Mass-port Batch 2 added the 6 badnik TUs
+                                     * (~40 KB) on top of Ring+Spring+Bridge+PlaneSwitch+SpikeLog+Spikes+
+                                     * Batch1. Batch 3 (2026-07-09, GHZ gameplay-parity sweep: ItemBox+
+                                     * Debris+InvincibleStars+Platform+InvisibleBlock) grew the window
+                                     * 0x20000->0x28000: the CHAIN-flavor overlay measured 130,120 B used
+                                     * of 131,072 (ovl_ring.map .text 0x1fa70 + .bss 0x1d8) = 952 B free,
+                                     * and the batch adds ~31 KB of code. The +32 KB extension
+                                     * [0x226B0000,0x226B8000) is the VERIFIED-FREE cart gap cited at
+                                     * p6_io_main.cpp:1978-1980 ("32 KB past the overlay window end
+                                     * 0x226B0000") -- the next occupant above is p6_pool_remap at
+                                     * 0x226B8000 (p6_io_main.cpp:1986), then p6_scan_sorted 0x226B9000,
+                                     * p6_scan_always 0x226BB000, p6_pool_remap_inv 0x226BC000, the
+                                     * stream free-list block 0x226BD000..0x226BE304, the shadow buffer
+                                     * 0x226C0000 and the GFS windows at 0x22700000. The ONLY consumers
+                                     * of P6_OVL_WINDOW are the loader's read cap + window-tail zero +
+                                     * cache purge (p6_io_main.cpp:3949-3958) -- GLOBALS decoupled to
+                                     * fixed WRAM-H 0x060CA000 long ago (W17/#258), so nothing else
+                                     * moves. Window end 0x226B8000 == p6_pool_remap home: DO NOT grow
+                                     * further without relocating the pool-remap block. (Chain TUs
+                                     * BadnikHelpers/Explosion/Animals live in the PACK, not here --
+                                     * Game_Player.o references them.) */
 
 typedef struct {
     /* ---- filled by MAIN before calling the entry ------------------------ */
@@ -123,6 +137,30 @@ typedef struct {
                                       /* foreach_active(Animals,...) -> the pack's    */
                                       /* NULL Animals is rewired to *animals_slot     */
                                       /* every frame (the #235 Ring-seam pattern).   */
+    /* Batch 3 (2026-07-09, GHZ gameplay parity): pack-global rewire slots + pack->    */
+    /* overlay call forwards for the ItemBox/Debris ports (both objects are OVERLAY-   */
+    /* resident; the PACK keeps NULL placeholders in p6_closure_edge.c that pack TUs    */
+    /* read: Zone.c:380 foreach_active(ItemBox), SaveGame.c:133/295 (broken-box ATL     */
+    /* recall), Ice.c:235/593 (PGZ-dead), Shield.c:194+ CREATE_ENTITY(Debris,           */
+    /* Debris_State_Move) -- the lightning-shield spark FX). Same #235 Ring-seam +      */
+    /* #258b forward patterns as animals_slot / loserings_fn above.                     */
+    void *itembox_slot;               /* &ItemBox  (overlay's registered object**)   */
+    void *debris_slot;                /* &Debris   (overlay's registered object**)   */
+    void *itembox_break_fn;           /* real ItemBox_Break        (Ice.c:600 caller) */
+    void *itembox_state_broken_fn;    /* real ItemBox_State_Broken (SaveGame.c:138    */
+                                      /* assigns it -> StateMachine_Run hits the pack */
+                                      /* stub -> forward keeps the broken box inert-  */
+                                      /* correct. NOTE: SaveGame.c:300's POINTER      */
+                                      /* compare (state == ItemBox_State_Broken) still */
+                                      /* sees the PACK stub address vs the overlay-set */
+                                      /* address -> broken boxes are NOT re-recorded   */
+                                      /* on ATL store; documented divergence.)         */
+    void *itembox_state_falling_fn;   /* real ItemBox_State_Falling (uniform forward) */
+    void *itembox_state_idle_fn;      /* real ItemBox_State_Idle    (uniform forward) */
+    void *debris_state_move_fn;       /* real Debris_State_Move -- Shield.c (PACK)     */
+                                      /* assigns the pack stub as the spark's state;   */
+                                      /* the forward runs the real mover so the spark  */
+                                      /* animates + self-destroys (no entity leak).    */
     /* I3b 2b: the camera-local-pool MATERIALIZE (overlay-resident per the residency  */
     /* rule -- new engine code goes to cart). Reconstructs scene entity `logical_slot`*/
     /* from the cart DORM store into `dest_slot`; the pack drives it one-shot at load  */
