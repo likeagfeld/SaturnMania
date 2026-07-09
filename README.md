@@ -1,3 +1,7 @@
+
+
+
+
 # SaturnMania
 
 Sonic Mania running on a Sega Saturn.
@@ -18,7 +22,7 @@ But it's the real game.
 
 Here's what it looks like as of July 9, 2026:
 
-https://github.com/likeagfeld/SaturnMania/raw/master/docs/media/progress-2026-07-09.mp4
+[https://github.com/likeagfeld/SaturnMania/raw/master/docs/media/progress-2026-07-09.mp4](https://github.com/user-attachments/assets/7cdd7a2b-5ae7-4e15-8772-45c907853fb7)
 
 ## Why this wasn't supposed to be possible
 
