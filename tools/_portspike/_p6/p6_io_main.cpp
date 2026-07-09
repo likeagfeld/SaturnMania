@@ -1602,6 +1602,7 @@ __attribute__((used)) int32 p6_w_perf_cyc_obj     = 0;  // last-frame ProcessObj
 __attribute__((used)) int32 p6_w_perf_cyc_draw    = 0;  // last-frame ProcessObjectDrawLists FRC ticks
 __attribute__((used)) int32 p6_w_perf_cyc_present = 0;  // last-frame present FRC ticks
 __attribute__((used)) int32 p6_w_perf_cyc_total   = 0;  // sum of the four sections
+__attribute__((used)) int32 p6_w_perf_cyc_fgbg    = 0;  // #322: frontend FG-present+BG-stream span (was untimed)
 __attribute__((used)) int32 p6_w_perf_cks         = -1; // FRT divider select (0=/8,1=/32,2=/128)
 #if defined(P6_TICK_CATCHUP)
 // #315 game-speed fix witnesses: logic ticks vs presented frames. Gate
@@ -7673,6 +7674,11 @@ static void p6_frontend_frame(void)
     fe_t1 = p6_perf_frt_get(); fe_v1 = p6_perf_vbl_count;
     p6_w_perf_cyc_present = P6_FRT_DELTA(fe_t0, fe_t1);
     p6_w_perf_vbl_present = (int32)(fe_v1 - fe_v0);
+    // #322 perf attribution: the span from here to the DrawLists prologue (the AIZ/GHZCut
+    // FG-Low present + the 3 AIZ BG streams + menu layout force) was UNTIMED -- at the
+    // measured 8 fps fly-in, obj+draw+present+input account for only ~40 ms of the ~125 ms
+    // frame. Bracket it so qa can attribute the gap (witness p6_w_perf_cyc_fgbg).
+    unsigned short fe_fgbg_t0 = fe_t1;
 
 #if defined(P6_GHZCUT_SEAMTEST)
     // Task #309 gate-2: the LIVE-SEAM RED-gate injection. The full AIZ intro is ~4 fps
@@ -7873,6 +7879,7 @@ static void p6_frontend_frame(void)
         currentScreen->position.y = p6_w_menu_force_scry;
     }
 #endif
+    p6_w_perf_cyc_fgbg = P6_FRT_DELTA(fe_fgbg_t0, p6_perf_frt_get()); // #322 (see above)
     fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
 #ifndef P6_TITLE_NODRAW
 #if defined(P6_DIRECT_VDP1)
