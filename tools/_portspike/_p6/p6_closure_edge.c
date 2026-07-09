@@ -102,6 +102,9 @@ ObjectPlatform *Platform         = NULL; // Batch 3 step 2: the REAL Platform is
 ObjectHangPoint *HangPoint             = NULL;
 ObjectPlatformNode *PlatformNode       = NULL;
 ObjectPlatformControl *PlatformControl = NULL;
+ObjectTurboTurtle *TurboTurtle         = NULL; // Platform.c:84 child-fan check, NULL-guarded
+                                               // (TurboTurtle && ...); AIZ/TMZ fan badnik,
+                                               // unregistered here -> NULL == unregistered.
 ObjectPress *Press               = NULL; // Spikes_Update NULL-guards it (PGZ press hazard, GHZ1-dead)
 ObjectCrate *Crate               = NULL;
 ObjectIce *Ice                   = NULL;
