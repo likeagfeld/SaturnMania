@@ -96,8 +96,6 @@ Green Hill exists. A few object types are stuck behind real memory walls
 (CollapsingPlatform's entity is bigger than any pool slot; BreakableWall and
 Water don't fit the code overlay until I re-carve it). Assorted visual polish.
 
-This is going to take years. It moves one verified fix at a time.
-
 ## Credit where it's due
 
 - [RSDKModding's Sonic Mania decompilation](https://github.com/RSDKModding/Sonic-Mania-Decompilation)
@@ -107,9 +105,6 @@ This is going to take years. It moves one verified fix at a time.
   is the engine, and big pieces of it compile straight into this build.
 - [Jo Engine](https://jo-engine.org/) by Johannes Fetz is the Saturn hardware
   layer and the toolchain everything builds with.
-
-If you're an author of any of the above and want the credit worded differently,
-open an issue.
 
 ## Legal
 
