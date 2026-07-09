@@ -18,7 +18,7 @@ But it's the real game.
 
 Here's what it looks like as of July 9, 2026:
 
-[![SaturnMania progress, July 9 2026](https://img.youtube.com/vi/kRON9JIRuhc/maxresdefault.jpg)](https://www.youtube.com/watch?v=kRON9JIRuhc)
+https://github.com/likeagfeld/SaturnMania/raw/master/docs/media/progress-2026-07-09.mp4
 
 ## Why this wasn't supposed to be possible
 
