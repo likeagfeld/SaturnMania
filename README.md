@@ -16,6 +16,10 @@ into Green Hill, the "GREEN HILL ZONE ACT 1" card, and then you're playing Green
 Hill Act 1 with real Mania physics. It's slow in places and plenty is missing.
 But it's the real game.
 
+Here's what it looks like as of July 9, 2026:
+
+[![SaturnMania progress, July 9 2026](https://img.youtube.com/vi/kRON9JIRuhc/maxresdefault.jpg)](https://www.youtube.com/watch?v=kRON9JIRuhc)
+
 ## Why this wasn't supposed to be possible
 
 The conventional wisdom was that RSDKv5 can't run on a Saturn. It's C++, it
