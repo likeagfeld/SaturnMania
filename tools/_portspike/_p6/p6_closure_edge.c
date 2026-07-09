@@ -88,7 +88,20 @@ ObjectChaosEmerald *ChaosEmerald = NULL;
 // platform-class objects -- reached ONLY from the Track/Big/Path ring states; GHZ1
 // has none (all rings are RING_MOVE_FIXED -> Ring_State_Normal -> Ring_Collect only),
 // so the path is GHZ1-DEAD. NULL == unregistered (matches Spikes/etc. below).
-ObjectPlatform *Platform         = NULL;
+ObjectPlatform *Platform         = NULL; // Batch 3 step 2: the REAL Platform is now
+                                         // OVERLAY-resident (Game_Platform.o defines its
+                                         // own global; Ring/ItemBox/AIZSetup bind to it
+                                         // intra-overlay). This PACK placeholder stays
+                                         // NULL -- NO pack TU reads it (grep-verified).
+// Batch 3 step 2 (full Platform port): Platform.c's remaining cross-class globals.
+// HangPoint (Platform.c:363, childCount loop -- NULL-guarded); PlatformNode/
+// PlatformControl (:1064/:1180-1190 -- reached ONLY from State_Path/State_PathReact,
+// i.e. PLATFORM_PATH/PATH_REACT types; GHZ1 authors types 0/1/2/4/6 only, and the
+// 2 level-wide PlatformNode circuits in the whole game are elsewhere (camera-local
+// pool audit)). NULL == unregistered.
+ObjectHangPoint *HangPoint             = NULL;
+ObjectPlatformNode *PlatformNode       = NULL;
+ObjectPlatformControl *PlatformControl = NULL;
 ObjectPress *Press               = NULL; // Spikes_Update NULL-guards it (PGZ press hazard, GHZ1-dead)
 ObjectCrate *Crate               = NULL;
 ObjectIce *Ice                   = NULL;

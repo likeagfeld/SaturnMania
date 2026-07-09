@@ -63,7 +63,8 @@ NAMES = ["_p6_w_cont_frames", "_p6_w_brg_classid", "_p6_w_brg_frames",
          # range-independent anim-load witnesses (p6_io_main defs, overlay-written).
          "_p6_w_itembox_classid", "_p6_w_itembox_aniframes",
          "_p6_w_debris_classid", "_p6_w_invstars_classid",
-         "_p6_w_batbrain_aniframes"]
+         "_p6_w_batbrain_aniframes",
+         "_p6_w_platform_classid", "_p6_w_platform_aniframes"]
 
 
 def capture(out):
@@ -151,6 +152,10 @@ def main(argv):
         ("R19 Debris registered (classid>0)",       v["_p6_w_debris_classid"],    lambda x: x and x > 0),
         ("R20 InvincibleStars registered (classid>0)", v["_p6_w_invstars_classid"], lambda x: x and x > 0),
         ("R21 Batbrain anim LOADED (aniFrames>=0)", v["_p6_w_batbrain_aniframes"], lambda x: x is not None and 0 <= x < 0x400),
+        # Batch 3 step 2: full Platform (59 authored GHZ1 entities; GHZ/Platform.bin
+        # rides the cart GHZOBJ.PAK -- aniFrames=-1 would DrawRect gray placeholders).
+        ("R22 Platform registered (classid>0)",     v["_p6_w_platform_classid"],   lambda x: x and x > 0),
+        ("R23 Platform anim LOADED (aniFrames>=0)", v["_p6_w_platform_aniframes"], lambda x: x is not None and 0 <= x < 0x400),
     ]
     # Surface the global anim-load diagnostics so a RED above is pinpointed inline
     # (no forensic dig). lastfail = (sprfile_id<<16)|frameCount (bit15: animCount fail);

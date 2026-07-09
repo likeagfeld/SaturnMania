@@ -288,41 +288,13 @@ extern int32 p6_w_aiz_tornado_classid, p6_w_aiz_path_classid, p6_w_aiz_cam_x;
  * engine RSDK.GetEntity to witness the cutscene-driven camera x (C2 corroboration). */
 #define P6_AIZ_SLOT_CAMERA1 (60)
 #define P6_AIZ_SLOT_CUTSCENESEQ (15)
-/* PAN-TARGET FIX (#322): minimal Platform class stubs (see the registration below for
- * the full rationale + citations). `Platform` global = the PACK placeholder
- * (p6_closure_edge.c:91), resolved via the ld -R import; RegisterObject fills it. */
-static void p6_aizplat_Update(void) {}
-static void p6_aizplat_Create(void *data)
-{
-    /* decomp Platform_Create subset (Platform.c:150-160): the position/anchor init.
-     * No SetSpriteAnimation (:161 -- no Platform sheet staged yet) and no motion
-     * state dispatch (:167+ -- dig-site platforms are PLATFORM_FIXED/static). */
-    RSDK_THIS(Platform);
-    (void)data;
-    self->amplitude.x >>= 10;                                  /* :154 */
-    self->amplitude.y >>= 10;                                  /* :155 */
-    self->active    = ACTIVE_BOUNDS;                           /* :156 */
-    self->visible   = false;               /* stub: no Draw port -> never in draw lists */
-    if (Zone)
-        self->drawGroup = Zone->objectDrawGroup[0] + 1;        /* :158 */
-    self->centerPos = self->position;                          /* :159 */
-    self->drawPos   = self->position;                          /* :160 */
-    self->state     = StateMachine_None;
-}
-static void p6_aizplat_Serialize(void)
-{
-    /* VERBATIM decomp Platform_Serialize (Platform.c:2759-2770) -- keeps the authored
-     * entity-var parse byte-exact (frameID drives AIZSetup_SetupObjects:281). */
-    RSDK_EDITABLE_VAR(Platform, VAR_ENUM, type);
-    RSDK_EDITABLE_VAR(Platform, VAR_VECTOR2, amplitude);
-    RSDK_EDITABLE_VAR(Platform, VAR_ENUM, speed);
-    RSDK_EDITABLE_VAR(Platform, VAR_BOOL, hasTension);
-    RSDK_EDITABLE_VAR(Platform, VAR_INT8, frameID);
-    RSDK_EDITABLE_VAR(Platform, VAR_UINT8, collision);
-    RSDK_EDITABLE_VAR(Platform, VAR_VECTOR2, tileOrigin);
-    RSDK_EDITABLE_VAR(Platform, VAR_ENUM, childCount);
-    RSDK_EDITABLE_VAR(Platform, VAR_INT32, angle);
-}
+/* PAN-TARGET (#322) NOTE: the minimal p6_aizplat_* Platform stubs are RETIRED --
+ * Batch 3 step 2 registers the FULL verbatim Common/Platform.c (Game_Platform.o,
+ * overlay-resident, ALL flavors) below. AIZSetup's foreach_all(Platform) +
+ * the beat-4 lerp target (AIZSetup.c:279-286/457) bind intra-overlay to the same
+ * Serialize var list, so qa_aiz_pan_target.py's decomp-exact 11056 target holds;
+ * the dig-site platforms additionally gain their real Create/Draw (PLATFORM_FIXED
+ * + AIZ/Platform.bin via AIZOBJ.PAK -> the wooden platforms render, PC parity). */
 #endif
 /* Batch 3 (2026-07-09, GHZ gameplay-parity sweep): witnesses for the newly ported
  * objects (DEFINED in p6_io_main.cpp; written here via ld -R). classid>0 ==
@@ -488,6 +460,27 @@ int p6_overlay_entry(p6_ovl_api *api)
                               InvincibleStars_Update, InvincibleStars_LateUpdate, InvincibleStars_StaticUpdate,
                               InvincibleStars_Draw, InvincibleStars_Create, InvincibleStars_StageLoad,
                               InvincibleStars_Serialize);
+    /* BATCH 3 step 2 (2026-07-09): the FULL verbatim Common/Platform.c
+     * (Game_Platform.o, overlay-resident, registered in ALL flavors -- replaces
+     * the #322 minimal P6_AIZ_TEST-only stub). GHZ1 authors 59 Platform entities
+     * (Scene1.bin parse: types 0 FIXED / 1 FALL / 2 LINEAR / 4 SWING / 6 PUSH;
+     * childCount chains at slots 793/815). Entity 204 B <= 344 narrow stride.
+     * Closure (line-cited): Player_CheckCollision{Box,Platform,Touch} /
+     * _GetHitbox / _Hurt / _State_{Air,Static,KnuxWallClimb,KnuxLedgePullUp} /
+     * _Action_Jump + Zone_RotateOnPivot (pack, -u rooted); Ice (pack global,
+     * :80 NULL-guarded); ItemBox/Spikes (:39/:59, intra-overlay, registered);
+     * HangPoint (:363 NULL-guarded) + PlatformNode/PlatformControl (:1064/:1180,
+     * State_Path* only -- no GHZ1 PATH/TRACK types) = pack NULL placeholders.
+     * Every Player_CheckMightyUnspin / State_MightyHammerDrop ref is
+     * MANIA_USE_PLUS-gated (verified per-site) -> drops at PLUS=0.
+     * Anims: GHZ/Platform.bin (cart GHZOBJ.PAK), AIZ/Platform.bin (AIZOBJ.PAK),
+     * GHZCutscene/Platform.bin (HBHOBJ.PAK); other folders' loads miss their
+     * pack -> aniFrames=-1 -> DrawRect placeholder ONLY where entities exist
+     * (none authored outside GHZ/AIZ/GHZCutscene in the ported scene set). */
+    api->register_object_full((void **)&Platform, "Platform",
+                              (unsigned)sizeof(EntityPlatform), (unsigned)sizeof(ObjectPlatform),
+                              Platform_Update, Platform_LateUpdate, Platform_StaticUpdate,
+                              Platform_Draw, Platform_Create, Platform_StageLoad, Platform_Serialize);
 #if defined(P6_FRONTEND_LOGOS)
     /* CP4: the Logos splash objects. Register order is irrelevant (the engine
      * LoadGameConfig matches by md5(name)); these resolve their classIDs the same
@@ -691,30 +684,6 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityFXRuby), (unsigned)sizeof(ObjectFXRuby),
                               FXRuby_Update, FXRuby_LateUpdate, FXRuby_StaticUpdate,
                               FXRuby_Draw, FXRuby_Create, FXRuby_StageLoad, FXRuby_Serialize);
-    /* PAN-TARGET FIX (#322, 2026-07-09, gate qa_aiz_pan_target.py): register a MINIMAL
-     * Platform class so the scene loader creates REAL Platform entities (authored slots
-     * 14..24, all x=11120 -- Scene1.bin parse) instead of classID-0 blanks. MEASURED RED:
-     * with Platform unregistered, AIZSetup_SetupObjects' foreach_all(Platform)
-     * (AIZSetup.c:279-286) iterates NOTHING -> AIZSetup->platform stays NULL -> the beat-4
-     * EnterClaw lerp target (AIZSetup.c:457, platform->position.x - 0x400000) reads
-     * garbage = 8128 px -> the camera pans 2843 px LEFT into empty jungle, away from the
-     * claw/EggRobos/Ruby (which all exist + render at x 11042..11200, screenshot-proven).
-     * Decomp-correct target = 11120 - 64 = 11056. The stub is registration-only:
-     *  - Serialize = the VERBATIM decomp var list (Platform.c:2759-2770) so the authored
-     *    entity vars (incl. frameID, which SetupObjects filters on) parse EXACTLY;
-     *  - Create = the decomp :150-160 position/anchor subset (amplitude >>=10, active,
-     *    centerPos/drawPos = position) with visible=false -- the Platform DRAW/motion/
-     *    collision port (sheet + states) is the full Common/Platform.c port, a later
-     *    increment; the dig-site platforms are PLATFORM_FIXED so they are static anyway;
-     *  - Update/LateUpdate/StaticUpdate/Draw/StageLoad = no-ops (entity stays inert).
-     * sizeof(EntityPlatform) ~ 232 <= 344 narrow scene slot. GHZ1's authored Platforms
-     * become inert named entities (same behavior as today's blanks: no draw, no motion,
-     * zero hitbox); plain-GHZ builds leave P6_AIZ_TEST unset -> byte-identical. */
-    api->register_object_full((void **)&Platform, "Platform",
-                              (unsigned)sizeof(EntityPlatform), (unsigned)sizeof(ObjectPlatform),
-                              p6_aizplat_Update, p6_aizplat_Update, p6_aizplat_Update,
-                              p6_aizplat_Update, p6_aizplat_Create, p6_aizplat_Update,
-                              p6_aizplat_Serialize);
 #endif
 #if defined(P6_GHZCUT_BOOT)
     /* Task #309: the AIZ->GHZCutscene destination scene's 2 NEW driver objects. Register
@@ -1627,6 +1596,9 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     if (InvincibleStars && InvincibleStars->classID)
         p6_w_invstars_classid = (int32)InvincibleStars->classID;
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
+    /* Batch 3 step 2: full Platform (R22/R23). */
+    if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;
+    if (Platform) p6_w_platform_aniframes = (int32)(int16)Platform->aniFrames;
 
     /* Batch 2 anim-load latches (range-independent; -1 == LoadSpriteAnimation failed,
      * which on STG-overflow is the R13 sentinel for these slow-path anims). */

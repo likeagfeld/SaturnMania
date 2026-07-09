@@ -85,6 +85,11 @@ OBJ_BINS = [
     # per the #254 lever -- the historical STG slow-path overflow for this exact .bin
     # is on record (p6_ovl_ghz.c ForceUnstick note: pool 153600, at_fail 152376).
     "Global/ItemBox.bin",
+    # Batch 3 step 2: the full Platform port (59 authored GHZ1 entities). 304 B,
+    # 7 frames, sheet GHZ/Objects.gif == GHZOBJ.SHT (staged). Cart-resident so
+    # Platform_StageLoad's LoadSpriteAnimation("GHZ/Platform.bin") takes the fast
+    # pack path (aniFrames=-1 would DrawRect gray 64x32 placeholders, Platform.c:144).
+    "GHZ/Platform.bin",
 ]
 OBJ_OUT = os.path.join(ROOT, "cd", "GHZOBJ.PAK")
 OBJ_CAP = 0x40000  # 256 KB cart window (0x22760000..0x227A0000 has 320 KB clear)
@@ -107,6 +112,13 @@ AIZ_OBJ_BINS = [
     # progress (cutscene_state 0->3 measured) so these objects reach their spawn beats.
     "AIZ/Claw.bin",
     "AIZ/AIZEggRobo.bin",
+    # Batch 3 step 2 (full Platform port): the AIZ dig-site platforms (Scene1.bin
+    # slots 14..24, x=11120) now register the FULL Platform, whose StageLoad loads
+    # "AIZ/Platform.bin" on the AIZ folder (Platform.c:457). 102 B, 2 frames, sheet
+    # AIZ/Objects.gif == AIZOBJ.SHT (staged slot 8). Without this the front-end slow
+    # path fails -> aniFrames=-1 -> Platform_Draw's DrawRect gray 64x32 placeholders
+    # appear at the dig site; with it the wooden platforms render (PC parity).
+    "AIZ/Platform.bin",
 ]
 AIZ_OBJ_OUT = os.path.join(ROOT, "cd", "AIZOBJ.PAK")
 

@@ -304,8 +304,23 @@ def main():
     saved_sprites = bap.SPRITES
     bap.SPRITES = heavy_tmpdir
     pak_path = os.path.join(ROOT, "cd", "HBHOBJ.PAK")
+    # Batch 3 step 2 (full Platform port, 2026-07-09): the GHZCutscene scene authors
+    # ONE Platform entity; the front-end slow windowed-GFS anim path FAILS by
+    # construction (the R3.2 finding), so GHZCutscene/Platform.bin must ride the pack
+    # resident during that leg == HBHOBJ.PAK (loaded into P6_HW_OBJANIMPAK at the
+    # cutscene seam). Copied VERBATIM into the temp dir (85 B, 1 frame, sheet
+    # GHZCutscene/Objects.gif -- staged at the seam per dccf167); no rewrite needed.
+    ghzcut_plat = "GHZCutscene/Platform.bin"
+    _src = os.path.join(SP, ghzcut_plat.replace("/", os.sep))
+    _dst = os.path.join(heavy_tmpdir, ghzcut_plat.replace("/", os.sep))
+    if not os.path.isdir(os.path.dirname(_dst)):
+        os.makedirs(os.path.dirname(_dst))
+    with open(_src, "rb") as _f:
+        _pb = _f.read()
+    with open(_dst, "wb") as _g:
+        _g.write(_pb)
     try:
-        build_pack(heavy_bins + player_bins, pak_path, 0x20000)
+        build_pack(heavy_bins + player_bins + [ghzcut_plat], pak_path, 0x20000)
     finally:
         bap.SPRITES = saved_sprites
 

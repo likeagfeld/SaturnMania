@@ -417,7 +417,8 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           GHZ_Batbrain:Game_Batbrain \
           Global_ItemBox:Game_ItemBox \
           Global_Debris:Game_Debris \
-          Global_InvincibleStars:Game_InvincibleStars; do
+          Global_InvincibleStars:Game_InvincibleStars \
+          Common_Platform:Game_Platform; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
@@ -719,6 +720,9 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_ovl_debris_state_move_raw \
     -u _p6_w_itembox_classid -u _p6_w_itembox_aniframes \
     -u _p6_w_debris_classid -u _p6_w_invstars_classid -u _p6_w_batbrain_aniframes \
+    -u _HangPoint -u _PlatformNode -u _PlatformControl \
+    -u _Player_State_Static -u _Player_Action_Jump -u _Player_State_KnuxWallClimb \
+    -u _p6_w_platform_classid -u _p6_w_platform_aniframes \
     ${P6_GHZCUT_BOOT:+-u _FXTrail} \
     ${P6_GHZCUT_BOOT:+-u _p6_w_hbh_slot -u _p6_w_hbh_aniframes -u _p6_w_hbh_landed -u _p6_heavy_palblock} \
     ${P6_GHZCUT_BOOT:+-u _p6_w_hbh_count -u _p6_w_hbh_vis -u _p6_w_hbh_posy -u _p6_w_hbh_posx -u _p6_w_hbh_handle -u _p6_w_hbh_camy -u _p6_w_hbh_animid} \
