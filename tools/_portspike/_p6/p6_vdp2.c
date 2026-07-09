@@ -1680,12 +1680,29 @@ void p6_vdp2_aiz_bg_stream(int which, unsigned int map_addr,
     static int s_cty[4] = {0x7fffffff, 0x7fffffff, 0x7fffffff, 0x7fffffff};
     volatile Uint16 *map = (volatile Uint16 *)map_addr;
     int ctx = scroll_x >> 4, cty = scroll_y >> 4;
-    int x, y;
+    int x, y, x_lo, x_hi;
     if (ctx == s_ctx[which] && cty == s_cty[which])
         return;                          /* no tile crossing -> plane already right */
+    /* #323 fly-in perf (MEASURED _pan_trace3/6: this FG/BG span cost 17-21 ms per
+     * rendered frame during the fly-in -- at ~8 fps the camera crosses a 16px tile
+     * boundary EVERY frame, so all 17x23=391 PNDs x 3 layers rewrote each frame).
+     * DELTA PATH: same row band + a small horizontal step -> write ONLY the newly
+     * exposed columns at the leading edge (17 x |dx| cells). Every already-written
+     * column in the 64-tile plane window still holds the PND for the SAME world
+     * column x (the window spans 23 < 64 tiles, so no wrap collision until a column
+     * is re-exposed -- and then it IS in the leading-edge range). Full rewrite stays
+     * the fallback (first call, vertical motion, big jump, layer switch). */
+    if (s_ctx[which] != 0x7fffffff && cty == s_cty[which]) {
+        int dx = ctx - s_ctx[which];
+        if (dx > 0 && dx <= 8)      { x_lo = s_ctx[which] + 22; x_hi = ctx + 21; }
+        else if (dx < 0 && dx >= -8){ x_lo = ctx - 1;           x_hi = s_ctx[which] - 2; }
+        else                        { x_lo = ctx - 1;           x_hi = ctx + 21; }
+    } else {
+        x_lo = ctx - 1; x_hi = ctx + 21;
+    }
     for (y = cty - 1; y <= cty + 15; ++y) {
         int cyw = y & 63;
-        for (x = ctx - 1; x <= ctx + 21; ++x) {
+        for (x = x_lo; x <= x_hi; ++x) {
             int cxw = x & 63;
             int sx = wrap ? (((x % l3_xs) + l3_xs) % l3_xs) : x;
             unsigned short e = (y >= 0 && y < l3_ys && sx >= 0 && sx < l3_xs
