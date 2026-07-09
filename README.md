@@ -106,6 +106,25 @@ the audio is a host post-step. Drop the `P6_*` flags for the plain
 continuous-Green-Hill build. `pwsh tools/_play.ps1` launches whatever you built in
 RetroArch at real speed with sound.
 
+## Finding your way around
+
+The repo has accumulated a lot of history. Only a handful of places actually
+matter:
+
+| Where | What it is |
+|---|---|
+| `rsdkv5-src/` | the RSDKv5 engine (decompiled), compiled for SH-2 |
+| `tools/_decomp_raw/` + `src/mania/` | the decompiled Sonic Mania game objects |
+| `platform/Saturn/`, `src/rsdk/` | the Saturn backend that replaces the engine's platform layer |
+| `tools/_portspike/_p6/` | the Saturn integration: build scripts, the frame loop glue, VDP1/VDP2 code |
+| `jo-engine/` | Jo Engine, the Saturn HAL (treated as a vendored dependency) |
+| `tools/qa_*.py`, `tools/qa_*.ps1` | the test harness (live memory reads against the emulator) |
+| `docs/` | plans, per-feature checklists, research notes |
+
+Everything else — the `_`-prefixed scratch files, old phase scripts, savestates —
+is working residue from development sessions. If a file starts with `_`, it's
+disposable.
+
 ## Sources of truth
 
 - **Game logic** — the Sonic Mania decompilation (RSDKModding on GitHub), cached
@@ -133,13 +152,6 @@ about that:
   parts of it compile straight into this build.
 - **[Jo Engine](https://jo-engine.org/) by Johannes Fetz** — the Saturn hardware
   layer and the bundled `sh-none-elf` GCC toolchain this whole thing builds with.
-- **Sega's SGL library and the Saturn technical manuals** (the ST-series developer
-  documents) — every VDP1/VDP2/SCSP register decision here traces back to them.
-- **Mednafen** and the **Beetle Saturn** libretro core — the Saturn emulation this
-  project tests against, and whose accuracy made the memory-level QA harness
-  possible.
-- And obviously **Christian Whitehead, Headcannon, PagodaWest Games, and Sega**,
-  who made Sonic Mania in the first place.
 
 If you're an author of any of the above and want something credited differently,
 open an issue.
