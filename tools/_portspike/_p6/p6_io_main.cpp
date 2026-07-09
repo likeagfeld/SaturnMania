@@ -6592,23 +6592,56 @@ static void p6_aiz_reload(void)
     // the same path the Tornado uses. All inside p6_aiz_reload (#if P6_AIZ_TEST reach) -> plain
     // GHZ byte-identical. Gate: tools/qa_aiz_sonic_wing.py (p6_w_aiz_sonicsht_slot>=0 in AIZ).
     {
-        static const char *sonicSht[3]  = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT" };
-        static const char *sonicPath[3] = { "Players/Sonic1.gif", "Players/Sonic2.gif",
-                                            "Players/Sonic3.gif" };
-        for (int32 si = 0; si < 3; ++si) {
+        // #323 (this session): + TAILS1.SHT. The sidekick Tails is IN the AIZ intro
+        // (P2FlyIn beat 3, AIZSetup.c:425-450: Tails flies in + lands beside Sonic) but
+        // the chain staged Players/Tails1.gif ONLY at the far-later GHZ-handoff STEP-3 ->
+        // Tails' surface had saturnSheetSlot==-1 for the whole AIZ leg -> invisible
+        // (user-reported; the IDENTICAL class as the #321 Sonic-on-wing fix above).
+        static const char *sonicSht[4]  = { "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
+                                            "TAILS1.SHT" };
+        static const char *sonicPath[4] = { "Players/Sonic1.gif", "Players/Sonic2.gif",
+                                            "Players/Sonic3.gif", "Players/Tails1.gif" };
+        int32 aizPlrSlot[4] = { -1, -1, -1, -1 };
+        for (int32 si = 0; si < 4; ++si) {
             RETRO_HASH_MD5(sph);
             GEN_HASH_MD5(sonicPath[si], sph);
-            if (SaturnSheet_FindSlot((const uint32 *)sph) >= 0)
-                continue;
+            int32 have = SaturnSheet_FindSlot((const uint32 *)sph);
+            if (have >= 0) { aizPlrSlot[si] = have; continue; }
             int ssn = rsdk_storage_load_to_lwram(sonicSht[si], (void *)P6_LW_ENTITYLIST, 0x10000);
             if (ssn > 0) {
                 int32 sslot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)ssn);
-                if (sslot >= 0)
+                if (sslot >= 0) {
                     SaturnSheet_SetHash(sslot, (const uint32 *)sph);
+                    aizPlrSlot[si] = sslot;
+                }
             }
         }
         { RETRO_HASH_MD5(sph1); GEN_HASH_MD5("Players/Sonic1.gif", sph1);
           p6_w_aiz_sonicsht_slot = SaturnSheet_FindSlot((const uint32 *)sph1); }
+        // #323 AIZ-leg draw/inflate hog (the #317 recipe at the Menu->AIZ seam):
+        // MEASURED (chain, _pan_trace3): the AIZ leg runs 3.5-8 fps; DrawLists is
+        // 18-25 ms on the fly-in and 36-46 ms at the claw beats with 680-1340
+        // SaturnSheet_FetchRect inflates per beat window -- every AIZOBJ/Sonic/Tails
+        // sprite re-inflates its banded rect per draw (and the VDP1 churn blinks
+        // sprites: the Tornado pilot flickers, floating fragments -- user-reported
+        // "artifacts", the title-vdp1-slot-thrash class). Promote the AIZ leg's hot
+        // sheets to resident (zero-inflate memcpy path). NO ResReset here: the boot
+        // block (p6_scene_run ~:4545) already reclaimed the title RES and promoted
+        // DISPLAY/PLROBJ/HBHOBJ (still needed by the GHZCutscene leg after AIZ) --
+        // the store has ~1.3 MB free. MakeResident is bounds-checked: any sheet that
+        // does not fit simply stays banded (no corruption). Priority order = drawn
+        // every fly-in frame first: AIZOBJ (Tornado+pilot+claw+EggRobos+Ruby),
+        // SONIC1, TAILS1, then SONIC2/SONIC3.
+        {
+            RETRO_HASH_MD5(aph);
+            GEN_HASH_MD5("AIZ/Objects.gif", aph);
+            int32 aizObjSlot = SaturnSheet_FindSlot((const uint32 *)aph);
+            if (aizObjSlot >= 0) SaturnSheet_MakeResident(aizObjSlot);
+            if (aizPlrSlot[0] >= 0) SaturnSheet_MakeResident(aizPlrSlot[0]);
+            if (aizPlrSlot[3] >= 0) SaturnSheet_MakeResident(aizPlrSlot[3]);
+            if (aizPlrSlot[1] >= 0) SaturnSheet_MakeResident(aizPlrSlot[1]);
+            if (aizPlrSlot[2] >= 0) SaturnSheet_MakeResident(aizPlrSlot[2]);
+        }
     }
     p6_scene_load_and_arm();
     p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)

@@ -36,7 +36,10 @@ def _load(mod, fn):
 
 qa_trace = _load("qa_trace", "qa_trace.py")
 CLASS_PLAYER, CLASS_CAMERA = 8, 6
-HOT_STAGES = {"GHZCutscene", "GHZ"}
+# #323: "AIZ-intro" joined the hot set -- the AIZ leg ran 3.5-8 fps with 680-1340
+# inflates per claw-beat window (banded AIZOBJ/SONIC/TAILS re-inflated per draw ->
+# sprite blink/fragments) until the Menu->AIZ seam resident-promote landed.
+HOT_STAGES = {"AIZ-intro", "GHZCutscene", "GHZ"}
 
 
 def classify(folder, players, cams):
