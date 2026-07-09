@@ -1,97 +1,73 @@
 # SaturnMania
 
-Sonic Mania, running on a Sega Saturn.
+Sonic Mania running on a Sega Saturn.
 
-This isn't a remake or a hand-drawn demake. It's the actual RSDKv5 engine and the
-Sonic Mania decompilation, recompiled for the Saturn's SH-2 and reading a retail
-`Data.rsdk` at runtime. The decompiled game objects — `Player`, `Ring`, `TitleCard`,
-the whole set — run unmodified. A Saturn-side layer stands in for the engine's
-platform code and maps its draw/audio/file/input calls onto VDP1 sprites, VDP2
-tilemaps, the SCSP, and the CD block.
+Not a demake, not a fan remake. This is the actual RSDKv5 engine and the actual
+decompiled Sonic Mania game code, compiled for the Saturn's SH-2 processors,
+reading a retail `Data.rsdk` off the disc at runtime. The decompiled objects —
+Player, Ring, TitleCard, the Angel Island cutscene, all of it — run as-is. What I
+wrote is the layer underneath: the code that takes the engine's draw calls, audio
+calls, and file reads and maps them onto VDP1 sprites, VDP2 tile planes, the SCSP,
+and the CD block.
 
-The target is the real game, frame for frame. It's nowhere near finished, but it
-boots, it plays Green Hill Zone, and the entire opening runs end to end: the SEGA
-and RSDK logos, the title screen, the menu, the Tornado biplane intro, the warp
-into Green Hill, and the act card.
+Right now it boots and plays through the whole opening: SEGA and RSDK logos, the
+title screen, the menu, the Tornado biplane intro with Sonic on the wing, the warp
+into Green Hill, the "GREEN HILL ZONE ACT 1" card, and then you're playing Green
+Hill Act 1 with real Mania physics. It's slow in places and plenty is missing.
+But it's the real game.
 
-## The part that was supposed to be impossible
+## Why this wasn't supposed to be possible
 
-For a long time the assumption was that you couldn't put RSDKv5 on a Saturn. It's
-C++, the static entity pools reserve tens of megabytes, and the renderer wants a
-linear framebuffer the Saturn doesn't have. Each of those turned out to be an
-engineering problem, not a wall:
+The conventional wisdom was that RSDKv5 can't run on a Saturn. It's C++, it
+reserves something like 74 MB of static pools, it draws into a linear framebuffer
+the Saturn doesn't have, and the game data is ~180 MB against 2 MB of work RAM.
 
-- **C++ on the Saturn.** The `sh-none-elf` GCC 8.2 toolchain that ships with Jo
-  Engine compiles the decomp to SH-2. The engine object code links next to the C
-  hardware layer.
-- **~74 MB of pools.** Retargeted to Saturn sizes, backed by the 4 MB extended-RAM
-  cart, and streamed. Entities, tile layers, and sprite sheets live in camera-local
-  sliding windows instead of all-resident arrays.
-- **No framebuffer.** `DrawSprite` becomes a rect-keyed VDP1 upload cache. Tile
-  layers become VDP2 scroll planes refreshed in vblank. The title's rotating island
-  is a genuine VDP2 RBG0 mode-7 floor driven by a per-line coefficient table.
-- **~180 MB of assets, 2 MB of RAM.** That's a streaming problem, not a fit
-  problem: windowed GFS reads straight off the on-disc pack.
+None of those held up:
 
-## How it's put together
+- The `sh-none-elf` GCC that ships with Jo Engine compiles the C++ fine. The
+  engine links right next to the C hardware code.
+- The pools got retargeted to Saturn sizes and backed by the 4 MB RAM cart.
+  Entities, tile layers, and sprite sheets live in sliding windows that follow the
+  camera instead of sitting resident.
+- DrawSprite goes through a VDP1 upload cache keyed by sprite rect. Tile layers
+  are VDP2 scroll planes refreshed during vblank. The rotating island on the title
+  screen is an actual VDP2 mode-7 plane with a per-scanline coefficient table,
+  which I'm still a little amazed works.
+- 180 MB of data is a streaming problem, not a fitting problem. The disc is right
+  there.
 
-Three layers, bottom to top:
+## What's in here
 
-- `jo-engine/` + SGL — the Saturn hardware abstraction (VDP1/VDP2, SCSP, CD block,
-  the two SH-2s).
-- `rsdkv5-src/`, `src/rsdk/`, `platform/Saturn/` — the RSDKv5 engine plus the Saturn
-  backend that replaces its platform layer (rendering, audio, file I/O, input).
-- `tools/_decomp_raw/` and `src/mania/` — the verbatim Mania decompilation. These
-  are the game logic, and they're meant to read as a mechanical translation of the
-  decomp rather than something reinvented.
+The layout takes some getting used to, so here's the short version:
 
-`tools/_portspike/_p6/` is where the engine gets packed into the Saturn image, and
-where most of the glue and the QA harness live.
+| Where | What |
+|---|---|
+| `rsdkv5-src/` | the RSDKv5 engine (decompiled), built for SH-2 |
+| `tools/_decomp_raw/`, `src/mania/` | the decompiled Mania game objects |
+| `platform/Saturn/`, `src/rsdk/` | the Saturn backend replacing the engine's platform layer |
+| `tools/_portspike/_p6/` | build scripts, the frame loop, the VDP1/VDP2 code |
+| `jo-engine/` | Jo Engine, vendored |
+| `tools/qa_*.py`, `tools/qa_*.ps1` | the test harness (reads emulator memory live) |
+| `docs/` | plans and notes |
 
-## What works right now
+Anything starting with an underscore is scratch from a working session and can be
+ignored or deleted.
 
-The full-chain build boots hands-free through the whole front end and into gameplay:
-
-- **The opening, start to finish.** The SEGA/RSDK logos, the title screen (the
-  SONIC MANIA logo and the Sonic-in-the-ring animation), the main menu, then the
-  Angel Island intro — Sonic riding the top wing of the Tornado over the ocean,
-  Tails flying it — the warp, and the drop into Green Hill Zone with the
-  "GREEN HILL ZONE — ACT 1" card sliding in.
-- **Green Hill Act 1.** The real decompiled `Player` (Mania physics, slopes,
-  spindash/peelout/drop dash, rolling), camera follow, foreground tile collision,
-  rings, several badniks, the act signpost, death and respawn, CD-DA stage music,
-  and SCSP sound effects.
-
-That is the engine's own code executing on hardware. Every claim above was checked
-against emulator captures (RetroArch's Beetle Saturn core, which is Mednafen's
-Saturn emulation) rather than assumed from the source.
-
-## What doesn't yet
-
-- **Framerate.** The front end currently renders at roughly 8-13 fps, so the
-  animations look like a slide show. It's VDP1 fill-bound — too much sprite
-  overdraw. Moving the static art onto hardware VDP2 layers and offloading work to
-  the second SH-2 is the active work.
-- **Coverage.** Only Green Hill is playable. Other zones, the special and bonus
-  stages, and part of Act 1's object set aren't in yet.
-- **Polish.** Odd color washes, the occasional missing background layer, and a
-  handful of cosmetic gaps. The running lists live in `docs/`.
-
-This is multi-year work, and it advances one measured, gated port at a time.
+A note on the test harness, because it's the part I'd actually recommend stealing:
+almost nothing here gets called "fixed" from a screenshot. The harness boots the
+game headless in an emulator and reads Saturn memory over UDP while it runs —
+entity positions, animation state, frame counters, per-frame profiling counters
+compiled into the build. Bugs get a failing check written first, then the fix,
+then the check goes green. That discipline is most of the reason this project
+still moves.
 
 ## Building it
 
-You need:
-
-1. **Docker.** The toolchain runs inside the image; build it once with
-   `docker build -t joengine-saturn:latest .`
-2. **Your own `Data.rsdk`** from a legitimate copy of Sonic Mania. Nothing
-   copyrighted is in this repo.
-3. **An emulator with a real Saturn BIOS** — Mednafen, or RetroArch with Beetle
-   Saturn — configured for the **4 MB extended-RAM cart**. Without that cart the
-   game stalls before the title screen.
-
-The full-chain build (logos through the intro into Green Hill):
+You need Docker (the toolchain runs in a container — build the image once with
+`docker build -t joengine-saturn:latest .`), your own `Data.rsdk` from a copy of
+Sonic Mania you bought, and an emulator with a real Saturn BIOS. Mednafen or
+RetroArch's Beetle Saturn core both work. **Set the emulator to the 4 MB extended
+RAM cart** or it will hang before the title screen.
 
 ```
 MSYS_NO_PATHCONV=1 docker run --rm -e P6_FRONTEND_CHAIN=1 -e P6_GHZCUT_BOOT=1 \
@@ -101,64 +77,42 @@ python tools/build_cdda.py cd_audio/track02.wav cd_audio/track03.wav \
     --cue-out game.cue --iso game.iso
 ```
 
-The second step muxes the CD-DA music in: the toolchain emits a data-only cue, so
-the audio is a host post-step. Drop the `P6_*` flags for the plain
-continuous-Green-Hill build. `pwsh tools/_play.ps1` launches whatever you built in
-RetroArch at real speed with sound.
+That's the full-chain build — logos through the intro into Green Hill. The second
+command muxes the CD audio tracks in (the toolchain only emits a data track).
+Drop the two `-e` flags for a build that boots straight into Green Hill.
+`pwsh tools/_play.ps1` launches whatever you built in RetroArch at normal speed
+with sound.
 
-## Finding your way around
+## What works and what doesn't
 
-The repo has accumulated a lot of history. Only a handful of places actually
-matter:
+Works: the entire opening sequence end to end, and Green Hill Act 1 with the
+decompiled Player (slopes, spindash, drop dash, rolling — it's Mania's actual
+physics code), rings, monitors, platforms, several badniks, springs, bridges,
+the signpost, dying and respawning, stage music on CD audio, sound effects.
 
-| Where | What it is |
-|---|---|
-| `rsdkv5-src/` | the RSDKv5 engine (decompiled), compiled for SH-2 |
-| `tools/_decomp_raw/` + `src/mania/` | the decompiled Sonic Mania game objects |
-| `platform/Saturn/`, `src/rsdk/` | the Saturn backend that replaces the engine's platform layer |
-| `tools/_portspike/_p6/` | the Saturn integration: build scripts, the frame loop glue, VDP1/VDP2 code |
-| `jo-engine/` | Jo Engine, the Saturn HAL (treated as a vendored dependency) |
-| `tools/qa_*.py`, `tools/qa_*.ps1` | the test harness (live memory reads against the emulator) |
-| `docs/` | plans, per-feature checklists, research notes |
+Doesn't, yet: the frame rate is the big one — the front end runs around 7 to 20
+fps depending on the scene, and making that not true is the current focus. Only
+Green Hill exists. A few object types are stuck behind real memory walls
+(CollapsingPlatform's entity is bigger than any pool slot; BreakableWall and
+Water don't fit the code overlay until I re-carve it). Assorted visual polish.
 
-Everything else — the `_`-prefixed scratch files, old phase scripts, savestates —
-is working residue from development sessions. If a file starts with `_`, it's
-disposable.
+This is going to take years. It moves one verified fix at a time.
 
-## Sources of truth
+## Credit where it's due
 
-- **Game logic** — the Sonic Mania decompilation (RSDKModding on GitHub), cached
-  under `tools/_decomp_raw/`.
-- **Engine behavior** — the RSDKv5 decompilation in `rsdkv5-src/`.
-- **Assets** — your retail `Data.rsdk`, read at runtime.
-- **Hardware** — the Sega Saturn technical documents (the VDP1, VDP2, SCSP, SMPC,
-  and SCU manuals). Every register-level decision traces back to them.
+- [RSDKModding's Sonic Mania decompilation](https://github.com/RSDKModding/Sonic-Mania-Decompilation)
+  is the game logic itself. The rule in this repo is that their code is the source
+  of truth — everything is translated from it, never reinvented.
+- [RSDKModding's RSDKv5 decompilation](https://github.com/RSDKModding/RSDKv5-Decompilation)
+  is the engine, and big pieces of it compile straight into this build.
+- [Jo Engine](https://jo-engine.org/) by Johannes Fetz is the Saturn hardware
+  layer and the toolchain everything builds with.
 
-`CLAUDE.md` is the working manual for anyone touching this repo; `BIBLE.md` holds
-the phase plan.
-
-## Thanks and credits
-
-This project exists because of other people's work, and it's worth being explicit
-about that:
-
-- **[RSDKModding's Sonic Mania decompilation](https://github.com/RSDKModding/Sonic-Mania-Decompilation)**
-  — the game logic itself. Every object this port runs (`Player`, `Ring`,
-  `TitleCard`, the AIZ cutscene, all of it) is their decompilation, translated
-  mechanically, not rewritten. This port's rule is that their code is the source
-  of truth.
-- **[RSDKModding's RSDKv5 decompilation](https://github.com/RSDKModding/RSDKv5-Decompilation)**
-  — the engine. It defines the contract the Saturn backend implements, and large
-  parts of it compile straight into this build.
-- **[Jo Engine](https://jo-engine.org/) by Johannes Fetz** — the Saturn hardware
-  layer and the bundled `sh-none-elf` GCC toolchain this whole thing builds with.
-
-If you're an author of any of the above and want something credited differently,
+If you're an author of any of the above and want the credit worded differently,
 open an issue.
 
 ## Legal
 
-No Sonic Mania content is committed here. Bring your own legally obtained
-`Data.rsdk`. The decompilations are community-authored projects with their own
-licenses; the Saturn port code is original work. This is a non-commercial fan
-technical project, unaffiliated with Sega.
+There is no Sonic Mania content in this repo. You bring your own `Data.rsdk`.
+The decompilations are community projects with their own licenses; the Saturn
+port code is mine. Non-commercial fan project, no affiliation with Sega.
