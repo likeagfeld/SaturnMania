@@ -116,6 +116,12 @@ def collect_rects():
     return by_sheet
 
 
+ALL8 = "--all8" in sys.argv  # stage-1 loader integration: emit every frame
+                             # 8bpp (the P6_FRAMEDIR hook serves mode 0 only
+                             # until the P6_FRAMEDIR_4BPP command plumbing
+                             # lands -- see the feature checklist)
+
+
 def build_one(rel, outname, rects):
     im = Image.open(os.path.join(SPRITES, rel.replace("/", os.sep)))
     W, H = im.size
@@ -140,7 +146,7 @@ def build_one(rel, outname, rects):
         for row in rows:
             cols.update(row)
         nz = sorted(cols - {0})
-        if len(nz) <= 15:
+        if len(nz) <= 15 and not ALL8:
             # ---- 4bpp LUT frame: nibble 0 = transparent index 0 ----
             lut = bytes([0] + nz + [0] * (15 - len(nz)))
             remap = {0: 0}
