@@ -4233,11 +4233,25 @@ extern "C" void p6_scene_run(void)
     //       increment-2 materialize reads this from cart to re-create far entities. Cart
     //       home 0x226C8000 is VERIFIED-FREE (past s_p6_shadow_inrange 0x226C0000+1216 B,
     //       before GFS 0x22700000); cache-through (cart-4mb rule), read raw at materialize.
-#if !defined(P6_FRONTEND_TITLE)
+#if !defined(P6_FRONTEND_TITLE) || defined(P6_FRONTEND_CHAIN)
     // FRONT-END LOAD CUT (this session, MEASURED #228 + load): the GHZ1 DORMANT
     // placement store is GHZ-gameplay-only -- the TITLE scene never materializes far
     // GHZ entities. Skip its GFS file-open + 42,084 B read on the TITLE flavor (one of
     // the 13 GHZ-gameplay chain loads the title never uses). GHZ flavor BYTE-IDENTICAL.
+    //
+    // #327 (signpost campaign r2, 2026-07-10, MEASURED live): the CHAIN flavor
+    // stacks P6_FRONTEND_TITLE (build_shipping.sh:138 exports it from
+    // P6_FRONTEND_CHAIN) so this cut ALSO removed the DORM load from the
+    // boot->GHZ chain -- p6_w_dorm_bytes=-1/dorm_magic=0 live; every Pass-B
+    // p6_ovl_materialize early-returned at the 'P6DM' magic check (cart
+    // 0x226C8000 reads zero; p6_w_mat_slot stayed -1 across stream_mat=1106).
+    // NO dormant scene entity ever rematerialized in chain-GHZ: bridge-1
+    // (1184,904) + every far badnik/ring/spring existed only if compact-time
+    // resident -> the deterministic x~1270 fall-through death loop (gapmiss==
+    // inspan==339, 3 lives). Chain re-enables the load: 42,084 B at boot
+    // (~0.4 s, same pre-pack-mount GFS slot), cart window 0x226C8000 is
+    // chain-SAFE (measured full-arc resident high-water 0x2255B44C, 1.49 MB
+    // below). TITLE/MENU-only flavors keep the cut; plain GHZ byte-identical.
     {
         unsigned char *w = (unsigned char *)0x226C8000u; // cache-through cart, verified-free
         int n = rsdk_storage_load_to_lwram("GHZ1DORM.BIN", (void *)w, 0x10000);
@@ -8019,6 +8033,15 @@ static void p6_frontend_frame(void)
     // p6_scan_index_build encodes slot=e (pool slot), p6_scan_update_near sets
     // p6_scan_near[e], the cull tests p6_scan_near[_L] with _L=e. GHZ-only (folder gate);
     // Title/Menu/AIZ front-end scenes are untouched (their loop1 still iterates every slot).
+    // #327b: per-FRAME load-build-seq edge detector (any folder -- the GHZ block
+    // below consumes it; see its comment). "Changed since the previous ticked
+    // frame" == a scene load (whose :6457 load-path p6_scan_index_build always
+    // runs) completed between frames -> the current sorted index is the load
+    // path's full-pool build and is authoritative.
+    static int32 s_fe_prev_loadseq = -1;
+    const int32 s_fe_loadseq_changed =
+        (s_fe_prev_loadseq >= 0 && p6_scan_loadbuild_seq != s_fe_prev_loadseq);
+    s_fe_prev_loadseq = p6_scan_loadbuild_seq;
     if (currentSceneFolder && !strcmp(currentSceneFolder, "GHZ")) {
         // #325 STALE-INDEX FIX (MEASURED, live _objprof.jsonl 2026-07-09): the one-shot
         // index build ran MID-HANDOFF -- the staged GHZCutscene->GHZ seam flips
@@ -8034,6 +8057,23 @@ static void p6_frontend_frame(void)
         static int32 s_ghz_idx_built    = 0;  // 0=never, 1=first (possibly mid-load) build, 2=settled rebuild
         static int32 s_ghz_idx_tickmark = -1;
         static int32 s_ghz_idx_loadseq  = -1; // p6_scan_loadbuild_seq at build #1 (fix #326)
+        // #327b (signpost campaign r2, MEASURED live _brg_index_probe): the #326 guard
+        // assumed frame build #1 runs MID-HANDOFF (before the load-path build). In the
+        // chain flavor the folder flips only at the BLOCKING GHZ load, so the FIRST
+        // folder=="GHZ" frame post-dates the load-path 968-entry build AND the
+        // near-shrink: build #1 itself censused the SHRUNK pool (t3.6 idx 968->32,
+        // loadbuild_seq unchanged at 6) and latched loadseq==current, so the settled
+        // branch then CONFIRMED the collapse (seq==loadseq) -- every dormant entity
+        // orphaned for the whole first life. Robust rule: s_fe_prev_loadseq is
+        // tracked on EVERY p6_frontend_frame tick (any folder, below); if a scene
+        // load (which always runs the :6457 load-path p6_scan_index_build) completed
+        // since the previous ticked frame, the index in place IS the load path's
+        // full-pool build -> authoritative -> skip build #1 AND the settled rebuild.
+        // The #325 staged-seam case still works: its early folder flip ticks frames
+        // with seq UNCHANGED -> build #1 runs (stale mid-handoff index, cull stays
+        // unarmed) -> the blocking load completes -> seq change detected -> latch 2.
+        if (s_fe_loadseq_changed)
+            s_ghz_idx_built = 2;
         if (s_ghz_idx_built == 0) {
             p6_scan_index_build();
             s_ghz_idx_built    = 1;
@@ -8785,6 +8825,19 @@ extern "C" __attribute__((used)) void p6_eng_create(int32 slot)
 // (s_ovl.stream_fn) which materializes newly-near + dormants newly-far. NULL-safe pre-overlay-load.
 extern "C" void p6_stream_tick(void)
 {
+#if defined(P6_FRONTEND_LOGOS)
+    // #327 companion (chain flavors only; plain GHZ byte-identical): the stream
+    // manager is GHZ-gameplay machinery, but after a game-over the Menu reload
+    // leaves the compact state armed and this tick kept churning in the Menu
+    // (MEASURED: stream_mat 86 -> 1106, starve 0 -> 392 across GHZ->Menu). With
+    // the DORM store now chain-loaded (#327), a non-GHZ materialize would
+    // resolve GLOBAL classes (ItemBox/Debris) and inject GHZ1 records into the
+    // front-end pool. Folder-gate the dispatch: the stream runs only while the
+    // GHZ gameplay scene is live (GHZ1/GHZ2 share folder "GHZ").
+    if (RSDK::currentSceneFolder[0] != 'G' || RSDK::currentSceneFolder[1] != 'H'
+        || RSDK::currentSceneFolder[2] != 'Z' || RSDK::currentSceneFolder[3] != 0)
+        return;
+#endif
 #if defined(P6_STREAM_PERF)
     /* PERF #2 measurement (diag-only): bracket the per-frame stream scan to isolate its cost from the
        cyc_obj (ProcessObjects) total -- same coherent-16-bit-FRC idiom (p6_perf_frt_get + P6_FRT_DELTA)

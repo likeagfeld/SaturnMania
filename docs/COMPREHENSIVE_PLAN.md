@@ -7904,3 +7904,44 @@ Run 1 (RED baseline, commit c0df26d+2):
 - C5: chain-cumulative sfx_skips=1 (one GameConfig global SFX dropped by the
   32KB DATASET_SFX pool guard, Audio.cpp:407-427), anim_allocfail=17,
   snd_plays=1. GHZ-delta attribution added to the gate.
+
+Round 2 (2026-07-10, commits 53f9943..HEAD): first-life registration +
+bridge-1 fall-through ROOT CAUSE (all live-memory measured):
+- "First-life badnik/Bridge classes not registered" was a MID-LOAD READ
+  ARTIFACT of the gate: currentSceneFolder flips to "GHZ" at LoadSceneFolder
+  start, ~40s before ticking resumes; the p6_w_b2_cids/p6_w_brg_classid
+  witnesses only tick with the engine loop. _classreg_probe.py (fresh boot)
+  shows Bridge=38 + all badniks registered at the first ticked GHZ frame.
+  Gate now waits for cont_frames to advance before latching classIDs.
+- #327 ROOT CAUSE of the x~1270 death loop: GHZ1DORM.BIN IS NEVER LOADED in
+  the chain flavor. P6_FRONTEND_CHAIN exports P6_FRONTEND_TITLE
+  (build_shipping.sh:138) and the boot DORM load was gated
+  `#if !defined(P6_FRONTEND_TITLE)` (p6_io_main.cpp step 1.5b). Measured:
+  p6_w_dorm_bytes=-1, dorm_magic=0; every Pass-B p6_ovl_materialize
+  early-returned at the 'P6DM' magic check (p6_w_mat_slot stayed -1 across
+  stream_mat=1106). NO dormant scene entity ever rematerialized in chain-GHZ;
+  only compact-time residents existed. Bridge-1 (1184,904) therefore never
+  lived (gapmiss==inspan==339) -> the deterministic fall-through. FIX: chain
+  re-enables the boot DORM load (42,084 B, pre-pack-mount GFS slot; cart
+  0x226C8000 measured chain-safe -- full-arc resident high-water 0x2255B44C).
+  Companion: p6_stream_tick folder-gated to "GHZ" in FE flavors (post-game-
+  over Menu kept streaming: mat 86->1106, starve 0->392; with DORM loaded the
+  Menu would materialize GLOBAL classes (ItemBox/Debris) from GHZ1 records).
+- #327b: the #326 settled-latch fix did not hold on the first life -- the
+  chain folder flips only at the BLOCKING load, so frame build #1 ran
+  POST-shrink (t3.6: idx 968->32, seq unchanged) and the settled branch
+  confirmed it (seq==loadseq). Fix: per-frame loadbuild-seq edge detector in
+  p6_frontend_frame; a seq change since the previous ticked frame marks the
+  load-path index authoritative (s_ghz_idx_built=2, no frame rebuilds).
+  Respawn reloads already held 968 (measured lives 2-3).
+- Near-bit machinery VERIFIED CORRECT once the index holds: _near_diff_probe
+  at cam 1167/1270/1191 shows all 66 authored in-window slots bitted except
+  unported classes (Water/BreakableWall/TimeAttackGate) -- classID 0, never
+  indexed, correct. (An earlier brg1nearbit=0 read was a 1-byte READ_CORE_RAM
+  pair-swap artifact -- single-byte reads return the buddy byte; block-reads
+  only.)
+- C5 attribution: skipped SFX hash 0x5FFA6BC9 = Special/Event.wav (djb2 over
+  extracted/Data/SoundFX; GetSfx'd by ActClear per decomp ActClear.c:446).
+  _sfx_hashes.json extended. Pool-sizing remains the tracked P6.8 item.
+- Gate C1 "0 legs": the 4s entry + 6s death/respawn settle windows consumed
+  the whole ~4.5s lives. Now 2.0/2.5s.
