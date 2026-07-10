@@ -7827,3 +7827,53 @@ Levers landed this session (all FE-gated, plain GHZ pack/overlay byte-identical)
 Gate: tools/qa_objcost_gate.py (fixed keys: `perf_cyc_obj`) — RED on the 17:35
 iso (G1 15<20, G2 11.8<20, G3 9.5<12). GREEN required post-build; A/B cull
 poke via g_p6_fe_cull_override (WRITE_CORE_RAM is reply-less — watcher fixed).
+
+## Task #325 stage-1 — fgbg slave offload at chain GHZ (2026-07-10, session 4)
+
+Measured baseline (live settled chain-GHZ, HEAD 2becc6e): fps 15.0 = frame
+period EXACTLY 4 vblanks (slSynch whole-vblank quantization); full_frt ~37k
+FRT (~44 ms master compute); cyc_obj ~28.6k (4 catch-up ticks x ~8.5 ms),
+cyc_fgbg ~4k (~4.8 ms = FG present compute+config + GHZ sky bg_frame),
+cyc_draw ~4.3-7k. Cascade: any master cut that tips the frame into 3 vblanks
+also drops catch-up 4->3 ticks (-8.5 ms obj) -> stable 20 fps tier.
+
+Chosen lever (user-approved, memory ghz-dual-sh2-locked60-plan): move the FG
+present COMPUTE (p6_present_compute -- cart PND page build + SaturnLayout
+window walk + CRAM bank0) onto the SLAVE via the EXISTING proven
+p6_present_kick/p6_present_join_config mechanism (p6_vdp2.c:2249-2262, plain
+GHZ p6_ghz_frame:3597/3612, adc396b-proven coherent). Entity scan-split is
+REJECTED (its parity audit is void: Platform is now registered).
+
+Doc/sample citations: ST-202-R1 via DualCPU_Guide.txt §5.0-8.2 (FRT dispatch,
+cache-through/purge, no bus snoop) + dual-cpu-reference.md:142-148 (VDP
+registers master-only) + SLVSAMP.C:765-779 (fork-join frame loop) +
+ST-058-R2 (VDP2 register/CRAM contract; field gotcha #12 SGL buffer
+authority).
+
+Design (all inside the P6_AIZ_TEST/P6_GHZCUT_BOOT front-end frame -- plain
+GHZ pack byte-identical; new A/B knob P6_FE_SLAVE_PRESENT default-ON in the
+chain cascade of build_shipping.sh, threaded -D like P6_DIRECT_VDP1):
+1. p6_frontend_frame fgbg section, folder=="GHZ" only: replace the
+   synchronous p6_vdp2_present_ghz_camera with p6_present_kick (same args)
+   at the present call site; the slave's ~4.8 ms compute overlaps the
+   master's sky bg_frame + DrawLists walk + direct-VDP1 emit.
+2. Skip the AIZ FG probe (SaturnLayout_GetTile x4) on kicked frames -- the
+   slave owns SaturnLayout slots 0/1 in that window (same ownership contract
+   as p6_ghz_frame's kick; ST-202 no-snoop).
+3. Join AFTER p6_dl_end (post DrawLists+titlecard emit):
+   p6_present_join_config (slCashPurge + master-only NBG1 config) -- with
+   p6_vdp2_bg_owns_disp latched at settled GHZ, config emits NO
+   slScrAutoDisp (p6_vdp2.c:2158-2171) so the 4-plane sky arm is not
+   clobbered.
+4. MANDATORY palette re-assert after the join: the slave compute rewrites
+   CRAM[0..255] (p6_vdp2.c:2117-2123) which CONTAINS the GHZ sky banks
+   CRAM[64..127] (P6_GHCBG_PAL_BASE=4, :1426; per-frame re-assert :1500-1505
+   currently runs AFTER the present -- the offload inverts that order). New
+   master-side p6_vdp2_ghzcut_bg_pal_reassert() called post-join restores
+   the frame-end CRAM state byte-identically to the sync order.
+5. AIZ/GHZCutscene/Menu/Title legs stay synchronous (unchanged risk).
+
+Gate: tools/qa_cascade_gate.py (live, folder==GHZ liveness-checked, median
+fps over 30 s, floor 20.0 = 3-vblank tier). RED required on HEAD build
+BEFORE the fix; GREEN + full-chain per-leg non-regression sweep
+(_chain_fps_probe) required after. _end must stay < 0x060C8000.

@@ -6009,6 +6009,10 @@ extern "C" void p6_vdp2_ghzcut_bg_upload(const unsigned short *chr_cart, int chr
                                          const unsigned short *pal_cart, int pal_words,
                                          const unsigned short *map_cart, int map_words);
 extern "C" void p6_vdp2_ghzcut_bg_frame(int sx);
+// #325 stage-1: master-side sky CRAM[64..127] re-assert, called after the slave
+// FG-present join (the slave's CRAM bank0 write runs AFTER bg_frame's re-assert
+// under the offload -- this restores the proven sync frame-end CRAM order).
+extern "C" void p6_vdp2_ghzcut_bg_pal_reassert(void);
 #endif
 #if defined(P6_FRONTEND_MENU)
 // #319 GHZ death->respawn (camera-local pool RELOAD, task #263). On a SAME-FOLDER GHZ
@@ -8117,6 +8121,10 @@ static void p6_frontend_frame(void)
     // measured 8 fps fly-in, obj+draw+present+input account for only ~40 ms of the ~125 ms
     // frame. Bracket it so qa can attribute the gap (witness p6_w_perf_cyc_fgbg).
     unsigned short fe_fgbg_t0 = fe_t1;
+    // #325 stage-1: 1 = this frame forked the FG present compute onto the SLAVE
+    // (folder=="GHZ" only); the join+config runs after ProcessObjectDrawLists.
+    int fe_present_kicked = 0;
+    (void)fe_present_kicked;
 
 #if defined(P6_GHZCUT_SEAMTEST)
     // Task #309 gate-2: the LIVE-SEAM RED-gate injection. The full AIZ intro is ~4 fps
@@ -8192,14 +8200,35 @@ static void p6_frontend_frame(void)
         if (currentSceneFolder
             && (!strcmp(currentSceneFolder, "AIZ")
                 || !strcmp(currentSceneFolder, "GHZCutscene")
-                || !strcmp(currentSceneFolder, "GHZ")))
+                || !strcmp(currentSceneFolder, "GHZ"))) {
+#if defined(P6_FE_SLAVE_PRESENT) && !defined(P6_TITLE_NODRAW)
+            // #325 stage-1 (dual-SH2 fgbg offload, GHZ landing only): fork the FG
+            // present COMPUTE (cart PND page + SaturnLayout window walk + CRAM
+            // bank0) onto the SLAVE via the proven p6_present_kick mechanism
+            // (p6_vdp2.c:2249; plain GHZ p6_ghz_frame:3597, adc396b-coherent).
+            // The slave's ~4.8ms runs under the master's sky bg_frame + DrawLists
+            // + direct-VDP1 emit; p6_present_join_config after p6_dl_end runs the
+            // master-only NBG1 register tail (ST-202: VDP registers master-only).
+            // AIZ/GHZCutscene stay synchronous (their legs keep the proven order).
+            if (!strcmp(currentSceneFolder, "GHZ")) {
+                unsigned short _k0 = p6_perf_frt_get();
+                p6_present_kick(fgl, screens[0].position.x, screens[0].position.y,
+                                (const unsigned short *)fullPalette[0]);
+                p6_w_perf_kick_frt = P6_FRT_DELTA(_k0, p6_perf_frt_get());
+                fe_present_kicked = 1;
+            } else
+#endif
             p6_vdp2_present_ghz_camera(fgl,
                                        screens[0].position.x, screens[0].position.y,
                                        (const unsigned short *)fullPalette[0], &ph, &nb);
+        }
         // M3.2 FG probe: the present just bound SaturnLayout slot 0 -> layer fgl (FG-Low).
         // Read 4 in-window tiles to see if the windowed accessor returns the varied AIZ
         // FG-Low or a uniform constant (binding/window/refill vs page-build discriminator).
-        {
+        // #325 stage-1: on a kicked frame the SLAVE owns the SaturnLayout slot-0/1
+        // windows (GetTile refills mutate them; ST-202 no bus snoop) -- skip the
+        // diagnostic probe for that frame (AIZ/GHZCutscene frames keep it).
+        if (!fe_present_kicked) {
             extern uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty);
             int32 ctx = screens[0].position.x >> 4;
             int32 cty = screens[0].position.y >> 4;
@@ -8360,6 +8389,22 @@ static void p6_frontend_frame(void)
     // target). A seam/LOAD frame that returned earlier never reaches this --
     // the previous completed half keeps displaying (persistence contract).
     p6_dl_end();
+#endif
+#if defined(P6_AIZ_TEST) && defined(P6_FE_SLAVE_PRESENT)
+    // #325 stage-1: join the slave FG present (jo_core_wait_for_slave ->
+    // slCashPurge so the master sees the slave's WRAM/cart writes, ST-202 §7)
+    // + run the master-only NBG1 register config. With p6_vdp2_bg_owns_disp
+    // latched at the settled GHZ landing, p6_present_config emits NO
+    // slScrAutoDisp (p6_vdp2.c:2158-2171) -- the 4-plane sky arm survives.
+    // Then re-assert the sky CRAM banks [64..127]: the slave's CRAM bank0
+    // rewrite (p6_present_compute :2117-2123) ran AFTER this frame's
+    // p6_vdp2_ghzcut_bg_frame re-assert -- restore the sync frame-end order.
+    if (fe_present_kicked) {
+        p6_present_join_config(screens[0].position.x, screens[0].position.y);
+#if defined(P6_GHZCUT_BOOT)
+        p6_vdp2_ghzcut_bg_pal_reassert();
+#endif
+    }
 #endif
 #if defined(P6_FRONTEND_MENU)
     fe_tpod = p6_perf_frt_get(); // #324: DrawLists+emit done; tail (fade/card/diag) follows

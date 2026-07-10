@@ -149,6 +149,11 @@ if [ -n "${P6_FRONTEND_CHAIN:-}" ]; then
     # tear (title 73% torn, landing empty plans) has nothing to break.
     # Default ON for the chain; A/B with P6_DIRECT_VDP1="" (explicit empty).
     export P6_DIRECT_VDP1="${P6_DIRECT_VDP1-1}"
+    # #325 stage-1: fork the GHZ-landing FG present COMPUTE onto the slave SH-2
+    # (p6_present_kick/join, the plain-GHZ-proven A2 mechanism) from the front-end
+    # frame -- crosses the 4->3 vblank quantization tier (15->20+ fps cascade).
+    # Default ON for the chain; A/B with P6_FE_SLAVE_PRESENT="" (explicit empty).
+    export P6_FE_SLAVE_PRESENT="${P6_FE_SLAVE_PRESENT-1}"
 fi
 # CP5a (Task #267): the TITLE front-end flavor IMPLIES the LOGOS flavor (it reuses
 # every shared #if defined(P6_FRONTEND_LOGOS) machinery -- frontend_frame, the VDP1

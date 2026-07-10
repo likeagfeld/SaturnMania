@@ -1546,6 +1546,24 @@ void p6_vdp2_ghzcut_bg_frame(int sx)
     p6_vdp2_mirror_publish(0x004F, 0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu,
                            0x0302, 0x0201);
 }
+
+/* #325 stage-1 (fgbg slave offload): master-side re-assert of the sky CRAM
+ * banks 4-7 (CRAM[64..127]) ONLY. Under the offload the slave's FG present
+ * compute rewrites CRAM[0..255] (p6_present_compute :2117-2123) DURING the
+ * master's DrawLists window -- i.e. AFTER p6_vdp2_ghzcut_bg_frame's per-frame
+ * re-assert above ran -- inverting the proven sync order (present first, sky
+ * re-assert second). Calling this after p6_present_join_config restores the
+ * frame-end CRAM state byte-identically to the sync path. Registers untouched
+ * (master-only VDP contract, ST-202 / dual-cpu-reference.md:142-148). */
+void p6_vdp2_ghzcut_bg_pal_reassert(void)
+{
+    if (s_ghcbg_pal_n > 0) {
+        volatile Uint16 *cram = (volatile Uint16 *)0x25F00000u;
+        int i;
+        for (i = 0; i < s_ghcbg_pal_n; ++i)
+            cram[P6_GHCBG_PAL_BASE * 16 + i] = s_ghcbg_pal[i];
+    }
+}
 #endif
 
 #if defined(P6_AIZ_TEST)
