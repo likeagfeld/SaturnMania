@@ -1832,7 +1832,15 @@ static void p6_ovl_pool_compact(void)
     CIDOFF = (int)g[0]; NARROW = (int)g[1]; R = (int)g[2]; SCN = (int)g[3]; TEMP = (int)g[4]; WIDE = (int)g[5];
     SP = (int)g[6];     /* P6_POOL_SCENE_PHYS = 640 (the shrunk physical scene-slot count) */
     base  = (unsigned char *)0x00243000u;        /* P6_LW_ENTITYLIST (WRAM-L, cached, master SH-2) */
+#if defined(P6_FRONTEND_MENU)
+    /* #325 lever (ii): the FE pack homes p6_pool_remap in WRAM-H .bss (cached; kills the
+     * per-RSDK_ENTITY_AT uncached cart read). Import the pack's pointer via -R so pack +
+     * overlay always agree on the ONE table. Plain GHZ (flag absent) keeps the literal
+     * cart address -> overlay bytes unchanged. */
+    { extern unsigned short *p6_pool_remap_c; remap = p6_pool_remap_c; }
+#else
     remap = (unsigned short *)0x226B8000u;        /* p6_pool_remap (cache-through cart) */
+#endif
     inv   = (unsigned short *)0x226BC000u;        /* p6_pool_remap_inv */
     SCN_BASE = (unsigned int)R * (unsigned int)WIDE;
     dummy = R + SP - 1; /* reserved classID=0 dummy = the LAST scene-physical slot (kept OUT of the free
@@ -2013,7 +2021,12 @@ static void p6_ovl_stream(void)
     p6_eng_pool_geom(g);
     CIDOFF = (int)g[0]; NARROW = (int)g[1]; R = (int)g[2]; SCN = (int)g[3]; WIDE = (int)g[5]; SP = (int)g[6];
     base  = (unsigned char *)0x00243000u;
+#if defined(P6_FRONTEND_MENU)
+    /* #325 lever (ii): same pack-pointer import as p6_ovl_pool_compact above. */
+    { extern unsigned short *p6_pool_remap_c; remap = p6_pool_remap_c; }
+#else
     remap = (unsigned short *)0x226B8000u;
+#endif
     inv   = (unsigned short *)0x226BC000u;
     fl    = (unsigned short *)P6_STREAM_FREELIST;
     fc    = (int *)P6_STREAM_FREECNT;

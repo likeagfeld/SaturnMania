@@ -630,6 +630,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_perf_synch_frt -u _p6_w_perf_synch_max \
     -u _p6_w_perf_full_frt -u _p6_w_perf_full_max -u _p6_w_perf_head_frt \
     -u _p6_w_perf_kick_frt -u _p6_w_perf_tail_frt ${P6_STREAM_PERF:+-u _p6_w_perf_stream_frt} \
+    ${P6_FRONTEND_MENU:+-u _p6_pool_remap_c} \
     -u _p6_w_xing_count -u _p6_w_xing_max_frt -u _p6_w_xing_present_max \
     -u _p6_w_manifest_n -u _p6_w_manifest_maxslot -u _p6_w_manifest_csum \
     -u _p6_w_phantom_purged -u _p6_w_i2_resolve_ok -u _p6_w_remap_ok \

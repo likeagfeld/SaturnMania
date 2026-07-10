@@ -486,6 +486,29 @@ extern "C" int p6_w_draw_dma_v;   // #317: vblanks inside the LRU miss-DMA path
 extern "C" int p6_w_scan_pop;
 extern "C" int p6_w_scan_maxslot;
 extern "C" int p6_w_scan_bounds;
+#if defined(P6_FRONTEND_MENU)
+// #325 front-end ProcessObjects profile: the class StaticUpdate loop runs BEFORE
+// the loop1 bracket (_ps_tA), so its cost sat in cyc_obj UNATTRIBUTED. Bracket the
+// whole loop + the worst single class per tick (defs in p6_io_main.cpp, chain-gated
+// -> plain GHZ Scene_Object.o byte-identical).
+extern "C" int p6_w_objsec_static;
+extern "C" int p6_w_stat_max;
+extern "C" int p6_w_stat_max_cls;
+extern "C" int p6_w_stat_n;
+// #325 round 2: per-classID StaticUpdate accumulators (mirror p6_w_objupd_us/n) + the
+// pre-loop1 bracket (camera update + p6_scan_update_near + p6_stream_tick) -- the
+// cyc_obj-minus-brackets gap was ~1.7k FRT ticks/tick at the landing, unattributed.
+extern "C" int p6_w_statupd_us[64];
+extern "C" int p6_w_statupd_n[64];
+extern "C" int p6_w_objsec_pre;
+#endif
+#endif
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_FRONTEND_MENU)
+// #325 lever (i): runtime arm for the far-cull consult in the FE loop1 branch below.
+// Set by p6_io_main.cpp ONLY at the chain's playable-GHZ landing (folder=="GHZ",
+// sorted index built); 0 on Menu/AIZ/Title/GHZCutscene legs (their behavior is
+// untouched -- the #298 iterate-every-slot contract still holds there).
+extern "C" int g_p6_fe_ghz_cull;
 #endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SHADOW_COMPARE)
 // LOCKED-60 (#243) scan-split PARITY PROOF -- decls (defs in p6_io_main.cpp).
@@ -542,11 +565,22 @@ extern unsigned char p6_scan_near[];
 // I3d (the 60fps step): cart always-iterate bitfield -- loop1 pins a scene slot here when its
 // active turns non-x-cullable (NORMAL/ALWAYS/YBOUNDS/RBOUNDS) so the far-skip never drops it.
 extern unsigned char *p6_scan_always;
+// #325: highest POPULATED scene slot at index-build (+96 margin below) -- bounds the
+// cull-armed FE scene walk (the #317 trim is disabled while the cull is armed, so the
+// bit-test would otherwise touch all SCENEENTITY_COUNT slots every tick).
+extern int32 p6_scan_idx_maxslot;
 #endif
 void RSDK::ProcessObjects()
 {
     for (int32 i = 0; i < DRAWGROUP_COUNT; ++i) drawGroups[i].entityCount = 0;
 
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF) && defined(P6_FRONTEND_MENU)
+    // #325: bracket the (verbatim-decomp) class StaticUpdate loop -- it runs before
+    // _ps_tA so its cost was invisible to the loop1/2/3 split. Per-class max via the
+    // same coherent FRT idiom; ~30-60 classes x 2 FRT reads/tick is ~us-scale.
+    unsigned short _su_t0 = p6_perf_frt_get();
+    int _su_n = 0, _su_max = 0, _su_maxc = -1;
+#endif
     for (int32 o = 0; o < sceneInfo.classCount; ++o) {
 #if RETRO_USE_MOD_LOADER
         currentObjectID = o;
@@ -554,15 +588,39 @@ void RSDK::ProcessObjects()
 
         ObjectClass *classInfo = &objectClassList[stageObjectIDs[o]];
         if ((*classInfo->staticVars)->active == ACTIVE_ALWAYS || (*classInfo->staticVars)->active == ACTIVE_NORMAL) {
-            if (classInfo->staticUpdate)
+            if (classInfo->staticUpdate) {
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF) && defined(P6_FRONTEND_MENU)
+                unsigned short _sc0 = p6_perf_frt_get();
                 classInfo->staticUpdate();
+                {
+                    int _sd = (int)(unsigned short)(p6_perf_frt_get() - _sc0);
+                    ++_su_n;
+                    if (_sd > _su_max) { _su_max = _sd; _su_maxc = o; }
+                    p6_w_statupd_us[o & 0x3F] += _sd; // #325 round 2: per-class attribution
+                    p6_w_statupd_n[o & 0x3F]++;
+                }
+#else
+                classInfo->staticUpdate();
+#endif
+            }
         }
     }
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF) && defined(P6_FRONTEND_MENU)
+    p6_w_objsec_static = (int)(unsigned short)(p6_perf_frt_get() - _su_t0);
+    p6_w_stat_max      = _su_max;
+    p6_w_stat_max_cls  = _su_maxc;
+    p6_w_stat_n        = _su_n;
+#endif
 
 #if RETRO_USE_MOD_LOADER
     RunModCallbacks(MODCB_ONSTATICUPDATE, INT_TO_VOID(ENGINESTATE_REGULAR));
 #endif
 
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF) && defined(P6_FRONTEND_MENU)
+    // #325 round 2: bracket the camera-update + near-set + stream block (between the
+    // StaticUpdate loop and loop1) -- previously inside cyc_obj but outside every bracket.
+    unsigned short _pre_t0 = p6_perf_frt_get();
+#endif
     for (int32 s = 0; s < cameraCount; ++s) {
         CameraInfo *camera = &cameras[s];
 
@@ -597,6 +655,9 @@ void RSDK::ProcessObjects()
     // DORM store + dormant newly-far ones (the camera-local pool's per-frame half) BEFORE loop1 iterates
     // the physical pool. No-op until the load-near-shrink has run (p6_stream_tick -> s_ovl.stream_fn guard).
     p6_stream_tick();
+#if defined(P6_PERF_OBJPROF) && defined(P6_FRONTEND_MENU)
+    p6_w_objsec_pre = (int)(unsigned short)(p6_perf_frt_get() - _pre_t0); // #325 round 2
+#endif
 #endif
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SHADOW_COMPARE)
     // SCAN-SPLIT PARITY PROOF (#243): classify ALL entities at frame-start (the
@@ -705,7 +766,23 @@ void RSDK::ProcessObjects()
 #if defined(P6_FRONTEND_MENU)
         // skip the EMPTY scene-middle; reserve [0,RESERVE) + temp [TEMPENTITY_START,..)
         // are never skipped (both below/above the condition window).
-        if (e >= s_feSceneEnd && e < RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT) {
+        // #325: the trim is DISABLED while the landing far-cull is armed -- culled
+        // slots never raise s_feLocalMax, so the high-water would clamp BELOW true
+        // occupancy and permanently drop near entities above it (the cull's bit-test
+        // already skips the empty middle at ~1 WRAM-H read/slot). The 8-frame warmup
+        // resets the high-water on any folder change, so disarm is safe.
+        if (!g_p6_fe_ghz_cull && e >= s_feSceneEnd && e < RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT) {
+            e = RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT - 1;   // ++e -> TEMPENTITY_START
+            continue;
+        }
+        // #325 round 2: cull-ARMED scene tail-bound. The trim above is disabled while the
+        // cull is armed, so without this the bit-test walks every scene slot (1088) per
+        // tick. p6_scan_idx_maxslot = highest populated scene slot at the settled index
+        // build; +96 = the same spawn margin/contract as the trim (runtime spawns go to
+        // TEMP; a scene-region ResetEntitySlot above the bound was equally invisible to
+        // the trim's high-water). GHZ1 (maxslot 1078) clamps to full -> no behavior change
+        // there; the Menu (maxslot 362) stops bit-testing ~630 always-empty slots.
+        if (g_p6_fe_ghz_cull && e >= p6_scan_idx_maxslot + 96 && e < RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT) {
             e = RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT - 1;   // ++e -> TEMPENTITY_START
             continue;
         }
@@ -723,6 +800,22 @@ void RSDK::ProcessObjects()
         // harmlessly; their bits are simply not consulted here.
         int32 _L = e;
         sceneInfo.entitySlot = _L;
+        // #325 lever (i): at the chain's playable-GHZ landing ONLY (g_p6_fe_ghz_cull,
+        // armed by p6_io_main once folder=="GHZ" + the sorted index exists), skip a FAR
+        // x-cullable scene slot ENTIRELY -- the near|always bit is the SAME proven I3d
+        // skip-set the plain-GHZ shipping build uses below (BOUNDS/XBOUNDS spawn-x
+        // outside +-1024 px of the camera; index-build pins every NORMAL/ALWAYS/
+        // YBOUNDS/RBOUNDS/wide-range slot always-iterate, p6_io_main.cpp
+        // p6_scan_index_build). The full ACTIVE_BOUNDS check would reject these same
+        // slots (updateRange+offset < window) -- identical behavior, no WRAM-L touch.
+        // Menu/AIZ/Title legs: flag is 0 -> stock #298 iterate-every-slot unchanged.
+        // Skipped slots keep inRange from their last visit (engine-private; loops 2/3
+        // + draw run off s_p6_inrange/drawGroups, rebuilt per tick -- same contract as
+        // the non-FE I3d skip).
+        if (g_p6_fe_ghz_cull && e >= RESERVE_ENTITY_COUNT && e < RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT
+            && !(p6_scan_near[_L >> 3] & (1 << (_L & 7)))) {
+            continue;
+        }
         sceneInfo.entity = RSDK_ENTITY_AT(e);
 #else
         // I3b.2 (2a): `e` IS THE PHYSICAL pool slot now. Iterate only the PHYSICAL pool

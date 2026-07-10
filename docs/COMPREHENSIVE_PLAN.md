@@ -7799,3 +7799,31 @@ asset side is closed. Steps for any future per-zone phase:
 - `docs/mania_decomp_catalog.md` (cross-ref pointer)
 - `docs/COMPREHENSIVE_PLAN.md` (this §)
 - `HANDOFF.md` (Phase 3.0-prep++ entry)
+
+## Task #325 — front-end ProcessObjects cost (2026-07-09, session 3)
+
+Profile (live chain, 17:35 profiling iso, `_objprof.jsonl`, FRT ticks ~1.19us,
+4 catch-up ticks/frame): GHZ landing fps 15 / cyc_obj 28.3k (cull armed),
+Menu 11.8 / 30.8k, AIZ fly-in 9.5 / 22.6k, GHZCutscene 7.5 (draw-bound 36k).
+Loop split per tick (static/l1/l2/l3): Menu 729/5958/322/301, GHZ 505/4493/137/261.
+Updates are the MINOR share of loop1 (Menu ~1,070 of 5,958); Player_Update is
+the largest single Update (~450us each, decomp-intrinsic). classID map confirmed
+(compress-on-match): Player=8, Ring=12, ItemBox=13; Menu cls15=MenuSetup.
+
+Levers landed this session (all FE-gated, plain GHZ pack/overlay byte-identical):
+- (ii) `p6_pool_remap` cart->WRAM-H .bss home in FE builds (p6_io_main.cpp; the
+  uncached A-bus read sat under EVERY RSDK_ENTITY_AT + foreach_all walk).
+  Overlay imports the pack pointer via unmangled alias `p6_pool_remap_c`
+  (p6_ovl_ghz.c compact/stream), flag-gated.
+- (i) far-cull armed on the Menu leg (same I3d skip-set argument; index already
+  built by the shared load path, witnessed scancull_n=135) + cull-armed scene
+  TAIL-BOUND from `p6_scan_idx_maxslot`+96 (trim disabled while cull armed).
+- STALE-INDEX FIX: the GHZ landing's one-shot index build ran mid-handoff
+  (scancull_n=45 vs ~1034 populated) -> rebuild once >=2 tick groups after the
+  folder flip; cull arms only after the settled rebuild.
+- Instrumentation (P6_PERF_OBJPROF+FE): per-class StaticUpdate accumulators
+  `p6_w_statupd_us/n[64]`, pre-loop1 bracket `p6_w_objsec_pre`.
+
+Gate: tools/qa_objcost_gate.py (fixed keys: `perf_cyc_obj`) — RED on the 17:35
+iso (G1 15<20, G2 11.8<20, G3 9.5<12). GREEN required post-build; A/B cull
+poke via g_p6_fe_cull_override (WRITE_CORE_RAM is reply-less — watcher fixed).

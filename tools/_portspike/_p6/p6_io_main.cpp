@@ -1786,6 +1786,40 @@ __attribute__((used)) int32 p6_w_draw_dma_v  = 0; // vblanks inside the LRU miss
 // _drawprof.jsonl 2026-07-09): AIZ fly-in cyc_draw = 13.7k ticks (16.3ms) while
 // draw_cb = 558 -- the cost sat in this tail, not the entity draw() loops.
 __attribute__((used)) int32 p6_w_draw_tail   = 0;
+// #325 front-end ProcessObjects profile: the class StaticUpdate loop
+// (Object.cpp:550-560, verbatim decomp -- EVERY stage class with staticVars
+// active ALWAYS/NORMAL, which Scene.cpp:239 sets for ALL loaded classes) runs
+// BEFORE the loop1 bracket, so its cost was UNMEASURED (cyc_obj included it,
+// loop1/2/3 did not). Bracket it + track the worst single class per tick.
+// Chain-gated -> plain GHZ Scene_Object.o/.bss byte-identical.
+__attribute__((used)) int32 p6_w_objsec_static = 0; // FRT ticks, whole StaticUpdate class loop (last tick)
+__attribute__((used)) int32 p6_w_stat_max      = 0; // worst single staticUpdate (FRT ticks, last tick)
+__attribute__((used)) int32 p6_w_stat_max_cls  = -1; // stage class index (== classID) of the worst
+__attribute__((used)) int32 p6_w_stat_n        = 0; // staticUpdates dispatched (last tick)
+// #325 profile round 2: per-classID StaticUpdate accumulators (mirror p6_w_objupd_us/n
+// for the static loop -- the Menu leg showed ONE class at 548 FRT ticks EVERY tick and
+// stat_max_cls alone cannot prove which body line repeats). FE-gated -> plain GHZ .bss
+// byte-identical.
+__attribute__((used)) int p6_w_statupd_us[64];
+__attribute__((used)) int p6_w_statupd_n[64];
+// #325 profile round 2: the cyc_obj minus (static+loop1+loop2+loop3) gap measured ~1.7k
+// FRT ticks/tick at the GHZ landing (~2ms x 4 ticks = 8ms/frame unattributed). Bracket
+// the pre-loop1 block (camera update + p6_scan_update_near + p6_stream_tick) so the gap
+// attribution is data, not inference. (The remaining gap = ProcessSceneTimer +
+// ProcessParallaxAutoScroll, bracketed OUTSIDE ProcessObjects in the tick group.)
+__attribute__((used)) int32 p6_w_objsec_pre    = 0; // FRT ticks, camera+near-set+stream (last tick)
+// #325 lever (i): engage the proven I3d far-cull (plain-GHZ shipping, Object.cpp
+// non-FE branch) at the CHAIN's playable-GHZ landing. The FE loop1 branch (#298)
+// deliberately skipped the near-bit consult for the ~130-slot Menu; the landing
+// runs ~1041 scene slots x up to 4 catch-up ticks through full ACTIVE_BOUNDS
+// checks = the measured 39.4k-tick cyc_obj. Runtime flag: armed ONLY at
+// folder=="GHZ" once the sorted index exists (p6_scan_n>0); 0 on every other
+// leg so Menu/AIZ/Title behavior is untouched.
+__attribute__((used)) int32 g_p6_fe_ghz_cull   = 0;
+// #325 A/B knob: live-pokeable override (-1 = no override). The arm block re-writes
+// g_p6_fe_ghz_cull every frontend frame, so a plain live poke would be overwritten;
+// the RED/GREEN A/B (qa_objprof_watch --ab) pokes THIS instead. Shipping default -1.
+__attribute__((used)) int32 g_p6_fe_cull_override = -1;
 #endif
 // LOCKED-60 (#243): loop1 scan occupancy -- sizes the maxOccupiedSlot trim AND
 // explains the 5.82->15.95ms scan growth. pop = populated slots (classID!=0);
@@ -2015,7 +2049,28 @@ EntityBase *objectEntityList = (EntityBase *)P6_LW_ENTITYLIST;
 // RUNTIME before the shrink makes it non-identity. p6_pool_remap_ready gates the read in
 // SaturnSlotToPoolSlot -> returns the raw slot until the table is built (crash-safe regardless
 // of init order; p6_pool_remap_init() runs first thing in p6_engine_boot_and_run).
+#if defined(P6_FRONTEND_MENU)
+// #325 lever (ii) -- FRONT-END ONLY: home the remap in CACHED WRAM-H .bss instead of the
+// uncached A-bus cart. MEASURED (live _objprof.jsonl 2026-07-09): every RSDK_ENTITY_AT
+// pays one uncached 16-bit cart read here; the FE loop1 walks ~460-590 slots/tick via
+// RSDK_ENTITY_AT (Task #298 wide-remap contract) and every foreach_all() walks all 1216
+// -- the Menu leg's loop1 was 5,958 FRT ticks/tick with only ~1,070 in Updates. Same
+// table, same writers (p6_pool_remap_init + p6_ovl_pool_compact via the -R imported
+// pointer), same semantics -- ONLY the backing store moves. 2,432 B .bss, FE ceiling
+// GLOBALS 0x060C8000 (measured headroom ~39 KB at _end 0x060be670). Plain GHZ keeps the
+// cart home (its WRAM-H ceiling is P6_HW_ANIMPAK with ~64 B headroom -> byte-identical).
+static uint16 s_p6_pool_remap_wram[ENTITY_COUNT];
+uint16 *p6_pool_remap        = s_p6_pool_remap_wram;
+// Unmangled alias for the C overlay TU (p6_ovl_ghz.c compact/stream import it via -R;
+// RSDK::p6_pool_remap itself is namespace-mangled). The pointer VALUE is set once here
+// and never reassigned (grep-verified), so the alias cannot desync.
+// __attribute__((used)) + the -u keep-root in build_p6scene_objs.sh (both halves
+// required, per the TurboTurtle closure lesson) survive the pack gc so the overlay's
+// -R import resolves.
+extern "C" { __attribute__((used)) uint16 *p6_pool_remap_c = s_p6_pool_remap_wram; }
+#else
 uint16 *p6_pool_remap        = (uint16 *)0x226B8000u; // 1216 u16 = 2432 B in the cart gap
+#endif
 int32   p6_pool_remap_ready  = 0;
 // P6.8 I3b.2 (camera-local pool shrink): the PHYSICAL scene-slot count SaturnEntityAt/SaturnEntitySlot
 // (Object.hpp) lay out. == SCENEENTITY_COUNT here -> the accessors stay BYTE-IDENTICAL (p6_i2_selfcheck's
@@ -7658,9 +7713,60 @@ static void p6_frontend_frame(void)
     // p6_scan_near[e], the cull tests p6_scan_near[_L] with _L=e. GHZ-only (folder gate);
     // Title/Menu/AIZ front-end scenes are untouched (their loop1 still iterates every slot).
     if (currentSceneFolder && !strcmp(currentSceneFolder, "GHZ")) {
-        static int32 s_ghz_scanidx_built = 0;
-        if (!s_ghz_scanidx_built) { p6_scan_index_build(); s_ghz_scanidx_built = 1; }
+        // #325 STALE-INDEX FIX (MEASURED, live _objprof.jsonl 2026-07-09): the one-shot
+        // index build ran MID-HANDOFF -- the staged GHZCutscene->GHZ seam flips
+        // currentSceneFolder before the entity pool is final, and the capture showed
+        // scancull_n=45 for the whole landing (GHZ1 populates ~1034 scene slots; the Menu
+        // leg's load-path build correctly showed 135). A 45-entry index means almost every
+        // BOUNDS badnik/object had NO near bit -> wrongly culled the moment the camera
+        // moves off spawn (frozen entities downstream). Fix: rebuild the index once >=2
+        // tick groups have run since the first folder=="GHZ" sighting (the seam's loads
+        // run inside tick groups; 2 ticked frames later the pool is final), and only arm
+        // the cull AFTER that settled rebuild. Landing frames before the latch keep the
+        // 186898e cull-off behavior (proven).
+        static int32 s_ghz_idx_built    = 0;  // 0=never, 1=first (possibly mid-load) build, 2=settled rebuild
+        static int32 s_ghz_idx_tickmark = -1;
+        if (s_ghz_idx_built == 0) {
+            p6_scan_index_build();
+            s_ghz_idx_built    = 1;
+            s_ghz_idx_tickmark = p6_w_tick_frames;
+        }
+        else if (s_ghz_idx_built == 1 && p6_w_tick_frames >= s_ghz_idx_tickmark + 2) {
+            p6_scan_index_build(); // pool is final now -- full-census index (one-time ~64ms)
+            s_ghz_idx_built = 2;
+        }
         p6_scan_update_near(cameraCount > 0 ? (int32)(cameras[0].position.x >> 16) : 0);
+        // #325 lever (i): arm the FE loop1 far-cull consult (Object.cpp #298 branch)
+        // once the SETTLED sorted index + near-set are live. Parity: identical argument
+        // to the plain-GHZ I3d shipping cull -- a slot is skipped only when x-cullable
+        // (BOUNDS/XBOUNDS, index-build pins everything else always-iterate incl. any
+        // updateRange.x+512 > window) AND |spawn_x - cam_x| > 1024 > the full check's
+        // updateRange+offset, so the skip-set == the full check's own reject-set. The
+        // near-set is ALSO refreshed per catch-up tick inside ProcessObjects
+        // (Object.cpp:595), so mid-group camera motion is honored.
+        { extern int32 p6_scan_n; g_p6_fe_ghz_cull = (s_ghz_idx_built == 2 && p6_scan_n > 0) ? 1 : 0; }
+        if (g_p6_fe_cull_override >= 0) g_p6_fe_ghz_cull = g_p6_fe_cull_override; // #325 A/B knob
+    }
+    else if (currentSceneFolder && !strcmp(currentSceneFolder, "Menu")) {
+        // #325 lever (i) extension -- MENU leg (MEASURED the 11.8fps floor: loop1 5,958
+        // FRT ticks/tick with only ~1,070 in Updates; scan_maxslot 362, 106 BOUNDS slots,
+        // near-set 95 of 135 -- the scan walks ~460 scene slots through RSDK_ENTITY_AT +
+        // full ACTIVE_BOUNDS position reads x4 catch-up ticks). The menu's index is
+        // already built by the SHARED scene-load path (p6_scene_run -> p6_scan_index_build,
+        // witnessed live: scancull_n=135 on the Menu leg) and p6_scan_update_near already
+        // runs per tick (Object.cpp:636, unconditional) -- arming the consult is the only
+        // missing piece. Parity: same I3d argument as GHZ -- menu UI entities are
+        // scene-authored at fixed positions (page NAVIGATION pans the CAMERA, entities
+        // do not travel); non-BOUNDS actives + wide-updateRange slots are pinned
+        // always-iterate by the index build; runtime spawns (UIDialog etc.) CreateEntity
+        // into the always-scanned TEMP region. The #298 "drop a UISaveSlot" concern is
+        // covered by the same pin set (wide-scene slots resolve via RSDK_ENTITY_AT and
+        // their spawn-x is indexed like any scene slot). A/B knob applies here too.
+        { extern int32 p6_scan_n; g_p6_fe_ghz_cull = (p6_scan_n > 0) ? 1 : 0; }
+        if (g_p6_fe_cull_override >= 0) g_p6_fe_ghz_cull = g_p6_fe_cull_override; // #325 A/B knob
+    }
+    else {
+        g_p6_fe_ghz_cull = 0;
     }
 #if defined(P6_TICK_CATCHUP)
     /* #315 GAME-SPEED FIX (audit-1 headline, user "animation jumps / not decomp
@@ -8321,6 +8427,16 @@ __attribute__((used)) unsigned char p6_scan_near[(ENTITY_COUNT + 7) / 8] = { 0 }
 static uint32 *p6_scan_sorted = (uint32 *)0x226B9000u; // cart; SCENEENTITY_COUNT*4 = 4352 B (0x226B9000..
                                                        // 0x226BA100), whole-game-sized (was 800*4=3200 B)
 __attribute__((used)) int32 p6_scan_n          = 0;
+#if defined(P6_FRONTEND_MENU)
+// #325 lever (i) tail-bound: the highest POPULATED scene slot at index-build time. When
+// the FE cull is armed the #317 empty-middle trim is disabled (culled slots never raise
+// its high-water), so the cull bit-test otherwise walks all 1088 scene slots. Loop1
+// early-exits the scene walk past this (+96 spawn margin, the trim's own contract:
+// runtime spawns go to TEMP; scene-region ResetEntitySlot above high-water was already
+// invisible to the trim). Default = full region (safe until the first index build).
+// FE-gated: plain GHZ pack stays byte-identical (its WRAM-H ceiling has ~64 B headroom).
+__attribute__((used)) int32 p6_scan_idx_maxslot = RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT;
+#endif
 __attribute__((used)) int32 p6_w_scancull_n    = 0; // index entries (witness)
 __attribute__((used)) int32 p6_w_scancull_near = 0; // near bits set on the last update (witness)
 __attribute__((used)) int32 p6_w_scancull_capped = 0; // WHOLE-GAME: 1 if the index hit P6_SCAN_CAP before
@@ -8379,6 +8495,18 @@ extern "C" void p6_scan_index_build(void)
     }
     p6_scan_n       = n;
     p6_w_scancull_n = n;
+#if defined(P6_FRONTEND_MENU)
+    // #325: record the highest populated scene slot for the cull-armed tail-bound.
+    // n==0 keeps the full-region default (the cull never arms with an empty index).
+    {
+        int32 mx = RESERVE_ENTITY_COUNT;
+        for (int32 i = 0; i < n; ++i) {
+            int32 s = (int32)(p6_scan_sorted[i] & 0x7FF);
+            if (s > mx) mx = s;
+        }
+        p6_scan_idx_maxslot = (n > 0) ? mx : (RESERVE_ENTITY_COUNT + SCENEENTITY_COUNT);
+    }
+#endif
     // I3d: seed the always-iterate bitfield from the Create-time active. A populated scene
     // slot whose active is NOT x-cullable (BOUNDS/XBOUNDS) is pinned always-iterate so the
     // camera moving past its spawn-x can never wrongly skip it (it would stop updating).
