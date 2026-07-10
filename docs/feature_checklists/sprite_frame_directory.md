@@ -267,3 +267,42 @@ build_p6scene_objs.sh (p6_io_main.o + SaturnSheet.o + new
 SaturnFrameDir.o, link + -u roots all ${P6_FRAMEDIR:+...}-gated),
 build_shipping.sh make lines. Without the env var every addition
 compiles/links away -- plain GHZ byte-identical.
+
+## 8. Stage-1 LIVE results (2026-07-10, chain flavor, MEASURED)
+
+qa_p6_frd.py GREEN (was RED pre-wiring: all 10 witnesses absent from
+game.map). Full chain run: staged=16 cumulative (3 AIZ + 4 cutscene +
+9 GHZ, exactly the design), active=9 at the landed GHZ, lookups=1110+,
+**misses=0 across every leg**, all 9 staged-cart djb2 identities MATCH
+the offline blobs. _end = 0x060C01B0 < 0x060C8000 (32,336 B headroom).
+Settled GHZ fps median 15.0 (min 14.6/max 15.4, 41 samples) == the
+pre-FRD 15.0 baseline.
+
+Per-leg fps / mean draw FRT cycles (pre-FRD baseline -> FRD):
+Title 24.2/10,249 -> 19.7/9,952 (draw -3%; fps readback lower on both
+FRD runs -- draw is DOWN and Title has no FRD sheet, so not the FRD
+draw path; unresolved measurement/host variance, flagged open);
+Menu 8.6/4,684 -> 9.0/1,993 (draw -57%); AIZ beats 10.0-12.2/
+6,186-13,779 -> 9.9-12.0/4,939-11,940; GHZCutscene 3.8/13,241 ->
+3.2/10,739 (draw -19%); GHZ settled 15.0 -> 15.0.
+
+Two live clobber classes were root-caused + fixed during bring-up
+(both RED-gate-caught via the per-slot djb2 + miss-ring witnesses):
+1. scanlines backing @0x22400000 == RES_BASE, written per frame by
+   DrawLayer's ungated scanlineCallback -> the first blob staged each
+   seam lost its directory -> SaturnSheet_ResFloor(0x1000) guard.
+2. AIZ BG fixed staging windows [0x22480000..0x224A3000) load AFTER
+   the AIZ-leg FRD staging -> TAILS1's directory garbled (100% miss,
+   309/run; the miss fallback ran BANDED because the resident promote
+   is skipped by design = the 46-48k draw spike at beats 4-6) ->
+   SaturnSheet_ResFloor(0xA4000) at the AIZ seam. NOTE: pre-FRD, the
+   PROMOTED RESIDENT sheets' pixels overlapped the same BG windows
+   (SONIC1 patterns under the 0x22480000 chr) -- a pre-existing AIZ
+   artifact class, not addressed by this feature.
+
+Open items: (a) genuinely directory-absent rects exist (e.g. TAILS1
+(491,130,19x22) clipped-variant class -- DrawSprite screen-edge clips
+produce sub-rect keys); zero observed misses in the shipped runs, but
+the .SHT fallback stays on disc per the plan; (b) the Title fps
+readback delta above; (c) stage 2 (4bpp) preconditions unchanged --
+the LUT VRAM probe at 0x25C03000 has NOT been attempted.
