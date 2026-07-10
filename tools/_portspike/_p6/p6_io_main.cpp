@@ -574,6 +574,17 @@ __attribute__((used)) int32 p6_w_spr_sheetid   = -1; // raw f0->sheetID (0xFF ==
                                                      // sheetIDs[] at Animation.cpp:39/62)
 // P6.5b3 (Task #208, qa_p6_draw.py): engine DrawSprite-slot witnesses.
 __attribute__((used)) int32 p6_w_draw_calls   = 0;  // FX_NONE dispatches completed
+#if defined(P6_GHZ_AUTORUN)
+// Signpost campaign (2026-07-10, diagnostic AUTORUN flavor only): CUMULATIVE
+// count of DrawSprite dispatches attributed to SLOT_PLAYER1 (sceneInfo.entity
+// == slot 0 during its Draw callback). qa_signpost_run.py takes deltas vs
+// p6_w_cont_frames to prove "player never undrawn while alive+on-screen"
+// (gate classes 2 and 7 -- disappearing player / incline rotation frames)
+// from LIVE MEMORY, no pixels. A pointer compare + increment per draw call
+// (counter-cheap, NOSCAN rule respected); flavor-gated so plain/chain
+// shipping builds stay byte-identical.
+__attribute__((used)) int32 p6_w_plr_draws    = 0;
+#endif
 #if defined(P6_GHZCUT_BOOT)
 // #311 mech-6: draws dropped because frame->sheetID wrapped to 255 (unstaged
 // sheet at anim load, mech-2 contract) -- each would have OOB-read the handle
@@ -2268,6 +2279,13 @@ static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
     p6_w_draw_rect    = ((int32)frame->sprX << 16) | (int32)frame->sprY;
     p6_w_draw_sheetid = (int32)frame->sheetID;
     ++p6_w_draw_calls;
+#if defined(P6_GHZ_AUTORUN)
+    // Signpost campaign: attribute this dispatch to the player when the draw
+    // callback's current entity is SLOT_PLAYER1 (sceneInfo.entity is set by
+    // ProcessObjectDrawLists per entity, Object.cpp draw loop).
+    if (sceneInfo.entity == (Entity *)RSDK_ENTITY_AT(0))
+        ++p6_w_plr_draws;
+#endif
 }
 
 void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)

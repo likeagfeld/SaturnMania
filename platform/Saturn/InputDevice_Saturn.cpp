@@ -158,18 +158,62 @@ void InputDeviceSaturn::UpdateInput()
     this->buttonMasks     = held;
 
 #if defined(P6_GHZ_AUTORUN)
-    // DIAGNOSTIC (gated, NON-SHIPPING): hold RIGHT while the playable Green Hill
-    // Zone is loaded so the live-mem QA harness can drive Sonic across the level
-    // and measure traversal / physics / camera parity. Live controller[] injection
+    // DIAGNOSTIC (gated, NON-SHIPPING): scripted GHZ1 traversal input so the
+    // live-mem QA harness can drive Sonic boot->signpost and measure traversal /
+    // physics / render parity (signpost campaign). Live controller[] injection
     // is defeated because the verbatim ProcessInput rewrites controller[] from this
     // backend every frame (MEASURED 2026-07-05: WRITE_CORE_RAM lands but is cleared
-    // each tick, Sonic dx=0); forcing the bit HERE at the pad source propagates
+    // each tick, Sonic dx=0); forcing bits HERE at the pad source propagates
     // cleanly through the edge logic. currentSceneFolder-gated to GHZ so the chain's
     // title/menu/AIZ auto-nav is untouched. Only present when -DP6_GHZ_AUTORUN is
     // passed (a diagnostic flavor); plain/chain shipping builds are byte-identical.
+    //
+    // v2 (signpost campaign): hold RIGHT always + a DATA-DRIVEN jump table
+    // generated from the GHZ1 scene manifest (tools/_gen_autorun_table.py from
+    // extracted/Data/Stages/GHZ/Scene1.bin -- the authored hazard coordinates,
+    // Scene.cpp:558-780 entity walk). Rule: hold A (jump; Player.c decomp maps
+    // A/B/C to jump via controller keyA/keyB/keyC) while player.x sits in
+    // [hazard.x - LEAD, hazard.x - GAP] and the hazard is at-or-below the
+    // player's running height (dy = hazard.y - player.y in [-JUMP_DY_UP,
+    // +JUMP_DY_DOWN]). One window = one press edge (prev/cur mask diff) with a
+    // sustained hold for full jump height; clustered hazards (SpikeLog rows)
+    // merge into one longer hold. Plus raw override boxes for live-iterated
+    // fixes. Reads slot 0 (SLOT_PLAYER1, reserve region) via RSDK_ENTITY_AT --
+    // read-only entity access, no gameplay state is written (behavior-parity
+    // binding: the scripted input is indistinguishable from a human pad).
     if (RSDK::currentSceneFolder[0] == 'G' && RSDK::currentSceneFolder[1] == 'H'
-        && RSDK::currentSceneFolder[2] == 'Z' && RSDK::currentSceneFolder[3] == 0)
-        this->buttonMasks |= P6_PAD_RIGHT;
+        && RSDK::currentSceneFolder[2] == 'Z' && RSDK::currentSceneFolder[3] == 0) {
+#include "../../tools/_portspike/_p6/p6_autorun_table.h"
+        enum { P6_AR_LEAD = 96, P6_AR_GAP = 8, P6_AR_DY_UP = 48, P6_AR_DY_DOWN = 160 };
+        uint16 scripted    = P6_PAD_RIGHT;
+        RSDK::Entity *p0   = (RSDK::Entity *)RSDK_ENTITY_AT(0);
+        if (p0->classID != 0) { // alive (death->respawn leaves classID 0 for a beat)
+            int32 px = p0->position.x >> 16;
+            int32 py = p0->position.y >> 16;
+            for (int32 i = 0; i < P6_AUTORUN_NHAZ; ++i) {
+                int32 hx = (int32)p6_autorun_hazards[i].x;
+                if (hx - P6_AR_LEAD > px)
+                    break; // table is x-sorted; nothing further can match
+                if (px >= hx - P6_AR_LEAD && px < hx - P6_AR_GAP) {
+                    int32 dy = (int32)p6_autorun_hazards[i].y - py;
+                    if (dy >= -P6_AR_DY_UP && dy <= P6_AR_DY_DOWN) {
+                        scripted |= P6_PAD_A;
+                        break;
+                    }
+                }
+            }
+            for (int32 i = 0; i < P6_AUTORUN_NOVR; ++i) {
+                const P6AutorunOverride *o = &p6_autorun_overrides[i];
+                if (px >= (int32)o->x0 && px < (int32)o->x1
+                    && py >= (int32)o->y0 && py < (int32)o->y1) {
+                    if (o->buttons & P6_PAD_RIGHT) // bit15 = SUPPRESS forced RIGHT
+                        scripted &= (uint16)~P6_PAD_RIGHT;
+                    scripted |= (uint16)(o->buttons & ~P6_PAD_RIGHT);
+                }
+            }
+        }
+        this->buttonMasks |= scripted;
+    }
 #endif
 
     int32 changedKeys = (int32)(uint16)(~this->prevButtonMasks & (this->buttonMasks ^ this->prevButtonMasks));
