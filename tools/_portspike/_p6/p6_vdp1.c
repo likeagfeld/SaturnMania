@@ -336,10 +336,37 @@ void p6_vdp1_set_fetch(int (*fn)(int, int, int, int, int, unsigned char *))
 {
     s_fetchFn = fn;
 }
+#if defined(P6_FRAMEDIR)
+/* Sprite-pipeline rework: PRE-CUT frame directory (SaturnFrameDir.cpp, FRD1
+ * blobs built by tools/build_frame_dir.py). A slot-cache MISS on an FRD-backed
+ * sheet no longer cuts the rect at runtime (banded miniz inflate / resident
+ * per-row repack): the pattern is already cut + padded to the ST-013-R3 sec 5.1
+ * 8-pixel width unit, rows CONTIGUOUS at the padded stride, 4-aligned in the
+ * cart -- the restage copy runs its aligned-u32 fast path over one linear
+ * block. Same LTO contract as s_fetchFn above: the pack side hands us the
+ * lookup as a RUNTIME FUNCTION POINTER (p6_io_main), never a static ref.
+ * Layout mirrors SaturnFrameDir.cpp's P6FrameInfo EXACTLY. */
+typedef struct {
+    const unsigned char *pattern;
+    const unsigned char *lutSrc;
+    int pw;      /* padded width, PIXELS (multiple of 8) */
+    int mode;    /* 0 = 8bpp (VDP1 color mode 4), 1 = 4bpp LUT (mode 1) */
+    int lutIdx;
+} P6FrameInfo;
+static int (*s_frdFn)(int slot, int sx, int sy, int w, int h,
+                      P6FrameInfo *out) = 0;
+void p6_vdp1_set_frd(int (*fn)(int, int, int, int, int, P6FrameInfo *))
+{
+    s_frdFn = fn;
+}
+#endif
 static struct {
     const unsigned char *px; /* resident surface pixels, or NULL if banded */
     int w;                   /* sheet width (row stride) */
     int shtSlot;             /* SaturnSheet slot for banded sheets (px==NULL) */
+#if defined(P6_FRAMEDIR)
+    int frdSlot;             /* SaturnFrameDir slot (-1 = no frame directory) */
+#endif
 } s_sheets[P6_VDP1_NSHEETS];
 static int s_sheet_count = 0;
 
@@ -1354,6 +1381,9 @@ int p6_vdp1_sheet_bind(const unsigned char *sheetPixels, int sheetWidth,
     s_sheets[s_sheet_count].px      = sheetPixels;
     s_sheets[s_sheet_count].w       = sheetWidth;
     s_sheets[s_sheet_count].shtSlot = -1;
+#if defined(P6_FRAMEDIR)
+    s_sheets[s_sheet_count].frdSlot = -1;
+#endif
     return s_sheet_count++;
 }
 
@@ -1369,8 +1399,26 @@ int p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
     s_sheets[s_sheet_count].px      = 0;
     s_sheets[s_sheet_count].w       = sheetWidth;
     s_sheets[s_sheet_count].shtSlot = shtSlot;
+#if defined(P6_FRAMEDIR)
+    s_sheets[s_sheet_count].frdSlot = -1;
+#endif
     return s_sheet_count++;
 }
+
+#if defined(P6_FRAMEDIR)
+/* Attach a staged frame directory (SaturnFrameDir_Stage slot, via p6_io_main)
+ * to a bound sheet handle. Once attached, a slot-cache MISS on this sheet is
+ * served from the pre-cut FRD pattern FIRST; the banded/resident sheet path
+ * remains the fallback for any rect not in the directory (defensive -- the
+ * directory holds every anim-referenced rect, so a miss here means a
+ * non-anim rect, e.g. a DrawRect-style raw blit). */
+void p6_vdp1_sheet_set_frd(int handle, int frdSlot)
+{
+    if (handle < 0 || handle >= s_sheet_count)
+        return;
+    s_sheets[handle].frdSlot = frdSlot;
+}
+#endif
 
 #if defined(P6_FRONTEND_CHAIN)
 /* CP5c (Task #270) CRAM-PALETTE FIX -- MEASURED root cause of the wrong Title
@@ -1505,6 +1553,27 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
         return -1;
     }
 
+#if defined(P6_FRAMEDIR)
+    /* PRE-CUT frame directory (stage 1, 8bpp): serve the miss from the
+     * offline-cut pattern -- rows contiguous at the mult-8 padded stride,
+     * 4-aligned in the cart. NO inflate, NO row repack; the box-stage loop
+     * below just copies w bytes/row from stride fi.pw. mode==1 (4bpp LUT)
+     * is stage 2 (P6_FRAMEDIR_4BPP, feature checklist) -- until then FRDs
+     * are built --all8 so every entry is mode 0. Falls through to the
+     * resident/banded sheet path on a directory miss (non-anim rect). */
+    {
+        P6FrameInfo fi;
+        if (s_sheets[sheet].frdSlot >= 0 && s_frdFn
+            && s_frdFn(s_sheets[sheet].frdSlot, sx, sy, w, h, &fi)
+            && fi.mode == 0) {
+            srcPx     = fi.pattern;
+            srcStride = fi.pw;
+        }
+        else
+            fi.pattern = 0;
+        if (fi.pattern) { /* staged from the FRD -- skip the sheet paths */ }
+        else
+#endif
     if (s_sheets[sheet].px) {
         srcPx     = s_sheets[sheet].px + sy * s_sheets[sheet].w + sx;
         srcStride = s_sheets[sheet].w;
@@ -1538,6 +1607,9 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
          * p6_slot_for routes every draw through the P6_FRONTEND_TITLE bucket
          * path, which GHZCUT implies). */
     }
+#if defined(P6_FRAMEDIR)
+    } /* close the FRD-dispatch block */
+#endif
 
     /* Stage into the FIXED boxw x boxh box: content top-left, the rest transparent
      * (palette index 0 -- VDP1 sprite transparent-pixel processing skips it).
@@ -1653,6 +1725,25 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
     }
     if (w > b->bw || h > b->bh) { ++p6_w_vdp1_drops; P6_DR(3); return -1; } /* oversize for bucket */
 
+#if defined(P6_FRAMEDIR)
+    /* PRE-CUT frame directory (stage 1, 8bpp) -- same dispatch as p6_pool_for
+     * (see the comment there). With FRD source rows already at the mult-8
+     * padded stride AND 4-aligned, p6_title_restage_content's shift-merge
+     * branch never runs: srcPx + y*pw stays 4-aligned every row -> the
+     * aligned-u32 fast path packs the whole pattern. */
+    {
+        P6FrameInfo fi;
+        if (s_sheets[sheet].frdSlot >= 0 && s_frdFn
+            && s_frdFn(s_sheets[sheet].frdSlot, sx, sy, w, h, &fi)
+            && fi.mode == 0) {
+            srcPx     = fi.pattern;
+            srcStride = fi.pw;
+        }
+        else
+            fi.pattern = 0;
+        if (fi.pattern) { /* staged from the FRD -- skip the sheet paths */ }
+        else
+#endif
     if (s_sheets[sheet].px) {
         srcPx     = s_sheets[sheet].px + sy * s_sheets[sheet].w + sx;
         srcStride = s_sheets[sheet].w;
@@ -1689,6 +1780,9 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
         }
 #endif
     }
+#if defined(P6_FRAMEDIR)
+    } /* close the FRD-dispatch block */
+#endif
 
     /* LRU victim among this bucket's pre-allocated slots (all jo_id >= 0). */
     {
