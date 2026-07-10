@@ -420,6 +420,19 @@ void RSDK::LoadSfxToSlot(char *filename, uint8 slot, uint8 plays, uint8 scope)
                 if (!sfxList[slot].buffer) {
                     extern int32 p6_saturn_sfx_skips;
                     ++p6_saturn_sfx_skips;
+#if defined(P6_GHZ_AUTORUN)
+                    // Signpost campaign (2026-07-10, diagnostic flavor only):
+                    // identify WHICH sfx the pool-exhaustion guard dropped --
+                    // djb2 of the filename, matched offline against the
+                    // GameConfig/StageConfig SFX lists by qa_signpost_run.py.
+                    {
+                        extern int32 p6_w_sfxskip_hash;
+                        uint32 h = 5381u;
+                        for (const char *p = filename; *p; ++p)
+                            h = ((h << 5) + h) ^ (uint32)(uint8)*p;
+                        p6_w_sfxskip_hash = (int32)h;
+                    }
+#endif
 #if defined(P6_FRONTEND_LOGOS)
                     // Task #271: the DATASET_SFX pool is full. It only GROWS during a
                     // GameConfig/stage SFX load (no frees between LoadSfxToSlot calls),

@@ -584,6 +584,22 @@ __attribute__((used)) int32 p6_w_draw_calls   = 0;  // FX_NONE dispatches comple
 // (counter-cheap, NOSCAN rule respected); flavor-gated so plain/chain
 // shipping builds stay byte-identical.
 __attribute__((used)) int32 p6_w_plr_draws    = 0;
+// Bridge-1 forensics (fall-through at x~1270, run-1 measurement 2026-07-10):
+// touch-test counters written by Collision.cpp CheckObjectCollisionTouch
+// (bridge classID vs slot 0) + a per-frame bridge-entity liveness scan while
+// the player crosses the bridge-1 window (x 800..1500). Discriminates
+// "Bridge entity never ran" (streaming/active/cull) from "AABB missed"
+// (math/hitbox) -- the two live hypotheses from the tabled #181/#256 chain.
+__attribute__((used)) int32 p6_w_btch_calls   = 0;  // bridge-vs-P1 touch tests
+__attribute__((used)) int32 p6_w_btch_hits    = 0;  // ... that collided
+__attribute__((used)) int32 p6_w_btch_lastdy  = -9999; // last y-sep px
+__attribute__((used)) int32 p6_w_btch_lastvy  = 0;  // player vel.y at last test
+__attribute__((used)) int32 p6_w_arun_brg_live    = -1; // bridge-1 live this frame?
+__attribute__((used)) int32 p6_w_arun_brg_active  = -1; // its ->active
+__attribute__((used)) int32 p6_w_arun_brg_firstx  = -1; // player x @ first live sighting
+__attribute__((used)) int32 p6_w_arun_brg_gapmiss = 0;  // frames player in-span & bridge NOT live
+__attribute__((used)) int32 p6_w_arun_inspan      = 0;  // frames player in-span total
+__attribute__((used)) int32 p6_w_sfxskip_hash     = 0;  // djb2 of the last pool-skipped sfx name (Audio.cpp guard)
 #endif
 #if defined(P6_GHZCUT_BOOT)
 // #311 mech-6: draws dropped because frame->sheetID wrapped to 255 (unstaged
@@ -3779,6 +3795,40 @@ static void p6_ghz_frame(void)
     }
 #endif /* P6_PERF_NOSCAN -- skip the diagnostic census/hog scans in the timed frame */
 
+#if defined(P6_GHZ_AUTORUN)
+    // Signpost campaign bridge-1 forensics: while SLOT_PLAYER1 crosses the
+    // bridge-1 window (x 800..1500 px), scan the pool each frame for a live
+    // Bridge entity at the authored bridge-1 x (1184 px, Scene1.bin) and
+    // record liveness/active. Diagnostic flavor only; full-pool scan is the
+    // measured ~ms class but bounded to ~120 frames of the crossing.
+    {
+        EntityBase *p0 = RSDK_ENTITY_AT(0);
+        int32 plrx = p0->position.x >> 16;
+        if (p0->classID && plrx > 800 && plrx < 1500 && p6_w_brg_classid > 0) {
+            int32 live = 0, act = -1;
+            for (int32 bi = 0; bi < ENTITY_COUNT; ++bi) {
+                EntityBase *be = RSDK_ENTITY_AT(bi);
+                if (be->classID == (uint16)p6_w_brg_classid) {
+                    int32 bx = be->position.x >> 16;
+                    if (bx > 1150 && bx < 1220 && (be->position.y >> 16) < 1200) {
+                        live = 1;
+                        act  = (int32)be->active;
+                        break;
+                    }
+                }
+            }
+            p6_w_arun_brg_live   = live;
+            p6_w_arun_brg_active = act;
+            if (live && p6_w_arun_brg_firstx < 0)
+                p6_w_arun_brg_firstx = plrx;
+            if (plrx >= 1080 && plrx <= 1290) {
+                ++p6_w_arun_inspan;
+                if (!live)
+                    ++p6_w_arun_brg_gapmiss;
+            }
+        }
+    }
+#endif
     ++p6_w_cont_frames;
 #if defined(P6_SHADOW_COMPARE)
     // Arm the scan-split parity proof only once gameplay is live (avoids the load-

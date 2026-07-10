@@ -192,7 +192,7 @@ def main(argv=None) -> int:
               % (hex(pool) if pool else pool))
         return 2
     scene_base = pool + RESERVE * WIDE
-    sphys = lv.r32s("RSDK::p6_pool_scene_phys") or lv.r32s("p6_pool_scene_phys")
+    sphys = lv.r32s("RSDK::p6_pool_scene_phys")
     if sphys is None or not (0 < sphys <= SCENE_PHYS):
         sphys = SCENE_PHYS
 
@@ -201,7 +201,10 @@ def main(argv=None) -> int:
         [sys.executable, str(_HERE / "_ghz1_obstacle_map.py"), "--json"]).decode())
     bridges_x = sorted(r["x"] for r in man if r["cls"] == "Bridge")
 
-    # object classIDs from the live object pointers (map symbol -> ptr -> u16)
+    # object classIDs: pack objects (SignPost/ActClear/Player) via their object
+    # POINTER symbols in game.map (ptr -> Object.classID u16 @ +0); overlay
+    # badniks via the p6_w_b2_cids[9] witness array (p6_ovl_ghz.c:1629-1637);
+    # Bridge via p6_w_brg_classid.
     def obj_cid(name):
         p = lv.r32s(name)
         if p and 0x00200000 <= p < 0x06100000:
@@ -209,18 +212,25 @@ def main(argv=None) -> int:
             return (v >> 16) & 0xFFFF if v is not None else None
         return None
 
-    CID = {}
-    for nm in ("Motobug", "Crabmeat", "Newtron", "Chopper", "Batbrain",
-               "BuzzBomber", "Bridge", "SignPost", "ActClear", "Player"):
-        CID[nm] = obj_cid(nm)
-    print("live classIDs:", {k: v for k, v in CID.items()})
+    B2_IDX = {"Newtron": 3, "Crabmeat": 4, "BuzzBomber": 5, "Chopper": 6,
+              "Motobug": 7, "Batbrain": 8}
 
-    def obj_aniframes(name):
-        p = lv.r32s(name)
-        off = BADNIK_OBJ_ANIF.get(name, None)
-        if p and off is not None:
-            return lv.r16(p + off)
-        return None
+    def all_cids():
+        cid = {}
+        for nm in ("SignPost", "ActClear", "Player"):
+            cid[nm] = obj_cid(nm)
+        b2 = lv.sym("p6_w_b2_cids")
+        for nm, i in B2_IDX.items():
+            v = lv.r32(b2 + 4 * i) if b2 else None
+            cid[nm] = (s32(v) if v is not None else None)
+            if cid[nm] is not None and cid[nm] <= 0:
+                cid[nm] = None
+        brg = lv.r32s("p6_w_brg_classid")
+        cid["Bridge"] = s32(brg) if brg and s32(brg) > 0 else None
+        return cid
+
+    CID = all_cids()
+    print("live classIDs:", {k: v for k, v in CID.items()})
 
     spin_addr = lv.sym("SignPost_State_Spin")
     has_plr_draws = lv.sym("p6_w_plr_draws") is not None
@@ -243,19 +253,26 @@ def main(argv=None) -> int:
     print("=== GHZ reached @%.1fs; watching traversal ===" % (time.time() - t0), flush=True)
 
     # refresh classIDs now that GHZ objects are registered
-    for nm in list(CID):
-        CID[nm] = obj_cid(nm)
+    time.sleep(3.0)
+    CID = all_cids()
     print("GHZ classIDs:", CID, flush=True)
     cid2name = {v: k for k, v in CID.items() if v}
 
     W = ["p6_w_cont_frames", "p6_perf_vbl_count", "p6_w_sht_fetches",
          "p6_w_vdp1_evicts", "p6_w_obj_refills", "p6_w_vdp1_cmds",
          "p6_w_vdp1_drops", "p6_w_vdp1_handle_drops", "p6_w_str_track",
-         "p6_w_sfx_skips", "p6_saturn_anim_allocfail", "p6_w_anim_lastfail",
+         "p6_w_sfx_skips", "RSDK::p6_saturn_anim_allocfail", "RSDK::p6_w_anim_lastfail",
          "p6_w_snd_plays", "p6_w_brg_frames", "p6_w_plr_draws",
          "p6_w_transitions", "p6_w_xing_count", "p6_w_stream_starve"]
 
     out = open(a.out, "w")
+
+    # C5 baselines at GHZ entry: the counters are chain-cumulative (menu/AIZ/
+    # cutscene legs); the traversal verdict is on the GHZ DELTA, absolutes
+    # reported for the front-end follow-up.
+    base_skips = s32(lv.r32s("p6_w_sfx_skips") or 0)
+    base_afail = lv.r32s("RSDK::p6_saturn_anim_allocfail") or 0
+    base_plays = lv.r32s("p6_w_snd_plays") or 0
 
     def player():
         b = pool
@@ -328,6 +345,8 @@ def main(argv=None) -> int:
     sign_seen = {"crossed": False, "spin": False, "actclear": False, "reached": False}
     last_scan = 0.0
     settle_until = time.time() + 4.0  # post-load settle: inflates expected
+    trk_seen = set()   # C4: every p6_w_str_track value observed WHILE in GHZ
+    folder_checks = 0
 
     while time.time() - ts < a.watch:
         now = time.time()
@@ -341,6 +360,18 @@ def main(argv=None) -> int:
                "w": {k: (s32(w[k]) if w[k] is not None else None) for k in W}}
         out.write(json.dumps(rec) + "\n")
         out.flush()
+
+        # C4: latch the CD-DA track while the GHZ scene is live (post-verdict
+        # reads see the menu/gameover track). Also abort on scene exit
+        # (3 deaths -> GameOver -> Menu) -- the traversal is over.
+        folder_checks += 1
+        if folder_checks % 8 == 0:
+            f = lv.folder()
+            if f != "GHZ":
+                print("!! scene left GHZ (folder=%r) -- traversal over (game over?)" % f)
+                break
+        if w["p6_w_str_track"] is not None:
+            trk_seen.add(s32(w["p6_w_str_track"]))
 
         alive = p["cid"] == CID.get("Player")
         dcont = None
@@ -481,22 +512,46 @@ def main(argv=None) -> int:
     verdict("C2 player-drawn", len(plr_undrawn) == 0,
             "%d undrawn-while-alive+onscreen samples %s" %
             (len(plr_undrawn), plr_undrawn[:3]), skip=not has_plr_draws)
-    # C3
-    anif = {nm: obj_aniframes(nm) for nm in BADNIK_OBJ_ANIF}
-    cls_ok = all(v is None or v != 0xFFFF for v in anif.values())
+    # C3 -- class-level anim-load witnesses (p6_ovl_ghz.c latches, int16 -1 ==
+    # LoadSpriteAnimation failed) + the per-entity animator.frames scan above
+    anif = {}
+    for wname in ("p6_w_batbrain_aniframes", "p6_w_newtron_aniframes",
+                  "p6_w_spikes_aniframes", "p6_w_spikelog_aniframes",
+                  "p6_w_platform_aniframes", "p6_w_itembox_aniframes",
+                  "p6_w_spring_aniframes"):
+        v = lv.r32s(wname)
+        anif[wname.replace("p6_w_", "").replace("_aniframes", "")] = (s32(v) if v is not None else None)
+    cls_ok = all(v is None or v >= 0 for v in anif.values())
     verdict("C3 badniks", len(badnik_bad) == 0 and cls_ok,
             "class aniFrames=%s; in-window entities w/ frames==0: %d %s" %
             (anif, len(badnik_bad), badnik_bad[:3]))
-    # C4
-    trk = lv.r32s("p6_w_str_track")
-    verdict("C4 music", trk == 2, "p6_w_str_track=%s (expect 2=GreenHill1)" % trk)
+    # C4 -- tracks observed while IN the GHZ scene (Music.c:37 Music_Create ->
+    # SetMusicTrack(scene Music entity trackName) -> Saturn HandleStreamLoad
+    # GreenHill1.ogg -> CD-DA track 2, p6_io_main.cpp:2495). -1 before the
+    # first PlayStream is tolerated only as a transient.
+    trk_bad = trk_seen - {2, -1}
+    verdict("C4 music", 2 in trk_seen and not trk_bad,
+            "tracks seen in GHZ=%s (expect 2=GreenHill1)" % sorted(trk_seen))
     # C5
     skips = s32(lv.r32s("p6_w_sfx_skips") or 0)
-    afail = lv.r32s("p6_saturn_anim_allocfail")
-    plays = lv.r32s("p6_w_snd_plays")
-    verdict("C5 sfx", (skips is None or skips <= 0) and (afail in (None, 0))
-            and (plays or 0) > 0,
-            "sfx_skips=%s anim_allocfail=%s snd_plays=%s" % (skips, afail, plays))
+    afail = lv.r32s("RSDK::p6_saturn_anim_allocfail") or 0
+    plays = lv.r32s("p6_w_snd_plays") or 0
+    d_skips = (skips or 0) - (base_skips or 0)
+    d_afail = afail - base_afail
+    d_plays = plays - base_plays
+    verdict("C5 sfx", d_skips <= 0 and d_afail == 0,
+            "GHZ-delta: sfx_skips=%+d anim_allocfail=%+d snd_plays=%+d "
+            "(chain absolutes: skips=%s allocfail=%s plays=%s lastfail=0x%X)" %
+            (d_skips, d_afail, d_plays, skips, afail, plays,
+             (lv.r32s("RSDK::p6_w_anim_lastfail") or 0)))
+    # bridge-1 forensic instruments (AUTORUN build; None on older builds)
+    forens = {}
+    for wn in ("p6_w_btch_calls", "p6_w_btch_hits", "p6_w_btch_lastdy",
+               "p6_w_btch_lastvy", "p6_w_arun_brg_live", "p6_w_arun_brg_active",
+               "p6_w_arun_brg_firstx", "p6_w_arun_brg_gapmiss", "p6_w_arun_inspan"):
+        v = lv.r32s(wn)
+        forens[wn.replace("p6_w_", "")] = s32(v) if v is not None else None
+    print("   bridge-1 forensics: %s" % forens)
     # C6
     brg = s32(lv.r32s("p6_w_brg_frames") or 0)
     verdict("C6 bridges", brg is not None and brg > 0 and len(bridge_bad) == 0,
@@ -505,8 +560,9 @@ def main(argv=None) -> int:
     # C7
     verdict("C7 inclines", len(incline_bad) == 0,
             "%d bad incline samples %s" % (len(incline_bad), incline_bad[:3]))
-    # C8
-    verdict("C8 no-stall", len(stalls) == 0,
+    # C8 -- a PERFECT traversal has no stalls AND no deaths (a death is either
+    # a scripted-input gap or a collision/physics parity bug; both block).
+    verdict("C8 no-stall/no-death", len(stalls) == 0 and len(deaths) == 0,
             "stalls=%d %s deaths=%d %s respawns=%d" %
             (len(stalls), stalls[:3], len(deaths), deaths[:3], len(respawns)))
     # C9

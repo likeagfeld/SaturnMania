@@ -206,6 +206,21 @@ void RSDK::CopyCollisionMask(uint16 dst, uint16 src, uint8 cPlane, uint8 cMode)
 }
 #endif
 
+#if defined(P6_GHZ_AUTORUN)
+// Signpost campaign (2026-07-10, diagnostic AUTORUN flavor only): Bridge-vs-
+// SLOT_PLAYER1 touch-test forensics -- the decisive discriminator from the
+// tabled #181/#256 chain ("49 calls, collided=0"). Counts every
+// CheckObjectCollisionTouch where thisEntity is the live Bridge class and
+// otherEntity is slot 0, plus the last y-separation (bridge.y+top vs
+// player.y+bottom, px). calls==0 while the player crosses a bridge span ==
+// the Bridge entity never ran (streaming/active/cull class); calls>0 hits==0
+// == the AABB itself misses (math/hitbox class). Witnesses defined in
+// p6_io_main.cpp; p6_w_brg_classid is the runtime Bridge classID latch
+// (p6_wave1_reg.c).
+extern int32 p6_w_brg_classid;
+extern int32 p6_w_btch_calls, p6_w_btch_hits, p6_w_btch_lastdy, p6_w_btch_lastvy;
+#endif
+
 bool32 RSDK::CheckObjectCollisionTouch(Entity *thisEntity, Hitbox *thisHitbox, Entity *otherEntity, Hitbox *otherHitbox)
 {
     int32 store = 0;
@@ -267,6 +282,19 @@ bool32 RSDK::CheckObjectCollisionTouch(Entity *thisEntity, Hitbox *thisHitbox, E
             debugHitboxList[thisHitboxID].collision |= 1 << (collided - 1);
         if (otherHitboxID >= 0 && collided)
             debugHitboxList[otherHitboxID].collision |= 1 << (collided - 1);
+    }
+#endif
+
+#if defined(P6_GHZ_AUTORUN)
+    if (p6_w_brg_classid > 0 && thisEntity->classID == (uint16)p6_w_brg_classid
+        && otherEntity == (Entity *)RSDK_ENTITY_AT(0)) {
+        ++p6_w_btch_calls;
+        if (collided)
+            ++p6_w_btch_hits;
+        // y-separation in px: (bridge.y + hitbox top) - (player.y + hitbox bottom)
+        p6_w_btch_lastdy = (FROM_FIXED(thisEntity->position.y) + thisHitbox->top)
+                           - (FROM_FIXED(otherEntity->position.y) + otherHitbox->bottom);
+        p6_w_btch_lastvy = otherEntity->velocity.y;
     }
 #endif
 

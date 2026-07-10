@@ -20,7 +20,15 @@ HAZ = {"Motobug", "Crabmeat", "Batbrain", "Newtron", "Spikes", "SpikeLog"}
 rows = json.loads(subprocess.check_output(
     [sys.executable, "tools/_ghz1_obstacle_map.py", "--json"]).decode())
 
-pts = sorted((r["x"], r["y"]) for r in rows if r["cls"] in HAZ)
+pts = [(r["x"], r["y"]) for r in rows if r["cls"] in HAZ]
+# Chopper (run-1 iteration, 2026-07-10): choppers sit in the water below each
+# bridge (authored y = bridge y + 216: (1184,1120) vs bridge (1184,904);
+# (1180,1916) vs bridge (1184,1736)) and leap up THROUGH the planks to deck
+# height. The runtime dy filter compares against the player's running height,
+# so register the hazard at the LEAP APEX (authored y - 216 = the deck) --
+# the player then jumps just before the chopper column while crossing.
+pts += [(r["x"], r["y"] - 216) for r in rows if r["cls"] == "Chopper"]
+pts.sort()
 
 # ---- live-iteration overrides (x0, x1, y0, y1, buttons) --------------------
 # buttons bit meanings mirror P6_PAD_*: A=1<<10 (jump), RIGHT-SUPPRESS uses
