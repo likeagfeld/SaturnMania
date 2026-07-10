@@ -211,6 +211,28 @@ void InputDeviceSaturn::UpdateInput()
                     scripted |= (uint16)(o->buttons & ~P6_PAD_RIGHT);
                 }
             }
+            // UNSTICK fallback (run-2 iteration: permanent push-stall at x2166
+            // against the 32px step; classic step physics stop a runner at any
+            // step over the 16px step-up limit). If x stagnates ~2/3 s while
+            // alive, hold jump ~24 ticks, release, retry. Generic: covers any
+            // wall the waypoint table misses without hand-tuning.
+            {
+                static int32 s_lastx = -1, s_stagnant = 0, s_jumphold = 0;
+                if (s_jumphold > 0) {
+                    scripted |= P6_PAD_A;
+                    --s_jumphold;
+                }
+                else if (px >= s_lastx - 2 && px <= s_lastx + 2) {
+                    if (++s_stagnant >= 40) {
+                        s_jumphold = 24;
+                        s_stagnant = 0;
+                    }
+                }
+                else {
+                    s_stagnant = 0;
+                    s_lastx    = px;
+                }
+            }
         }
         this->buttonMasks |= scripted;
     }

@@ -28,6 +28,57 @@ pts = [(r["x"], r["y"]) for r in rows if r["cls"] in HAZ]
 # so register the hazard at the LEAP APEX (authored y - 216 = the deck) --
 # the player then jumps just before the chopper column while crossing.
 pts += [(r["x"], r["y"] - 216) for r in rows if r["cls"] == "Chopper"]
+
+# ---- terrain STEP waypoints (run-2 iteration, 2026-07-10) ------------------
+# Measured stall: x2166 y876 Player_State_Ground anim17 (push) against the
+# authored 32px step at x2180 (floor profile 896 -> 864 -> 832 at 2244;
+# tools/_floor_profile.py from TileConfig.bin+Scene1.bin). Classic step
+# physics stop a runner at any vertical step > the 16px step-up limit, so a
+# traversal bot must jump. Generate a jump waypoint for EVERY upward step
+# >= 24px found in the collision floor profile (all surfaces per column, both
+# FG layers, plane A) -- fully data-driven, no hand placement.
+import importlib.util
+_fp_spec = importlib.util.spec_from_file_location("fp", "tools/_floor_profile.py")
+fp = importlib.util.module_from_spec(_fp_spec)
+import sys as _sys
+_argv = _sys.argv; _sys.argv = ["fp"]  # suppress its __main__ CLI
+_fp_spec.loader.exec_module(fp)
+_sys.argv = _argv
+
+
+def surfaces(wx, ytop=600, ybot=2100):
+    """All floor surface ys in the column (top edge of each solid run)."""
+    out = []
+    for layer in ("FG Low", "FG High"):
+        y = ytop
+        while y < ybot:
+            s = fp.col_floor_y(layer, wx, y, ybot, 0)
+            if s is None:
+                break
+            out.append(s)
+            # skip through the solid run: advance until a non-solid gap
+            y = s + 24
+    return sorted(set(out))
+
+steps = []
+prev = None
+for wx in range(96, 15900, 8):
+    cur = surfaces(wx)
+    if prev is not None:
+        for s1 in cur:
+            # a surface at wx that is 24..120px HIGHER than a surface at wx-8
+            # with no equal-height continuation = an upward step edge
+            if any(24 <= (s0 - s1) <= 120 for s0 in prev) and not any(abs(s0 - s1) <= 8 for s0 in prev):
+                steps.append((wx, s1 + 8))  # y just below the new deck edge
+    prev = cur
+# merge steps within 48px (double-steps -> one longer hold window)
+merged = []
+for x, y in steps:
+    if merged and x - merged[-1][0] < 48 and abs(y - merged[-1][1]) < 96:
+        continue
+    merged.append((x, y))
+print("terrain steps found: %d (merged %d)" % (len(steps), len(merged)))
+pts += merged
 pts.sort()
 
 # ---- live-iteration overrides (x0, x1, y0, y1, buttons) --------------------

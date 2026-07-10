@@ -453,6 +453,11 @@ def main(argv=None) -> int:
         # periodic structural scan (C3 badniks, C6 bridges)
         if now - last_scan > a.scan_period and alive:
             last_scan = now
+            if any(CID.get(nm) is None for nm in B2_IDX) or CID.get("Bridge") is None:
+                CID = all_cids()   # overlay latches can post-date GHZ entry
+                cid2name.clear()
+                cid2name.update({v: k for k, v in CID.items() if v})
+                print("  [scan] refreshed classIDs: %s" % CID, flush=True)
             cam = camera_x()
             ents = full_scan()
             win_lo = (cam if cam is not None else p["x"]) - 260
@@ -555,7 +560,18 @@ def main(argv=None) -> int:
         v = lv.r32s(wn)
         forens[wn.replace("p6_w_", "")] = s32(v) if v is not None else None
     print("   bridge-1 forensics: %s" % forens)
-    sh = lv.r32s("p6_w_sfxskip_hash")
+    # anim-load log (first 24 loads: hash, (result<<16)|frameCount; result -1 = allocfail)
+    la = lv.sym("RSDK::p6_w_anim_log")
+    ln = lv.r32s("RSDK::p6_w_anim_logn") or 0
+    if la and ln:
+        ents_log = []
+        for i in range(min(ln, 24)):
+            h = lv.r32(la + 8 * i)
+            rv = lv.r32(la + 8 * i + 4) or 0
+            res = s32(rv) >> 16
+            ents_log.append("0x%08X:%s" % (h or 0, res))
+        print("   anim-load log (%d): %s" % (ln, " ".join(ents_log)))
+    sh = lv.r32s("RSDK::p6_w_sfxskip_hash")
     if sh:
         try:
             tbl = json.loads((_HERE.parent / "_sfx_hashes.json").read_text())

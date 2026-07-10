@@ -50,5 +50,21 @@
 "0x1e71df9d": "VO/TailsWins.wav",
 "0x6b8ec336": "VO/KnuxWins.wav",
 "0x629e3391": "Global/Push.wav",
-"0x92419562": "Stage/Fail.wav"
+"0x92419562": "Stage/Fail.wav",
+"0xa37bccb0": "Stage/LedgeBreak.wav",
+"0x2d521478": "Stage/BossHit.wav",
+"0x6c2cc427": "Stage/Explosion2.wav",
+"0x42d25069": "Stage/Drop.wav",
+"0xb51b5b7b": "Stage/Flap.wav",
+"0x5c3ab595": "Stage/Splash.wav",
+"0xc8bfaee2": "Stage/Assemble.wav",
+"0xd71551b8": "Stage/Sharp.wav",
+"0x25538a99": "Stage/Rotate.wav",
+"0x886c20b0": "Stage/Impact2.wav",
+"0x8a1d0220": "Stage/Targeting1.wav",
+"0x8d154ef2": "Stage/Buzzsaw.wav",
+"0xb27fe944": "Stage/Button2.wav",
+"0x4954b74b": "Stage/HullClose.wav",
+"0x20b6338a": "Stage/Warning.wav",
+"0x96bffe80": "Stage/Drown.wav"
 }

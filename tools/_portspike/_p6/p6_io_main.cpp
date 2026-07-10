@@ -8580,6 +8580,40 @@ static void p6_frontend_frame(void)
     p6_w_perf_cyc_total = p6_w_perf_cyc_input + p6_w_perf_cyc_obj
                         + p6_w_perf_cyc_draw + p6_w_perf_cyc_present;
 
+#if defined(P6_GHZ_AUTORUN)
+    // Signpost campaign bridge-1 forensics (CHAIN frame path -- the p6_ghz_frame
+    // copy at :3800 never runs in the chain flavor; run-2 measured inspan=0).
+    // Same logic: while SLOT_PLAYER1 crosses x 800..1500 in GHZ, scan for a live
+    // Bridge entity at bridge-1 (authored (1184,904), Scene1.bin).
+    if (RSDK::currentSceneFolder[0] == 'G' && RSDK::currentSceneFolder[1] == 'H'
+        && RSDK::currentSceneFolder[2] == 'Z' && RSDK::currentSceneFolder[3] == 0) {
+        EntityBase *p0 = RSDK_ENTITY_AT(0);
+        int32 plrx = p0->position.x >> 16;
+        if (p0->classID && plrx > 800 && plrx < 1500 && p6_w_brg_classid > 0) {
+            int32 live = 0, act = -1;
+            for (int32 bi = 0; bi < ENTITY_COUNT; ++bi) {
+                EntityBase *be = RSDK_ENTITY_AT(bi);
+                if (be->classID == (uint16)p6_w_brg_classid) {
+                    int32 bx = be->position.x >> 16;
+                    if (bx > 1150 && bx < 1220 && (be->position.y >> 16) < 1200) {
+                        live = 1;
+                        act  = (int32)be->active;
+                        break;
+                    }
+                }
+            }
+            p6_w_arun_brg_live   = live;
+            p6_w_arun_brg_active = act;
+            if (live && p6_w_arun_brg_firstx < 0)
+                p6_w_arun_brg_firstx = plrx;
+            if (plrx >= 1080 && plrx <= 1290) {
+                ++p6_w_arun_inspan;
+                if (!live)
+                    ++p6_w_arun_brg_gapmiss;
+            }
+        }
+    }
+#endif
     ++p6_w_cont_frames; // E5: engine reached ENGINESTATE_REGULAR + is ticking
 
     // CP5b.7: frame-end true-vblank tally + compute-full bracket (mirrors
