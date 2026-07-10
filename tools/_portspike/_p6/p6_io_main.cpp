@@ -2828,6 +2828,7 @@ int32  SaturnFrameDir_Lookup(int32 slot, int32 sx, int32 sy,
                              int32 w, int32 h, void *out);
 uint32 SaturnSheet_ResAlloc(uint32 bytes);
 uint32 SaturnSheet_ResRemain(void);
+void   SaturnSheet_ResFloor(uint32 guardBytes);
 void   p6_vdp1_set_frd(int32 (*fn)(int32, int32, int32, int32, int32, void *));
 void   p6_vdp1_sheet_set_frd(int handle, int frdSlot);
 void   p6_vdp1_frd_detach_all(void);
@@ -4033,6 +4034,9 @@ __attribute__((unused)) static int32 p6_frd_stage_file(const char *frdFile,
         if (have >= 0)
             return have;
     }
+    // MEASURED scanlines clobber guard (SaturnSheet_ResFloor comment): keep
+    // every FRD blob above the per-frame scanline-callback window at RES_BASE.
+    SaturnSheet_ResFloor(0x1000);
     uint32 dst = SaturnSheet_ResAlloc(0); // aligned-cursor peek (claims 0 B)
     uint32 cap = SaturnSheet_ResRemain();
     if (!dst || !cap)

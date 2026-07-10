@@ -329,6 +329,22 @@ extern "C" uint32 SaturnSheet_ResRemain(void)
     uint32 a = (s_resCursor + 3u) & ~3u;
     return (a < SATURNSHEET_RES_END) ? (SATURNSHEET_RES_END - a) : 0;
 }
+
+// MEASURED live clobber (qa_p6_frd F2, 2026-07-10): the front-end arms the
+// engine `scanlines` backing at 0x22400000 == SATURNSHEET_RES_BASE and
+// DrawLayer's ungated layer->scanlineCallback(scanlines) WRITES deform data
+// there EVERY FRAME (224 * 16 B = 3,584 B). A blob staged at the base gets
+// its header+directory garbled after the stage-time djb2 -- observed as
+// per-frame slot-0 lookup misses on rects PROVEN present offline (SONIC1
+// walk frames, ~11 misses/s at the landed GHZ). Ratchet the bump cursor
+// above the window before FRD staging; <= 4 KB of the >= 285 KB worst-seam
+// headroom. Flag-gated: byte-identical without -DP6_FRAMEDIR.
+extern "C" void SaturnSheet_ResFloor(uint32 guardBytes)
+{
+    uint32 floorAddr = SATURNSHEET_RES_BASE + guardBytes;
+    if (s_resCursor < floorAddr)
+        s_resCursor = floorAddr;
+}
 #endif
 
 #if defined(P6_FRONTEND_MENU)
