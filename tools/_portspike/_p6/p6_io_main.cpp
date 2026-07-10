@@ -7849,6 +7849,20 @@ static void p6_frontend_frame(void)
                             if (gs >= 0 && frdOk[promoteOrder[pi]] < 0)
                                 SaturnSheet_MakeResident(gs);
                         }
+                        // C1 signpost-campaign fix (2026-07-10, MEASURED 9.4 real
+                        // miniz inflates/frame + 12.8 evicts/frame at the landed
+                        // GHZ, qa_signpost_run 18:19 run): sheets BOUND in earlier
+                        // chain legs (Players/Sonic1, Global/Items, Global/Display
+                        // ... surfaces + p6_vdp1HandleBySurface persist) are
+                        // SKIPPED by the arm-env bind loop (handle>=0 continue,
+                        // :3188) so the p6_vdp1_frd_detach_all() above left their
+                        // frdSlot=-1 FOREVER -- and the frdOk>=0 result suppressed
+                        // their MakeResident fallback, leaving them on the banded
+                        // per-draw miniz path. The AIZ (:7022) and cutscene
+                        // (:7683) seams both re-attach persisted handles; this
+                        // seam was missing the same call. Front-end-chain only
+                        // (inside P6_FRONTEND_MENU) -> plain GHZ byte-identical.
+                        p6_frd_attach_bound();
 #else
                         static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
                         for (int32 pi = 0; pi < 8; ++pi) {

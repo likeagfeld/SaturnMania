@@ -185,7 +185,25 @@ void InputDeviceSaturn::UpdateInput()
         && RSDK::currentSceneFolder[2] == 'Z' && RSDK::currentSceneFolder[3] == 0) {
 #include "../../tools/_portspike/_p6/p6_autorun_table.h"
         enum { P6_AR_LEAD = 96, P6_AR_GAP = 8, P6_AR_DY_UP = 48, P6_AR_DY_DOWN = 160 };
+        // v3 (signpost campaign r3): PRESS-EDGE PULSE SHAPER. Root cause of the
+        // permanent x=2358 stall (MEASURED 18:19 run: state=Player_State_Ground
+        // 0x06032A98, anim=17 push, gvel=0, 33 stall detections): the v2 table
+        // held A as a LEVEL for the whole [hx-96, hx-8] window. The verbatim
+        // engine edge logic (Input.cpp:258-266) converts a held key into exactly
+        // ONE press edge (press cleared while down persists), and the decomp
+        // Player_State_Ground jump requires jumpPress = a fresh PRESS edge
+        // (Player.c Player_Input_P1). If the one jump fails to carry Sonic
+        // across the window (landed back inside it against the 32px step face),
+        // A stays down forever -> no second edge -> no jump, ever. The v2
+        // unstick only ORed A (never released it while the table held it), so
+        // it could not manufacture an edge either. FIX: route every scripted
+        // jump request through a hold/release pulse: JHOLD=32 ticks asserted
+        // (full variable-jump rise, apex ~30 frames at -6.5px/f, 0.21875px/f^2)
+        // then JREL=10 ticks forced released -> each cycle is a fresh press
+        // edge until the obstacle is actually cleared. Diagnostic flavor only.
+        enum { P6_AR_JHOLD = 32, P6_AR_JREL = 10 };
         uint16 scripted    = P6_PAD_RIGHT;
+        int32 wantJump     = 0;
         RSDK::Entity *p0   = (RSDK::Entity *)RSDK_ENTITY_AT(0);
         if (p0->classID != 0) { // alive (death->respawn leaves classID 0 for a beat)
             int32 px = p0->position.x >> 16;
@@ -197,7 +215,7 @@ void InputDeviceSaturn::UpdateInput()
                 if (px >= hx - P6_AR_LEAD && px < hx - P6_AR_GAP) {
                     int32 dy = (int32)p6_autorun_hazards[i].y - py;
                     if (dy >= -P6_AR_DY_UP && dy <= P6_AR_DY_DOWN) {
-                        scripted |= P6_PAD_A;
+                        wantJump = 1;
                         break;
                     }
                 }
@@ -208,23 +226,23 @@ void InputDeviceSaturn::UpdateInput()
                     && py >= (int32)o->y0 && py < (int32)o->y1) {
                     if (o->buttons & P6_PAD_RIGHT) // bit15 = SUPPRESS forced RIGHT
                         scripted &= (uint16)~P6_PAD_RIGHT;
-                    scripted |= (uint16)(o->buttons & ~P6_PAD_RIGHT);
+                    if (o->buttons & P6_PAD_A) // route override jumps through the shaper
+                        wantJump = 1;
+                    scripted |= (uint16)(o->buttons & ~(P6_PAD_RIGHT | P6_PAD_A));
                 }
             }
-            // UNSTICK fallback (run-2 iteration: permanent push-stall at x2166
-            // against the 32px step; classic step physics stop a runner at any
-            // step over the 16px step-up limit). If x stagnates ~2/3 s while
-            // alive, hold jump ~24 ticks, release, retry. Generic: covers any
-            // wall the waypoint table misses without hand-tuning.
+            // UNSTICK fallback (run-2 iteration: permanent push-stall against a
+            // >16px step). If x stagnates ~2/3 s while alive, request jump for
+            // one full pulse cycle; the shaper below guarantees the press edge.
             {
-                static int32 s_lastx = -1, s_stagnant = 0, s_jumphold = 0;
-                if (s_jumphold > 0) {
-                    scripted |= P6_PAD_A;
-                    --s_jumphold;
+                static int32 s_lastx = -1, s_stagnant = 0, s_jumpreq = 0;
+                if (s_jumpreq > 0) {
+                    wantJump = 1;
+                    --s_jumpreq;
                 }
                 else if (px >= s_lastx - 2 && px <= s_lastx + 2) {
                     if (++s_stagnant >= 40) {
-                        s_jumphold = 24;
+                        s_jumpreq  = P6_AR_JHOLD + P6_AR_JREL;
                         s_stagnant = 0;
                     }
                 }
@@ -232,6 +250,22 @@ void InputDeviceSaturn::UpdateInput()
                     s_stagnant = 0;
                     s_lastx    = px;
                 }
+            }
+        }
+        // pulse shaper: while a jump is requested, assert A for JHOLD ticks then
+        // force-release JREL ticks, repeating -- one press edge per cycle.
+        {
+            static int32 s_phase = -1;
+            if (wantJump) {
+                if (s_phase < 0)
+                    s_phase = 0;
+                if (s_phase < P6_AR_JHOLD)
+                    scripted |= P6_PAD_A;
+                if (++s_phase >= P6_AR_JHOLD + P6_AR_JREL)
+                    s_phase = 0;
+            }
+            else {
+                s_phase = -1;
             }
         }
         this->buttonMasks |= scripted;

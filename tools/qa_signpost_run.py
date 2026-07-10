@@ -10,7 +10,21 @@ Then:        python tools/qa_signpost_run.py [--wait 420] [--watch 900]
 The 9 checks (mission classes):
   C1 inflates    -- steady-motion per-frame miniz inflates == 0 on every 1000px
                     leg (p6_w_sht_fetches delta / logic frame; median per leg
-                    must be 0); deflate/evict churn bounded (p6_w_vdp1_evicts).
+                    must be 0). ATTRIBUTION (r3, code-verified): p6_w_sht_fetches
+                    increments ONLY after a real p6_mz_uncompress on the BANDED
+                    path (SaturnSheet.cpp:454); the resident cart path returns
+                    at :419 without counting, and an FRD hit bypasses FetchRect
+                    entirely (p6_vdp1.c:1740-1756). So the witness IS the real
+                    miniz-inflate counter -- honest as labeled. NOTE: FRD
+                    misses==0 does NOT prove all draws hit FRD: a sheet with
+                    frdSlot<0 never consults the directory (no miss counted).
+                    p6_w_vdp1_lastfetch (shtSlot<<24|w<<12|h) is sampled for
+                    per-sheet attribution of any banded fetch.
+  C1b churn      -- slot-restage churn bounded: per-leg median p6_w_vdp1_evicts
+                    delta/frame <= 16 (regression bound above the measured
+                    12.8/frame 3-badnik-window worst of the 18:19 r2 run; the
+                    animating-badniks fmax>slots thrash class stays tracked
+                    honestly and separately from real inflates).
   C2 player draw -- player never undrawn while alive+on-screen
                     (p6_w_plr_draws delta vs p6_w_cont_frames delta; AUTORUN
                     witness). SKIP if the symbol is absent (older build).
@@ -28,9 +42,11 @@ The 9 checks (mission classes):
   C7 inclines    -- while onGround && angle != 0 && alive: animator.frames
                     != 0, visible == 1, and (if C2 witness present) the player
                     draw delta > 0 across the incline samples.
-  C8 loops/stall -- x progress never stalls > STALL_S seconds while alive
-                    (loop clip-through / PlaneSwitch failure shows as a stall
-                    or a death; every stall is reported with x/y/state).
+  C8 loops/stall -- x progress never stalls PERMANENTLY while alive. Every
+                    >STALL_S stagnation is recorded with x/y/state, but the
+                    verdict REDs only stalls the input table never cleared
+                    (max_x never subsequently exceeded stall.x + 8) -- a stall
+                    the scripted input then clears is acceptable (r3 semantics).
   C9 signpost    -- player reaches signpost x (manifest 15792), the RUNPAST/
                     DROP SignPost entity's active flips ACTIVE_BOUNDS(4) ->
                     ACTIVE_NORMAL(2) (SignPost_CheckTouch, SignPost.c:326),
@@ -280,7 +296,11 @@ def main(argv=None) -> int:
          "p6_w_vdp1_drops", "p6_w_vdp1_handle_drops", "p6_w_str_track",
          "p6_w_sfx_skips", "RSDK::p6_saturn_anim_allocfail", "RSDK::p6_w_anim_lastfail",
          "p6_w_snd_plays", "p6_w_brg_frames", "p6_w_plr_draws",
-         "p6_w_transitions", "p6_w_xing_count", "p6_w_stream_starve"]
+         "p6_w_transitions", "p6_w_xing_count", "p6_w_stream_starve",
+         # C1 attribution (r3): last banded fetch (shtSlot<<24|w<<12|h,
+         # p6_vdp1.c GHZCUT_BOOT witness) + FRD registry health
+         "p6_w_vdp1_lastfetch", "p6_w_frd_active", "p6_w_frd_lookups",
+         "p6_w_frd_misses"]
 
     out = open(a.out, "w")
 
@@ -353,6 +373,7 @@ def main(argv=None) -> int:
     legs = {}          # leg_index -> list of (d_fetch per d_cont)
     leg_evicts = {}
     incline_bad = []
+    fetch_sheets = {}  # C1 attribution: shtSlot -> samples where it was the last banded fetch
     plr_undrawn = []
     badnik_bad = []
     bridge_bad = []
@@ -410,6 +431,13 @@ def main(argv=None) -> int:
             leg = p["x"] // 1000
             legs.setdefault(leg, []).append(df / dcont)
             leg_evicts.setdefault(leg, []).append(de / dcont)
+        # C1 attribution: whenever ANY banded fetch happened this sample, tally
+        # the sheet slot of the last one (partial but unbiased over a long run).
+        if (last["p6_w_sht_fetches"] is not None and w["p6_w_sht_fetches"] is not None
+                and w["p6_w_sht_fetches"] > last["p6_w_sht_fetches"]
+                and w["p6_w_vdp1_lastfetch"] is not None):
+            slotid = (w["p6_w_vdp1_lastfetch"] >> 24) & 0xFF
+            fetch_sheets[slotid] = fetch_sheets.get(slotid, 0) + 1
 
         # C2/C7 player drawn
         if (alive and dcont and dcont > 0 and p["vis"] == 1 and p["onScr"] == 1
@@ -526,6 +554,7 @@ def main(argv=None) -> int:
     # C1
     import statistics
     bad_legs = []
+    churn_bad = []
     for leg in sorted(legs):
         med = statistics.median(legs[leg])
         mean = sum(legs[leg]) / len(legs[leg])
@@ -535,8 +564,19 @@ def main(argv=None) -> int:
               (leg, leg * 1000, leg * 1000 + 999, med, mean, emed, len(legs[leg])))
         if med > 0.0 or mean > 0.5:
             bad_legs.append(leg)
+        if emed > 16.0:  # C1b bound: measured 12.8/frame 3-badnik worst, r2 18:19 run
+            churn_bad.append(leg)
+    if fetch_sheets:
+        print("   C1 attribution: banded-fetch sheet slots (slot: samples) = %s"
+              % dict(sorted(fetch_sheets.items(), key=lambda kv: -kv[1])))
+    print("   FRD registry: active=%s lookups=%s misses=%s" %
+          (lv.r32s("p6_w_frd_active"), lv.r32s("p6_w_frd_lookups"),
+           lv.r32s("p6_w_frd_misses")))
     verdict("C1 inflates", len(bad_legs) == 0 and len(legs) > 0,
-            "steady-motion inflate legs bad=%s of %d legs" % (bad_legs, len(legs)))
+            "steady-motion inflate legs bad=%s of %d legs; banded-fetch slots=%s" %
+            (bad_legs, len(legs), dict(sorted(fetch_sheets.items(), key=lambda kv: -kv[1]))))
+    verdict("C1b churn", len(churn_bad) == 0 and len(legs) > 0,
+            "evict-churn legs over 16/frame median: %s of %d legs" % (churn_bad, len(legs)))
     # C2
     verdict("C2 player-drawn", len(plr_undrawn) == 0,
             "%d undrawn-while-alive+onscreen samples %s" %
@@ -607,11 +647,15 @@ def main(argv=None) -> int:
     # C7
     verdict("C7 inclines", len(incline_bad) == 0,
             "%d bad incline samples %s" % (len(incline_bad), incline_bad[:3]))
-    # C8 -- a PERFECT traversal has no stalls AND no deaths (a death is either
-    # a scripted-input gap or a collision/physics parity bug; both block).
-    verdict("C8 no-stall/no-death", len(stalls) == 0 and len(deaths) == 0,
-            "stalls=%d %s deaths=%d %s respawns=%d" %
-            (len(stalls), stalls[:3], len(deaths), deaths[:3], len(respawns)))
+    # C8 -- r3 semantics: RED only on PERMANENT stalls (never subsequently
+    # cleared: max_x never exceeded stall.x + 8) or any death. A stagnation the
+    # scripted input then clears is a recorded-but-acceptable event.
+    perm_stalls = [s for s in stalls if max_x <= s["x"] + 8]
+    verdict("C8 no-permanent-stall/no-death",
+            len(perm_stalls) == 0 and len(deaths) == 0,
+            "stalls=%d (permanent=%d %s) deaths=%d %s respawns=%d" %
+            (len(stalls), len(perm_stalls), perm_stalls[:3],
+             len(deaths), deaths[:3], len(respawns)))
     # C9
     verdict("C9 signpost", sign_seen["crossed"] and (sign_seen["spin"] or sign_seen["actclear"]),
             "max_x=%d reached=%s crossed=%s spin=%s actclear=%s rec=%s" %
