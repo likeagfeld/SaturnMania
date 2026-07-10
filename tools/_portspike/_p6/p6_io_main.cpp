@@ -6880,6 +6880,20 @@ static void p6_aiz_reload(void)
             // 1,703,936 B store; the all-5-FRD variant would overflow by
             // ~5 KB, so SONIC2/3 keep today's bounds-checked promote.
             // A failed FRD stage (-1) falls back to the promote, verbatim.
+            // MEASURED overlap (live s_frd struct trace, 2026-07-10): without a
+            // floor the AIZ-leg FRD blobs land at 0x22440000+ and TAILS1's
+            // header+directory (staged @0x22499D40) sits INSIDE the AIZ BG
+            // fixed staging windows chr/map/l3/l0/l2 = [0x22480000..0x224A3000)
+            // (:~6929-6936), which load AFTER this block -> the directory is
+            // garbled post-djb2 -> 100% TAILS1 lookup misses all AIZ leg (309/
+            // run, ring rects PROVEN present offline). Float the FRD staging
+            // above the BG windows: RES_BASE+0xA4000 = 0x224A4000; the 3 blobs
+            // end 0x2253D8CC < RES_END 0x225A0000 (402,740 B headroom), the
+            // SONIC2 promote below still fits, SONIC3 falls banded (same as
+            // pre-FRD). NOTE: the promoted RESIDENT sheets' pixels overlapped
+            // these same BG windows PRE-FRD (SONIC1 patterns under 0x22480000
+            // chr) -- a pre-existing AIZ artifact class, out of FRD scope.
+            SaturnSheet_ResFloor(0xA4000);
             int32 frdAiz = p6_frd_stage_file("AIZOBJ.FRD", "AIZ/Objects.gif");
             int32 frdS1  = p6_frd_stage_file("SONIC1.FRD", "Players/Sonic1.gif");
             int32 frdT1  = p6_frd_stage_file("TAILS1.FRD", "Players/Tails1.gif");
