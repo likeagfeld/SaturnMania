@@ -219,3 +219,51 @@ economics that put Kosinski 6 points behind zlib -- no path to a win.
 4. Visual: existing scene pixel gates unchanged (parity binding); the
    4bpp stage-2 flips must show byte-identical CRAM resolution by
    construction (color-bank LUT entries), verified by the pixel gates.
+
+## 7. Stage-1 LIVE integration plan (parent, 2026-07-10) -- MEASURED budgets
+
+Blobs: `--all8` emitted 12 cd/*.FRD, total 1,562,168 B (72.2% of raw;
+converter self-tests S1/S2/S3 pass). Per-blob (B): SONIC1 259,316 /
+SONIC2 231,908 / SONIC3 167,644 / TAILS1 261,644 / ITEMS 30,724 /
+DISPLAY 63,628 / SHIELDS 222,252 / GLOBJ 57,876 / RUBYOBJ 14,340 /
+GHZOBJ 123,324 / AIZOBJ 108,620 / GHCOBJ 20,892.
+
+Chain-flavor cart RES store = 0x22400000..0x225A0000 = 1,703,936 B.
+The FRD blobs live in this store (SaturnSheet_ResAlloc) and are
+therefore KILLED by every seam `SaturnSheet_ResReset()` -- the design
+stages per-leg, resetting the FRD registry at each reclaim seam:
+
+| site (p6_io_main.cpp) | action | store math (B) |
+|---|---|---|
+| plain-GHZ boot loop :4268 (non-frontend) | FRD-stage all 9 GHZ sheets AFTER the .SHT loop; keep MakeResident (3.80 MB store: 1,605,632 res + ~551K layout + 1,418,316 FRD = 3.57 MB fits) | 3,574,948 < 3,801,088 |
+| Menu->AIZ seam (p6_aiz_reload :6745) | FRD {AIZOBJ,SONIC1,TAILS1} = 629,580; skip their MakeResident; SONIC2/3 keep today's bounds-checked promote (all-5-FRD would overflow by ~5 KB) | 679,776 boot res + 629,580 = 1,309,356 fits |
+| AIZ->GHZCut seam :7394 | after ResReset: SaturnFrameDir_Reset + p6_vdp1_frd_detach_all; promote PLR+HBH (no FRD exists); FRD {DISPLAY,ITEMS,GHCOBJ,RUBYOBJ} = 129,584, skip their promote | 286,720 + 129,584 = 416,304 fits |
+| GHZCut->GHZ landing :7532 | after ResReset: FRD reset+detach; FRD-stage all 9 GHZ sheets; promote (promoteOrder) ONLY sheets whose FRD staging failed | 1,418,316 + align pad fits (285,620 headroom) |
+
+Loader path: `p6_frd_stage_file()` GFS-loads the .FRD DIRECTLY into the
+cart at the ResAlloc cursor (peek via ResAlloc(0) + cap via the new
+gated SaturnSheet_ResRemain()) -- no WRAM bounce (blobs up to 262 KB >>
+the 64 KB P6_LW_ENTITYLIST window, which is also the forbidden live
+entity pool). `SaturnFrameDir_StageDirect` then claims the bytes and
+computes a one-time djb2 read-back witness (load-phase only, never
+per-frame). Attach = FindSlot-by-gif-path-MD5 inside both arm-env bind
+loops + `p6_frd_attach_bound()` after each seam's load_and_arm.
+
+CD-read cost (audit-4 style): +1.42 MB at the landing seam ~= +9.5 s
+at 1x CD, +0.63 MB AIZ seam, +0.13 MB cutscene seam -- load-time only,
+traded against the removed MakeResident band-inflate cycles; the fps
+gates measure the per-frame effect.
+
+Witness contract (all `__attribute__((used))` + -u rooted, WRAM .bss,
+live-readable): p6_w_frd_staged (cumulative), p6_w_frd_active
+(post-reset live slot count), p6_w_frd_lookups, p6_w_frd_misses,
+p6_w_frd_hash/bytes/frames[16] (per-slot djb2-of-staged-cart-bytes vs
+the offline blob), p6_w_frd_missrect/misswh/missslot[4] (miss ring).
+Gate: tools/qa_p6_frd.py (offline structural replay + manifest djb2 +
+live witness contract; RED on the pre-FRD build).
+
+Flag threading: -DP6_FRAMEDIR via Makefile (jo side, p6_vdp1.c),
+build_p6scene_objs.sh (p6_io_main.o + SaturnSheet.o + new
+SaturnFrameDir.o, link + -u roots all ${P6_FRAMEDIR:+...}-gated),
+build_shipping.sh make lines. Without the env var every addition
+compiles/links away -- plain GHZ byte-identical.
