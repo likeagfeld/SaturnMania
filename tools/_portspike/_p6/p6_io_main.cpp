@@ -2813,6 +2813,27 @@ static void p6_lt_mark(int slot)
 extern "C" int rsdk_storage_load_to_lwram(const char *iso9660_name,
                                           void *dst, uint32 max_bytes);
 
+#if defined(P6_FRAMEDIR)
+// Stage-1 FRD declarations (checklist sec 7) -- at THIS file position so the
+// p6_ghz_arm_env bind loop (below) can attach; the staging helpers live next
+// to p6_stage_sheet_hash further down. W12b LTO contract: the jo-side
+// p6_vdp1.c receives SaturnFrameDir_Lookup as a RUNTIME FUNCTION POINTER
+// only (p6_vdp1_set_frd); pack->jo references are the proven direction.
+extern "C" {
+int32  SaturnFrameDir_StageDirect(const void *blob, uint32 bytes);
+void   SaturnFrameDir_SetHash(int32 slot, const uint32 *hash);
+int32  SaturnFrameDir_FindSlot(const uint32 *hash);
+void   SaturnFrameDir_Reset(void);
+int32  SaturnFrameDir_Lookup(int32 slot, int32 sx, int32 sy,
+                             int32 w, int32 h, void *out);
+uint32 SaturnSheet_ResAlloc(uint32 bytes);
+uint32 SaturnSheet_ResRemain(void);
+void   p6_vdp1_set_frd(int32 (*fn)(int32, int32, int32, int32, int32, void *));
+void   p6_vdp1_sheet_set_frd(int handle, int frdSlot);
+void   p6_vdp1_frd_detach_all(void);
+}
+#endif // P6_FRAMEDIR (declarations)
+
 extern "C" {
 
 void *p6_scene_entity(void) { return (void *)RSDK::sceneInfo.entity; }
@@ -3996,20 +4017,9 @@ __attribute__((unused)) static int32 p6_stage_sheet_hash(const char *shtFile, co
 // copy) + computes the one-time djb2 identity witness (qa_p6_frd F2).
 // W12b LTO contract: the jo-side p6_vdp1.c gets SaturnFrameDir_Lookup as a
 // RUNTIME FUNCTION POINTER only (p6_vdp1_set_frd) -- pack->jo references
-// are the proven direction, never jo->pack statics.
-extern "C" {
-int32  SaturnFrameDir_StageDirect(const void *blob, uint32 bytes);
-void   SaturnFrameDir_SetHash(int32 slot, const uint32 *hash);
-int32  SaturnFrameDir_FindSlot(const uint32 *hash);
-void   SaturnFrameDir_Reset(void);
-int32  SaturnFrameDir_Lookup(int32 slot, int32 sx, int32 sy,
-                             int32 w, int32 h, void *out);
-uint32 SaturnSheet_ResAlloc(uint32 bytes);
-uint32 SaturnSheet_ResRemain(void);
-void   p6_vdp1_set_frd(int32 (*fn)(int32, int32, int32, int32, int32, void *));
-void   p6_vdp1_sheet_set_frd(int handle, int frdSlot);
-void   p6_vdp1_frd_detach_all(void);
-}
+// are the proven direction, never jo->pack statics. (Declarations live at
+// the rsdk_storage_load_to_lwram site above -- the arm_env bind loop needs
+// them before this point in the TU.)
 // Stage one .FRD (idempotent by gif-path MD5). Returns the FRD slot >= 0,
 // or -1 (file absent / store full / header bad) -- the caller keeps the
 // sheet's MakeResident fallback in that case.
