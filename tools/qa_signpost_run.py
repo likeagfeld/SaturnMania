@@ -252,8 +252,25 @@ def main(argv=None) -> int:
         return 2
     print("=== GHZ reached @%.1fs; watching traversal ===" % (time.time() - t0), flush=True)
 
+    # MID-LOAD ARTIFACT GUARD (campaign r2, MEASURED via _classreg_probe.py):
+    # currentSceneFolder flips to "GHZ" at the START of the long GHZ load
+    # (~40s of frozen cont_frames); the overlay witness (p6_w_b2_cids /
+    # p6_w_brg_classid) only ticks once the engine loop resumes, so classIDs
+    # read as None mid-load ("first-life classes missing" was this artifact,
+    # NOT a registration gap). Wait for cont_frames to ADVANCE before latching.
+    tk0 = lv.r32s("p6_w_cont_frames")
+    tkw = time.time()
+    while time.time() - tkw < 180.0:
+        time.sleep(1.0)
+        tk1 = lv.r32s("p6_w_cont_frames")
+        if tk0 is not None and tk1 is not None and tk1 >= tk0 + 2:
+            break
+        tk0 = tk1 if tk1 is not None else tk0
+    print("=== GHZ ticking (cont=%s) @%.1fs ===" % (lv.r32s("p6_w_cont_frames"),
+                                                    time.time() - t0), flush=True)
+
     # refresh classIDs now that GHZ objects are registered
-    time.sleep(3.0)
+    time.sleep(1.0)
     CID = all_cids()
     print("GHZ classIDs:", CID, flush=True)
     cid2name = {v: k for k, v in CID.items() if v}
@@ -347,7 +364,11 @@ def main(argv=None) -> int:
     stall_x = None
     sign_seen = {"crossed": False, "spin": False, "actclear": False, "reached": False}
     last_scan = 0.0
-    settle_until = time.time() + 4.0  # post-load settle: inflates expected
+    # C1 sampling fix (campaign r2): 4.0s initial + 6.0s per death/respawn settle
+    # windows consumed the ENTIRE ~4.5s lives of the 14:29 run -> legs={} -> C1
+    # "0 legs" was a sampling gap, not an inflate verdict. 2.0/2.5s still skips
+    # the load-inflate burst (measured <1.5s) while leaving steady-motion samples.
+    settle_until = time.time() + 2.0  # post-load settle: inflates expected
     trk_seen = set()   # C4: every p6_w_str_track value observed WHILE in GHZ
     folder_checks = 0
 
@@ -423,11 +444,11 @@ def main(argv=None) -> int:
             if prev_p["cid"] == CID.get("Player") and p["cid"] == 0:
                 deaths.append({"t": rec["t"], "x": prev_p["x"], "y": prev_p["y"]})
                 print("  >> DEATH @%.1fs (%d,%d)" % (rec["t"], prev_p["x"], prev_p["y"]), flush=True)
-                settle_until = now + 6.0
+                settle_until = now + 2.5
             if prev_p["cid"] == 0 and p["cid"] == CID.get("Player"):
                 respawns.append({"t": rec["t"], "x": p["x"]})
                 print("  >> RESPAWN @%.1fs x=%d" % (rec["t"], p["x"]), flush=True)
-                settle_until = now + 6.0
+                settle_until = now + 2.5
                 stall_x = None
 
         if alive and p["x"] > max_x:

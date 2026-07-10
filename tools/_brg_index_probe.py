@@ -25,7 +25,10 @@ scn = sym("p6_w_scancull_n")
 scnear = sym("p6_w_scancull_near")
 pool = 0x243000
 W = ["p6_w_arun_brg_live", "p6_w_arun_brg_firstx", "p6_w_arun_inspan",
-     "p6_w_arun_brg_gapmiss", "p6_w_btch_calls", "p6_w_cont_frames"]
+     "p6_w_arun_brg_gapmiss", "p6_w_btch_calls", "p6_w_cont_frames",
+     "p6_w_stream_mat", "p6_w_stream_dorm", "p6_w_stream_free",
+     "p6_w_stream_resident", "p6_w_stream_starve", "p6_scan_loadbuild_seq",
+     "p6_w_brg_classid", "p6_w_pool_inv_bad"]
 WA = {w: sym(w) for w in W}
 print("near addr", hex(near), "scancull_n addr", hex(scn))
 
@@ -39,8 +42,33 @@ while time.time() - t0 < 420:
         break
     time.sleep(1)
 print("GHZ @%.1fs" % (time.time() - t0), flush=True)
+def rb(a, n):
+    out = bytearray(); left, cur = n, a
+    while left > 0:
+        take = min(2000, left)
+        out += mem.read_saturn(cur, take)
+        cur += take; left -= take
+    return bytes(out)
+
+def bridge_scan(brg_cid):
+    """List (physslot, x, y, active) of every live Bridge in the narrow scene region."""
+    NARROW, RES, WIDE = 344, 64, 556
+    sphys = r32(sym("RSDK::p6_pool_scene_phys")) or 640
+    raw = rb(pool + RES * WIDE, sphys * NARROW)
+    outp = []
+    for k in range(sphys):
+        off = k * NARROW
+        cid = (raw[off + 54] << 8) | raw[off + 55]
+        if cid == brg_cid:
+            x = int.from_bytes(raw[off:off+4], "big", signed=True) >> 16
+            y = int.from_bytes(raw[off+4:off+8], "big", signed=True) >> 16
+            outp.append((k, x, y, raw[off + 76]))
+    return outp
+
 ts = time.time()
+tick_i = 0
 while time.time() - ts < 120:
+    tick_i += 1
     b = r32(near + (L_BRG1 >> 3) & ~3)  # dword containing byte 257>>3=32
     # byte 32 of p6_scan_near: read 4 bytes at near+32
     try:
@@ -54,6 +82,10 @@ while time.time() - ts < 120:
     vals = {w: s32(r32(WA[w])) for w in W}
     print("t%5.1f plr(%s)x=%s idx_n=%s near_cnt=%s brg1nearbit=%s %s" %
           (time.time() - ts, cid, px, s32(r32(scn)), s32(r32(scnear)), bit, vals), flush=True)
+    if tick_i % 8 == 1:
+        bcid = s32(r32(sym("p6_w_brg_classid"))) or 0
+        if bcid > 0:
+            print("   bridges live: %s" % bridge_scan(bcid), flush=True)
     if folder() != "GHZ":
         print("left GHZ"); break
     time.sleep(0.3)
