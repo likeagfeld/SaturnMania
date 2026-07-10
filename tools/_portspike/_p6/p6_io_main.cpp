@@ -1467,6 +1467,12 @@ __attribute__((used)) int32 p6_w_tsonic_frameid   = -9;
 // posx/posy feed the P6_WARP_BRIDGE pin; frames is the first bridge's
 // animator.frames (0/-1 == Bridge.bin alloc-failed the #247 residency budget).
 __attribute__((used)) int32 p6_w_brg_classid    = 0;  // Bridge->classID (0 == unregistered == the bug)
+// #326 (signpost campaign): count of LOAD-PATH p6_scan_index_build runs (the
+// pre-shrink full-pool census at p6_scene load/reload). The chain frame's
+// settled-index latch compares this against its build-#1 snapshot to decide
+// whether a frame-side rebuild is needed (see the #325/#326 block) -- a
+// post-shrink rebuild orphans every dormant entity (MEASURED idx 968 -> 32).
+__attribute__((used)) int32 p6_scan_loadbuild_seq = 0;
 __attribute__((used)) int32 p6_w_brg_count      = 0;  // # Bridge entities the scene instantiated
 // #254 GHZ1 loop closure (qa_p6_loop.py): regmask 0x1F == all 5 loop classes
 // registered; pscount == # PlaneSwitch placed in GHZ1 (expect 106; 0 == broken).
@@ -6449,6 +6455,16 @@ static void p6_scene_load_and_arm(void)
 #endif
     p6_i2_selfcheck(); // P6.8 I2: assert slot->pool indirection is 1:1 (byte-identical)
     p6_scan_index_build(); // P6.8 I3c: sorted-by-x scene-entity index for the loop1 spatial cull
+    // Signpost campaign #326 (2026-07-10, MEASURED live _brg_probe.log): mark that the
+    // LOAD PATH built the index from the FULL pre-shrink pool (idx_n=968 at t3.9). The
+    // chain frame's #325 "settled rebuild" used to fire AFTER the near-shrink below
+    // (ticking resumes post-load) and REPLACED this full index with a 32-entry
+    // residents-only census -- every dormant scene entity (bridge-1 at (1184,904),
+    // all badniks/rings past the spawn window) lost its near bit and could never
+    // rematerialize (p6_w_arun_inspan=339 gapmiss=339 btch_calls=0). The frame path
+    // now latches settled WITHOUT rebuilding when this counter advanced since the
+    // folder flip.
+    ++p6_scan_loadbuild_seq;
     // I3b SHRINK measurement (read-only, one-shot): walk the full scene region, count populated +
     // max + first-gap, so the atomic shrink knows the live layout (compacted vs spread) from DATA.
     // RSDK_ENTITY_AT here is the current identity/full accessor -> zero pool perturbation.
@@ -8017,13 +8033,22 @@ static void p6_frontend_frame(void)
         // 186898e cull-off behavior (proven).
         static int32 s_ghz_idx_built    = 0;  // 0=never, 1=first (possibly mid-load) build, 2=settled rebuild
         static int32 s_ghz_idx_tickmark = -1;
+        static int32 s_ghz_idx_loadseq  = -1; // p6_scan_loadbuild_seq at build #1 (fix #326)
         if (s_ghz_idx_built == 0) {
             p6_scan_index_build();
             s_ghz_idx_built    = 1;
             s_ghz_idx_tickmark = p6_w_tick_frames;
+            s_ghz_idx_loadseq  = p6_scan_loadbuild_seq;
         }
         else if (s_ghz_idx_built == 1 && p6_w_tick_frames >= s_ghz_idx_tickmark + 2) {
-            p6_scan_index_build(); // pool is final now -- full-census index (one-time ~64ms)
+            // #326 (signpost campaign, MEASURED): if the LOAD PATH built the index
+            // since build #1 (the staged seam's p6_scene load ran p6_scan_index_build
+            // on the FULL pre-shrink pool), that index is authoritative -- rebuilding
+            // HERE would census the post-shrink pool (dormant slots read the dummy ->
+            // classID 0 -> dropped) and permanently orphan every dormant entity
+            // (measured: idx_n 968 -> 32, bridge-1/badniks never rematerialize).
+            if (p6_scan_loadbuild_seq == s_ghz_idx_loadseq)
+                p6_scan_index_build(); // no load-path build happened -- rebuild here (pre-#325 case)
             s_ghz_idx_built = 2;
         }
         p6_scan_update_near(cameraCount > 0 ? (int32)(cameras[0].position.x >> 16) : 0);
