@@ -3131,6 +3131,16 @@ static void p6_ghz_arm_env(void)
         else
             continue;
         p6_vdp1HandleBySurface[i] = (int8)h;
+#if defined(P6_FRAMEDIR)
+        // Stage-1 FRD attach (checklist sec 7): if this surface's sheet has a
+        // staged frame directory (same gif-path MD5), route its slot-cache
+        // misses through the pre-cut patterns. Load-phase only (bind loop).
+        if (h >= 0) {
+            int32 fs = SaturnFrameDir_FindSlot((const uint32 *)sf->hash);
+            if (fs >= 0)
+                p6_vdp1_sheet_set_frd(h, fs);
+        }
+#endif
         // BADNIK-VIS: log every bind ATTEMPT in this (shipping) arm_env loop so the
         // exact VDP1 bind-table demand is measured (the burst-path bind_log never
         // runs in shipping -- bind_count was 0). attempt = (surfaceID<<16)|(wasPix<<8)
@@ -3974,6 +3984,74 @@ __attribute__((unused)) static int32 p6_stage_sheet_hash(const char *shtFile, co
     return slot;
 }
 
+#if defined(P6_FRAMEDIR)
+// Sprite-pipeline rework stage 1 (docs/feature_checklists/
+// sprite_frame_directory.md sec 7): pre-cut FRD1 frame-directory staging.
+// The .FRD is GFS-loaded DIRECTLY into the cart resident store at the
+// ResAlloc cursor (peek via ResAlloc(0), cap via SaturnSheet_ResRemain) --
+// blobs run up to 261,644 B (TAILS1.FRD), far past every WRAM bounce
+// window, and P6_LW_ENTITYLIST is the forbidden live entity pool. Cart-
+// destination GFS loads are the proven idiom (GHZOBJ.PAK -> 0x2276xxxx,
+// this file). SaturnFrameDir_StageDirect claims the bytes in place (zero
+// copy) + computes the one-time djb2 identity witness (qa_p6_frd F2).
+// W12b LTO contract: the jo-side p6_vdp1.c gets SaturnFrameDir_Lookup as a
+// RUNTIME FUNCTION POINTER only (p6_vdp1_set_frd) -- pack->jo references
+// are the proven direction, never jo->pack statics.
+extern "C" {
+int32  SaturnFrameDir_StageDirect(const void *blob, uint32 bytes);
+void   SaturnFrameDir_SetHash(int32 slot, const uint32 *hash);
+int32  SaturnFrameDir_FindSlot(const uint32 *hash);
+void   SaturnFrameDir_Reset(void);
+int32  SaturnFrameDir_Lookup(int32 slot, int32 sx, int32 sy,
+                             int32 w, int32 h, void *out);
+uint32 SaturnSheet_ResAlloc(uint32 bytes);
+uint32 SaturnSheet_ResRemain(void);
+void   p6_vdp1_set_frd(int32 (*fn)(int32, int32, int32, int32, int32, void *));
+void   p6_vdp1_sheet_set_frd(int handle, int frdSlot);
+void   p6_vdp1_frd_detach_all(void);
+}
+// Stage one .FRD (idempotent by gif-path MD5). Returns the FRD slot >= 0,
+// or -1 (file absent / store full / header bad) -- the caller keeps the
+// sheet's MakeResident fallback in that case.
+__attribute__((unused)) static int32 p6_frd_stage_file(const char *frdFile,
+                                                       const char *gifPath)
+{
+    RETRO_HASH_MD5(fh);
+    GEN_HASH_MD5(gifPath, fh);
+    {
+        int32 have = SaturnFrameDir_FindSlot((const uint32 *)fh);
+        if (have >= 0)
+            return have;
+    }
+    uint32 dst = SaturnSheet_ResAlloc(0); // aligned-cursor peek (claims 0 B)
+    uint32 cap = SaturnSheet_ResRemain();
+    if (!dst || !cap)
+        return -1;
+    int sn = rsdk_storage_load_to_lwram(frdFile, (void *)dst, cap);
+    if (sn <= 12)
+        return -1;
+    int32 slot = SaturnFrameDir_StageDirect((const void *)dst, (uint32)sn);
+    if (slot < 0)
+        return -1;
+    SaturnFrameDir_SetHash(slot, (const uint32 *)fh);
+    return slot;
+}
+// Re-attach every ALREADY-BOUND surface whose sheet has a staged FRD (the
+// arm-env bind loops attach newly-bound surfaces; this covers handles that
+// persist across a seam where the FRD registry was reset + re-staged).
+__attribute__((unused)) static void p6_frd_attach_bound(void)
+{
+    for (int32 i = 0; i < SURFACE_COUNT; ++i) {
+        GFXSurface *sf = &gfxSurface[i];
+        if (sf->scope == SCOPE_NONE || p6_vdp1HandleBySurface[i] < 0)
+            continue;
+        int32 fs = SaturnFrameDir_FindSlot((const uint32 *)sf->hash);
+        if (fs >= 0)
+            p6_vdp1_sheet_set_frd(p6_vdp1HandleBySurface[i], fs);
+    }
+}
+#endif // P6_FRAMEDIR
+
 extern "C" void p6_scene_run(void)
 {
     // Task #238: probe the 4MB cart FIRST (raw A-Bus RW; harmless -- the cart is
@@ -4205,6 +4283,13 @@ extern "C" void p6_scene_run(void)
         extern void p6_vdp1_set_fetch(int32 (*fn)(int32, int32, int32, int32,
                                                   int32, uint8 *));
         p6_vdp1_set_fetch(SaturnSheet_FetchRect);
+#if defined(P6_FRAMEDIR)
+        // Stage-1 FRD hook (checklist sec 7): hand the jo-side VDP1 cache the
+        // frame-directory lookup as a runtime pointer -- the same W12b LTO
+        // contract as set_fetch just above. Once per boot; the per-sheet
+        // attachments arrive via p6_vdp1_sheet_set_frd at the bind loops.
+        p6_vdp1_set_frd(SaturnFrameDir_Lookup);
+#endif
         // Task #227 STG sizing: ITEMS.SHT joins the staged set -- banding
         // Items.gif drops its 32,768 B resident decode from DATASET_STG so
         // the GHZ anim working set fits the 80 KB pool (Storage.cpp).
@@ -4310,6 +4395,23 @@ extern "C" void p6_scene_run(void)
                 }
             }
         }
+#if defined(P6_FRAMEDIR)
+        // Stage-1 FRD (checklist sec 7, plain-GHZ boot): stage the 9 GHZ
+        // sheets' pre-cut frame directories alongside the banded+resident
+        // .SHT set. MakeResident above is KEPT (fallback for non-anim
+        // rects): the plain-GHZ store is 3,801,088 B -- 1,605,632 resident
+        // + ~551 KB layout + 1,418,316 FRD = 3.57 MB fits (measured,
+        // checklist sec 7 table). Attach happens in the arm-env bind loop.
+        {
+            static const char *frdFiles[9] = { "SONIC1.FRD", "SONIC2.FRD",
+                                               "SONIC3.FRD", "ITEMS.FRD",
+                                               "DISPLAY.FRD", "SHIELDS.FRD",
+                                               "TAILS1.FRD", "GLOBJ.FRD",
+                                               "GHZOBJ.FRD" };
+            for (int32 i = 0; i < 9; ++i)
+                (void)p6_frd_stage_file(frdFiles[i], shtPaths[i]);
+        }
+#endif // P6_FRAMEDIR (plain-GHZ boot FRD staging)
 #endif // P6_FRONTEND_TITLE (skip 9 GHZ sheet loads) / else (GHZ verbatim loop)
         P6_LT_MARK(2); // Task #271 S2: chain loads (OVLRING/DORM/LAYT/ANIMPACK/GHZ Player sheets)
 #if defined(P6_FRONTEND_LOGOS)
@@ -5157,6 +5259,14 @@ extern "C" void p6_scene_run(void)
                     else
                         continue;
                     p6_vdp1HandleBySurface[i] = (int8)h;
+#if defined(P6_FRAMEDIR)
+                    // Stage-1 FRD attach -- mirror of the arm_env bind loop.
+                    if (h >= 0) {
+                        int32 fs = SaturnFrameDir_FindSlot((const uint32 *)sf->hash);
+                        if (fs >= 0)
+                            p6_vdp1_sheet_set_frd(h, fs);
+                    }
+#endif
                     if (h >= 0)
                         ++p6_w_bind_count;
                     if (p6_w_bind_logn < 8)
@@ -6746,14 +6856,35 @@ static void p6_aiz_reload(void)
             RETRO_HASH_MD5(aph);
             GEN_HASH_MD5("AIZ/Objects.gif", aph);
             int32 aizObjSlot = SaturnSheet_FindSlot((const uint32 *)aph);
+#if defined(P6_FRAMEDIR)
+            // Stage-1 FRD (checklist sec 7, Menu->AIZ seam): pre-cut frame
+            // directories for the AIZ leg's hot sheets REPLACE their
+            // MakeResident (a staged FRD serves every anim-rect miss with
+            // one aligned linear copy -- no inflate, no repack). MEASURED
+            // budget: boot residents 679,776 + FRD {AIZOBJ 108,620 +
+            // SONIC1 259,316 + TAILS1 261,644} = 1,309,356 B < the
+            // 1,703,936 B store; the all-5-FRD variant would overflow by
+            // ~5 KB, so SONIC2/3 keep today's bounds-checked promote.
+            // A failed FRD stage (-1) falls back to the promote, verbatim.
+            int32 frdAiz = p6_frd_stage_file("AIZOBJ.FRD", "AIZ/Objects.gif");
+            int32 frdS1  = p6_frd_stage_file("SONIC1.FRD", "Players/Sonic1.gif");
+            int32 frdT1  = p6_frd_stage_file("TAILS1.FRD", "Players/Tails1.gif");
+            if (aizObjSlot >= 0 && frdAiz < 0) SaturnSheet_MakeResident(aizObjSlot);
+            if (aizPlrSlot[0] >= 0 && frdS1 < 0) SaturnSheet_MakeResident(aizPlrSlot[0]);
+            if (aizPlrSlot[3] >= 0 && frdT1 < 0) SaturnSheet_MakeResident(aizPlrSlot[3]);
+#else
             if (aizObjSlot >= 0) SaturnSheet_MakeResident(aizObjSlot);
             if (aizPlrSlot[0] >= 0) SaturnSheet_MakeResident(aizPlrSlot[0]);
             if (aizPlrSlot[3] >= 0) SaturnSheet_MakeResident(aizPlrSlot[3]);
+#endif
             if (aizPlrSlot[1] >= 0) SaturnSheet_MakeResident(aizPlrSlot[1]);
             if (aizPlrSlot[2] >= 0) SaturnSheet_MakeResident(aizPlrSlot[2]);
         }
     }
     p6_scene_load_and_arm();
+#if defined(P6_FRAMEDIR)
+    p6_frd_attach_bound(); // FRD attach for surfaces bound before this seam's staging
+#endif
     p6_ghz_continuous_armed = 1; // reuse the continuous-armed flag (drives the tick)
     // A1: the engine LoadScene of folder AIZ finished (LoadSceneFolder re-strcpy's
     // currentSceneFolder to the loaded folder during the arm above).
@@ -7392,12 +7523,36 @@ static void p6_frontend_frame(void)
                     // the boot block. Front-end only -> plain GHZ byte-identical.
                     {
                         SaturnSheet_ResReset();
+#if defined(P6_FRAMEDIR)
+                        // Stage-1 FRD (checklist sec 7, AIZ->GHZCut seam): the
+                        // ResReset just killed the AIZ leg's FRD blobs' cart
+                        // backing -- reset the registry + detach every sheet
+                        // attachment (a stale frdSlot would serve wrong
+                        // pixels, the #250 stale-binding class), then stage
+                        // the cutscene leg's FRDs. PLR/HBH atlases have no
+                        // FRD -> resident as before. MEASURED budget:
+                        // 286,720 resident + 129,584 FRD = 416,304 B fits.
+                        SaturnFrameDir_Reset();
+                        p6_vdp1_frd_detach_all();
+                        if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
+                        if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
+                        int32 frdGhc  = p6_frd_stage_file("GHCOBJ.FRD",  "GHZCutscene/Objects.gif");
+                        int32 frdRuby = p6_frd_stage_file("RUBYOBJ.FRD", "Global/PhantomRuby.gif");
+                        int32 frdItem = p6_frd_stage_file("ITEMS.FRD",   "Global/Items.gif");
+                        int32 frdDisp = p6_frd_stage_file("DISPLAY.FRD", "Global/Display.gif");
+                        if (p6_w_ghcobj_slot  >= 0 && frdGhc  < 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
+                        if (p6_w_rubyobj_slot >= 0 && frdRuby < 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
+                        if (p6_w_itemsht_slot >= 0 && frdItem < 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
+                        if (p6_w_dispsht_slot >= 0 && frdDisp < 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
+                        p6_frd_attach_bound(); // handles persisting across this seam
+#else
                         if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
                         if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
                         if (p6_w_ghcobj_slot  >= 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
                         if (p6_w_rubyobj_slot >= 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
                         if (p6_w_itemsht_slot >= 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
                         if (p6_w_dispsht_slot >= 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
+#endif
                     }
 #endif
                 }
@@ -7530,12 +7685,42 @@ static void p6_frontend_frame(void)
                     // byte-identical (this whole seam is chain-gated).
                     {
                         SaturnSheet_ResReset();
+#if defined(P6_FRAMEDIR)
+                        // Stage-1 FRD (checklist sec 7, GHZ landing seam):
+                        // the pre-cut frame directories REPLACE the 8-sheet
+                        // resident promote -- 9 FRDs = 1,418,316 B fit the
+                        // 1,703,936 B store (the 1.34 MB promote + FRDs
+                        // would not). Any sheet whose FRD staging fails
+                        // falls back to its promoteOrder MakeResident,
+                        // bounds-checked as before; the banded .SHT store
+                        // (separate cart region) remains the rect-miss
+                        // fallback either way. Registry reset first: the
+                        // ResReset killed the cutscene leg's blobs.
+                        SaturnFrameDir_Reset();
+                        p6_vdp1_frd_detach_all();
+                        static const char *ghzFrdFiles[9] = {
+                            "SONIC1.FRD", "SONIC2.FRD", "SONIC3.FRD",
+                            "ITEMS.FRD",  "DISPLAY.FRD", "SHIELDS.FRD",
+                            "TAILS1.FRD", "GLOBJ.FRD",  "GHZOBJ.FRD"
+                        };
+                        int32 frdOk[9];
+                        for (int32 fi = 0; fi < 9; ++fi)
+                            frdOk[fi] = p6_frd_stage_file(ghzFrdFiles[fi],
+                                                          ghzShtPaths[fi]);
+                        static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
+                        for (int32 pi = 0; pi < 8; ++pi) {
+                            int32 gs = ghzGslot[promoteOrder[pi]];
+                            if (gs >= 0 && frdOk[promoteOrder[pi]] < 0)
+                                SaturnSheet_MakeResident(gs);
+                        }
+#else
                         static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
                         for (int32 pi = 0; pi < 8; ++pi) {
                             int32 gs = ghzGslot[promoteOrder[pi]];
                             if (gs >= 0)
                                 SaturnSheet_MakeResident(gs);
                         }
+#endif
                     }
 #endif
                     // Object anim pack for the staged HUD/Ring/GHZ objects (replaces

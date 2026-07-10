@@ -317,6 +317,20 @@ extern "C" uint32 SaturnSheet_ResAlloc(uint32 bytes)
     return a;
 }
 
+#if defined(P6_FRAMEDIR)
+// Sprite-pipeline rework (feature checklist sec 7): the .FRD blobs are
+// GFS-loaded DIRECTLY into the cart at the (aligned) bump cursor -- the
+// caller peeks the destination via ResAlloc(0) and needs the remaining
+// capacity as the GFS load cap so an oversize read can never run past
+// RES_END into the anim-pack windows. Flag-gated: the default build is
+// byte-identical without -DP6_FRAMEDIR.
+extern "C" uint32 SaturnSheet_ResRemain(void)
+{
+    uint32 a = (s_resCursor + 3u) & ~3u;
+    return (a < SATURNSHEET_RES_END) ? (SATURNSHEET_RES_END - a) : 0;
+}
+#endif
+
 #if defined(P6_FRONTEND_MENU)
 // #317 draw/inflate hog: at the GHZCutscene->Green Hill Zone handoff the RES store is
 // full of resident TITLE/menu sheets (TSONIC 1 MB!) that are NEVER drawn again in

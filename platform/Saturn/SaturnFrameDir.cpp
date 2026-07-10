@@ -64,9 +64,22 @@ static SaturnFrameDirSlot s_frd[SATURNFRD_SLOTS];
 static int32 s_frdCount = 0;
 
 extern "C" {
-__attribute__((used)) int32 p6_w_frd_staged  = 0; // blobs staged into the cart
+__attribute__((used)) int32 p6_w_frd_staged  = 0; // blobs staged into the cart (cumulative)
+__attribute__((used)) int32 p6_w_frd_active  = 0; // live slot count (post-seam-reset)
 __attribute__((used)) int32 p6_w_frd_lookups = 0; // directory lookups served
 __attribute__((used)) int32 p6_w_frd_misses  = 0; // rects NOT in the directory
+// qa_p6_frd.py F2 identity: per-ACTIVE-slot djb2 over the staged cart bytes
+// (computed ONCE at stage time -- load phase, never per-frame) + blob size +
+// frame count. The gate matches each (bytes,hash) pair against the offline
+// cd/*.FRD file, proving the cart copy is intact end-to-end.
+__attribute__((used)) int32 p6_w_frd_hash[SATURNFRD_SLOTS]   = { 0 };
+__attribute__((used)) int32 p6_w_frd_bytes[SATURNFRD_SLOTS]  = { 0 };
+__attribute__((used)) int32 p6_w_frd_frames[SATURNFRD_SLOTS] = { 0 };
+// miss ring (last 4): checklist sec 6.2 classification -- a nonzero miss is
+// either a non-anim blit (keep .SHT fallback) or a converter gap.
+__attribute__((used)) int32 p6_w_frd_missrect[4] = { 0 }; // sx<<16 | sy
+__attribute__((used)) int32 p6_w_frd_misswh[4]   = { 0 }; // w<<16 | h
+__attribute__((used)) int32 p6_w_frd_missslot[4] = { 0 };
 }
 
 static uint16 rd16(const uint8 *p) { return (uint16)((p[0] << 8) | p[1]); }
@@ -106,6 +119,58 @@ extern "C" int32 SaturnFrameDir_Stage(const void *blob, uint32 bytes)
         s->hash[i] = 0;
     ++p6_w_frd_staged;
     return s_frdCount++;
+}
+
+// Stage-1 live path: the .FRD was GFS-loaded DIRECTLY into the cart at the
+// ResAlloc cursor (p6_io_main p6_frd_stage_file: ResAlloc(0) peek + the new
+// SaturnSheet_ResRemain cap -- blobs up to 262 KB exceed every WRAM bounce
+// window). This registers the slot IN PLACE (zero copy) after claiming the
+// bytes from the shared bump allocator; the claim MUST return the same
+// address the caller loaded to (nothing else allocates in between --
+// single-threaded load phase). One-time djb2 read-back = the qa_p6_frd F2
+// identity witness (load-phase only; the cart read is wait-stated but runs
+// once per stage, never per frame).
+extern "C" int32 SaturnFrameDir_StageDirect(const void *blob, uint32 bytes)
+{
+    const uint8 *b = (const uint8 *)blob;
+    if (s_frdCount >= SATURNFRD_SLOTS)
+        return -1;
+    if (bytes < 12
+        || !(b[0] == 'F' && b[1] == 'R' && b[2] == 'D' && b[3] == '1'))
+        return -1;
+    if (SaturnSheet_ResAlloc((bytes + 3u) & ~3u) != (uint32)blob)
+        return -1;
+    SaturnFrameDirSlot *s = &s_frd[s_frdCount];
+    s->base   = b;
+    s->bytes  = bytes;
+    s->frames = rd16(b + 4);
+    s->luts   = rd16(b + 6);
+    s->sheetW = rd16(b + 8);
+    s->sheetH = rd16(b + 10);
+    for (int32 i = 0; i < 4; ++i)
+        s->hash[i] = 0;
+    {
+        uint32 hh = 5381u;
+        for (uint32 k = 0; k < bytes; ++k)
+            hh = ((hh << 5) + hh) ^ b[k];
+        p6_w_frd_hash[s_frdCount]   = (int32)hh;
+        p6_w_frd_bytes[s_frdCount]  = (int32)bytes;
+        p6_w_frd_frames[s_frdCount] = (int32)s->frames;
+    }
+    ++p6_w_frd_staged;
+    p6_w_frd_active = s_frdCount + 1;
+    return s_frdCount++;
+}
+
+// Seam reclaim companion (p6_io_main): every SaturnSheet_ResReset() KILLS the
+// staged blobs' cart backing, so the registry must die with it -- the caller
+// then re-stages the incoming leg's FRDs and p6_vdp1_frd_detach_all() clears
+// the per-sheet attachments (a stale frdSlot against a re-staged different
+// blob would serve wrong pixels -- the #250 stale-binding class).
+extern "C" void SaturnFrameDir_Reset(void)
+{
+    s_frdCount      = 0;
+    p6_w_frd_active = 0;
 }
 
 extern "C" void SaturnFrameDir_SetHash(int32 slot, const uint32 *hash)
@@ -180,6 +245,9 @@ extern "C" int32 SaturnFrameDir_Lookup(int32 slot, int32 sx, int32 sy,
         else
             hi = mid - 1;
     }
+    p6_w_frd_missslot[p6_w_frd_misses & 3] = slot;
+    p6_w_frd_missrect[p6_w_frd_misses & 3] = (sx << 16) | (sy & 0xFFFF);
+    p6_w_frd_misswh[p6_w_frd_misses & 3]   = (w << 16) | (h & 0xFFFF);
     ++p6_w_frd_misses;
     return 0;
 }

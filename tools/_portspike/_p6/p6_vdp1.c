@@ -1418,6 +1418,18 @@ void p6_vdp1_sheet_set_frd(int handle, int frdSlot)
         return;
     s_sheets[handle].frdSlot = frdSlot;
 }
+
+/* Seam-reclaim companion (feature checklist sec 7): SaturnSheet_ResReset()
+ * kills the FRD blobs' cart backing, so every attachment must drop with it
+ * -- a stale frdSlot against a re-staged DIFFERENT blob would serve wrong
+ * pixels (the #250 stale-binding class). Called by p6_io_main right after
+ * each ResReset+SaturnFrameDir_Reset pair; the incoming leg re-attaches. */
+void p6_vdp1_frd_detach_all(void)
+{
+    int i;
+    for (i = 0; i < s_sheet_count; ++i)
+        s_sheets[i].frdSlot = -1;
+}
 #endif
 
 #if defined(P6_FRONTEND_CHAIN)

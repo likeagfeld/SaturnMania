@@ -149,7 +149,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # tick boots the Logos splash scene instead of GHZ (p6_logos_reload +
 # p6_frontend_frame). Mutually independent of the GHZ diag knobs; the default
 # shipping build leaves it unset -> boots GHZ unchanged.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} ${P6_TICK_CATCHUP:+-DP6_TICK_CATCHUP} ${P6_DIRECT_VDP1:+-DP6_DIRECT_VDP1} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} ${P6_TICK_CATCHUP:+-DP6_TICK_CATCHUP} ${P6_DIRECT_VDP1:+-DP6_DIRECT_VDP1} ${P6_FRAMEDIR:+-DP6_FRAMEDIR} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -596,8 +596,21 @@ echo "[7o] SaturnSheet.o (P6.7 W12 sprite-sheet band stores; Task #241: P6_CART 
 # extra menu sheets MAINICON/TEXTEN) compiles for the Menu flavor.
 # R3.1 (#305): AIZOBJ.SHT reuses the MENU 16-slot table (slot 15); NO P6_AIZ_TEST slot
 # bump (a 17th slot shifted .bss -> #228 boot trap, MEASURED blue-screen at _end 0x060BA360).
-$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} -I"$DEPS" -I"$NEWLIB" \
+$CC $CXXFLAGS $MINIZ_DEFS -DP6_CART ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRAMEDIR:+-DP6_FRAMEDIR} -I"$DEPS" -I"$NEWLIB" \
     -c -o "$P6/SaturnSheet.o" "$PLAT/SaturnSheet.cpp"
+
+# Stage-1 FRD (sprite frame directory, feature checklist sec 7): the pre-cut
+# frame-directory store TU. Compiled + linked ONLY under P6_FRAMEDIR -- the
+# default build's pack object list is unchanged (byte-identical). Stale-.o
+# hygiene: rm when the flag is off so a flavor switch can never link a stale
+# SaturnFrameDir.o (the jo-pool-stale-core-o gotcha class).
+if [ -n "${P6_FRAMEDIR:-}" ]; then
+    echo "[7o2] SaturnFrameDir.o (P6_FRAMEDIR stage-1: pre-cut FRD1 frame-directory store) ..."
+    $CC $CXXFLAGS -DP6_FRAMEDIR -I"$DEPS" -I"$NEWLIB" \
+        -c -o "$P6/SaturnFrameDir.o" "$PLAT/SaturnFrameDir.cpp"
+else
+    rm -f "$P6/SaturnFrameDir.o"
+fi
 
 echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-required witnesses) ..."
 # NOTE: no libm in the pack. Text.cpp's MD5 T-table is BAKED for Saturn
@@ -787,6 +800,10 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_TITLE:+-u _p6_w_titlebg_classid -u _p6_w_title3d_classid} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_titlebg_vis -u _p6_w_title3d_vis} \
     ${P6_FRONTEND_CHAIN:+-u _p6_w_chain_fired -u _p6_w_chain_folder_pre -u _p6_w_chain_listpos_adv -u _p6_w_chain_listpos_title} \
+    ${P6_FRAMEDIR:+-u _p6_w_frd_staged -u _p6_w_frd_active -u _p6_w_frd_lookups -u _p6_w_frd_misses} \
+    ${P6_FRAMEDIR:+-u _p6_w_frd_hash -u _p6_w_frd_bytes -u _p6_w_frd_frames} \
+    ${P6_FRAMEDIR:+-u _p6_w_frd_missrect -u _p6_w_frd_misswh -u _p6_w_frd_missslot} \
+    ${P6_FRAMEDIR:+-u _SaturnFrameDir_Lookup -u _SaturnFrameDir_StageDirect -u _SaturnFrameDir_Reset} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_vbl -u _p6_w_lt_fills -u _p6_w_lt_kb -u _p6_w_lt_frt} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_cks -u _p6_w_lt_masked_vbl -u _p6_w_lt_ph2_fills -u _p6_w_lt_ph2_vbl -u _p6_w_lt_sfx_savedopen} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_p2seeks} ${P6_FRONTEND_LOGOS:+-u _p6_w_p2seeks} \
@@ -822,7 +839,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     "$P6/Game_SizeLaser.o" "$P6/Game_Zone.o" "$P6/Game_ActClear.o" \
     "$P6/Game_SignPost.o" "$P6/Game_BGSwitch.o" "$P6/Game_GHZSetup.o" \
     "$P6/p6_wave1_reg.o" "$P6/p6_vsprintf.o" "$P6/SaturnLayout.o" \
-    "$P6/SaturnSheet.o" \
+    "$P6/SaturnSheet.o" ${P6_FRAMEDIR:+$P6/SaturnFrameDir.o} \
     "$P6/Input_Input.o" "$P6/InputDevice_Saturn.o" "$P6/CppRuntime_Saturn.o" \
     "$P6/p6_stubs.o" "$P6/p6_pack_stubs.o" \
     -o "$P6/p6_scene_gc.o"

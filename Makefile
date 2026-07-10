@@ -239,6 +239,16 @@ ifeq ($(P6_DIRECT_VDP1),1)
 CCFLAGS += -DP6_DIRECT_VDP1
 endif
 
+# Stage-1 FRD (sprite frame directory, docs/feature_checklists/
+# sprite_frame_directory.md sec 7): the jo-side p6_vdp1.c carries the
+# per-sheet frdSlot + the FRD dispatch at both slot-cache miss sites,
+# all #if defined(P6_FRAMEDIR). build_shipping.sh passes P6_FRAMEDIR=1
+# when the env knob is set; the DEFAULT build leaves it unset ->
+# p6_vdp1.o byte-identical.
+ifeq ($(P6_FRAMEDIR),1)
+CCFLAGS += -DP6_FRAMEDIR
+endif
+
 # M1b STRIPED-ICON FIX (this session): the MENU front-end flavor MUST also reach the
 # jo-make compile of p6_vdp1.c. P6_FRONTEND_MENU IMPLIES P6_FRONTEND_TITLE -> LOGOS.
 # WITHOUT this define on the jo compile, p6_vdp1.c took the #else (TITLE) bucket-count

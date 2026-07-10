@@ -194,7 +194,7 @@ cd /work
 # hybrid-image rule).
 rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
       tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} ${P6_FRAMEDIR:+P6_FRAMEDIR=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
 LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
@@ -290,7 +290,7 @@ cd /work
 
 echo "[4/5] re-master the ISO with the overlay on disc ..."
 rm -f game.iso
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} ${P6_FRAMEDIR:+P6_FRAMEDIR=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[5/5] sanity: _end + lean-boot entry + flavor flag + overlay entry ..."
 grep " _end = " game.map
@@ -412,5 +412,16 @@ if [ -n "${P6_FRONTEND_CHAIN:-}" ]; then
     echo "[5d] CP5c front-end CHAIN symbol presence:"
     grep -m1 "p6_w_chain_fired$"      game.map || echo "  MISSING p6_w_chain_fired (the Logos->Title advance compiled out -- stale p6_io_main.o?)"
     grep -m1 "p6_w_chain_folder_pre$" game.map || echo "  MISSING p6_w_chain_folder_pre"
+fi
+# Stage-1 FRD (feature checklist sec 7): confirm the frame-directory witnesses
+# + the lookup landed in game.map (build_p6scene_objs.sh SWALLOWS compile
+# errors -> a stale p6_io_main.o / absent SaturnFrameDir.o leaves them MISSING;
+# this grep is the silent-fail trip-wire). qa_p6_frd.py is the behavioral gate.
+if [ -n "${P6_FRAMEDIR:-}" ]; then
+    echo "[5i] P6_FRAMEDIR symbol presence:"
+    grep -m1 "p6_w_frd_staged$"  game.map || echo "  MISSING p6_w_frd_staged (SaturnFrameDir.o not linked / compile failed silently?)"
+    grep -m1 "p6_w_frd_active$"  game.map || echo "  MISSING p6_w_frd_active"
+    grep -m1 "p6_w_frd_misses$"  game.map || echo "  MISSING p6_w_frd_misses"
+    grep -m1 "SaturnFrameDir_Lookup$" game.map || echo "  MISSING SaturnFrameDir_Lookup (the p6_vdp1_set_frd hook is INERT?)"
 fi
 echo "DONE [shipping image built: game.iso/game.cue + cd/OVLRING.BIN]."
