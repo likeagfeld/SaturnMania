@@ -7877,3 +7877,30 @@ Gate: tools/qa_cascade_gate.py (live, folder==GHZ liveness-checked, median
 fps over 30 s, floor 20.0 = 3-vblank tier). RED required on HEAD build
 BEFORE the fix; GREEN + full-chain per-leg non-regression sweep
 (_chain_fps_probe) required after. _end must stay < 0x060C8000.
+
+---
+
+## Signpost campaign (2026-07-10) -- boot->GHZ1-signpost, LIVE MEMORY ONLY
+
+Measured results (updated as the campaign progresses; gate =
+`python tools/qa_signpost_run.py` against `pwsh tools/qa_live.ps1 -NoCdda
+-NoMonitor` on the P6_GHZ_AUTORUN chain build).
+
+Run 1 (RED baseline, commit c0df26d+2):
+- Scripted jump table (150 manifest hazards) clears the x777 Motobug (the
+  prior blocker). New deterministic wall: x~1270 death loop.
+- ROOT-CAUSED death: floor profile (tools/_floor_profile.py, TileConfig +
+  Scene1.bin) shows surface y896 to x1080, gap x1088-1272 (bridge-1 span,
+  authored Bridge (1184,904)), pit floor y1232. Player_State_Death
+  (state=0x602F944) fires mid-fall because deathBoundary=1004 persists from
+  the spawn BoundsMarkers (BoundsMarker.c:60-68; no marker between x256 and
+  x2832; Zone.c:620-624). The PARITY BUG is the fall itself: Sonic runs off
+  the deck at x1088 and falls THROUGH the Bridge planks (same class as the
+  tabled #181/#256 Tails fall-through, now measured for Sonic in normal play).
+- 3 deaths -> GameOver -> Menu (decomp-correct life flow).
+- C4 music: p6_w_str_track==2 (GreenHill1) while in GHZ -- correct.
+- C1 inflates: steady-motion d(p6_w_sht_fetches)==0 across the observed run
+  (FRD stage-1 holding); evict churn 20-82 per 0.35s sample while running.
+- C5: chain-cumulative sfx_skips=1 (one GameConfig global SFX dropped by the
+  32KB DATASET_SFX pool guard, Audio.cpp:407-427), anim_allocfail=17,
+  snd_plays=1. GHZ-delta attribution added to the gate.

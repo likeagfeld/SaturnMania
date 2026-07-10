@@ -599,7 +599,6 @@ __attribute__((used)) int32 p6_w_arun_brg_active  = -1; // its ->active
 __attribute__((used)) int32 p6_w_arun_brg_firstx  = -1; // player x @ first live sighting
 __attribute__((used)) int32 p6_w_arun_brg_gapmiss = 0;  // frames player in-span & bridge NOT live
 __attribute__((used)) int32 p6_w_arun_inspan      = 0;  // frames player in-span total
-__attribute__((used)) int32 p6_w_sfxskip_hash     = 0;  // djb2 of the last pool-skipped sfx name (Audio.cpp guard)
 #endif
 #if defined(P6_GHZCUT_BOOT)
 // #311 mech-6: draws dropped because frame->sheetID wrapped to 255 (unstaged
@@ -2017,6 +2016,13 @@ extern int32 streamLoopPoint;
 // run body mirrors it into the p6_w_sfx_skips witness.
 namespace RSDK {
 __attribute__((used)) int32 p6_saturn_sfx_skips = 0;
+#if defined(P6_GHZ_AUTORUN)
+// Signpost campaign: djb2 of the last pool-skipped sfx name. Defined HERE (in
+// namespace RSDK) because Audio.cpp's block-scope `extern int32
+// p6_w_sfxskip_hash` binds to RSDK:: under GCC 8.2 -- the exact
+// p6_saturn_sfx_skips precedent documented above.
+__attribute__((used)) int32 p6_w_sfxskip_hash = 0;
+#endif
 // Task #271 load-time fix: DATASET_SFX pool-full LATCH + the count of file-opens
 // the LoadSfxToSlot early-out SAVED. Same namespace as p6_saturn_sfx_skips so
 // Audio.cpp's `using namespace RSDK` block-scope externs bind here under GCC 8.2.

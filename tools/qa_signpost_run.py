@@ -270,7 +270,10 @@ def main(argv=None) -> int:
     # C5 baselines at GHZ entry: the counters are chain-cumulative (menu/AIZ/
     # cutscene legs); the traversal verdict is on the GHZ DELTA, absolutes
     # reported for the front-end follow-up.
-    base_skips = s32(lv.r32s("p6_w_sfx_skips") or 0)
+    # NOTE: p6_w_sfx_skips is a one-shot mirror at LoadGameConfig; the LIVE
+    # counter is RSDK::p6_saturn_sfx_skips (increments on every later stage
+    # SFX skip too) -- use the live counter for the delta.
+    base_skips = s32(lv.r32s("RSDK::p6_saturn_sfx_skips") or 0)
     base_afail = lv.r32s("RSDK::p6_saturn_anim_allocfail") or 0
     base_plays = lv.r32s("p6_w_snd_plays") or 0
 
@@ -533,7 +536,7 @@ def main(argv=None) -> int:
     verdict("C4 music", 2 in trk_seen and not trk_bad,
             "tracks seen in GHZ=%s (expect 2=GreenHill1)" % sorted(trk_seen))
     # C5
-    skips = s32(lv.r32s("p6_w_sfx_skips") or 0)
+    skips = s32(lv.r32s("RSDK::p6_saturn_sfx_skips") or 0)
     afail = lv.r32s("RSDK::p6_saturn_anim_allocfail") or 0
     plays = lv.r32s("p6_w_snd_plays") or 0
     d_skips = (skips or 0) - (base_skips or 0)
@@ -552,6 +555,13 @@ def main(argv=None) -> int:
         v = lv.r32s(wn)
         forens[wn.replace("p6_w_", "")] = s32(v) if v is not None else None
     print("   bridge-1 forensics: %s" % forens)
+    sh = lv.r32s("p6_w_sfxskip_hash")
+    if sh:
+        try:
+            tbl = json.loads((_HERE.parent / "_sfx_hashes.json").read_text())
+            print("   skipped sfx: hash=0x%08X -> %s" % (sh, tbl.get(hex(sh), "?not-in-GameConfig")))
+        except Exception:
+            print("   skipped sfx hash=0x%08X (no table)" % sh)
     # C6
     brg = s32(lv.r32s("p6_w_brg_frames") or 0)
     verdict("C6 bridges", brg is not None and brg > 0 and len(bridge_bad) == 0,
