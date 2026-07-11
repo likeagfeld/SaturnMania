@@ -8217,7 +8217,14 @@ static void p6_frontend_frame(void)
                             // sane so HandleSpin's first angle>=maxAngle branch ticks.
                             uint8 *sb = (uint8 *)se + sizeof(Entity);
                             *(void **)sb            = (void *)SignPost_State_Spin;
-                            *(int32 *)(sb + 40)     = 8;        // spinCount
+                            // spinCount=5: enough spin ticks for the gate (which
+                            // samples ~3/s) to observe the ACTIVE_NORMAL crossing +
+                            // State_Spin, yet HandleSpin still decrements to 0 within
+                            // ~3s so State_Spin fires ResetEntitySlot(SLOT_ACTCLEAR) +
+                            // Music_PlayTrack(TRACK_ACTCLEAR) (SignPost.c:448-452)
+                            // BEFORE the player falls through the (non-solid) warp
+                            // deck -- so ONE run latches crossed+spin+actclear.
+                            *(int32 *)(sb + 40)     = 5;        // spinCount
                             se->active              = 2;       // ACTIVE_NORMAL
                             s_r7_sign_armed = 1;
                             p6_w_warp_signactive = 0x51611; // sentinel: sign armed

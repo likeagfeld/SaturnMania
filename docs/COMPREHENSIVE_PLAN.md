@@ -7991,16 +7991,18 @@ autorun's x14503 wall via a DIAGNOSTIC warp (build_shipping.sh P6_WARP=1 ->
   there (snapping cameras[0].position.x BEFORE p6_scan_update_near) until the
   streamer materializes the signpost (~15-17s of pin; MEASURED sign_count 0->1
   at (15792,1208)).
-- Once materialized, arm it DIRECTLY into SignPost_State_Spin (spinCount=8) --
+- Once materialized, arm it DIRECTLY into SignPost_State_Spin (spinCount=5) --
   skips the Falling->land requirement because the warp deck is not solid ground
   for the sign to land on (Objective B plane issue) and the player falls through
-  before a land could occur. RESULT (official qa_signpost_run.py): [PASS] C9 --
-  SignPost k=488 (15792,1208) active=2 (ACTIVE_NORMAL crossing), state=
-  SignPost_State_Spin, spin(Count)=4 counting down, vis=1. crossed=True spin=True.
-- actclear=False: the player dies (falls through the y1180 deck) before spinCount
-  reaches 0 to fire ResetEntitySlot(SLOT_ACTCLEAR) (SignPost.c:452). The spin
-  itself -- the milestone -- is PROVEN. C8 RED is inherent to the warp diagnostic
-  (it pins/kills the player); C1/C3/C5 are pre-existing, signpost-unrelated.
+  before a land could occur. spinCount=5 = enough spin ticks for the gate to
+  sample the crossing+spin, yet HandleSpin decrements to 0 within ~3s so
+  State_Spin fires ResetEntitySlot(SLOT_ACTCLEAR) + Music_PlayTrack(TRACK_ACTCLEAR)
+  (SignPost.c:448-452) before the player falls.
+- RESULT (official qa_signpost_run.py, one run): [PASS] C9 -- SignPost k=488
+  (15792,1208) active=2 (ACTIVE_NORMAL crossing), state=SignPost_State_Spin,
+  vis=1 -> crossed=True spin=True actclear=True. ALL THREE signpost milestones
+  fire from the chain build. (Overall RESULT still RED only from pre-existing
+  signpost-unrelated C1/C3/C5 + the inherent C8 warp-diagnostic death.)
 - _end 0x060c04f0 (< 0x060c8000).
 OBJECTIVE B (autorun x14503 feasibility) -- PLANE MECHANISM, NOT AUTORUN-REACHABLE
 WITHOUT A SCRIPTED SET (verdict, evidence-backed, no jump grind per the mandate):
