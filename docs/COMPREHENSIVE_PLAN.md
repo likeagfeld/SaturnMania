@@ -8061,3 +8061,124 @@ spin" premise.
   architecturally boss-gated. Boot-to-spin evidence options: (1) keep the r7
   warp+manual-arm C9 PASS as canonical end-of-act proof, or (2) port the DDWrecker
   boss so the drop fires naturally (large effort). _end 0x060c0f70 (< 0x060c8000).
+
+================================================================================
+## DDWrecker BOSS PORT — Stage 1 audit (2026-07-11, branch visual-arc-fixes)
+================================================================================
+
+MISSION: port the GHZ Act-1 boss DDWrecker so the natural end-of-act chain
+fires WITHOUT the r7 warp: boss spawns -> fight -> defeated ->
+DDWrecker_State_SpawnSignpost (DDWrecker.c:913-925) sets signPost->state =
+SignPost_State_Falling -> land -> SignPost_State_Spin (SignPost.c:581) ->
+ActClear (SignPost.c:452). Round-8 memory proved this is the ONLY faithful
+path to a natural GHZ1 signpost spin (Scene1.bin signposts are inert on
+run-past; the drop is boss-gated). DDWrecker(15792,1588) slot 317 in the
+manifest (tools/_ghz1_obstacle_map.py).
+
+--- 1. LINK-TIME DEPENDENCY CLOSURE (decomp DDWrecker.c, cited) -------------
+Cached: tools/_decomp_raw/SonicMania_Objects_GHZ_DDWrecker.{c,h}.
+Entity types (DDWrecker.h:6-12): SETUP(placed), BALL1, BALL2, CHAIN, CORE.
+One placed SETUP entity spawns 7 children (State_InitChildren, DDWrecker.c:139-
+216) into entitySlot+1..+7: 4 CHAIN, 1 CORE, 2 BALL. The two BALLs carry
+health=3 and the hitbox; hitting a Vulnerable ball calls DDWrecker_Hit
+(DDWrecker.c:774), --health, at 0 -> State_Die -> State_SpawnSignpost.
+
+RSDK.* engine calls (ALL exist in src/rsdk/, used by the 6 ported badniks):
+  ProcessAnimation, SetSpriteAnimation, LoadSpriteAnimation, DrawSprite,
+  SetActivePalette, GetSfx, PlaySfx, ResetEntity, GetEntitySlot,
+  Sin1024, Cos1024, Rand, ObjectTileCollision, CheckOnScreen.
+  Saturn-incompat palette FX in DDWrecker_Draw (DDWrecker.c:38-45):
+  SetLimitedFade / SetPaletteEntry (blend flash). NO-OP-safe on Saturn
+  (mirror the badniks' SetActivePalette-only path); the ball still draws via
+  DrawSprite, only the hit-flash tint drops. FIXME-marked, not load-bearing
+  for the defeat->spin closure.
+
+Cross-object calls — EVERY ONE already pack- or overlay-resident:
+  Music_TransitionTrack (Game_Music.o, pack) : TRACK_MINIBOSS/STAGE
+  BadnikHelpers_Oscillate (Game_BadnikHelpers.o) : y bob
+  Camera_ShakeScreen (Game_Camera.o) : bounce impact
+  Player_CheckBadnikTouch/CheckBossHit/Hurt/GiveScore : Game_Player.o (pack;
+      the 6 badniks already call CheckBadnikTouch/CheckBossHit)
+  CREATE_ENTITY(Explosion,...) : Explosion REGISTERED (p6_ovl_ghz.c:761,
+      badnik-break chain) EXPLOSION_BOSS type
+  SignPost_State_Falling + SignPost->sfxTwinkle : Game_SignPost.o (pack;
+      foreach_all(SignPost) at DDWrecker.c:918-923)
+  Zone->objectDrawGroup / collisionLayers / timer / cameraBounds* /
+      playerBound* : Game_Zone.o (pack)
+  SceneInfo->timeEnabled, globals->gameMode : engine
+Defeat-side SignPost closure (already ported, verified by the r7 warp):
+  SignPost_State_Falling (SignPost.c:494) -> floor collision ->
+  SignPost_State_Spin (SignPost.c:581) -> ResetEntitySlot(SLOT_ACTCLEAR)+
+  Music TRACK_ACTCLEAR (SignPost.c:448-452). ScoreBonus already registered.
+=> OFFLINE COMPILE PROOF: DDWrecker.c compiles CLEAN (exit 0, zero errors)
+   against the game headers with the exact badnik build knob
+   (-Os -m2 GAME_DEFS -I _p67d_sizing/include). Closure FULLY satisfied at
+   compile time; no new helper/effect TU needed.
+
+--- 2. ASSET AUDIT ---------------------------------------------------------
+Anim:  GHZ/DDWrecker.bin (extracted .../GHZ/DDWrecker.bin, 1036 B) DEDICATED
+       (StageLoad DDWrecker.c:100). NOT the shared GHZ/Objects.gif.
+Sheet: GHZ/DDWrecker.gif (13855 B) DEDICATED boss sheet (Egg-mobile +
+       wrecking balls + chains, viewed: 20 frames). NEEDS a NEW .SHT/.PAK
+       staging (build_sheet_bands.py + a DDWrecker anim-pack entry). Both
+       DDWrecker.bin and DDWrecker.gif are ALREADY in build_filelist.py
+       (lines 1282, 1763) so they ship in DATA.RSDK.
+SFX:   Stage/BossHit,Explosion2,Drop,Impact2,Assemble,Rotate,Sharp.wav
+       (DDWrecker.c:102-108). GetSfx alloc-guard may skip (C5 class); the
+       defeat->spin closure does not depend on SFX playback.
+
+--- 3. BUDGET AUDIT (the hard walls) ---------------------------------------
+DDWrecker.o (offline, badnik build knob, -ffunction/-fdata-sections):
+  full .o 16,344 B ; stripped 9,808 B (vs the 6 badniks 3.0-4.4 KB each).
+  ~2.5x the largest single badnik (12 state fns + 2 helpers).
+OVERLAY WINDOW (the binding wall):
+  ovl_ring.map .text = 0x272f0 = 160,496 B ; bss ends ~0x026b74d4.
+  P6_OVL_WINDOW = 0x28000 = 163,840 B (base 0x22690000, end 0x226B8000).
+  FREE = 163,840 - 160,496 = 3,344 B. DDWrecker (~9,808 B) OVERFLOWS by
+  ~6,464 B. *** THE OVERLAY WINDOW MUST GROW ~0x2000-0x4000. ***
+  BLOCKER: window end 0x226B8000 == p6_pool_remap home (p6_io_main.cpp:2115),
+  then p6_scan_sorted 0x226B9000, p6_scan_always 0x226BB000, p6_pool_remap_inv
+  0x226BC000, s_p6_shadow_inrange 0x226C0000, DORM store 0x226C8000, GFS
+  windows 0x22700000. To grow the window the cart-block CHAIN
+  0x226B8000..0x226C0000 must relocate UP by the growth delta (gap to
+  0x22700000 = 294,912 B is ample). MECHANICAL: shift the fixed cart addresses
+  (each 4KB-spaced, <2.5 KB used) up by the delta; the DORM store 0x226C8000 +
+  editableVarList 0x226D4000 + VDP1 staging 0x226E0000 stay put (still clear).
+  RE-BUDGET SUB-TASK = milestone (a) prerequisite.
+WRAM-H: _end 0x060c0f70 (< ceiling 0x060c8000; GLOBALS decoupled to
+  0x060CA000, unaffected by cart-window growth). The overlay lives in CART,
+  not WRAM-H, so DDWrecker code does NOT touch the WRAM-H wall; only the new
+  p6_w_ddw_* witnesses add a few WRAM-H bytes.
+ENTITY POOL: 8 slots (1 SETUP + 7 children) transiently in the scene region
+  [0,1088) at slot 317. GHZ1 ~856 placed, cap 1088 -> slack. No pool re-budget.
+ANIM POOL: DDWrecker.bin -> a NEW GHZOBJ.PAK entry (currently 23,652 B) or a
+  dedicated pack; +~ a few KB. STG pool 166 KB. Rerun qa_p6_animpool + the
+  FULL qa_signpost_run regression (#254) after the pack rebuild.
+
+--- 4. MILESTONES (each RED->GREEN + commit) -------------------------------
+ (a) OVERLAY RE-BUDGET + DDWrecker registered + spawns/runs intro at arena
+     (live: entity slot 317 classID != 0, state advances SetupArena->
+     InitChildren->children spawn->Assemble). Asset staged, no crash,
+     _end < 0x060c8000, plain-GHZ byte-identical (boss registers behind the
+     GHZ overlay the chain already loads; gate the plain path or verify).
+ (b) FIGHT: wrecking balls swing, ball is hittable, health decrements on a
+     hit (live health witness or diag hit-injection proving the HP path).
+ (c) DEFEAT CLOSURE (THE milestone): health->0 -> State_Die -> State_Spawn-
+     Signpost -> SignPost_State_Falling -> land -> SignPost_State_Spin ->
+     ActClear. qa_ddwrecker gate GREEN with spin=True from a NATURAL defeat.
+For autorun to DEFEAT the boss: extend the P6_GHZ_AUTORUN table to fight it;
+if scripted jump-combat proves as hard as r4-8 navigation, use an autorun-
+flavor-gated diagnostic one-shot apply-boss-damage injection to prove the
+defeat->spin closure end-to-end (CLOSURE proof prioritised over hands-free
+combat; autorun combat = a documented follow-up). NOTE the boss is at x15792,
+behind the x14503-14870 navigation wall -> reaching it live also needs the r8
+plane path OR a warp-to-arena diagnostic (autorun-flavor-gated) to place the
+player in the arena so the fight can be exercised.
+
+--- RED GATE (Stage 1) -----------------------------------------------------
+tools/qa_ddwrecker.py -- LIVE-memory, asserts from the pool:
+  D1 DDWrecker registered (classID != 0 via object-ptr symbol / witness)
+  D2 boss entity present + state advances at the arena
+  D3 a BALL child exists with health>0 (the hittable target)
+  D4 on defeat: SignPost state == SignPost_State_Spin (natural) + ActClear
+Runs RED on the current build (DDWrecker UNREGISTERED -> classID 0 / absent).
