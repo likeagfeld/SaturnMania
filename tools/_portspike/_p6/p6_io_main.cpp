@@ -863,6 +863,8 @@ __attribute__((used)) int32 p6_w_ddw_warp_fired = 0;
 __attribute__((used)) int32 p6_w_ddw_seen       = 0;
 __attribute__((used)) int32 p6_w_ddw_state0      = 0; // slot-317 (boss) state ptr
 __attribute__((used)) int32 p6_w_ddw_health_min  = -1; // min BALL health seen
+__attribute__((used)) int32 p6_w_ddw_hits_injected = 0; // P6_DDW_KILL: DDWrecker_Hit injections fired
+__attribute__((used)) int32 p6_w_ddw_sign_live      = 0; // P6_DDW_KILL: a live SignPost near the arena gates the kill
 // Batch 3 (2026-07-09, GHZ gameplay-parity sweep): per-object registration +
 // range-independent anim-load witnesses (written by p6_ghz_ovl_witness, ld -R).
 // classid>0 == registered + StageLoad ran; aniframes in [0,0x400) == the object's
@@ -8165,22 +8167,32 @@ static void p6_frontend_frame(void)
                 p6_w_ddw_warp_fired = 0x0DDBA55E;
             }
             if (s_ddw_phase == 1) {
-                // Pin x AND y so the camera holds on the arena while the boss materializes
-                // + assembles. Keep the player alive/onGround-ish; the fight logic reads
-                // his position for the ball-hit tests. Do NOT zero groundVel every tick
-                // once assembled (the player must be able to jump-attack) -- only pin
-                // until the boss's balls go Vulnerable, then release the pin so the
-                // autorun/injection can drive the hits. Gate release on p6_w_ddw_seen.
-                if (p6_w_ddw_seen < 2) {
-                    wplr->position.x = AX << 16;
-                    wplr->position.y = AY << 16;
-                    wplr->velocity.x = 0;
-                    wplr->velocity.y = 0;
-                    wplr->groundVel  = 0;
-                }
+                // Pin BOTH player + camera at the arena EVERY tick (not gated on
+                // p6_w_ddw_seen). The P6_DDW_KILL defeat injection burns the boss HP
+                // from the overlay (no player attack needed), so keeping the player
+                // + camera nailed to the arena maximizes the boss's materialization
+                // stability (the camera-local streamer keeps the boss live only while
+                // the camera sits on it). A drifting camera flickers the boss dormant
+                // (MEASURED milestone-b run: boss materialized intermittently). Also
+                // pin the camera ENTITY (classID 6) so Camera_Update cannot re-follow
+                // the (also-pinned) player away from x15792.
+                wplr->position.x = AX << 16;
+                wplr->position.y = AY << 16;
+                wplr->velocity.x = 0;
+                wplr->velocity.y = 0;
+                wplr->groundVel  = 0;
                 if (cameraCount > 0) {
                     cameras[0].position.x = 15792 << 16; // center on the boss
                     cameras[0].position.y = 1500  << 16;
+                }
+                // pin the camera ENTITY too (the reserve-region classID-6 slot)
+                for (int32 cs = 0; cs < 64; ++cs) {
+                    EntityBase *ce = RSDK_ENTITY_AT(cs);
+                    if (ce && ce->classID == 6) {
+                        ce->position.x = 15792 << 16;
+                        ce->position.y = 1500  << 16;
+                        break;
+                    }
                 }
             }
         }

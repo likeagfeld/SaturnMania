@@ -57,6 +57,12 @@ export P6_CART_TMP="${P6_CART_TMP-1}"
 # arena warp + the witness -u roots. Both are diag-only; plain/plain-chain leave
 # them unset -> byte-identical. Export P6_DDWRECKER too so the child inherits it
 # even when passed only via docker -e (already in env, but make the intent explicit).
+# P6_DDW_KILL (the defeat-injection diagnostic) IMPLIES P6_DDW_ARENA (warp to the
+# arena) which implies P6_DDWRECKER (the boss).
+if [ -n "${P6_DDW_KILL:-}" ]; then
+    export P6_DDW_ARENA=1
+    export P6_DDW_KILL
+fi
 if [ -n "${P6_DDW_ARENA:-}" ]; then
     export P6_DDWRECKER=1
     export P6_DDW_ARENA

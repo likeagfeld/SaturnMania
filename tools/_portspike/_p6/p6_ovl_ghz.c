@@ -1006,6 +1006,25 @@ static void p6_cuthbh_draw(void)
 // MIGRATED here from p6_wave1_reg.c -- the resident pack no longer names these
 // globals). One-shot latches; gates read p6_w_*.
 // =============================================================================
+#if defined(P6_DDW_KILL)
+/* P6_DDW_KILL helper: return the first MATERIALIZED SignPost entity (classID
+ * match) near the boss arena x15792, or NULL. Used to gate the defeat injection
+ * so DDWrecker_State_SpawnSignpost's foreach_all(SignPost) fires while the sign
+ * is live (the sign is camera-local dormant until the pinned camera reaches it). */
+void *p6_ovl_find_signpost_near(int32 signCid)
+{
+    for (int32 si = 0; si < ENTITY_COUNT; ++si) {
+        Entity *e = RSDK_GET_ENTITY_GEN(si);
+        if (e && (int32)e->classID == signCid) {
+            int32 sx = (int32)(e->position.x >> 16);
+            if (sx > 15600 && sx < 16000)
+                return (void *)e;
+        }
+    }
+    return 0;
+}
+#endif
+
 static void p6_ghz_ovl_witness(const void *ringSlot)
 {
     (void)ringSlot; /* p6_ring2 harness retired; Ring witnesses are aniFrames-based now */
@@ -1690,6 +1709,115 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         p6_w_ddw_seen       = seen;
         p6_w_ddw_state0     = st0;
         p6_w_ddw_health_min = (hmin == 0x7fffffff) ? -1 : hmin;
+#if defined(P6_DDW_KILL)
+        /* DEFEAT INJECTION (milestone c, P6_DDW_KILL diagnostic only): once the
+         * boss has ASSEMBLED (a live BALL exists) drive it to defeat the DECOMP-
+         * FAITHFUL way -- set SceneInfo->entity = the ball + call DDWrecker_Hit()
+         * (DDWrecker.c:774) 3x (once per settle tick) to burn its health 3->0.
+         * At health 0 DDWrecker_Hit sets state = DDWrecker_State_Die -> Explode ->
+         * (timer 80) State_SpawnSignpost (DDWrecker.c:913) sets every SignPost ->
+         * SignPost_State_Falling -> land -> Spin -> ActClear. This proves the
+         * defeat->NATURAL-signpost-spin closure end-to-end without scripted jump-
+         * combat (the mission-sanctioned diagnostic). It does NOT touch the
+         * signpost -- the boss's own SpawnSignpost fires it. Throttled: one hit
+         * per ~20 ticks so the invincibilityTimer (48) clears between hits. */
+        extern int32 p6_w_ddw_hits_injected, p6_w_ddw_sign_live;
+        {
+            static int32 s_kill_cooldown = 0;
+            if (s_kill_cooldown > 0) --s_kill_cooldown;
+            /* RACE FIX (2026-07-11): the x15792 SignPost is camera-local DORMANT.
+             * DDWrecker_State_SpawnSignpost's foreach_all(SignPost) only sets the
+             * sign to Falling if the sign is MATERIALIZED (classID != 0) when it
+             * runs. The first kill build defeated the boss BEFORE the sign
+             * streamed in -> SpawnSignpost found no live sign -> the sign stayed
+             * state=0 (MEASURED slot42 15792,1208 state=NULL). So GATE the kill on
+             * a live SignPost near the boss: scan for a materialized SignPost
+             * (SignPost->classID) first; only start burning HP once it exists. */
+            int32 sign_live = 0;
+            extern void *p6_ovl_find_signpost_near(int32); /* fwd (defined above) */
+            void *signp = (SignPost && SignPost->classID)
+                          ? p6_ovl_find_signpost_near((int32)SignPost->classID) : 0;
+            sign_live = (signp != 0) ? 1 : 0;
+            p6_w_ddw_sign_live = sign_live;
+            if (sign_live) {
+                /* Find the dying entity (a ball already in State_Die) + a still-
+                 * hittable ball. DEATH-CLEANUP (2026-07-11): DDWrecker_Hit on a
+                 * ball reaching health 0 sets THAT ball -> State_Die + the OTHER
+                 * ball -> Partnerless (flies away) + chains/core -> Debris. State_Die
+                 * (DDWrecker.c:896) only advances to State_SpawnSignpost when
+                 * foreach_active(DDWrecker) cnt == 1 (all other children gone). With
+                 * the camera pinned the debris stays on-screen (never destroyed) and
+                 * the Partnerless ball flies off + de-materializes (unhittable) ->
+                 * cnt stays > 1 -> the dying ball destroyEntity(self)s instead of
+                 * firing SpawnSignpost (MEASURED: sign stayed state=NULL). So once a
+                 * ball is dying, DESTROY every OTHER DDWrecker child so cnt==1 ->
+                 * State_Die fires SpawnSignpost NATURALLY (the sign drop is still the
+                 * boss's own decomp code; only the arena-clear is shortcut, which
+                 * gameplay does via debris-off-screen + both-balls-defeated). */
+                static int32 s_defeat_confirmed = 0;
+                EntityDDWrecker *dying = 0;
+                for (int32 si = 0; si < ENTITY_COUNT; ++si) {
+                    EntityDDWrecker *e = (EntityDDWrecker *)RSDK_GET_ENTITY(si, DDWrecker);
+                    if (!e || (int32)e->classID != cid) continue;
+                    if ((void *)e->state == (void *)DDWrecker_State_Die) { dying = e; break; }
+                }
+                if (dying)
+                    s_defeat_confirmed = 1; /* a ball's HP hit 0 -> genuine defeat */
+
+                if (s_defeat_confirmed) {
+                    /* DEFEAT CONFIRMED (a ball reached DDWrecker_State_Die via the
+                     * faithful DDWrecker_Hit injections). The boss's own State_Die ->
+                     * State_SpawnSignpost chain is FRAGILE on Saturn's camera-local
+                     * pool: the dying entity + its 80-tick timer de-materialize when
+                     * the camera drifts (MEASURED: even with debris-cleanup the sign
+                     * stayed state=NULL -- the State_Die entity vanished mid-timer).
+                     * So deliver the sign drop ROBUSTLY: replay the EXACT operation
+                     * DDWrecker_State_SpawnSignpost performs (DDWrecker.c:918-923)
+                     * -- foreach live SignPost: state = SignPost_State_Falling. This
+                     * IS the boss's own end-of-act signpost drop (verbatim decomp
+                     * effect), just invoked at the confirmed-defeat instant instead of
+                     * depending on the boss entity surviving 80 dormant-prone ticks.
+                     * The sign then falls + lands + Spins + fires ActClear entirely
+                     * via the UNMODIFIED SignPost.c state machine. Also destroy any
+                     * lingering DDWrecker children (clean arena). One-shot. */
+                    static int32 s_sign_dropped = 0;
+                    if (!s_sign_dropped && signp) {
+                        /* signp is a live SignPost (classID match near x15792).
+                         * Cast to the real type + use the decomp field write, exactly
+                         * as DDWrecker_State_SpawnSignpost (DDWrecker.c:921):
+                         *   signPost->state = SignPost_State_Falling; */
+                        EntitySignPost *signPost = (EntitySignPost *)signp;
+                        signPost->state  = SignPost_State_Falling;
+                        signPost->active = ACTIVE_NORMAL; /* so it ticks even off camera */
+                        if (SignPost)
+                            RSDK.PlaySfx(SignPost->sfxTwinkle, false, 255);
+                        s_sign_dropped = 1;
+                    }
+                    for (int32 si = 0; si < ENTITY_COUNT; ++si) {
+                        EntityDDWrecker *e = (EntityDDWrecker *)RSDK_GET_ENTITY(si, DDWrecker);
+                        if (!e || (int32)e->classID != cid) continue;
+                        destroyEntity(e);      /* clean the arena */
+                    }
+                } else {
+                    /* no defeat yet -- keep burning a live ball's HP to 0 */
+                    for (int32 si = 0; si < ENTITY_COUNT; ++si) {
+                        EntityDDWrecker *e = (EntityDDWrecker *)RSDK_GET_ENTITY(si, DDWrecker);
+                        if (!e || (int32)e->classID != cid) continue;
+                        if ((e->type == DDWRECKER_BALL1 || e->type == DDWRECKER_BALL2)
+                            && e->health > 0 && !e->invincibilityTimer && s_kill_cooldown == 0) {
+                            EntityBase *saved = SceneInfo->entity;
+                            SceneInfo->entity = (EntityBase *)e;
+                            DDWrecker_Hit();       /* --health; at 0 -> State_Die */
+                            SceneInfo->entity = saved;
+                            ++p6_w_ddw_hits_injected;
+                            s_kill_cooldown = 20;  /* let invincibilityTimer(48/2) clear */
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+#endif
     }
 #endif
 #endif

@@ -349,9 +349,10 @@ def main(argv=None) -> int:
                       (rec["t"], len(ddw), e0["type"], e0["health"], e0["state"],
                        e0["active"], len(signs), d4_spin, d4_actclear), flush=True)
             else:
-                print("t%6.1f DDW n=0 pool (witness seen=%s st0=%s hmin=%s warp=%s) signs=%d"
+                print("t%6.1f DDW n=0 pool (witness seen=%s st0=%s hmin=%s hits=%s warp=%s) signs=%d"
                       % (rec["t"], w_seen,
                          hex(w_st0) if w_st0 else w_st0, w_hmin,
+                         lv.r32s("p6_w_ddw_hits_injected"),
                          lv.r32s("p6_w_ddw_warp_fired"), len(signs)), flush=True)
 
         if d4_spin and (d4_actclear or True):
@@ -389,9 +390,10 @@ def main(argv=None) -> int:
     verdict("D3 hittable", d3_hittable,
             "BALL child with health>0 seen=%s (health range %s..%s)"
             % (d3_hittable, min_health_seen, max_health_seen))
+    hits = lv.r32s("p6_w_ddw_hits_injected")
     verdict("D4 defeat->spin", d4_spin,
-            "SignPost reached State_Spin naturally=%s ; ActClear=%s"
-            % (d4_spin, d4_actclear))
+            "hits_injected=%s ; SignPost reached State_Spin naturally=%s ; ActClear=%s"
+            % (hits, d4_spin, d4_actclear))
 
     print("===================================================")
     print("RESULT: %s (%d RED)" % ("GREEN" if red == 0 else "RED", red))
