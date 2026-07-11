@@ -460,7 +460,8 @@ enum { P6_AUTORUN_NHAZ = sizeof(p6_autorun_hazards) / sizeof(p6_autorun_hazards[
 typedef struct { unsigned short x0, x1, y0, y1, buttons; } P6AutorunOverride;
 static const P6AutorunOverride p6_autorun_overrides[] = {
     {  5340,  5640,   480,   760, 0x0001 },
-    { 14484, 14512,  1020,  1110, 0x0400 },
+    { 13300, 14398,   900,  1300, 0x0001 },
+    { 14400, 14442,  1000,  1110, 0x0400 },
     { 0, 0, 0, 0, 0 }, /* terminator (keeps the array non-empty) */
 };
 enum { P6_AUTORUN_NOVR = sizeof(p6_autorun_overrides) / sizeof(p6_autorun_overrides[0]) - 1 };

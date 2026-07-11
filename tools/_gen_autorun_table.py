@@ -99,32 +99,53 @@ OVERRIDES = [
     # (state=Player_State_Ground+0xD0, animID=10 air, onG=0). Suppress ALL
     # scripted jumps across the hill so he runs it through.
     (5340, 5640, 480, 760, 0x0001),
-    # signpost r4 C8b: the x14516 SPRING-LAUNCH cliff. The path to the signpost
-    # runs on the UPPER deck (floor y288, x14566..15792) 656px ABOVE the lower
-    # approach (floor y944). A single jump cannot clear 656px -- the authored
-    # Spring (14516,1070) must launch Sonic up-and-over onto the deck. MEASURED:
-    # spurious terrain-step waypoints (14336,984)/(14512,984)/(14512,1080)/
-    # (14672,1080) made him JUMP at the cliff instead of running into the spring
-    # at speed -> he loses horizontal momentum, bounces vertically in place, and
-    # wedges airborne gvel=0 at x14502 (state=Player_State_Ground+0xD0 animID=10
-    # onG=0, permanent). REFINED (r4 cycle 2 measure): the lower platform is FG-
-    # High y1088 up to x14514, where it STEPS UP 48px to y1040 -- the Spring
-    # (14516,1070) sits ON the y1040 ledge. A 48px step > the 16px step-up limit
-    # blocks a running Sonic at x14499 (MEASURED oscillation x14355<->14499,
-    # never reaching the spring). He must: (a) keep speed on the y1088 approach
-    # (suppress the too-early LEAD=96 jumps that fire at x14416), THEN (b) jump
-    # EXACTLY at the x14514 step to mount the y1040 ledge and strike the spring.
-    # REFINED (r4 cycle 4->5): the runner crosses FG-High y1088 (continuous
-    # x14240-14512) but a CollapsingPlatform (14272,1104) sits under the entry
-    # and the y1024 spring-ledge step is at x14512. MEASURED: suppress boxes on
-    # this approach made him HESITATE on the collapsing segment (oscillate x14246-
-    # 14284, worse than the no-override x14499). Drop the suppress; keep only a
-    # tight jump box at the x14512 step so he mounts the y1024 ledge and strikes
-    # the Spring (14516) -> launch onto the y288 signpost deck.
-    # The FG-Low.B solid tile edge at x14503 is a small WALL face the runner
-    # stops against (MEASURED max_x pinned x14502). Jump just BEFORE it (x14484)
-    # so he hops the wall and lands on the Spring (14516) -> launch to the deck.
-    (14484, 14512, 1020, 1110, (1 << 10)),       # hop the x14503 wall -> spring
+    # signpost r6 C8b/C9: the x14516 PLANE-SWITCH + spring section. ROUND-5
+    # DEFINITIVE MECHANISM + r6 LIVE TRACE (tools/_gaptrace.py):
+    #  - The Spring(14516,1070) type=2 flipFlag=1 is HORIZONTAL, velocity.x =
+    #    -0xA0000 = LAUNCHES LEFT (a BARRIER, not a launcher). MEASURED live:
+    #    stall gvel = -655360 = -0xA0000 exactly.
+    #  - The r4 x14484 jump-box (1<<10) arced the runner INTO that leftward
+    #    spring at x14437 -> apex y991 x14502 -> spring knocks him back to
+    #    x14218 -> PERMANENT oscillation x14218<->14502 (MEASURED r6 trace,
+    #    max_x pinned 14502). REMOVED.
+    #  - The forward route is a PLANE-SWITCH section: PlaneSwitch objects at
+    #    x14540/14672/14768/14800/14812/14820/14824/14840 flip the collision
+    #    plane; the y848-896 deck (x14500-15092, continuous to SignPost y896 @
+    #    x15092+) is on the plane the switch selects. The runner must arrive
+    #    GROUNDED AT SPEED so the x14540 PlaneSwitch flips him onto that deck --
+    #    NOT airborne from a jump into the spring.
+    #  - r6 BREAKTHROUGH (live _floor_profile + _gaptrace): the low deck is NOT
+    #    a dead-end. It is FG-High.A/B y1088 up to x14512, where it STEPS UP 96px
+    #    to a y992 ledge (FG-High x14514-14572), which continues as FG-Low.A/B
+    #    y992->y1040 from x14578 UNBROKEN to the SignPost (which itself sits on
+    #    FG-Low.A/B y1088 at x15700-15844). The Spring(14516,1070) guards the
+    #    y992 step with a leftward launch (y-hitbox [1054,1086]); a GROUNDED
+    #    runner is bounced left at x14499 every pass (MEASURED r6 cycle-2:
+    #    permanent oscillation x14246<->14499, gvel flips to -0xA0000 at x14494).
+    #    The 96px step (y1088->y992) also exceeds the 16px step-up limit, so he
+    #    must JUMP it regardless. His jump apex from y1088 is ~y992 = EXACTLY the
+    #    ledge height, and rising above the spring y-hitbox (y<=1054) before he
+    #    reaches x14516 avoids the leftward launch.
+    #  - FIX (r6): (a) suppress ALL scripted jumps across the low-path approach
+    #    x13300-14484 (the terrain steps at x13350/x14016/x14048/x14080/x14176
+    #    that launched him airborne) so he runs grounded at full gvel; (b) a
+    #    TIGHT jump box at x14486-14505 (just before the spring left edge x14499)
+    #    so he hops the 96px step, clears the spring hitbox airborne, and lands
+    #    on the y992 ledge -> continues on the y992/y1040 deck to the SignPost.
+    #    The unstick fallback still fires inside the suppress box for small
+    #    terrain-step wedges (r6 InputDevice fix). Diagnostic flavor only.
+    #  - r6 cycle-4/5 MEASURED (high-rate _gaptrace): the spring y-hitbox reaches
+    #    much HIGHER than r5's [1054,1086] -- it catches the player even airborne
+    #    at body-center y1008 (bottom ~y1028). To clear it his body BOTTOM must be
+    #    above ~y1011 (center ~y991) BY the time he reaches the spring x-left-edge
+    #    x14499. Cycle-5 jumped at x14450 (~49px lead) -> only reached y1015 at
+    #    x14499 -> body bottom y1035 still overlapped -> spring killed gvel at
+    #    x14502 and launched him left (max_x pinned 14502). FIX (cycle-6): jump at
+    #    x14400 (~99px lead) so ~22 frames of rise put his body bottom above y1011
+    #    by x14499 -> clears the spring -> arc lands on the y992 ledge/y1040 deck
+    #    (x14514-14572+). Suppress ends x14398 so it does not cancel the jump.
+    (13300, 14398, 900, 1300, 0x0001),          # suppress-jump: run grounded to the pre-spring jump point
+    (14400, 14442, 1000, 1110, (1 << 10)),      # jump ~99px before the spring -> clear it airborne -> y992 ledge
     # signpost r4 C8c: the x9718 recurrent DEATH (~1 of every 2 lives) traces to
     # the (8160,1272) terrain-step jump arcing the runner airborne over the y1216
     # valley into the y2048 pit at x9718. A valley-wide suppress box (8050-9300)

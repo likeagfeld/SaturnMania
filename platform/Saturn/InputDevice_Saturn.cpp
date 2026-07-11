@@ -245,18 +245,20 @@ void InputDeviceSaturn::UpdateInput()
             // UNSTICK fallback (run-2 iteration: permanent push-stall against a
             // >16px step). If x stagnates ~2/3 s while alive, request jump for
             // one full pulse cycle; the shaper below guarantees the press edge.
+            // Tracked in a SEPARATE flag (unstickJump) so it survives the
+            // suppress-jump cancel below -- a hard wedge against a small terrain
+            // step INSIDE a suppress box (signpost r6: the x13412 32px step on
+            // the low-path approach to the x14540 PlaneSwitch) must still be
+            // able to hop out, per this fallback's documented intent. Only the
+            // SCRIPTED-HAZARD jumps (wantJump) are cancelled by suppress.
+            int32 unstickJump = 0;
             {
                 static int32 s_lastx = -1, s_stagnant = 0, s_jumpreq = 0;
                 if (s_jumpreq > 0) {
-                    wantJump = 1;
+                    unstickJump = 1;
                     --s_jumpreq;
                 }
                 else if (px >= s_lastx - 2 && px <= s_lastx + 2) {
-                    // NOTE: the unstick is NOT gated by suppressJump -- a hard
-                    // wedge (e.g. against a BreakableWall inside a suppress box)
-                    // must still be able to recover. Suppress only cancels the
-                    // SCRIPTED-hazard jumps below (via wantJump=0), not this
-                    // last-resort recovery.
                     if (++s_stagnant >= 40) {
                         s_jumpreq  = P6_AR_JHOLD + P6_AR_JREL;
                         s_stagnant = 0;
@@ -267,10 +269,14 @@ void InputDeviceSaturn::UpdateInput()
                     s_lastx    = px;
                 }
             }
-            // suppress-jump boxes win over every scripted-jump source: the
-            // player runs the hill on pure momentum (no airborne launch).
+            // suppress-jump boxes win over every SCRIPTED-hazard jump source:
+            // the player runs the section on pure momentum (no airborne launch)
+            // -- but the last-resort unstick still fires so a small step-wedge
+            // inside the box can recover.
             if (suppressJump)
                 wantJump = 0;
+            if (unstickJump)
+                wantJump = 1;
         }
         // pulse shaper: while a jump is requested, assert A for JHOLD ticks then
         // force-release JREL ticks, repeating -- one press edge per cycle.

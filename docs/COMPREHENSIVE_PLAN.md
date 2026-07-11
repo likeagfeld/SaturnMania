@@ -7945,3 +7945,31 @@ bridge-1 fall-through ROOT CAUSE (all live-memory measured):
   _sfx_hashes.json extended. Pool-sizing remains the tracked P6.8 item.
 - Gate C1 "0 legs": the 4s entry + 6s death/respawn settle windows consumed
   the whole ~4.5s lives. Now 2.0/2.5s.
+
+Round 6 (2026-07-11): the x14516 spring blocker ROOT-CAUSED + fixed on the
+LOW deck (all live-memory measured via tools/_gaptrace.py high-rate x/y/onG/
+gvel/anim probe + tools/_floor_profile.py both planes). CORRECTS round-5's
+"upper-chain only, low deck is a dead-end" premise:
+- The low deck (FG-High.A/B, player feet y1088) runs continuous from the
+  x13xxx descent to x14512, where it STEPS UP 96px to a y992 ledge (FG-High
+  x14514-14572), which continues as FG-Low.A/B y992->y1040 UNBROKEN from
+  x14578 to the SignPost -- and the SignPost itself sits on FG-Low.A/B y1088
+  at x15700-15844. So the LOW deck IS the route to the signpost; no upper
+  chain needed.
+- The Spring(14516,1070) is HORIZONTAL, velocity.x=-0xA0000 (LEFTWARD), y-hitbox
+  [1054,1086]. MEASURED live: a grounded runner reaching x14494 at gvel=323136
+  gets gvel flipped to -655360=-0xA0000 and bounced left -> permanent
+  oscillation x14246<->14499 (max_x pinned 14499). The 96px step also exceeds
+  the 16px step-up limit, so he must jump it regardless. Jump apex from y1088
+  ~= y992 = EXACTLY the ledge height; rising above the spring y-hitbox before
+  x14516 avoids the leftward launch.
+- The r4 x14484 jump-box was ARCING him INTO the spring (removed). The r5
+  "un-mountable y950 block" was a static-floor-profile artifact of searching
+  from too-high a ytop; the real forward floor is the y992/y1040 deck below it.
+- FIX (autorun flavor only, plain GHZ byte-identical): (a) InputDevice_Saturn.cpp
+  unstick fallback now tracked in a separate flag so it survives the suppress-
+  jump cancel (a small terrain-step wedge INSIDE a suppress box -- the x13412
+  32px step -- can now hop out); (b) generator OVERRIDES: suppress-jump box
+  x13300-14484 (run grounded through the low-path terrain steps) + a tight jump
+  box x14486-14505 (hop the 96px step, clear the spring, land on the y992
+  ledge). _end 0x060c0f50 (< 0x060c8000).
