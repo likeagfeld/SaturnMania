@@ -277,6 +277,28 @@ void InputDeviceSaturn::UpdateInput()
                 wantJump = 0;
             if (unstickJump)
                 wantJump = 1;
+
+            // === r8 (signpost campaign) SCRIPTED PLANE POKE ===
+            // The GHZ1 forward deck toward the SignPost (x14576->15792) is on
+            // collision plane B; the runner arrives on plane A (MEASURED live
+            // x8471: collisionPlane=0). The PlaneSwitch that would arm plane B
+            // (Scene1.bin slot 924 @x14768 flags -- and the earlier x14540 one)
+            // sits PAST the leftward horizontal Spring(14516, vel.x=-0xA0000)
+            // that launches the autorun runner left before he can reach it
+            // (r5-r7 MEASURED: permanent oscillation, max_x 14502). So mimic the
+            // switch he cannot reach: force collisionPlane=1 while he is in the
+            // approach window [14440,14520), BEFORE the FG-Low plane-A hole at
+            // x14464 (tools/_floor_profile.py: plane A is None x14464-14572, plane
+            // B carries the y960 deck from x14496). PlaneSwitch.c:94 only writes
+            // collisionPlane (NOT collisionLayers), so leave collisionLayers
+            // untouched (runner carries 0x18). Re-assert every frame in-window so
+            // a mid-window Player_State reset can't drop it. Diagnostic flavor
+            // only (P6_GHZ_AUTORUN); the plain/chain shipping paths never define
+            // it -> byte-identical, no shipping physics change. The gate's
+            // player() reader samples collisionPlane (@+81) so cplane flipping
+            // 0->1 in the live trace is the poke's proof.
+            if (px >= 14440 && px < 14520)
+                p0->collisionPlane = 1;
         }
         // pulse shaper: while a jump is requested, assert A for JHOLD ticks then
         // force-release JREL ticks, repeating -- one press edge per cycle.

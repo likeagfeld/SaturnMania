@@ -325,6 +325,9 @@ def main(argv=None) -> int:
             "gvel": s32(be32(raw, 44)), "onG": be32(raw, 72),
             "vis": raw[85], "onScr": raw[86], "state": be32(raw, 88),
             "aframes": be32(raw, 104), "animID": be16(raw, 112),
+            # r8 signpost campaign: plane/layers so the scripted plane poke
+            # (InputDevice_Saturn.cpp, P6_GHZ_AUTORUN) is live-verifiable.
+            "cplane": raw[81], "clayers": raw[80],
         }
 
     def camera_x():
