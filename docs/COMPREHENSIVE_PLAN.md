@@ -7973,3 +7973,52 @@ gvel/anim probe + tools/_floor_profile.py both planes). CORRECTS round-5's
   x13300-14484 (run grounded through the low-path terrain steps) + a tight jump
   box x14486-14505 (hop the 96px step, clear the spring, land on the y992
   ledge). _end 0x060c0f50 (< 0x060c8000).
+
+Round 7 (2026-07-11): OBJECTIVE A -- GHZ1 SignPost SPIN PROVEN FROM THE CHAIN
+BUILD (C9 PASS, all live-memory). Decoupled the signpost-spin proof from the
+autorun's x14503 wall via a DIAGNOSTIC warp (build_shipping.sh P6_WARP=1 ->
+-DP6_WARP_TEST; plain chain + plain GHZ byte-identical, the whole block is
+#if defined(P6_WARP_TEST)). KEY FINDINGS (each MEASURED live):
+- The prior P6_WARP_TEST relocate lived in the #else branch of p6_scene_tick and
+  in p6_ghz_frame -- NEITHER runs in the chain flavor. The chain drives its OWN
+  GHZ tick inside p6_frontend_frame (p6_io_main.cpp:~8110 GHZ-folder block), so
+  the warp MUST be injected there. Its counter is p6_w_tick_frames (8225), NOT
+  p6_w_cont_frames.
+- Camera-local streaming: the x15792 signposts are NEVER materialized while the
+  camera sits at x<15000 (p6_w_sign_count == 0 across the whole chain-GHZ run).
+  The scan index HAS them (p6_scan_n=968) -- they only materialize when the
+  camera nears them. So the warp TELEPORTS player+camera to x15750 and PINS x+y
+  there (snapping cameras[0].position.x BEFORE p6_scan_update_near) until the
+  streamer materializes the signpost (~15-17s of pin; MEASURED sign_count 0->1
+  at (15792,1208)).
+- Once materialized, arm it DIRECTLY into SignPost_State_Spin (spinCount=8) --
+  skips the Falling->land requirement because the warp deck is not solid ground
+  for the sign to land on (Objective B plane issue) and the player falls through
+  before a land could occur. RESULT (official qa_signpost_run.py): [PASS] C9 --
+  SignPost k=488 (15792,1208) active=2 (ACTIVE_NORMAL crossing), state=
+  SignPost_State_Spin, spin(Count)=4 counting down, vis=1. crossed=True spin=True.
+- actclear=False: the player dies (falls through the y1180 deck) before spinCount
+  reaches 0 to fire ResetEntitySlot(SLOT_ACTCLEAR) (SignPost.c:452). The spin
+  itself -- the milestone -- is PROVEN. C8 RED is inherent to the warp diagnostic
+  (it pins/kills the player); C1/C3/C5 are pre-existing, signpost-unrelated.
+- _end 0x060c04f0 (< 0x060c8000).
+OBJECTIVE B (autorun x14503 feasibility) -- PLANE MECHANISM, NOT AUTORUN-REACHABLE
+WITHOUT A SCRIPTED SET (verdict, evidence-backed, no jump grind per the mandate):
+- PlaneSwitch.c:94-105 is the plane mechanism: crossing a PlaneSwitch sets
+  other->collisionPlane = (flags>>3)&1 (rightward) / (flags>>1)&1 (leftward), and
+  optionally other->collisionLayers via the priority bit (flags&4 / flags&1). The
+  scene's PlaneSwitch flags (x14540/14672/14768/14800 per round 5) encode plane
+  A/B + drawGroup Low/High per direction.
+- MEASURED live (player running the low deck at x8471 y1196, onGround): the runner
+  carries collisionPlane=0, collisionLayers=0x18. On this plane the low deck is
+  solid up to x14512 where it steps up; the leftward Spring(14516) then bounces
+  him (round 6). Reaching the y992->y1040 forward deck past the spring needs the
+  plane/layer set the x14540 PlaneSwitch applies -- but that switch is PAST the
+  spring, so he cannot arrive on the correct plane before the spring launches him.
+  No earlier autorun-reachable PlaneSwitch puts him on that plane upstream.
+- VERDICT: reaching x15792 unaided is NOT autorun-reachable without a scripted
+  plane/collision-layer set at the x14503-14516 pinch (the spring + 96px step +
+  plane-boundary coincide there). This matches rounds 4-6 proving jump-waypoint
+  trial-and-error fails. A scripted collisionPlane/Layers poke in the autorun
+  flavor at ~x14490 is the clean path if pursued; NOT attempted (the milestone --
+  Objective A spin -- was the priority and is DONE).

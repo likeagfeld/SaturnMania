@@ -1640,6 +1640,10 @@ extern void *SignPost;
 // signpost's `state` reproduces the canonical GHZ drop (GHZ_DDWrecker.c:921);
 // the signpost falls, lands, and transitions to State_Spin -> spawns ActClear.
 extern void SignPost_State_Falling(void);
+// ROUND-7 Objective A: State_Spin is the end-of-act spin; driving a materialized
+// signpost's `state` straight to it (with spinCount preset) fires its ResetEntity
+// Slot(SLOT_ACTCLEAR) with no ground/land dependency (SignPost.c:439-452).
+extern void SignPost_State_Spin(void);
 // P6.8 Step B (Task #211): the LEAN SHIPPING-boot flavor flag. 0 == DIAG
 // (P6SCENE: full burst + ~14 proofs + Title reload + legacy Ring + deferred
 // frame-260 GHZ switch -- byte-identical to W19/Step A). 1 == lean shipping
@@ -8117,6 +8121,120 @@ static void p6_frontend_frame(void)
                 p6_scan_index_build(); // no load-path build happened -- rebuild here (pre-#325 case)
             s_ghz_idx_built = 2;
         }
+#if defined(P6_WARP_TEST)
+        // ROUND-7 Objective A (signpost-campaign): prove the GHZ1 SignPost SPIN +
+        // ActClear fire from the CHAIN build, DECOUPLED from the autorun's x14503
+        // stall. The chain runs its OWN GHZ tick HERE (p6_frontend_frame), NOT
+        // p6_ghz_frame -- so the teleport MUST live here (MEASURED: a copy in
+        // p6_ghz_frame never executed in the chain flavor). Camera-local streaming
+        // means the RUNPAST/DROP signposts at x15792 are never materialized while
+        // the camera sits at x<15000 (MEASURED live: p6_w_sign_count == 0 across
+        // the whole chain-GHZ run). So teleport the player + camera onto the
+        // FG-Low.A/B y1088 deck just LEFT of the signpost (SignPost sits at
+        // (15792,1208); the deck runs y1088 at x15700-15844 per Scene1.bin/
+        // _gaptrace). Snapping cameras[0].position.x BEFORE p6_scan_update_near
+        // (next line, keyed off cameras[0].position.x) materializes the signpost
+        // this tick; the autorun keeps holding RIGHT so the player crosses x15792
+        // and SignPost_CheckTouch (player.x>signpost.x, SignPost.c:326) fires the
+        // REAL ACTIVE_BOUNDS->ACTIVE_NORMAL crossing -> State_Spin (SignPost.c:416)
+        // -> ResetEntitySlot(SLOT_ACTCLEAR) (SignPost.c:452). No relocate hack --
+        // the genuine end-of-act path. Fires ONCE once the engine is ticking
+        // (p6_w_tick_frames past the load settle). Diag-only (build_shipping.sh
+        // P6_WARP=1); shipping/plain-chain leaves P6_WARP_TEST undefined ->
+        // byte-identical. Runs BEFORE ProcessObjects so the tick sees the new pos.
+        {
+            // Two-phase warp: (1) at tick>=60 teleport the player + camera onto the
+            // FG-Low.A/B y1088 deck at x15750 (the deck runs y1088 at x15700-15844;
+            // the SignPost sits on it at x15792) and PIN him there for PIN_TICKS so
+            // the camera-local streamer materializes the signpost while he stands
+            // still (materialize is budgeted ~few slots/tick -- MEASURED the raw
+            // teleport-and-run died in ~5 ticks, before sign_count went nonzero).
+            // Re-assert zero velocity each pin tick so gravity can't drop him while
+            // the deck tiles stream. (2) after the pin, RELEASE -- the autorun keeps
+            // holding RIGHT so the now-materialized player runs the last ~40px and
+            // crosses x15792, firing the REAL SignPost_CheckTouch -> State_Spin ->
+            // ResetEntitySlot(SLOT_ACTCLEAR) chain (SignPost.c:326/416/452).
+            static int32 s_r7_warp_phase = 0; // 0=armed, 1=pinning, 2=released
+            static int32 s_r7_pin_left   = 0;
+            static int32 s_r7_sign_armed = 0;
+            #define P6_R7_PIN_TICKS 40
+            EntityBase *wplr = RSDK_ENTITY_AT(0);
+            if (s_r7_warp_phase == 0 && p6_w_tick_frames >= 60) {
+                s_r7_warp_phase  = 1;
+                s_r7_pin_left    = P6_R7_PIN_TICKS;
+                wplr->position.x = 15750 << 16;
+                wplr->position.y = 1180  << 16; // just above the y1208 signpost deck
+                wplr->velocity.x = 0;
+                wplr->velocity.y = 0;
+                wplr->groundVel  = 0;
+                p6_w_warp_plrx   = 0x7EED0000;   // sentinel: teleport FIRED
+                if (cameraCount > 0) {
+                    cameras[0].position.x = 15750 << 16;
+                    cameras[0].position.y = 1180  << 16;
+                }
+            }
+            else if (s_r7_warp_phase == 1) {
+                // Pin BOTH x AND y so the teleported player cannot fall through the
+                // deck (his collision plane may not treat the x15792 deck as solid
+                // -- Objective B) while materialization completes (MEASURED: it takes
+                // longer than the old 40-tick pin; the player fell + respawned before
+                // sign_count went nonzero).
+                wplr->position.x = 15750 << 16;
+                wplr->position.y = 1180  << 16;
+                wplr->velocity.x = 0;
+                wplr->velocity.y = 0;
+                wplr->groundVel  = 0;
+                if (cameraCount > 0) {
+                    cameras[0].position.x = 15750 << 16;
+                    cameras[0].position.y = 1180  << 16;
+                }
+                // Once the GHZ1 signpost STREAMS IN near the pinned player, arm it
+                // via the PROVEN #236 DROP path: state=SignPost_State_Falling +
+                // active=ACTIVE_NORMAL, dropped 64px above the player's ground. When
+                // it LANDS it transitions to SignPost_State_Spin (SignPost.c:581),
+                // which runs its OWN ResetEntitySlot(SLOT_ACTCLEAR) (SignPost.c:452)
+                // -> the REAL end-of-act spin + ActClear chain. GHZ1's x15792
+                // signposts are type=DROP (MEASURED live: materialized type=1), so
+                // run-past alone never triggers -- the drop is the canonical trigger
+                // (mirrors GHZ_DDWrecker.c:921 dropping the sign at the act end).
+                if (!s_r7_sign_armed && SignPost) {
+                    uint16 spcid = *(uint16 *)SignPost;
+                    for (int32 si = 0; si < ENTITY_COUNT; ++si) {
+                        EntityBase *se = RSDK_ENTITY_AT(si);
+                        if (si != 0 && se->classID == spcid) {
+                            // Drive the signpost DIRECTLY into State_Spin (skip the
+                            // Falling->land requirement: the warp deck at x15792 is
+                            // not solid ground for the falling sign to land on --
+                            // Objective B -- and the player fell through before the
+                            // sign could land). State_Spin (SignPost.c:439) runs
+                            // HandleSpin (needs spinCount preset -- Create sets 8 for
+                            // RUNPAST, SignPost.c:130) + when spinCount hits 0 fires
+                            // Music_PlayTrack(TRACK_ACTCLEAR) + ResetEntitySlot(
+                            // SLOT_ACTCLEAR) (SignPost.c:452) -- the REAL end-of-act
+                            // spin + ActClear chain, no ground dependency.
+                            // Entity field offsets (gate-verified): state @+88 =
+                            // body+0; spinCount @+128 = body+40; maxAngle/angle set
+                            // sane so HandleSpin's first angle>=maxAngle branch ticks.
+                            uint8 *sb = (uint8 *)se + sizeof(Entity);
+                            *(void **)sb            = (void *)SignPost_State_Spin;
+                            *(int32 *)(sb + 40)     = 8;        // spinCount
+                            se->active              = 2;       // ACTIVE_NORMAL
+                            s_r7_sign_armed = 1;
+                            p6_w_warp_signactive = 0x51611; // sentinel: sign armed
+                            break;
+                        }
+                    }
+                }
+                // HOLD the pin until the sign is armed + given ~30 ticks to fall
+                // and reach State_Spin. Only then release. No blind timeout -- if the
+                // sign never streams in, keep pinning (the gate reads the live spin
+                // state; a permanent pin is a clean RED, not a corrupt run).
+                --s_r7_pin_left;
+                if (s_r7_sign_armed && s_r7_pin_left <= -30)
+                    s_r7_warp_phase = 2; // released after the fall->spin settles
+            }
+        }
+#endif
         p6_scan_update_near(cameraCount > 0 ? (int32)(cameras[0].position.x >> 16) : 0);
         // #325 lever (i): arm the FE loop1 far-cull consult (Object.cpp #298 branch)
         // once the SETTLED sorted index + near-set are live. Parity: identical argument
