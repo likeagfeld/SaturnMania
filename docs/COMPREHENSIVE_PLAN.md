@@ -8024,3 +8024,40 @@ WITHOUT A SCRIPTED SET (verdict, evidence-backed, no jump grind per the mandate)
   trial-and-error fails. A scripted collisionPlane/Layers poke in the autorun
   flavor at ~x14490 is the clean path if pursued; NOT attempted (the milestone --
   Objective A spin -- was the priority and is DONE).
+
+Round 8 (2026-07-11, committed 12ced82): implemented the scripted plane poke AND
+uncovered two decisive root causes that SUPERSEDE the "reach x15792 -> natural
+spin" premise.
+- PLANE POKE DONE + LIVE-VERIFIED: InputDevice_Saturn.cpp (P6_GHZ_AUTORUN only,
+  plain/chain byte-identical) forces player->collisionPlane=1 while px in
+  [14440,14520), before the FG-Low plane-A hole x14464-14572 (tools/_floor_
+  profile.py; plane B carries the y960/y1388 deck there). PlaneSwitch.c:94 writes
+  only collisionPlane (NOT collisionLayers -- the earlier "layers via priority
+  bit" note is wrong), so collisionLayers stays 0x18. The gate's player() reader
+  now samples collisionPlane (@+81)/collisionLayers (@+80). MEASURED live (fresh
+  boot, qa_signpost_run.py --wait 240 --watch 600): cplane flips 0->1, the runner
+  mounts the deck grounded at gvel~400000, max_x 14502 -> 14870 (past the r5-r7
+  dead-end). Milestone "past x14502" CLOSED.
+- *** THE x15792 SPIN IS BOSS-GATED, NOT RUN-PAST (decomp-authoritative) ***.
+  Scene1.bin (this IS the GHZ boss act) has ONLY two signposts, both x15792:
+  slot 325 type=1=SIGNPOST_DROP and slot 880 type=2=SIGNPOST_COMP (competition-
+  only, destroyEntity in main game). SIGNPOST_DROP = {ACTIVE_XBOUNDS,
+  StateMachine_None} = INERT on run-past (SignPost.c:145-151). DDWrecker (the GHZ
+  boss) sits at (15792,1588); DDWrecker_State_SpawnSignpost (DDWrecker.c:913-925)
+  is the SOLE setter of signPost->state=SignPost_State_Falling -- the sign drops
+  ONLY after the boss dies. So a NATURAL run-past spin is impossible for this
+  scene without porting the DDWrecker fight. (This is exactly why r7's warp proof
+  armed State_Spin manually.)
+- y1388 CORRIDOR IS A DEAD-END TRAP: PlaneSwitch 925/926/927 @x14800-14840 flags=0
+  reset him back to plane 0 (rightward (0>>3)&1=0), and PlaneSwitch_Update runs in
+  ProcessObjects AFTER the input-stage poke so widening the window can't beat it;
+  then Spring slot 897 @(14888,1392) type=3 flipFlag=1 = LEFTWARD horizontal
+  (vel.x=-0x100000) with planeFilter=0 fires on ANY plane (Spring.c:141) ->
+  bounces him left, oscillation x14418<->14870. Plane cannot dodge a planeFilter=0
+  spring; clearing it needs the y1248 ledge (140px climb > single-jump rise) --
+  multi-obstacle vertical navigation, not a single poke. The whole y1388 corridor
+  is a designed dead-end; the boss-arena route is the upper path.
+- VERDICT: STOP chasing autorun navigation to x15792 for a spin -- it is
+  architecturally boss-gated. Boot-to-spin evidence options: (1) keep the r7
+  warp+manual-arm C9 PASS as canonical end-of-act proof, or (2) port the DDWrecker
+  boss so the drop fires naturally (large effort). _end 0x060c0f70 (< 0x060c8000).
