@@ -83,11 +83,40 @@ pts.sort()
 
 # ---- live-iteration overrides (x0, x1, y0, y1, buttons) --------------------
 # buttons bit meanings mirror P6_PAD_*: A=1<<10 (jump), RIGHT-SUPPRESS uses
-# 1<<15 (consumed by the autorun block as "do not force RIGHT here").
+# 1<<15 (consumed by the autorun block as "do not force RIGHT here"),
+# bit0 (0x0001) = SUPPRESS-JUMP (no scripted jump fires in the box).
 # Empty until live iteration finds a spot the generic hazard-jump rule misses;
 # each addition must cite the measured stall/death (x, y, cause) from the live
 # position trace.
-OVERRIDES = []
+OVERRIDES = [
+    # signpost r4 C8: GHZ1 rolling hill x5376-5636 (floor profile: FG-Low
+    # y704 valley -> y512 crest -> y704, FG-High ramp y693->528 at x5508-5555).
+    # The climbable slope carries a running Sonic up on momentum (MEASURED: the
+    # runner reaches x5562 y612 unaided). But spurious hazard waypoints 136-320px
+    # BELOW the deck (Spikes 5368,y820; terrain FG-High/water steps 5520,y1000+)
+    # matched the +160 dy-DOWN filter and made him JUMP on the crest -> airborne
+    # launch off the x5628 down-edge -> permanent x~5572 oscillation
+    # (state=Player_State_Ground+0xD0, animID=10 air, onG=0). Suppress ALL
+    # scripted jumps across the hill so he runs it through.
+    (5340, 5640, 480, 760, 0x0001),
+    # signpost r4 C8b: the x14516 SPRING-LAUNCH cliff. The path to the signpost
+    # runs on the UPPER deck (floor y288, x14566..15792) 656px ABOVE the lower
+    # approach (floor y944). A single jump cannot clear 656px -- the authored
+    # Spring (14516,1070) must launch Sonic up-and-over onto the deck. MEASURED:
+    # spurious terrain-step waypoints (14336,984)/(14512,984)/(14512,1080)/
+    # (14672,1080) made him JUMP at the cliff instead of running into the spring
+    # at speed -> he loses horizontal momentum, bounces vertically in place, and
+    # wedges airborne gvel=0 at x14502 (state=Player_State_Ground+0xD0 animID=10
+    # onG=0, permanent). REFINED (r4 cycle 2 measure): the lower platform is FG-
+    # High y1088 up to x14514, where it STEPS UP 48px to y1040 -- the Spring
+    # (14516,1070) sits ON the y1040 ledge. A 48px step > the 16px step-up limit
+    # blocks a running Sonic at x14499 (MEASURED oscillation x14355<->14499,
+    # never reaching the spring). He must: (a) keep speed on the y1088 approach
+    # (suppress the too-early LEAD=96 jumps that fire at x14416), THEN (b) jump
+    # EXACTLY at the x14514 step to mount the y1040 ledge and strike the spring.
+    (14300, 14505, 1000, 1200, 0x0001),          # (a) preserve approach momentum
+    (14505, 14520, 1030, 1100, (1 << 10)),       # (b) jump the 48px step -> spring
+]
 
 hdr = Path("tools/_portspike/_p6/p6_autorun_table.h")
 lines = []

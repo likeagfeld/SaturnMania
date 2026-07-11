@@ -7803,8 +7803,20 @@ static void p6_frontend_frame(void)
                             }
                         }
                     }
-#if defined(P6_FRONTEND_MENU)
-                    // #317 DRAW/INFLATE HOG FIX (this session, RED-gated): the RES store
+#if defined(P6_FRONTEND_MENU) || defined(P6_FRONTEND_CHAIN)
+                    // C1 signpost-campaign r3 (2026-07-10, MEASURED): the live
+                    // boot->signpost path is the P6_FRONTEND_CHAIN flavor, NOT
+                    // P6_FRONTEND_MENU. The whole resident-promote + FRD-stage +
+                    // attach block was guarded P6_FRONTEND_MENU-only, so on the
+                    // chain the 9 GHZ sheets staged above (slots 9..19, live
+                    // table dump 2026-07-10: ALL res=0) stayed banded with NO
+                    // FRD attach -> SaturnSheet_FetchRect re-inflated every draw
+                    // (p6_w_sht_fetches +9.4/frame steady-motion, banded-fetch
+                    // slots {19:GHZObjects, 17:Shields}; FRD misses=87787 = the
+                    // dispatch never consulted because frdSlot stayed -1). Widen
+                    // the guard to the chain. Plain GHZ (neither flag) byte-
+                    // identical (this #if compiles out there).
+                    // #317 DRAW/INFLATE HOG FIX: the RES store
                     // is full of the resident TITLE/menu sheets (TSONIC 1 MB) that are
                     // never drawn in gameplay, so the 9 sheets staged above stay banded
                     // -> SaturnSheet_FetchRect re-inflates every draw. MEASURED at the

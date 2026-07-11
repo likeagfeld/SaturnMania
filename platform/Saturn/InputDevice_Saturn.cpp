@@ -202,8 +202,17 @@ void InputDeviceSaturn::UpdateInput()
         // then JREL=10 ticks forced released -> each cycle is a fresh press
         // edge until the obstacle is actually cleared. Diagnostic flavor only.
         enum { P6_AR_JHOLD = 32, P6_AR_JREL = 10 };
+        // override buttons bit0 = SUPPRESS-JUMP: inside such a box, no scripted
+        // jump fires (hazard-scan, unstick fallback, or override-A) -- for
+        // rolling-hill sections the player must RUN through on momentum, never
+        // jump (signpost r4: x5376-5636 GHZ1 hill; spurious spikes/terrain
+        // waypoints 136-320px BELOW the deck launched Sonic airborne off the
+        // crest -> permanent x~5572 oscillation, MEASURED state=Player_State_
+        // Ground+0xD0 anim10 onG=0).
+        enum { P6_AR_SUPPRESS_JUMP = 0x0001 };
         uint16 scripted    = P6_PAD_RIGHT;
         int32 wantJump     = 0;
+        int32 suppressJump = 0;
         RSDK::Entity *p0   = (RSDK::Entity *)RSDK_ENTITY_AT(0);
         if (p0->classID != 0) { // alive (death->respawn leaves classID 0 for a beat)
             int32 px = p0->position.x >> 16;
@@ -228,7 +237,9 @@ void InputDeviceSaturn::UpdateInput()
                         scripted &= (uint16)~P6_PAD_RIGHT;
                     if (o->buttons & P6_PAD_A) // route override jumps through the shaper
                         wantJump = 1;
-                    scripted |= (uint16)(o->buttons & ~(P6_PAD_RIGHT | P6_PAD_A));
+                    if (o->buttons & P6_AR_SUPPRESS_JUMP) // bit0 = suppress all jumps here
+                        suppressJump = 1;
+                    scripted |= (uint16)(o->buttons & ~(P6_PAD_RIGHT | P6_PAD_A | P6_AR_SUPPRESS_JUMP));
                 }
             }
             // UNSTICK fallback (run-2 iteration: permanent push-stall against a
@@ -240,7 +251,7 @@ void InputDeviceSaturn::UpdateInput()
                     wantJump = 1;
                     --s_jumpreq;
                 }
-                else if (px >= s_lastx - 2 && px <= s_lastx + 2) {
+                else if (!suppressJump && px >= s_lastx - 2 && px <= s_lastx + 2) {
                     if (++s_stagnant >= 40) {
                         s_jumpreq  = P6_AR_JHOLD + P6_AR_JREL;
                         s_stagnant = 0;
@@ -251,6 +262,10 @@ void InputDeviceSaturn::UpdateInput()
                     s_lastx    = px;
                 }
             }
+            // suppress-jump boxes win over every scripted-jump source: the
+            // player runs the hill on pure momentum (no airborne launch).
+            if (suppressJump)
+                wantJump = 0;
         }
         // pulse shaper: while a jump is requested, assert A for JHOLD ticks then
         // force-release JREL ticks, repeating -- one press edge per cycle.

@@ -96,6 +96,20 @@ OBJ_BINS = [
     # (the Batch-2 badniks' +9.8KB STG load) onto the cart fast path; the R21
     # aniFrames witness + gate row pin the load status for the live re-measure.
     "GHZ/Batbrain.bin",
+    # Batch 4 (signpost r4, 2026-07-10): the remaining GHZ1 badniks. All were
+    # REGISTERED in the overlay (p6_ovl_ghz.c:773-788) since Batch 2 but their
+    # anim .bins were NEVER packed -> LoadSpriteAnimation slow-pathed into the
+    # STG pool and failed (MEASURED: Chopper materializes with aniFrames=0, no
+    # frames -> invisible/undrawn). Every one references the SAME sheet
+    # "GHZ/Objects.gif" == GHZOBJ.SHT (already staged at the GHZ landing), so NO
+    # new .SHT is needed -- only their anim metadata (R3.4 KingClaw/EggRobo
+    # recipe). Sizes: Chopper 24f, Motobug 29f, Crabmeat 22f, Newtron 23f,
+    # BuzzBomber 32f -- ~10 KB total, trivial vs OBJ_CAP (17908 B used of 256 KB).
+    "GHZ/Chopper.bin",
+    "GHZ/Motobug.bin",
+    "GHZ/Crabmeat.bin",
+    "GHZ/Newtron.bin",
+    "GHZ/BuzzBomber.bin",
 ]
 OBJ_OUT = os.path.join(ROOT, "cd", "GHZOBJ.PAK")
 OBJ_CAP = 0x40000  # 256 KB cart window (0x22760000..0x227A0000 has 320 KB clear)
