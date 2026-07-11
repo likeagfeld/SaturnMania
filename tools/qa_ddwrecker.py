@@ -84,9 +84,12 @@ def s32(v):
 
 
 class Live:
-    def __init__(self, host, port, map_path):
+    def __init__(self, host, port, map_path, ovl_map_path=None):
         self.mem = qa_netmem.RetroMem(host, port, 2.0)
         self.map_text = Path(map_path).read_text(errors="replace")
+        self.ovl_text = ""
+        if ovl_map_path and Path(ovl_map_path).exists():
+            self.ovl_text = Path(ovl_map_path).read_text(errors="replace")
         self._symcache = {}
 
     def sym(self, name):
@@ -97,6 +100,16 @@ class Live:
         a = int(m.group(1), 16) if m else None
         self._symcache[name] = a
         return a
+
+    def ovl_sym(self, name):
+        """Overlay-only symbol (DDWrecker_State_* live in ovl_ring.map). The
+        state function pointer stored in an entity is the EXECUTABLE cached
+        alias 0x0269xxxx == the ovl_ring.map address."""
+        if not self.ovl_text:
+            return None
+        m = re.search(r"0x([0-9a-fA-F]{16})\s+" + re.escape(name) + r"\s*$",
+                      self.ovl_text, re.M)
+        return int(m.group(1), 16) if m else None
 
     def r32(self, addr):
         try:
@@ -141,13 +154,14 @@ def main(argv=None) -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=55355)
     ap.add_argument("--map", default=str(_HERE.parent / "game.map"))
+    ap.add_argument("--ovl-map", default=str(_HERE / "_portspike" / "_p6" / "ovl_ring.map"))
     ap.add_argument("--wait", type=float, default=240.0, help="s to reach GHZ")
     ap.add_argument("--watch", type=float, default=600.0, help="s to watch the boss")
     ap.add_argument("--tick", type=float, default=0.35)
     ap.add_argument("--out", default="_ddwrecker_run.jsonl")
     a = ap.parse_args(argv)
 
-    lv = Live(a.host, a.port, a.map)
+    lv = Live(a.host, a.port, a.map, a.ovl_map)
 
     # ---- harness health (binding: fail LOUD, never trust garbage) ----------
     pool = lv.r32s("RSDK::objectEntityList")
@@ -170,16 +184,18 @@ def main(argv=None) -> int:
             return (v >> 16) & 0xFFFF if v is not None else None
         return None
 
-    ddw_state_lo = lv.sym("SignPost_State_Falling")  # anchor: any DDWrecker_State_* sym
     spin_addr = lv.sym("SignPost_State_Spin")
-    # DDWrecker_State_* symbol range (for D2 "state is a real DDWrecker state")
+    # DDWrecker_State_* symbols live in the OVERLAY map (ovl_ring.map), NOT
+    # game.map -- the state ptr stored in an entity is the executable cached
+    # alias 0x0269xxxx == the ovl_ring.map address. Read them via ovl_sym.
     ddw_syms = {}
     for nm in ("DDWrecker_State_SetupArena", "DDWrecker_State_InitChildren",
                "DDWrecker_State_Assemble", "DDWrecker_State_EnterWreckers",
-               "DDWrecker_State_AttackDelay", "DDWrecker_State_Die",
+               "DDWrecker_State_AttackDelay", "DDWrecker_State_SwingRight",
+               "DDWrecker_State_SwingLeft", "DDWrecker_State_Die",
                "DDWrecker_State_SpawnSignpost", "DDWrecker_StateBall_Vulnerable",
                "DDWrecker_StateBall_Spiked"):
-        ddw_syms[nm] = lv.sym(nm)
+        ddw_syms[nm] = lv.ovl_sym(nm)
     ddw_sym_addrs = {v for v in ddw_syms.values() if v}
 
     cid_ddw = obj_cid("DDWrecker")
@@ -288,13 +304,33 @@ def main(argv=None) -> int:
         for e in ddw:
             d2_seen = True
             st = e["state"]
-            if st in ddw_sym_addrs or (ddw_state_lo and st):
+            # count any non-null state ptr in the overlay .text range as a
+            # DDWrecker state (the exact set is in ddw_sym_addrs if the ovl map
+            # was found; else fall back to "in the overlay code window").
+            if st in ddw_sym_addrs or (0x02690000 <= st < 0x026C0000):
                 d2_states.add(st)
             if e["type"] in (1, 2) and e["health"] is not None and e["health"] > 0:
                 d3_hittable = True
                 h = e["health"]
                 max_health_seen = h if max_health_seen is None else max(max_health_seen, h)
                 min_health_seen = h if min_health_seen is None else min(min_health_seen, h)
+
+        # WITNESS-BASED secondary evidence (P6_DDW_ARENA build): the overlay's own
+        # pool scan (p6_w_ddw_seen/state0/health_min) is authoritative -- it uses the
+        # compiled struct offsets, immune to any gate-side offset drift.
+        w_seen = lv.r32s("p6_w_ddw_seen")
+        w_st0 = lv.r32s("p6_w_ddw_state0")
+        w_hmin = lv.r32s("p6_w_ddw_health_min")
+        if w_seen is not None and w_seen > 0:
+            d2_seen = True
+            if w_st0 and (w_st0 in ddw_sym_addrs or (0x02690000 <= w_st0 < 0x026C0000)):
+                d2_states.add(w_st0)
+        if w_hmin is not None:
+            hm = s32(w_hmin)
+            if hm > 0:
+                d3_hittable = True
+                min_health_seen = hm if min_health_seen is None else min(min_health_seen, hm)
+                max_health_seen = hm if max_health_seen is None else max(max_health_seen, hm)
 
         for s in signs:
             if s.get("type", 9) <= 1:
@@ -313,8 +349,10 @@ def main(argv=None) -> int:
                       (rec["t"], len(ddw), e0["type"], e0["health"], e0["state"],
                        e0["active"], len(signs), d4_spin, d4_actclear), flush=True)
             else:
-                print("t%6.1f DDW n=0 (no boss entity in pool yet) signs=%d"
-                      % (rec["t"], len(signs)), flush=True)
+                print("t%6.1f DDW n=0 pool (witness seen=%s st0=%s hmin=%s warp=%s) signs=%d"
+                      % (rec["t"], w_seen,
+                         hex(w_st0) if w_st0 else w_st0, w_hmin,
+                         lv.r32s("p6_w_ddw_warp_fired"), len(signs)), flush=True)
 
         if d4_spin and (d4_actclear or True):
             print("  >> DEFEAT->SPIN CHAIN OBSERVED @%.1fs" % rec["t"], flush=True)

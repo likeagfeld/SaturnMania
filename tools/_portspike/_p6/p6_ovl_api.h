@@ -64,7 +64,17 @@
 // p6_io_main.cpp) so it -- and every region above it -- stays put when OVL leaves
 // WRAM-H (zero #249 risk; the freed 0x2A00 WRAM-H window is left as _end slack).
 #define P6_OVL_BASE   0x02690000u   /* CACHED cart alias (exec); cache-through twin 0x22690000 (load) */
-#define P6_OVL_WINDOW 0x28000u      /* 160 KB cart window. Mass-port Batch 2 added the 6 badnik TUs
+#define P6_OVL_WINDOW 0x30000u      /* 192 KB cart window (grown 0x28000->0x30000 2026-07-11 for the
+                                     * DDWrecker boss TU, ~9.8 KB, that overflowed the 3.3 KB free at
+                                     * 0x28000). The +0x8000 growth reclaims 0x226B8000..0x226C0000;
+                                     * the 5 cart blocks that lived there (p6_pool_remap/scan_sorted/
+                                     * scan_always/pool_remap_inv/P6_STREAM_FREELIST) were RELOCATED to
+                                     * the 0x226DC000..0x226E0000 slack below the VDP1 s_stage
+                                     * 0x226E0000 (GHZ resident cursor stops 0x22686900, never reaches
+                                     * there). Window end now 0x226C0000 == s_p6_shadow_inrange (a
+                                     * static array, not a cart pointer -- exclusive end, no overrun).
+                                     * DO NOT grow past 0x226C0000. Original note follows: */
+                                    /* 160 KB cart window. Mass-port Batch 2 added the 6 badnik TUs
                                      * (~40 KB) on top of Ring+Spring+Bridge+PlaneSwitch+SpikeLog+Spikes+
                                      * Batch1. Batch 3 (2026-07-09, GHZ gameplay-parity sweep: ItemBox+
                                      * Debris+InvincibleStars+Platform+InvisibleBlock) grew the window

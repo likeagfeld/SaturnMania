@@ -851,6 +851,18 @@ __attribute__((used)) int32 p6_w_b2_registered = 0; // mass-port Batch 2 (badnik
 // Per-object classID latch (diagnostic for the b2 count): index order =
 // {BadnikHelpers,Explosion,Animals,Newtron,Crabmeat,BuzzBomber,Chopper,Motobug,Batbrain}.
 __attribute__((used)) int32 p6_w_b2_cids[9] = {0,0,0,0,0,0,0,0,0};
+// DDWrecker GHZ1 boss classID witness (2026-07-11, qa_ddwrecker D1). PACK global
+// so it lands in game.map for the live gate; the P6_DDWRECKER overlay writes it
+// via -R (p6_ovl_ghz.c), the same pattern as p6_w_b2_cids. 0 = never written
+// (unregistered), -1 = registered-but-object-NULL, >0 = live classID.
+__attribute__((used)) int32 p6_w_ddw_classid = 0;
+// DDWrecker arena-warp diagnostic witnesses (2026-07-11): warp_fired sentinel +
+// live boss-entity count (p6_w_ddw_seen; set by the arena scan below when
+// P6_DDW_ARENA). The warp pin releases once the boss has assembled (seen>=2).
+__attribute__((used)) int32 p6_w_ddw_warp_fired = 0;
+__attribute__((used)) int32 p6_w_ddw_seen       = 0;
+__attribute__((used)) int32 p6_w_ddw_state0      = 0; // slot-317 (boss) state ptr
+__attribute__((used)) int32 p6_w_ddw_health_min  = -1; // min BALL health seen
 // Batch 3 (2026-07-09, GHZ gameplay-parity sweep): per-object registration +
 // range-independent anim-load witnesses (written by p6_ghz_ovl_witness, ld -R).
 // classid>0 == registered + StageLoad ran; aniframes in [0,0x400) == the object's
@@ -2112,7 +2124,14 @@ uint16 *p6_pool_remap        = s_p6_pool_remap_wram;
 // -R import resolves.
 extern "C" { __attribute__((used)) uint16 *p6_pool_remap_c = s_p6_pool_remap_wram; }
 #else
-uint16 *p6_pool_remap        = (uint16 *)0x226B8000u; // 1216 u16 = 2432 B in the cart gap
+uint16 *p6_pool_remap        = (uint16 *)0x226DC000u; // 1216 u16 = 2432 B. RELOCATED (DDWrecker
+                                                     // re-budget 2026-07-11): moved 0x226B8000->
+                                                     // 0x226DC000 to free 0x226B8000..0x226C0000 for
+                                                     // the +0x8000 P6_OVL_WINDOW growth. New home in
+                                                     // the 0x226DC000..0x226E0000 slack below the VDP1
+                                                     // s_stage 0x226E0000 (GHZ resident cursor stops
+                                                     // 0x22686900, never reaches here). MIRROR: the
+                                                     // overlay hardcodes this same addr (p6_ovl_ghz.c).
 #endif
 int32   p6_pool_remap_ready  = 0;
 // P6.8 I3b.2 (camera-local pool shrink): the PHYSICAL scene-slot count SaturnEntityAt/SaturnEntitySlot
@@ -2129,7 +2148,9 @@ int32   p6_pool_dummy_slot   = -1;
 // RSDK_ENTITY_AT it), and scan_always. IDENTITY here (inv[p]==p -> byte-identical); the SHRINK
 // fills it non-trivially alongside p6_pool_remap. Cart home 0x226BC000 (1216 u16 = 2432 B, in the
 // verified-free gap between p6_scan_always 0x226BB000 and s_p6_shadow_inrange 0x226C0000).
-uint16 *p6_pool_remap_inv    = (uint16 *)0x226BC000u;
+uint16 *p6_pool_remap_inv    = (uint16 *)0x226DCA00u; // RELOCATED 0x226BC000->0x226DCA00 (DDWrecker
+                                                     // re-budget 2026-07-11; 2432 B ends 0x226DD380,
+                                                     // < s_stage 0x226E0000). MIRROR in p6_ovl_ghz.c.
 TileLayer *tileLayers        = (TileLayer *)P6_LW_TILELAYERS;
 DataStorage *dataStorage     = (DataStorage *)P6_LW_DATASTORAGE;
 // P6.7a: objectClassList/typeGroups/drawGroups are LIVE (ProcessObjects,
@@ -8121,6 +8142,49 @@ static void p6_frontend_frame(void)
                 p6_scan_index_build(); // no load-path build happened -- rebuild here (pre-#325 case)
             s_ghz_idx_built = 2;
         }
+#if defined(P6_DDW_ARENA)
+        // DDWrecker boss bring-up diagnostic (2026-07-11, milestone a/b/c): the boss
+        // at (15792,1588) is camera-local DORMANT until the camera reaches it, and the
+        // autorun stalls at x14870 (r8) so it never materializes on a natural run. This
+        // teleports the player + camera INTO the boss arena and PINS them just PAST the
+        // boss x (so DDWrecker_State_InitChildren's `player.x > self->x` gate fires ->
+        // children spawn -> Assemble -> the fight begins) and holds so the camera-local
+        // streamer materializes the boss. It does NOT arm the signpost (unlike the r7
+        // warp) -- the boss defeat must fire DDWrecker_State_SpawnSignpost NATURALLY.
+        // Diag-only (build_shipping.sh P6_DDW_ARENA=1); plain/plain-chain leave it
+        // undefined -> byte-identical. Runs BEFORE p6_scan_update_near so the camera
+        // snap materializes the boss THIS tick.
+        {
+            static int32 s_ddw_phase = 0; // 0=armed, 1=pinning
+            EntityBase *wplr = RSDK_ENTITY_AT(0);
+            // arena floor: DDWrecker origin y1588; the boss deck is ~y1588. Stand the
+            // player on it just past the boss x (15792) so InitChildren fires.
+            const int32 AX = 15860, AY = 1560; // just right of + slightly above the boss
+            if (s_ddw_phase == 0 && p6_w_tick_frames >= 60) {
+                s_ddw_phase = 1;
+                p6_w_ddw_warp_fired = 0x0DDBA55E;
+            }
+            if (s_ddw_phase == 1) {
+                // Pin x AND y so the camera holds on the arena while the boss materializes
+                // + assembles. Keep the player alive/onGround-ish; the fight logic reads
+                // his position for the ball-hit tests. Do NOT zero groundVel every tick
+                // once assembled (the player must be able to jump-attack) -- only pin
+                // until the boss's balls go Vulnerable, then release the pin so the
+                // autorun/injection can drive the hits. Gate release on p6_w_ddw_seen.
+                if (p6_w_ddw_seen < 2) {
+                    wplr->position.x = AX << 16;
+                    wplr->position.y = AY << 16;
+                    wplr->velocity.x = 0;
+                    wplr->velocity.y = 0;
+                    wplr->groundVel  = 0;
+                }
+                if (cameraCount > 0) {
+                    cameras[0].position.x = 15792 << 16; // center on the boss
+                    cameras[0].position.y = 1500  << 16;
+                }
+            }
+        }
+#endif
 #if defined(P6_WARP_TEST)
         // ROUND-7 Objective A (signpost-campaign): prove the GHZ1 SignPost SPIN +
         // ActClear fire from the CHAIN build, DECOUPLED from the autorun's x14503
@@ -9019,7 +9083,9 @@ extern "C" void p6_stream_tick(void)
 // order). Full backing + IDENTITY remap kept (SaturnEntityAt byte-identical, no dormant-
 // access). The WRAM-L-saving COMPACTION is the separate later step. Gate qa_p6_scancull.py.
 __attribute__((used)) unsigned char p6_scan_near[(ENTITY_COUNT + 7) / 8] = { 0 }; // WRAM-H bitfield
-static uint32 *p6_scan_sorted = (uint32 *)0x226B9000u; // cart; SCENEENTITY_COUNT*4 = 4352 B (0x226B9000..
+static uint32 *p6_scan_sorted = (uint32 *)0x226DDD00u; // RELOCATED 0x226B9000->0x226DDD00 (DDWrecker
+                                                       // re-budget 2026-07-11; 4352 B ends 0x226DEE00).
+                                                       // cart; SCENEENTITY_COUNT*4 = 4352 B (0x226B9000..
                                                        // 0x226BA100), whole-game-sized (was 800*4=3200 B)
 __attribute__((used)) int32 p6_scan_n          = 0;
 #if defined(P6_FRONTEND_MENU)
@@ -9049,7 +9115,9 @@ __attribute__((used)) int32 p6_w_scancull_capped = 0; // WHOLE-GAME: 1 if the in
 // the merge -> ZERO WRAM-H data). The skip-set is then IDENTICAL to I3c's proven {scene,
 // BOUNDS/XBOUNDS, x-far} cull set (qa_p6_scancull GREEN, R0-R16) -- parity-exact, just no
 // WRAM-L re-walk of the far majority. Monotonic always-set (never cleared; bounded ~managers).
-unsigned char *p6_scan_always = (unsigned char *)0x226BB000u; // cart, AFTER the 4352 B sorted index (0x226BA100)
+unsigned char *p6_scan_always = (unsigned char *)0x226DEF00u; // RELOCATED 0x226BB000->0x226DEF00
+                                                              // (DDWrecker re-budget 2026-07-11; 153 B
+                                                              // bitmap ends 0x226DEF99, < s_stage 0x226E0000)
 __attribute__((used)) int32 p6_w_scan_always = 0; // always-iterate scene slots seeded at load (witness)
 #define P6_SCAN_WINDOW 1024 // world px each side of the camera. MUST be >= max(updateRange.x+offset)
                             // + max mover drift, or a near entity is wrongly culled (it freezes).

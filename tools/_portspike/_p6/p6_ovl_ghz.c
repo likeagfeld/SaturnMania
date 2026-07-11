@@ -64,6 +64,14 @@ extern ObjectBuzzBomber *BuzzBomber;
 extern ObjectChopper *Chopper;
 extern ObjectMotobug *Motobug;
 extern ObjectBatbrain *Batbrain;
+#if defined(P6_DDWRECKER)
+/* GHZ1 boss (2026-07-11). Overlay-resident (Game_DDWrecker.o in this link when
+ * P6_DDWRECKER). Its defeat fires the natural end-of-act signpost drop->spin.
+ * The classID witness p6_w_ddw_classid is a PACK global (p6_io_main.cpp) written
+ * here via -R -- the SAME pattern as p6_w_b2_cids, so it lands in game.map for
+ * the live gate. */
+extern ObjectDDWrecker *DDWrecker;
+#endif
 /* CP4 FRONT-END KEYSTONE (Task #265/#266): the Logos splash objects. Registered
  * only in the -DP6_FRONTEND_LOGOS overlay flavor (their Game_*.o are linked into
  * the overlay only in that build) -- guarded so the default GHZ overlay does not
@@ -375,7 +383,10 @@ extern int32 p6_w_stream_mat, p6_w_stream_dorm, p6_w_stream_free, p6_w_stream_re
 extern int32 p6_w_bt_logical, p6_w_bt_cid, p6_w_bt_life, p6_w_bt_reappear; /* I3b 2b backtrack-proof witnesses */
 extern int32 p6_w_pool_inv_bad; /* I3b 2b: sticky free-list-invariant violation latch (resident+free!=SP-1) */
 /* cart structures -- the verified-free [0x226BC980,0x226C0000) gap (inv-end -> shadow buffer). */
-#define P6_STREAM_FREELIST 0x226BD000u  /* unsigned short[SCENE_PHYS] -- free physical-slot stack */
+#define P6_STREAM_FREELIST 0x226DD400u  /* unsigned short[SCENE_PHYS] -- free physical-slot stack.
+                                         * RELOCATED 0x226BD000->0x226DD400 (DDWrecker re-budget
+                                         * 2026-07-11; 2176 B ends 0x226DDC80) to free the region
+                                         * 0x226B8000..0x226C0000 for the +0x8000 P6_OVL_WINDOW. */
 #define P6_STREAM_FREECNT  0x226BD600u  /* int -- free-list count */
 #define P6_STREAM_LIFE     0x226BD700u  /* unsigned char[(SCENEENTITY_COUNT+7)/8] -- destroyed (lifecycle) bits */
 /* I3b 2b PERF #2 (scan narrowing): the resident-list -- logical slots currently holding a physical slot.
@@ -790,6 +801,22 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityBatbrain), (unsigned)sizeof(ObjectBatbrain),
                               Batbrain_Update, Batbrain_LateUpdate, Batbrain_StaticUpdate,
                               Batbrain_Draw, Batbrain_Create, Batbrain_StageLoad, Batbrain_Serialize);
+#if defined(P6_DDWRECKER)
+    /* GHZ1 BOSS (2026-07-11): the placed DDWrecker at (15792,1588) whose defeat
+     * fires DDWrecker_State_SpawnSignpost -> the natural signpost drop->spin.
+     * VERBATIM decomp GHZ/DDWrecker.c. Closure (all pack/overlay-resident):
+     * Explosion (registered above), Player_CheckBossHit/BadnikTouch/Hurt/GiveScore,
+     * Music_TransitionTrack, BadnikHelpers_Oscillate, Camera_ShakeScreen,
+     * SignPost_State_Falling+SignPost->sfxTwinkle (Game_SignPost.o pack), Zone->*.
+     * DrawFX FX_FLIP|FX_ROTATE per DDWrecker_Create; the SetLimitedFade/SetPaletteEntry
+     * hit-flash in DDWrecker_Draw is a Saturn no-op (DrawSprite still runs). */
+    api->register_object_full((void **)&DDWrecker, "DDWrecker",
+                              (unsigned)sizeof(EntityDDWrecker), (unsigned)sizeof(ObjectDDWrecker),
+                              DDWrecker_Update, DDWrecker_LateUpdate, DDWrecker_StaticUpdate,
+                              DDWrecker_Draw, DDWrecker_Create, DDWrecker_StageLoad, DDWrecker_Serialize);
+    /* classID latched per-frame in the witness fn below (RegisterObject does not
+     * populate the object ptr until scene-init -- reading it here is premature). */
+#endif
 
     /* Ring vtable; witness_fn is the COMBINED tick witness below. staticvars_slot
      * feeds the F.3 main-image Ring-global rewire (p6_io_main: Ring = *staticvars_slot
@@ -1638,6 +1665,34 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         for (int i = 0; i < 9; ++i) if (p6_w_b2_cids[i] > 0) ++b2;
         p6_w_b2_registered = b2;
     }
+#if defined(P6_DDWRECKER)
+    /* DDWrecker classID latch (2026-07-11). PER-FRAME (post-load): RegisterObject
+     * only records classInfo->staticVars at register time -- the DDWrecker object
+     * pointer is not populated until AllocateStorage/scene-init runs, so reading it
+     * in the register block is premature (-1). Latch it here like b2_cids. */
+    { extern int32 p6_w_ddw_classid; p6_w_ddw_classid = (DDWrecker) ? (int32)DDWrecker->classID : -1; }
+#if defined(P6_DDW_ARENA)
+    /* DDWrecker arena-warp diagnostic scan (P6_DDW_ARENA only -- diagnostic build,
+     * never shipping): walk the entity pool, count live DDWrecker entities, latch
+     * the boss (SETUP/first) state ptr + the min BALL health. Feeds the pack warp
+     * pin-release (p6_w_ddw_seen) + the qa_ddwrecker gate D2/D3. */
+    if (DDWrecker && DDWrecker->classID) {
+        extern int32 p6_w_ddw_seen, p6_w_ddw_state0, p6_w_ddw_health_min;
+        int32 cid = (int32)DDWrecker->classID, seen = 0, hmin = 0x7fffffff, st0 = 0;
+        for (int32 si = 0; si < ENTITY_COUNT; ++si) {
+            EntityDDWrecker *e = (EntityDDWrecker *)RSDK_GET_ENTITY(si, DDWrecker);
+            if (!e || (int32)e->classID != cid) continue;
+            ++seen;
+            if (!st0) st0 = (int32)(uint32)e->state;
+            if ((e->type == DDWRECKER_BALL1 || e->type == DDWRECKER_BALL2) && e->health < hmin)
+                hmin = e->health;
+        }
+        p6_w_ddw_seen       = seen;
+        p6_w_ddw_state0     = st0;
+        p6_w_ddw_health_min = (hmin == 0x7fffffff) ? -1 : hmin;
+    }
+#endif
+#endif
     /* Batch 3 registration + anim-load latches (range-independent; -1 ==
      * LoadSpriteAnimation failed; the R17+ gate rows in qa_p6_ghz_regression). */
     if (ItemBox && ItemBox->classID) p6_w_itembox_classid = (int32)ItemBox->classID;
@@ -1839,9 +1894,9 @@ static void p6_ovl_pool_compact(void)
      * cart address -> overlay bytes unchanged. */
     { extern unsigned short *p6_pool_remap_c; remap = p6_pool_remap_c; }
 #else
-    remap = (unsigned short *)0x226B8000u;        /* p6_pool_remap (cache-through cart) */
+    remap = (unsigned short *)0x226DC000u;        /* p6_pool_remap (cache-through cart) */
 #endif
-    inv   = (unsigned short *)0x226BC000u;        /* p6_pool_remap_inv */
+    inv   = (unsigned short *)0x226DCA00u;        /* p6_pool_remap_inv */
     SCN_BASE = (unsigned int)R * (unsigned int)WIDE;
     dummy = R + SP - 1; /* reserved classID=0 dummy = the LAST scene-physical slot (kept OUT of the free
                            pool so a future materialize never overwrites it) */
@@ -2025,9 +2080,9 @@ static void p6_ovl_stream(void)
     /* #325 lever (ii): same pack-pointer import as p6_ovl_pool_compact above. */
     { extern unsigned short *p6_pool_remap_c; remap = p6_pool_remap_c; }
 #else
-    remap = (unsigned short *)0x226B8000u;
+    remap = (unsigned short *)0x226DC000u;
 #endif
-    inv   = (unsigned short *)0x226BC000u;
+    inv   = (unsigned short *)0x226DCA00u;
     fl    = (unsigned short *)P6_STREAM_FREELIST;
     fc    = (int *)P6_STREAM_FREECNT;
     life  = (unsigned char *)P6_STREAM_LIFE;

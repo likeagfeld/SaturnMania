@@ -110,6 +110,16 @@ OBJ_BINS = [
     "GHZ/Crabmeat.bin",
     "GHZ/Newtron.bin",
     "GHZ/BuzzBomber.bin",
+    # DDWrecker GHZ1 boss (2026-07-11): DDWrecker_StageLoad LoadSpriteAnimation(
+    # "GHZ/DDWrecker.bin") -- 52 frames across 3 sheets (GHZ/Ball.gif,
+    # GHZ/Objects.gif[=GHZOBJ.SHT already staged], GHZ/DDWrecker.gif). Packing the
+    # anim here gives it the FAST pack path (aniFrames>=0) so SetSpriteAnimation in
+    # DDWrecker_Create succeeds and the boss STATE MACHINE runs (the defeat->signpost
+    # closure needs the state machine, not a bound sheet). Sheet VDP1-binding for the
+    # dedicated GHZ/DDWrecker.gif + GHZ/Ball.gif is a separate render step; unbound ->
+    # the boss draws placeholder/nothing but Update/state still run. 1036 B, trivial
+    # vs the 256 KB OBJ_CAP.
+    "GHZ/DDWrecker.bin",
 ]
 OBJ_OUT = os.path.join(ROOT, "cd", "GHZOBJ.PAK")
 OBJ_CAP = 0x40000  # 256 KB cart window (0x22760000..0x227A0000 has 320 KB clear)

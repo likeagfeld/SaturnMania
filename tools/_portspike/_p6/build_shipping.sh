@@ -51,6 +51,18 @@ export P6_NOSCAN="${P6_NOSCAN-1}"
 # NOT set this, so it stays byte-identical (no re-validation of its gate sweep).
 export P6_CART_TMP="${P6_CART_TMP-1}"
 
+# DDWrecker boss (2026-07-11): P6_DDW_ARENA (the arena-warp bring-up diagnostic)
+# IMPLIES P6_DDWRECKER (the boss must be registered to fight it). Export both so
+# the child build_p6scene_objs.sh (line ~184) compiles the register block + the
+# arena warp + the witness -u roots. Both are diag-only; plain/plain-chain leave
+# them unset -> byte-identical. Export P6_DDWRECKER too so the child inherits it
+# even when passed only via docker -e (already in env, but make the intent explicit).
+if [ -n "${P6_DDW_ARENA:-}" ]; then
+    export P6_DDWRECKER=1
+    export P6_DDW_ARENA
+fi
+[ -n "${P6_DDWRECKER:-}" ] && export P6_DDWRECKER
+
 # Task #309 (P6_GHZCUT_BOOT): the AIZ->GHZCutscene direct-boot diagnostic BUILDS ON the
 # AIZ-test flavor (it reuses the AIZ overlay objects + the AIZ FG present block + the
 # closure_edge AIZ stubs), and additionally registers GHZSetup/BGSwitch/GHZCutsceneST/
@@ -280,6 +292,16 @@ fi
 # CutsceneRules_SetupEntity) import from game.elf via -R.
 if [ -n "${P6_GHZCUT_BOOT:-}" ]; then
     OVL_FE="$OVL_FE Game_GHZCutsceneST.o Game_CutsceneHBH.o"
+fi
+# DDWrecker GHZ1 boss (2026-07-11): the placed boss at (15792,1588) whose defeat
+# fires DDWrecker_State_SpawnSignpost -> SignPost_State_Falling -> Spin -> ActClear
+# (the natural end-of-act signpost spin). Gated behind P6_DDWRECKER during bring-up
+# so plain GHZ stays BYTE-IDENTICAL (the overlay is shared by plain-GHZ + chain).
+# Overlay-resident (like the 6 badniks): references Explosion (overlay) + Player_
+# CheckBossHit/Music/Camera/Zone/SignPost (pack via -R). Window grown 0x28000->
+# 0x30000 for its ~9.8 KB (p6_ovl_api.h). Promote to default once (a)-(c) GREEN.
+if [ -n "${P6_DDWRECKER:-}" ]; then
+    OVL_FE="$OVL_FE Game_DDWrecker.o"
 fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
