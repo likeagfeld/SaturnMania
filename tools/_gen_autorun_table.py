@@ -114,8 +114,26 @@ OVERRIDES = [
     # never reaching the spring). He must: (a) keep speed on the y1088 approach
     # (suppress the too-early LEAD=96 jumps that fire at x14416), THEN (b) jump
     # EXACTLY at the x14514 step to mount the y1040 ledge and strike the spring.
-    (14300, 14505, 1000, 1200, 0x0001),          # (a) preserve approach momentum
-    (14505, 14520, 1030, 1100, (1 << 10)),       # (b) jump the 48px step -> spring
+    # REFINED (r4 cycle 4->5): the runner crosses FG-High y1088 (continuous
+    # x14240-14512) but a CollapsingPlatform (14272,1104) sits under the entry
+    # and the y1024 spring-ledge step is at x14512. MEASURED: suppress boxes on
+    # this approach made him HESITATE on the collapsing segment (oscillate x14246-
+    # 14284, worse than the no-override x14499). Drop the suppress; keep only a
+    # tight jump box at the x14512 step so he mounts the y1024 ledge and strikes
+    # the Spring (14516) -> launch onto the y288 signpost deck.
+    # The FG-Low.B solid tile edge at x14503 is a small WALL face the runner
+    # stops against (MEASURED max_x pinned x14502). Jump just BEFORE it (x14484)
+    # so he hops the wall and lands on the Spring (14516) -> launch to the deck.
+    (14484, 14512, 1020, 1110, (1 << 10)),       # hop the x14503 wall -> spring
+    # signpost r4 C8c: the x9718 recurrent DEATH (~1 of every 2 lives) traces to
+    # the (8160,1272) terrain-step jump arcing the runner airborne over the y1216
+    # valley into the y2048 pit at x9718. A valley-wide suppress box (8050-9300)
+    # was TRIED (cycle 6) but WEDGED him against the BreakableWall (8400/8432,1184)
+    # -- he needs running SPEED to break it, and suppress also disabled the
+    # unstick. Reverted: the x9718 death stays STOCHASTIC (survivable -- he clears
+    # it ~1 of 2 lives via respawn) rather than a hard stall. Left for a future
+    # narrower fix (a jump at x9560-9640 keyed to the ACTUAL fall-onset y~1360,
+    # not y1080-1300 which the cycle-5 attempt missed).
 ]
 
 hdr = Path("tools/_portspike/_p6/p6_autorun_table.h")

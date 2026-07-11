@@ -251,7 +251,12 @@ void InputDeviceSaturn::UpdateInput()
                     wantJump = 1;
                     --s_jumpreq;
                 }
-                else if (!suppressJump && px >= s_lastx - 2 && px <= s_lastx + 2) {
+                else if (px >= s_lastx - 2 && px <= s_lastx + 2) {
+                    // NOTE: the unstick is NOT gated by suppressJump -- a hard
+                    // wedge (e.g. against a BreakableWall inside a suppress box)
+                    // must still be able to recover. Suppress only cancels the
+                    // SCRIPTED-hazard jumps below (via wantJump=0), not this
+                    // last-resort recovery.
                     if (++s_stagnant >= 40) {
                         s_jumpreq  = P6_AR_JHOLD + P6_AR_JREL;
                         s_stagnant = 0;
