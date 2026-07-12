@@ -86,6 +86,16 @@ extern ObjectDust *Dust;
  * "Global/Shields.bin") -> Global/Shields.gif = SHIELDS.SHT (already bound at GHZ for
  * InvincibleStars -- no new sheet). */
 extern ObjectShield *Shield;
+/* BoundsMarker (2026-07-12): the 22 placed camera/death-boundary markers in GHZ1.
+ * Pack-resident (Game_BoundsMarker.o), compiled+linked but never registered -> the
+ * markers never spawn -> Zone->cameraBoundsB/T + playerBoundsB/T + deathBoundary are
+ * never set from the level's markers -> camera limits + death-pit boundaries are wrong
+ * across the whole act. PURE LOGIC: Draw + StageLoad are empty at runtime (the
+ * LoadSpriteAnimation/DrawSprite are #if GAME_INCLUDE_EDITOR only) -> NO sheet, NO draw.
+ * Update/Create call BoundsMarker_ApplyBounds -> Zone->* (Zone registered), Player,
+ * DebugMode (registered), RSDK.GetEntitySlot -- all resolved. Register the shared pack
+ * symbol (same recipe as Dust/Shield, no rewire). */
+extern ObjectBoundsMarker *BoundsMarker;
 extern ObjectNewtron *Newtron;
 extern ObjectCrabmeat *Crabmeat;
 extern ObjectBuzzBomber *BuzzBomber;
@@ -340,6 +350,7 @@ extern int32 p6_w_debris_classid, p6_w_invstars_classid;
 extern int32 p6_w_scorebonus_classid, p6_w_scorebonus_aniframes;
 extern int32 p6_w_dust_classid, p6_w_dust_aniframes;
 extern int32 p6_w_shield_classid, p6_w_shield_aniframes;
+extern int32 p6_w_boundsmarker_classid;
 extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
 extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
@@ -836,6 +847,15 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityShield), (unsigned)sizeof(ObjectShield),
                               Shield_Update, Shield_LateUpdate, Shield_StaticUpdate,
                               Shield_Draw, Shield_Create, Shield_StageLoad, Shield_Serialize);
+    /* BoundsMarker (2026-07-12): 22 placed camera/death-boundary markers. Pure logic
+     * (empty Draw/StageLoad at runtime, no sheet). EntityBoundsMarker (type/width/
+     * vsDisable/offset) fits the 344 narrow stride. Create sets active=ACTIVE_XBOUNDS +
+     * applies the initial bounds; Update re-applies per player each frame -> Zone camera
+     * + death boundaries track the level's markers. */
+    api->register_object_full((void **)&BoundsMarker, "BoundsMarker",
+                              (unsigned)sizeof(EntityBoundsMarker), (unsigned)sizeof(ObjectBoundsMarker),
+                              BoundsMarker_Update, BoundsMarker_LateUpdate, BoundsMarker_StaticUpdate,
+                              BoundsMarker_Draw, BoundsMarker_Create, BoundsMarker_StageLoad, BoundsMarker_Serialize);
     api->register_object_full((void **)&Newtron, "Newtron",
                               (unsigned)sizeof(EntityNewtron), (unsigned)sizeof(ObjectNewtron),
                               Newtron_Update, Newtron_LateUpdate, Newtron_StaticUpdate,
@@ -1899,6 +1919,9 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * aniframes>=0 == Global/Shields.bin loaded (bubbles can draw). */
     if (Shield && Shield->classID) p6_w_shield_classid = (int32)Shield->classID;
     if (Shield) p6_w_shield_aniframes = (int32)(int16)Shield->aniFrames;
+    /* BoundsMarker (2026-07-12): classid>0 == registered (markers spawn -> Zone camera +
+     * death boundaries track the level). No sheet (pure logic). */
+    if (BoundsMarker && BoundsMarker->classID) p6_w_boundsmarker_classid = (int32)BoundsMarker->classID;
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
     /* Batch 3 step 2: full Platform (R22/R23). */
     if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;
