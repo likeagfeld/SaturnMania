@@ -75,6 +75,17 @@ extern ObjectScoreBonus *ScoreBonus;
  * the puffs. Draws from Global/Dust.bin -> Global/Explosions.gif = EXPLOS.SHT (already
  * staged at the chain GHZ handoff -- no new sheet). */
 extern ObjectDust *Dust;
+/* Shield (2026-07-11): the shield bubble (blue/bubble/fire/lightning) + insta-shield.
+ * Pack-resident (Game_Shield.o in p6_scene_pack.o). The PACK Player derefs the Shield
+ * OBJECT on the jump-ability path (Player.c:6133 shield->classID != Shield->classID while
+ * invincible; :6144 Shield->sfxInstaShield / :6145 ResetEntity(shield,Shield->classID)
+ * under MEDAL_INSTASHIELD) and creates a shield entity at a reserved slot on a shield
+ * monitor pickup (Player_ApplyShield). Unregistered Shield = NULL Shield->classID deref
+ * -> crash on invincible double-jump / shield collect. Registering (shared pack symbol,
+ * no rewire) removes that AND draws the bubble. StageLoad LoadSpriteAnimation(
+ * "Global/Shields.bin") -> Global/Shields.gif = SHIELDS.SHT (already bound at GHZ for
+ * InvincibleStars -- no new sheet). */
+extern ObjectShield *Shield;
 extern ObjectNewtron *Newtron;
 extern ObjectCrabmeat *Crabmeat;
 extern ObjectBuzzBomber *BuzzBomber;
@@ -328,6 +339,7 @@ extern int32 p6_w_itembox_classid, p6_w_itembox_aniframes;
 extern int32 p6_w_debris_classid, p6_w_invstars_classid;
 extern int32 p6_w_scorebonus_classid, p6_w_scorebonus_aniframes;
 extern int32 p6_w_dust_classid, p6_w_dust_aniframes;
+extern int32 p6_w_shield_classid, p6_w_shield_aniframes;
 extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
 extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
@@ -815,6 +827,15 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityDust), (unsigned)sizeof(ObjectDust),
                               Dust_Update, Dust_LateUpdate, Dust_StaticUpdate,
                               Dust_Draw, Dust_Create, Dust_StageLoad, Dust_Serialize);
+    /* Shield (2026-07-11): shield bubbles + insta-shield. EntityShield (player + state +
+     * type + timer + frameFlags + forceVisible + 2 Animators) rides a reserved slot like
+     * the Players. StageLoad LoadSpriteAnimation("Global/Shields.bin") -> SHIELDS.SHT
+     * (bound at GHZ). Registering the shared pack Shield ptr removes the pack-Player
+     * Shield->classID / sfxInstaShield NULL-derefs. */
+    api->register_object_full((void **)&Shield, "Shield",
+                              (unsigned)sizeof(EntityShield), (unsigned)sizeof(ObjectShield),
+                              Shield_Update, Shield_LateUpdate, Shield_StaticUpdate,
+                              Shield_Draw, Shield_Create, Shield_StageLoad, Shield_Serialize);
     api->register_object_full((void **)&Newtron, "Newtron",
                               (unsigned)sizeof(EntityNewtron), (unsigned)sizeof(ObjectNewtron),
                               Newtron_Update, Newtron_LateUpdate, Newtron_StaticUpdate,
@@ -1874,6 +1895,10 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * no NULL-deref); aniframes>=0 == Global/Dust.bin loaded (puffs can draw). */
     if (Dust && Dust->classID) p6_w_dust_classid = (int32)Dust->classID;
     if (Dust) p6_w_dust_aniframes = (int32)(int16)Dust->aniFrames;
+    /* Shield (2026-07-11): classid>0 == registered (pack Shield->classID derefs resolve);
+     * aniframes>=0 == Global/Shields.bin loaded (bubbles can draw). */
+    if (Shield && Shield->classID) p6_w_shield_classid = (int32)Shield->classID;
+    if (Shield) p6_w_shield_aniframes = (int32)(int16)Shield->aniFrames;
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
     /* Batch 3 step 2: full Platform (R22/R23). */
     if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;
