@@ -594,6 +594,72 @@
           "hash": "0x47531B05"
         }
       ]
+    },
+    {
+      "sheet": "Global/Explosions.gif",
+      "file": "EXPLOS.SHT",
+      "width": 512,
+      "height": 512,
+      "band_rows": 16,
+      "bands": 32,
+      "bytes": 28365,
+      "file_hash": "0xD0B8B582",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x1C79115B"
+        },
+        {
+          "sx": 448,
+          "sy": 248,
+          "w": 64,
+          "h": 64,
+          "hash": "0xA1DF1505"
+        },
+        {
+          "sx": 16,
+          "sy": 472,
+          "w": 48,
+          "h": 40,
+          "hash": "0x0C4D76F5"
+        }
+      ]
+    },
+    {
+      "sheet": "Global/Animals.gif",
+      "file": "ANIMALS.SHT",
+      "width": 256,
+      "height": 128,
+      "band_rows": 16,
+      "bands": 8,
+      "bytes": 3989,
+      "file_hash": "0x84A9C2BE",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x8A0D8505"
+        },
+        {
+          "sx": 192,
+          "sy": 56,
+          "w": 64,
+          "h": 64,
+          "hash": "0x27733622"
+        },
+        {
+          "sx": 16,
+          "sy": 88,
+          "w": 48,
+          "h": 40,
+          "hash": "0xEB422FBA"
+        }
+      ]
     }
   ]
 }

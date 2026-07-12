@@ -78,7 +78,11 @@ typedef signed int int32;
 // to CART the old #228 wall (WRAM ANIMPAK 0x060B6C00) no longer applies here -- the
 // real ceiling is the GLOBALS window 0x060C8000, ~52 KB above the chain _end. The
 // R3.1 "17th slot trap" note below predates the pack relocation.
-#define SATURNSHEET_SLOTS     25
+// BADNIK-VIS FIX (2026-07-11): 25->27 for EXPLOS.SHT + ANIMALS.SHT staged at the GHZ
+// chain-handoff (p6_io_main ghzShtFiles[11]). +2 slots = +64 B .bss; SAFE in the front-end/
+// chain flavors (animpak-on-cart -> the #228 WRAM ANIMPAK wall does not apply; ceiling is
+// GLOBALS 0x060C8000, ~28 KB above the chain _end -- the SAME reasoning as the 16->25 bump).
+#define SATURNSHEET_SLOTS     27
 #elif defined(P6_FRONTEND_TITLE)
 // CP5b.3 (#272): the TITLE flavor adds a 13th slot for TBG.SHT (Title/BG.gif, the
 // TitleBG + Title3DSprite mountains/water/billboard sheet) -- slot 12 (slots 9/10/11

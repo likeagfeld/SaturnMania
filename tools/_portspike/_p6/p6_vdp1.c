@@ -130,8 +130,10 @@
  * gameplay sheets (players/HUD/items/shields/global+GHZ objects). NSHEETS-only
  * per the #243 rule; +216 B .bss safe in front-end flavors (real ceiling =
  * GLOBALS 0x060C8000, ~52 KB headroom post pack-relocation -- see the
- * frontend-cart-map-recarve memory). 23 = 14 + 9. */
-#define P6_VDP1_NSHEETS 23
+ * frontend-cart-map-recarve memory). 23 = 14 + 9.
+ * BADNIK-VIS FIX (2026-07-11): 23->25 for the EXPLOS/ANIMALS surfaces bound at the
+ * GHZ handoff (2 more VDP1 bind slots). +32 B .bss, same front-end-safe rule. 25 = 14+11. */
+#define P6_VDP1_NSHEETS 25
 #else
 #define P6_VDP1_NSHEETS 12
 #endif

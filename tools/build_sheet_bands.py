@@ -154,6 +154,14 @@ SHEETS = [
     # NOPROBE_SHEETS) so NO flavor pays probe .rodata.
     ("GHZCutscene/Objects.gif", "GHCOBJ.SHT"),
     ("Global/PhantomRuby.gif", "RUBYOBJ.SHT"),
+    # BADNIK-VIS FIX (2026-07-11, ghz-explosions-animals-invisible memory): the
+    # badnik-kill EXPLOSION (Global/Explosions.gif 512x512) + freed ANIMALS
+    # (Global/Animals.gif 256x128) were INVISIBLE -- unstaged sheets return -1 on
+    # Saturn (Sprite.cpp:992; the "resident-pixel decode" claim was the PC #else
+    # branch). Staged ONLY in the chain flavor (animpak-on-cart -> 28KB WRAM-H
+    # headroom, unlike the plain-GHZ 64B wall). Probes chain-gated (P6_GHZCUT_BOOT).
+    ("Global/Explosions.gif", "EXPLOS.SHT"),
+    ("Global/Animals.gif", "ANIMALS.SHT"),
 ]
 
 # CP4c _end-leak FIX (Task #266): sheets that ONLY a FRONT-END boot stages. Their
@@ -191,7 +199,14 @@ FRONTEND_ONLY_SHEETS = {"LOGOS.SHT": "P6_FRONTEND_LOGOS",
                         # (slot 16). AIZ_TEST implies MENU so a plain-menu build stages 16
                         # sheets [0..15] -> a slot-16 probe there would FetchRect-fail;
                         # gating under P6_AIZ_TEST keeps the plain-menu probe table clean.
-                        "AIZOBJ.SHT": "P6_AIZ_TEST"}
+                        "AIZOBJ.SHT": "P6_AIZ_TEST",
+                        # BADNIK-VIS FIX (2026-07-11): EXPLOS/ANIMALS staged ONLY by the
+                        # chain GHZ-handoff (P6_GHZCUT_BOOT). Chain-gate the probe rows so
+                        # the plain-GHZ probe table (each row 24 B .rodata) is NOT grown --
+                        # plain GHZ never stages them (SATURNSHEET_SLOTS=9, no free slot) +
+                        # its _end is ~64 B under the #228 ANIMPAK wall.
+                        "EXPLOS.SHT": "P6_GHZCUT_BOOT",
+                        "ANIMALS.SHT": "P6_GHZCUT_BOOT"}
 
 
 def djb2(data):

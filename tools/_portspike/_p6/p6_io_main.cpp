@@ -1258,6 +1258,8 @@ __attribute__((used)) int32 p6_w_aiz_torn_aniframes  = -2;
 __attribute__((used)) int32 p6_w_aiz_torn_animid     = -2;
 __attribute__((used)) int32 p6_w_aiz_torn_count      = -2;
 __attribute__((used)) int32 p6_w_aiz_sonicsht_slot   = -9; // #321: SaturnSheet slot of Players/Sonic1.gif at AIZ (>=0 = staged -> wing renders)
+__attribute__((used)) int32 p6_w_explos_slot         = -9; // BADNIK-VIS: EXPLOS.SHT staged slot at the GHZ handoff (>=0 = explosions render)
+__attribute__((used)) int32 p6_w_animals_slot        = -9; // BADNIK-VIS: ANIMALS.SHT staged slot at the GHZ handoff (>=0 = freed-critter renders)
 // R3.4 (#306 follow-on) AIZ cutscene actor anim-load latches: AIZKingClaw->aniFrames
 // (AIZ/Claw.bin, beat 4 EnterClaw) + AIZEggRobo->aniFrames (AIZ/AIZEggRobo.bin, the
 // Heavies). -1/0xFFFF == LoadSpriteAnimation FAILED (.bin not in AIZOBJ.PAK -- the
@@ -7830,18 +7832,34 @@ static void p6_frontend_frame(void)
                 // seam that already loads the whole scene. Slot budget: SaturnSheet
                 // 25 front-end slots + NSHEETS 23 (both bumped for this).
                 {
-                    static const char *ghzShtFiles[9] = {
+                    // BADNIK-VIS FIX (2026-07-11, ghz-explosions-animals-invisible memory):
+                    // + EXPLOS.SHT (Global/Explosions.gif, badnik-poof) + ANIMALS.SHT
+                    // (Global/Animals.gif, freed critter) as the 10th/11th GHZ sheets. They
+                    // were INVISIBLE: unstaged -> LoadSpriteSheet returns -1 on Saturn
+                    // (Sprite.cpp:992) -> the Explosion/Animals surface never binds a VDP1
+                    // handle -> every draw drops. Staged HERE (same seam + auto-slot as the
+                    // 9 GHZ sheets) so Explosion_StageLoad/Animals_StageLoad's
+                    // LoadSpriteSheet resolves the slot -> the arm-env bind loop binds them.
+                    // Banded EXPLOS 28,365 + ANIMALS 3,989 B fit the 384 KB cart band store
+                    // (11-sheet total 337,489 B, 55 KB margin). #228-SAFE: chain has
+                    // animpak-on-cart (GLOBALS 0x060C8000 ceiling, ~28 KB _end headroom),
+                    // SATURNSHEET_SLOTS 25->27 + P6_VDP1_NSHEETS 23->25. Graceful fail:
+                    // SaturnSheet_Stage returns -1 on a full store -> sheet stays banded/
+                    // unstaged (no crash), explosions just stay invisible. Chain-gated.
+                    static const char *ghzShtFiles[11] = {
                         "SONIC1.SHT", "SONIC2.SHT", "SONIC3.SHT",
                         "ITEMS.SHT",  "DISPLAY.SHT", "SHIELDS.SHT",
-                        "TAILS1.SHT", "GLOBJ.SHT",  "GHZOBJ.SHT"
+                        "TAILS1.SHT", "GLOBJ.SHT",  "GHZOBJ.SHT",
+                        "EXPLOS.SHT", "ANIMALS.SHT"
                     };
-                    static const char *ghzShtPaths[9] = {
+                    static const char *ghzShtPaths[11] = {
                         "Players/Sonic1.gif", "Players/Sonic2.gif", "Players/Sonic3.gif",
                         "Global/Items.gif",   "Global/Display.gif", "Global/Shields.gif",
-                        "Players/Tails1.gif", "Global/Objects.gif", "GHZ/Objects.gif"
+                        "Players/Tails1.gif", "Global/Objects.gif", "GHZ/Objects.gif",
+                        "Global/Explosions.gif", "Global/Animals.gif"
                     };
-                    int32 ghzGslot[9] = { -1,-1,-1,-1,-1,-1,-1,-1,-1 };
-                    for (int32 gi = 0; gi < 9; ++gi) {
+                    int32 ghzGslot[11] = { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 };
+                    for (int32 gi = 0; gi < 11; ++gi) {
                         // #321: REUSE the AIZ-staged Sonic sheets (SONIC1/2/3 banded earlier in
                         // p6_aiz_reload) instead of double-staging -> keeps the band store under
                         // 640KB (double-stage overflowed -> SaturnSheet_Stage returns -1 -> the
@@ -7861,6 +7879,11 @@ static void p6_frontend_frame(void)
                             }
                         }
                     }
+                    // BADNIK-VIS gate witnesses (RED->GREEN): EXPLOS/ANIMALS staged slot.
+                    // -1 = stage failed (store full) -> explosion still invisible (RED);
+                    // >=0 = staged -> Explosion_StageLoad resolves the surface -> renders.
+                    p6_w_explos_slot  = ghzGslot[9];
+                    p6_w_animals_slot = ghzGslot[10];
 #if defined(P6_FRONTEND_MENU) || defined(P6_FRONTEND_CHAIN)
                     // C1 signpost-campaign r3 (2026-07-10, MEASURED): the live
                     // boot->signpost path is the P6_FRONTEND_CHAIN flavor, NOT
