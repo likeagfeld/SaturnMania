@@ -873,6 +873,8 @@ __attribute__((used)) int32 p6_w_itembox_classid    = 0;  // ItemBox->classID
 __attribute__((used)) int32 p6_w_itembox_aniframes  = -2; // ItemBox->aniFrames (Global/ItemBox.bin)
 __attribute__((used)) int32 p6_w_debris_classid     = 0;  // Debris->classID (StageLoad loads nothing)
 __attribute__((used)) int32 p6_w_invstars_classid   = 0;  // InvincibleStars->classID
+__attribute__((used)) int32 p6_w_scorebonus_classid   = 0;  // ScoreBonus->classID (combo-score popup; 0=unregistered)
+__attribute__((used)) int32 p6_w_scorebonus_aniframes = -2; // ScoreBonus->aniFrames (Global/ScoreBonus.bin; -1=load failed)
 __attribute__((used)) int32 p6_w_platform_classid   = 0;  // Platform->classID (Batch 3 step 2)
 __attribute__((used)) int32 p6_w_platform_aniframes = -2; // Platform->aniFrames (GHZ/Platform.bin)
 __attribute__((used)) int32 p6_w_invblock_classid   = 0;  // InvisibleBlock->classID (Batch 3 step 3)

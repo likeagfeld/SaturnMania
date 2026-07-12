@@ -58,6 +58,14 @@ extern ObjectSpinBooster *SpinBooster;
 extern ObjectBadnikHelpers *BadnikHelpers;
 extern ObjectExplosion *Explosion;
 extern ObjectAnimals *Animals;
+/* ScoreBonus (2026-07-11): the 100/200/500/1000 combo-score popup on a badnik/
+ * monitor break. Player.c:2562 does CREATE_ENTITY(ScoreBonus,...) then IMMEDIATELY
+ * writes scoreBonus->drawGroup -- a latent NULL-deref while unregistered (CREATE_ENTITY
+ * of an unregistered classID returns NULL). Registering it fixes BOTH the parity popup
+ * AND that crash risk. Draws from Global/Objects.gif (GLOBJ.SHT, already staged) via
+ * Global/ScoreBonus.bin (extracted, GLOBJ.FRD-covered). Overlay-resident (Game_ScoreBonus.o
+ * in this link). VERBATIM Global/ScoreBonus.c. */
+extern ObjectScoreBonus *ScoreBonus;
 extern ObjectNewtron *Newtron;
 extern ObjectCrabmeat *Crabmeat;
 extern ObjectBuzzBomber *BuzzBomber;
@@ -309,6 +317,7 @@ extern int32 p6_w_aiz_tornado_classid, p6_w_aiz_path_classid, p6_w_aiz_cam_x;
  * registered+resolved; aniframes in [0,0x400) == LoadSpriteAnimation succeeded. */
 extern int32 p6_w_itembox_classid, p6_w_itembox_aniframes;
 extern int32 p6_w_debris_classid, p6_w_invstars_classid;
+extern int32 p6_w_scorebonus_classid, p6_w_scorebonus_aniframes;
 extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
 extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
@@ -777,6 +786,16 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityAnimals), (unsigned)sizeof(ObjectAnimals),
                               Animals_Update, Animals_LateUpdate, Animals_StaticUpdate,
                               Animals_Draw, Animals_Create, Animals_StageLoad, Animals_Serialize);
+    /* ScoreBonus (2026-07-11): the combo-score popup. Player_Hit's badnik-kill path
+     * (Player.c:2562) CREATE_ENTITYs it -- must be registered so the classID resolves
+     * (else CREATE_ENTITY returns NULL and the next line derefs it). EntityScoreBonus is
+     * small (RSDK_ENTITY + int32 timer + Animator) -> fits the 344 narrow scene stride.
+     * StageLoad LoadSpriteAnimation("Global/ScoreBonus.bin") -> sheet Global/Objects.gif
+     * = GLOBJ.SHT (already staged for GHZ). */
+    api->register_object_full((void **)&ScoreBonus, "ScoreBonus",
+                              (unsigned)sizeof(EntityScoreBonus), (unsigned)sizeof(ObjectScoreBonus),
+                              ScoreBonus_Update, ScoreBonus_LateUpdate, ScoreBonus_StaticUpdate,
+                              ScoreBonus_Draw, ScoreBonus_Create, ScoreBonus_StageLoad, ScoreBonus_Serialize);
     api->register_object_full((void **)&Newtron, "Newtron",
                               (unsigned)sizeof(EntityNewtron), (unsigned)sizeof(ObjectNewtron),
                               Newtron_Update, Newtron_LateUpdate, Newtron_StaticUpdate,
@@ -1828,6 +1847,10 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     if (Debris && Debris->classID) p6_w_debris_classid = (int32)Debris->classID;
     if (InvincibleStars && InvincibleStars->classID)
         p6_w_invstars_classid = (int32)InvincibleStars->classID;
+    /* ScoreBonus (2026-07-11): classid>0 == registered + StageLoad ran; aniframes>=0 ==
+     * Global/ScoreBonus.bin LoadSpriteAnimation succeeded (popup can render). */
+    if (ScoreBonus && ScoreBonus->classID) p6_w_scorebonus_classid = (int32)ScoreBonus->classID;
+    if (ScoreBonus) p6_w_scorebonus_aniframes = (int32)(int16)ScoreBonus->aniFrames;
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
     /* Batch 3 step 2: full Platform (R22/R23). */
     if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;

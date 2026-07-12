@@ -325,7 +325,15 @@ def main():
         NOPROBE_SHEETS = {"AIZOBJ.SHT",
                           # Task #311: GHZCUT-only sheets, probe rows suppressed for
                           # the same #228 WRAM-H reason as AIZOBJ.
-                          "GHCOBJ.SHT", "RUBYOBJ.SHT"}
+                          "GHCOBJ.SHT", "RUBYOBJ.SHT",
+                          # 2026-07-11: EXPLOS/ANIMALS are staged at the chain GHZ handoff
+                          # (guard P6_GHZCUT_BOOT). Suppress their probe rows for the SAME
+                          # #228 WRAM-H reason -- and so the probe-count logic below never
+                          # sees a P6_GHZCUT_BOOT guard group (which its assert doesn't
+                          # enumerate). Without this the .inc regenerates EMPTY and the
+                          # DEFAULT (plain GHZ, no P6_FRONTEND_TITLE) build fails to compile
+                          # (p6SheetProbes/P6_SHEET_PROBE_COUNT undeclared).
+                          "EXPLOS.SHT", "ANIMALS.SHT"}
         for si, m in enumerate(model["sheets"]):
             guard = FRONTEND_ONLY_SHEETS.get(m["file"])
             if m["file"] in NOPROBE_SHEETS:
