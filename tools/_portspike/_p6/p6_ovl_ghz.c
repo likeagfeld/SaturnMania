@@ -66,6 +66,15 @@ extern ObjectAnimals *Animals;
  * Global/ScoreBonus.bin (extracted, GLOBJ.FRD-covered). Overlay-resident (Game_ScoreBonus.o
  * in this link). VERBATIM Global/ScoreBonus.c. */
 extern ObjectScoreBonus *ScoreBonus;
+/* Dust (2026-07-11): spindash/skid/land/glide dust puffs. Pack-resident
+ * (Game_Dust.o in p6_scene_pack.o). The PACK Player CREATE_ENTITYs it at ~11 sites
+ * (Player.c:2944 skid, :3347 spindash, :4513/:5305 puff, :4817/:4942 glide, ...),
+ * EACH immediately writing dust->state -- with Dust unregistered the CREATE_ENTITY
+ * macro derefs a NULL Dust->classID = crash on spindash/skid/land. Registering (which
+ * writes the shared pack Dust pointer, same as ScoreBonus) removes the crash AND draws
+ * the puffs. Draws from Global/Dust.bin -> Global/Explosions.gif = EXPLOS.SHT (already
+ * staged at the chain GHZ handoff -- no new sheet). */
+extern ObjectDust *Dust;
 extern ObjectNewtron *Newtron;
 extern ObjectCrabmeat *Crabmeat;
 extern ObjectBuzzBomber *BuzzBomber;
@@ -318,6 +327,7 @@ extern int32 p6_w_aiz_tornado_classid, p6_w_aiz_path_classid, p6_w_aiz_cam_x;
 extern int32 p6_w_itembox_classid, p6_w_itembox_aniframes;
 extern int32 p6_w_debris_classid, p6_w_invstars_classid;
 extern int32 p6_w_scorebonus_classid, p6_w_scorebonus_aniframes;
+extern int32 p6_w_dust_classid, p6_w_dust_aniframes;
 extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
 extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
@@ -796,6 +806,15 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityScoreBonus), (unsigned)sizeof(ObjectScoreBonus),
                               ScoreBonus_Update, ScoreBonus_LateUpdate, ScoreBonus_StaticUpdate,
                               ScoreBonus_Draw, ScoreBonus_Create, ScoreBonus_StageLoad, ScoreBonus_Serialize);
+    /* Dust (2026-07-11): spindash/skid/land/glide puffs. EntityDust = RSDK_ENTITY +
+     * state + timer + parent + Animator -> fits the 344 narrow stride. StageLoad
+     * LoadSpriteAnimation("Global/Dust.bin") -> Global/Explosions.gif = EXPLOS.SHT
+     * (staged at the chain handoff). Pack Player spawns it -> registering the shared
+     * pack Dust ptr removes the NULL-deref crash on spindash/skid. */
+    api->register_object_full((void **)&Dust, "Dust",
+                              (unsigned)sizeof(EntityDust), (unsigned)sizeof(ObjectDust),
+                              Dust_Update, Dust_LateUpdate, Dust_StaticUpdate,
+                              Dust_Draw, Dust_Create, Dust_StageLoad, Dust_Serialize);
     api->register_object_full((void **)&Newtron, "Newtron",
                               (unsigned)sizeof(EntityNewtron), (unsigned)sizeof(ObjectNewtron),
                               Newtron_Update, Newtron_LateUpdate, Newtron_StaticUpdate,
@@ -1851,6 +1870,10 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * Global/ScoreBonus.bin LoadSpriteAnimation succeeded (popup can render). */
     if (ScoreBonus && ScoreBonus->classID) p6_w_scorebonus_classid = (int32)ScoreBonus->classID;
     if (ScoreBonus) p6_w_scorebonus_aniframes = (int32)(int16)ScoreBonus->aniFrames;
+    /* Dust (2026-07-11): classid>0 == registered (pack CREATE_ENTITY(Dust) resolves,
+     * no NULL-deref); aniframes>=0 == Global/Dust.bin loaded (puffs can draw). */
+    if (Dust && Dust->classID) p6_w_dust_classid = (int32)Dust->classID;
+    if (Dust) p6_w_dust_aniframes = (int32)(int16)Dust->aniFrames;
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
     /* Batch 3 step 2: full Platform (R22/R23). */
     if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;
