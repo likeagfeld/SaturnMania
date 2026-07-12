@@ -770,6 +770,17 @@ __attribute__((used)) int32 p6_w_plr_state      = 0;  // state fn ptr (nonzero =
 __attribute__((used)) int32 p6_w_plr_onground   = -1;
 __attribute__((used)) int32 p6_w_plr_animframes = 0;  // animator.frames (expect inside P6_HW_ANIMPAK)
 __attribute__((used)) int32 p6_w_plr_animid     = -1; // animator.animationID
+/* 2026-07-12 stall diagnostic (autorun-gated, written each GHZ frame): the live
+ * player physics state at the X~14400 signpost blocker. High gvel + pinned posx ==
+ * a collision/plane WALL (real blocker); ~0 gvel == the autorun input stopped. */
+__attribute__((used)) int32 p6_w_pdiag_posx  = 0;   // player position.x >> 16 (px)
+__attribute__((used)) int32 p6_w_pdiag_gvel  = 0;   // groundVel (fixed .16)
+__attribute__((used)) int32 p6_w_pdiag_velx  = 0;   // velocity.x (fixed .16)
+__attribute__((used)) int32 p6_w_pdiag_gnd   = -1;  // onGround (0/1)
+__attribute__((used)) int32 p6_w_pdiag_plane = -1;  // collisionPlane (0=A,1=B)
+__attribute__((used)) int32 p6_w_pdiag_mode  = -1;  // collisionMode (0=floor,1=Lwall,2=roof,3=Rwall)
+__attribute__((used)) int32 p6_w_pdiag_dir   = -1;  // direction (0=R,1=L)
+__attribute__((used)) int32 p6_w_pdiag_ang   = -1;  // angle (ground angle)
 __attribute__((used)) int32 p6_w_plr_drawdelta  = -1; // DrawSprite calls during the ticks
 __attribute__((used)) int32 p6_w_plr_drawflags  = -1; // (drawGroup<<16)|(visible<<8)|onScreen after the ticks
 #if defined(P6_FRONTEND_TITLE)
@@ -8942,6 +8953,20 @@ static void p6_frontend_frame(void)
         && RSDK::currentSceneFolder[2] == 'Z' && RSDK::currentSceneFolder[3] == 0) {
         EntityBase *p0 = RSDK_ENTITY_AT(0);
         int32 plrx = p0->position.x >> 16;
+        /* 2026-07-12 stall diagnostic: capture the live player physics EVERY GHZ frame
+         * (the p6_ghz_frame copy never runs in the chain flavor). Settles the X~14400
+         * signpost blocker: high gvel + pinned posx == a collision/plane WALL; ~0 gvel
+         * == the autorun input stopped. EntityBase exposes the RSDK_ENTITY base fields. */
+        if (p0) {
+            p6_w_pdiag_posx  = plrx;
+            p6_w_pdiag_gvel  = (int32)p0->groundVel;
+            p6_w_pdiag_velx  = (int32)p0->velocity.x;
+            p6_w_pdiag_gnd   = (int32)(p0->onGround ? 1 : 0);
+            p6_w_pdiag_plane = (int32)p0->collisionPlane;
+            p6_w_pdiag_mode  = (int32)p0->collisionMode;
+            p6_w_pdiag_dir   = (int32)p0->direction;
+            p6_w_pdiag_ang   = (int32)p0->angle;
+        }
         if (p0->classID && plrx > 800 && plrx < 1500 && p6_w_brg_classid > 0) {
             int32 live = 0, act = -1;
             for (int32 bi = 0; bi < ENTITY_COUNT; ++bi) {

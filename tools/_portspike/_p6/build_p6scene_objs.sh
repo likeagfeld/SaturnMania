@@ -745,6 +745,8 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_dust_classid -u _p6_w_dust_aniframes \
     -u _p6_w_shield_classid -u _p6_w_shield_aniframes \
     -u _p6_w_boundsmarker_classid \
+    -u _p6_w_pdiag_posx -u _p6_w_pdiag_gvel -u _p6_w_pdiag_velx -u _p6_w_pdiag_gnd \
+    -u _p6_w_pdiag_plane -u _p6_w_pdiag_mode -u _p6_w_pdiag_dir -u _p6_w_pdiag_ang \
     -u _HangPoint -u _PlatformNode -u _PlatformControl -u _TurboTurtle \
     -u _Player_State_Static -u _Player_Action_Jump -u _Player_State_KnuxWallClimb \
     -u _p6_w_platform_classid -u _p6_w_platform_aniframes \
