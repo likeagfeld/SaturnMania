@@ -58562,3 +58562,4 @@ Data/Video/Outro.webm
 Data/Video/Title.mp4
 Data/Video/Title.ogv
 Data/Video/Title.webm
+Data/Sprites/Global/Invincible.bin

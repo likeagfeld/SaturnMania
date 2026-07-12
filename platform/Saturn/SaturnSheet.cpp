@@ -186,6 +186,12 @@ __attribute__((used)) int32 p6_w_sht_fetches = 0; // FetchRect band inflates
 extern "C" int p6_mz_uncompress(unsigned char *, unsigned long *,
                                 const unsigned char *, unsigned long);
 
+#if defined(P6_FRAMEDIR)
+// C1 identification (2026-07-11): p6_io_main records the currently-drawing
+// entity's classID at the slot-19 banded-inflate site (defined in p6_io_main.cpp).
+extern "C" void p6_frd_note_fetch(int32 slot);
+#endif
+
 static uint16 v16(uint32 addr) { return *(volatile uint16 *)addr; }
 static uint32 v32be(uint32 addr) { return ((uint32)v16(addr) << 16) | v16(addr + 2); }
 
@@ -452,6 +458,12 @@ extern "C" int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
         if (p6_mz_uncompress(raw, &dlen, zbuf + lead, zsz) != MZ_OK)
             return 0;
         ++p6_w_sht_fetches;
+#if defined(P6_FRAMEDIR)
+        // C1 identification (2026-07-11): attribute this banded inflate to the
+        // currently-drawing entity (sceneInfo.entity) so a live read names the
+        // object drawing store slot 19 (Global/Shields.gif blue sparkle).
+        p6_frd_note_fetch(slot);
+#endif
 
         int32 bandTop = bnd * S->bandRows;
         int32 r0 = (sy > bandTop) ? sy : bandTop;

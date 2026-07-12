@@ -82,13 +82,13 @@
   {
    "sheet": "Global/Shields.gif",
    "file": "SHIELDS.FRD",
-   "bytes": 222252,
-   "frames": 102,
+   "bytes": 225484,
+   "frames": 113,
    "frames_4bpp": 0,
-   "frames_8bpp": 102,
+   "frames_8bpp": 113,
    "luts": 0,
    "pattern4_bytes": 0,
-   "pattern8_bytes": 220608,
+   "pattern8_bytes": 223664,
    "frames_oob": 0,
    "raw_sheet_bytes": 262144
   },

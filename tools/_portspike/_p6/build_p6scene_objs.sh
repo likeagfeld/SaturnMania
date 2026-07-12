@@ -808,6 +808,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRAMEDIR:+-u _p6_w_frd_staged -u _p6_w_frd_active -u _p6_w_frd_lookups -u _p6_w_frd_misses} \
     ${P6_FRAMEDIR:+-u _p6_w_frd_hash -u _p6_w_frd_bytes -u _p6_w_frd_frames} \
     ${P6_FRAMEDIR:+-u _p6_w_frd_missrect -u _p6_w_frd_misswh -u _p6_w_frd_missslot} \
+    ${P6_FRAMEDIR:+-u _p6_w_slot19_class -u _p6_w_slot19_class2 -u _p6_w_slot19_x -u _p6_w_slot19_y -u _p6_w_slot19_hits} \
     ${P6_FRAMEDIR:+-u _SaturnFrameDir_Lookup -u _SaturnFrameDir_StageDirect -u _SaturnFrameDir_Reset} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_vbl -u _p6_w_lt_fills -u _p6_w_lt_kb -u _p6_w_lt_frt} \
     ${P6_FRONTEND_LOGOS:+-u _p6_w_lt_cks -u _p6_w_lt_masked_vbl -u _p6_w_lt_ph2_fills -u _p6_w_lt_ph2_vbl -u _p6_w_lt_sfx_savedopen} \

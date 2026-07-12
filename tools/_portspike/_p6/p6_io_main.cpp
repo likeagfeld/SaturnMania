@@ -2343,6 +2343,37 @@ static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
 #endif
 }
 
+#if defined(P6_FRAMEDIR)
+// C1 identification (2026-07-11): the residual GHZ per-frame inflate is a
+// blue-sparkle draw from store slot 19 (Global/Shields.gif) whose rects no anim
+// .bin declares -> FRD miss -> banded re-inflate. SaturnSheet_FetchRect calls
+// this at the slot-19 banded-inflate site; sceneInfo.entity IS the drawing
+// entity there (the fetch is synchronous inside its Draw dispatch). Record the
+// classID(s) + last position so a live read names the object. Diagnostic only,
+// P6_FRAMEDIR-gated (chain flavor) -> plain GHZ .bss byte-identical (#228 safe).
+__attribute__((used)) int32 p6_w_slot19_class  = -1; // 1st distinct classID drawing slot 19
+__attribute__((used)) int32 p6_w_slot19_class2 = -1; // 2nd distinct classID (if it varies)
+__attribute__((used)) int32 p6_w_slot19_x      = 0;  // last drawing entity world x (px)
+__attribute__((used)) int32 p6_w_slot19_y      = 0;  // last drawing entity world y (px)
+__attribute__((used)) int32 p6_w_slot19_hits   = 0;  // total slot-19 fetches attributed
+extern "C" void p6_frd_note_fetch(int32 slot)
+{
+    if (slot != 19)
+        return;
+    Entity *e = sceneInfo.entity;
+    if (!e)
+        return;
+    int32 c = (int32)e->classID;
+    if (p6_w_slot19_class < 0)
+        p6_w_slot19_class = c;
+    else if (c != p6_w_slot19_class && p6_w_slot19_class2 < 0)
+        p6_w_slot19_class2 = c;
+    p6_w_slot19_x = e->position.x >> 16;
+    p6_w_slot19_y = e->position.y >> 16;
+    ++p6_w_slot19_hits;
+}
+#endif
+
 void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
 {
     if (animator && animator->frames) {
