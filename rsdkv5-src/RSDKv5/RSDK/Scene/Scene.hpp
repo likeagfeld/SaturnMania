@@ -202,6 +202,7 @@ struct TileLayer {
                                              // GHZ BG Outside (32,768) and
                                              // both FGs (262,144) exceed it
 extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty);
+extern "C" void SaturnLayout_SetTile(int32 slot, int32 tx, int32 ty, uint16 tile);
 extern "C" void SaturnLayout_Bind(int32 slot, int32 layerIdx);
 extern int32 p6_saturn_layer_unbound; // defined in p6_io_main.cpp (diag)
 extern int32 p6_saturn_settile_drops;
@@ -219,6 +220,14 @@ inline void SaturnLayerSetTile(TileLayer *layer, int32 tileX, int32 tileY, uint1
 {
     if (layer->layout) {
         layer->layout[tileX + (tileY << layer->widthShift)] = tile;
+        return;
+    }
+    // FG-tile-mutation piece 1: a STREAMED layer (layout==NULL) routes to the
+    // band-store-aware setter (window+resident) so RSDK.SetTile(-1) removes the
+    // tile for BOTH GetTile-based collision and (later) the visual, instead of
+    // silently dropping (BreakableWall/CollapsingPlatform keystone, 2026-07-12).
+    if (layer->saturnSlot >= 0) {
+        SaturnLayout_SetTile(layer->saturnSlot, tileX, tileY, tile);
         return;
     }
     ++p6_saturn_settile_drops;

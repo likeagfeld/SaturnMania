@@ -2705,6 +2705,12 @@ __attribute__((used)) int32 p6_w_lay_bytes    = -1;  // GFS bytes of cd/GHZ1LAYT
 __attribute__((used)) int32 p6_w_lay_hash     = 0;   // djb2 over the loaded band store
 __attribute__((used)) int32 p6_w_lay_probes   = -1;  // windowed-accessor probes matched
 __attribute__((used)) int32 p6_w_lay_firstbad = -1;  // first mismatching probe index
+// FG-tile-mutation piece 1 RED gate (qa_p6_fg_settile.py): SetTile->GetTile round
+// trip on a streamed FG tile. -1 = not run; 0 = RED (SetTile dropped, GetTile
+// unchanged); 1 = GREEN (GetTile reflected the write, then restored). Encodes:
+// (orig<<16)|(seenAfterSet&0xFFFF) in p6_w_lay_settile_rt for forensics.
+__attribute__((used)) int32 p6_w_lay_settile_ok = -1;
+__attribute__((used)) int32 p6_w_lay_settile_rt = 0;
 // P6.7 W16 (Task #228, qa_p6_scroll.py): GHZ FG Low on NBG1, camera-anchored.
 __attribute__((used)) int32 p6_w_scr2_x       = ~0;  // scroll written (== screens[0].position.x)
 __attribute__((used)) int32 p6_w_scr2_y       = ~0;  // scroll written (== screens[0].position.y)
@@ -3480,6 +3486,7 @@ extern int32 p6_w_ghz2_feetty;
 extern int32 p6_w_ghz2_vely;
 extern int32 p6_w_ghz2_tcoff;
 extern "C" unsigned short SaturnLayout_GetTile(int, int, int);
+extern "C" void SaturnLayout_SetTile(int, int, int, unsigned short); // FG-tile-mutation piece 1
 extern "C" int SaturnLayout_SlotLayer(int);
 extern int32 p6_w_ghz2_slot1layer;
 #endif
@@ -6655,6 +6662,24 @@ static void p6_scene_load_and_arm(void)
     // <TAG>LAYT.BIN) so the pre-inflate would no-op anyway; skip it explicitly.
     if (p6_isGHZ)
         SaturnLayout_PreInflateResident();
+    // FG-tile-mutation piece 1 RED gate (qa_p6_fg_settile.py): prove RSDK.SetTile
+    // now REMOVES a tile from the STREAMED FG layer (was a silent drop). Runs once
+    // per GHZ load, here (layout mounted + resident). Self-restoring round trip on
+    // an FG-Low tile via slot 0: GetTile(orig)->SetTile(sentinel)->GetTile(seen)->
+    // restore(orig). GREEN when seen==sentinel. Bind resets slot-0 windows, which
+    // the FG present rebinds every frame anyway -> no collision/present impact.
+    if (p6_isGHZ) {
+        int32 fgl = p6_fglow_layer_index();
+        SaturnLayout_Bind(0, fgl);
+        int32 tx = 16, ty = 16; // safely in-bounds for the 1024-wide GHZ FG
+        uint16 orig = SaturnLayout_GetTile(0, tx, ty);
+        uint16 sentinel = (uint16)(orig ^ 0x0ABC);
+        SaturnLayout_SetTile(0, tx, ty, sentinel);
+        uint16 seen = SaturnLayout_GetTile(0, tx, ty);
+        SaturnLayout_SetTile(0, tx, ty, orig); // restore -> cache byte-identical
+        p6_w_lay_settile_rt = ((int32)orig << 16) | (int32)seen;
+        p6_w_lay_settile_ok = (seen == sentinel) ? 1 : 0;
+    }
     p6_w_load_step = 37; // #251 phase-2: done (first p6_ghz_frame imminent)
     // #182: trigger the STAGE BGM now that the scene is live. The continuous-GHZ
     // shipping boot never called PlayStream (p6_w_str_track stayed -1) -> the level

@@ -402,6 +402,47 @@ extern "C" uint16 SaturnLayout_GetTile(int32 slot, int32 tx, int32 ty)
     return (uint16)((w >> 8) | (w << 8));
 }
 
+// FG-tile-mutation piece 1 (data-side): make RSDK.SetTile(-1) actually remove a
+// tile from a STREAMED (layout==NULL) FG layer. The engine's SaturnLayerSetTile
+// (Scene.hpp:218) drops the write for a streamed layer; this is the band-store-
+// aware setter it routes to. Writes the resident store (persistent truth for the
+// layer; survives window evict/refill) AND every currently-cached window that
+// holds (tx,ty) (so GetTile -- read by BOTH Collision.cpp RSDK_LAYER_TILE and the
+// present -- reflects immediately). BYTE ORDER: the window/resident store tiles
+// LITTLE-endian raw (band order); GetTile byteswaps on read -> store the swap of
+// the big-endian tile value V. -1 removal V=0xFFFF is byteswap-invariant.
+//
+// NOTE (measured 2026-07-12): Collision.cpp reads tiles via RSDK_LAYER_TILE =
+// SaturnLayerGetTile = the same store, so this ALONE makes a broken wall/floor
+// passable (GetTile->0xFFFF => empty => no collision). The VDP2 static-map is a
+// SEPARATE cache (built once per load, p6_io_main.cpp:558) so the removed tile
+// stays DRAWN until a map rebuild -- a non-blocking "ghost", handled by a later
+// visual piece. Resident-only layers keep the mutation across refills; a purely
+// band-inflate layer would lose it on refill (GHZ FG is resident, so exact).
+extern "C" void SaturnLayout_SetTile(int32 slot, int32 tx, int32 ty, uint16 tile)
+{
+    if (slot < 0 || slot >= SATURNLAYOUT_SLOTS)
+        return;
+    SaturnLayoutSlot *S = &s_slots[slot];
+    if (S->layer < 0 || S->layer >= s_layerCount)
+        return;
+    const SaturnLayoutLayer *L = &s_layers[S->layer];
+    if (tx < 0 || ty < 0 || tx >= (int32)L->xsize || ty >= (int32)L->ysize)
+        return;
+    uint16 raw = (uint16)((tile >> 8) | (tile << 8)); // store little-endian raw
+    // (a) resident store (row-major, 2 B/tile) -- the persistent truth.
+    if (s_layer_res[S->layer]) {
+        uint16 *res = (uint16 *)(s_layer_res[S->layer]);
+        res[(uint32)ty * L->xsize + (uint32)tx] = raw;
+    }
+    // (b) every cached way that currently holds (tx,ty).
+    for (int32 w = 0; w < SATURNLAYOUT_WAYS; ++w) {
+        SaturnLayoutWindow *W = &S->way[w];
+        if (SaturnLayout_WindowHas(W, tx, ty))
+            W->win[(uint32)(ty - W->wy) * SATURNLAYOUT_WIN_COLS + (uint32)(tx - W->wx)] = raw;
+    }
+}
+
 // #237 DIAGNOSTIC (cheap): which layer is a slot CURRENTLY bound to? The GHZ2
 // fall-through root cause is that the VDP2 present rebinds the SHARED slot 1 to
 // a hardcoded layer index; this lets the gate MEASURE (not assume) that slot 1
