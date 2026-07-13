@@ -152,6 +152,49 @@ AIZ_OBJ_BINS = [
 ]
 AIZ_OBJ_OUT = os.path.join(ROOT, "cd", "AIZOBJ.PAK")
 
+# Task #322 (AIZ scene-load CD-seek stall): the AIZ intro scene registers the GLOBAL
+# object set (Ring/ItemBox/Spring/Spikes/Dust/Animals/ScoreBonus/SignPost/PlaneSwitch/
+# Shield-Invincible/PhantomRuby/HUD) + the AIZSetup cutscene actor anims. In the
+# front-end/P6_AIZ_TEST build the GHZ GHZANIM.PAK is SKIPPED, so each of these StageLoad
+# LoadSpriteAnimation("Global/X.bin") slow-paths into DATA.RSDK = one scattered GFS_Seek
+# EACH (MEASURED live via P6_GFS_OPENTRACE: the AIZ load did 40 real seeks / 6.9 s CD,
+# ~15 of them these .bin). Packing them into cd/AIZANIM.PAK -- loaded ONCE contiguously
+# into the (front-end-free) P6_HW_ANIMPAK window (0x225E0000) -- makes LoadSpriteAnimation
+# resolve them from RAM with ZERO CD seek (Animation.cpp:70-124 Saturn pack-first arm,
+# paks[0]=P6_HW_ANIMPAK). The strings are the EXACT decomp LoadSpriteAnimation args
+# (the hash is over the caller string, GEN_HASH_MD5) verified against tools/_decomp_raw.
+# NTFS opens the raw .bin case-insensitively ("Global/Spikes.bin" -> spikes.bin).
+AIZ_ANIM_BINS = [
+    "Global/Ring.bin",
+    "Global/ItemBox.bin",
+    "Global/Springs.bin",
+    "Global/Spikes.bin",
+    "Global/Dust.bin",
+    "Global/Animals.bin",
+    "Global/ScoreBonus.bin",
+    "Global/SignPost.bin",
+    "Global/PlaneSwitch.bin",
+    "Global/Shields.bin",
+    "Global/Invincible.bin",
+    "Global/PhantomRuby.bin",
+    "Global/HUD.bin",
+    # AIZSetup_StageLoad (AIZSetup.c:127-128): the Knuckles cutscene actor anim
+    # ("AIZ/AniTiles.gif" is a SHEET, not an anim -> not packable here; it stays a
+    # sheet-load, staged separately if needed).
+    "Players/KnuxCutsceneAIZ.bin",
+    # AIZ-specific decoration -- Decoration_StageLoad("AIZ/Decoration.bin") (capital D;
+    # AIZSetup.h / Decoration.c). The raw file on disk is lowercase decoration.bin but
+    # NTFS opens it case-insensitively; the HASH must be the decomp string's exact case.
+    "AIZ/Decoration.bin",
+    # NOTE: Players/Sonic.bin (547f, 21.7 KB) + Players/Tails.bin (524f, 20.9 KB) are
+    # DELIBERATELY NOT packed here -- adding them pushes AIZANIM.PAK to 76 KB, over the
+    # 69,632 B P6_HW_ANIMPAK window (growing the window risks the #228 WRAM-H/cart-guard
+    # class). They are only 2 of the remaining seeks; the Global set (13 bins) is the
+    # dominant win. If a future carve frees window space, add them for 2 more seeks.
+]
+AIZ_ANIM_OUT = os.path.join(ROOT, "cd", "AIZANIM.PAK")
+AIZ_ANIM_CAP = 0x11000  # 69,632 B P6_HW_ANIMPAK window (front-end-free; same cap as BINS)
+
 FRAMEHITBOX_COUNT = 2
 # SH-2 layout (static_asserted in Animation.cpp): GameSpriteFrameType base
 # = 17 B -> pads to 18 (align 2); hitboxCount u8 at 18; 1 pad; hitboxes at
@@ -295,6 +338,9 @@ def main():
     # P6_HW_OBJANIMPAK window since the GHZ GHZOBJ.PAK is skipped in the front-end).
     print("--- AIZ object anim pack (cart-resident, front-end) ---")
     build_pack(AIZ_OBJ_BINS, AIZ_OBJ_OUT, OBJ_CAP)
+    # Task #322: AIZ scene GLOBAL + AIZSetup anim pack -> P6_HW_ANIMPAK (front-end-free).
+    print("--- AIZ scene anim pack (Global+AIZSetup; #322 seek-stall fix) ---")
+    build_pack(AIZ_ANIM_BINS, AIZ_ANIM_OUT, AIZ_ANIM_CAP)
     return 0
 
 

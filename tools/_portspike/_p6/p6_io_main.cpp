@@ -524,6 +524,10 @@ void p6_vdp1_perf_reset(void);
 // the slow synchronous load shows a clean back-color, not NBG1's half-written VRAM
 // (the red/green static). The first GHZ present re-arms NBG1ON|SPRON.
 void p6_vdp2_blank(void);
+// Cross-flavor: the AIZ/Menu seam re-mirror + reset used by non-CHAIN flavors too;
+// the functions live in p6_vdp2.c regardless of the P6_DIRECT_VDP1 command-list path.
+extern "C" void p6_vdp2_mirror_apply(void);
+extern "C" void p6_vdp2_mirror_reset(void);
 #if defined(P6_DIRECT_VDP1)
 // #316 F1: the direct VDP1 command list (p6_vdp1.c). begin at frame draw-phase
 // start, end after the draw lists; the vblank trampoline (p6_vdp2.c) links the
@@ -531,8 +535,6 @@ void p6_vdp2_blank(void);
 extern "C" void p6_dl_begin(void);
 extern "C" void p6_dl_end(void);
 extern "C" void p6_dl_backfill(unsigned short rgb555); /* SEGMENT A #318: Logos black backfill */
-extern "C" void p6_vdp2_mirror_apply(void);
-extern "C" void p6_vdp2_mirror_reset(void);
 #if defined(P6_DIRECT_VDP1)
 // F1-R1 race witness: frames where the frame-top re-patch found 0x60 stomped
 // back to END (0x8000) by SGL's per-slSynch empty-plan transfer.
@@ -1755,6 +1757,12 @@ __attribute__((used)) int32 p6_w_perf_cks         = -1; // FRT divider select (0
 // PRESENTED-frames meaning (the perf fps gates are unchanged).
 __attribute__((used)) int32 p6_w_tick_last   = 0; // catch-up N this presented frame
 __attribute__((used)) int32 p6_w_tick_frames = 0; // cumulative 60Hz-clock logic ticks
+#else
+// Non-catch-up flavors (AIZ_TEST / GHZCUT_BOOT direct-boot) still reference
+// p6_w_tick_frames in the GHZ scan-index tickmark diagnostic below. It advances
+// once per presented frame there (no multi-tick clock) -- sufficient for the
+// "+2 frames since build #1" settle heuristic. Define it here so those flavors link.
+__attribute__((used)) int32 p6_w_tick_frames = 0;
 #endif
 // Phase 2a attribution: split the per-frame true-vblank slip into the engine
 // work INSIDE p6_ghz_frame vs the jo_core_run loop body OUTSIDE it (dominated by
@@ -7188,6 +7196,23 @@ static void p6_aiz_reload(void)
                                            P6_HW_OBJANIMPAK_CAP);
         if (n > 0)
             p6_w_objapk_bytes = n;
+    }
+    // Task #322 (AIZ scene-load CD-seek stall): load the AIZ SCENE anim pack
+    // (cd/AIZANIM.PAK -- the GLOBAL object set Ring/ItemBox/Spring/Spikes/Dust/
+    // Animals/ScoreBonus/SignPost/PlaneSwitch/Shields/Invincible/PhantomRuby/HUD +
+    // Knux + AIZ/decoration) into the front-end-FREE P6_HW_ANIMPAK window (the GHZ
+    // GHZANIM.PAK is skipped here). MEASURED live (P6_GFS_OPENTRACE): each of these
+    // .bin StageLoad LoadSpriteAnimation slow-pathed into DATA.RSDK = one scattered
+    // GFS_Seek EACH (~15 of the 40 AIZ-load seeks / 6.9 s CD). Mounting the pack makes
+    // Animation.cpp:70-124's Saturn pack-first arm (paks[0]=P6_HW_ANIMPAK, size
+    // p6_w_apk_bytes) resolve them from RAM with ZERO CD seek -- exact GHZANIM.PAK
+    // idiom, zero engine-logic change. 33 KB fits the 69,632 B window. Loaded BEFORE
+    // the scene StageLoad runs (like AIZOBJ.PAK) so the resolve finds them first.
+    {
+        int n = rsdk_storage_load_to_lwram("AIZANIM.PAK", (void *)P6_HW_ANIMPAK,
+                                           P6_HW_ANIMPAK_CAP);
+        if (n > 0)
+            p6_w_apk_bytes = n;
     }
     // AIZ-SONIC-VIS FIX (#321, agent-rooted, data-driven): the fly-in Tornado renders but
     // SONIC's top-wing sprite is MISSING. Live-proven: Sonic (slot0) IS correctly riding the
