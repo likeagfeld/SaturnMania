@@ -891,6 +891,7 @@ __attribute__((used)) int32 p6_w_dust_aniframes       = -2; // Dust->aniFrames (
 __attribute__((used)) int32 p6_w_shield_classid       = 0;  // Shield->classID (shield bubbles; 0=unregistered -> pack Shield->classID/sfxInstaShield NULL-deref)
 __attribute__((used)) int32 p6_w_shield_aniframes     = -2; // Shield->aniFrames (Global/Shields.bin -> Shields.gif=SHIELDS.SHT; -1=load failed)
 __attribute__((used)) int32 p6_w_boundsmarker_classid = 0;  // BoundsMarker->classID (22 camera/death-bound markers; 0=unregistered -> camera+death bounds wrong)
+__attribute__((used)) int32 p6_w_breakwall_classid = 0;     // BreakableWall->classID (23 breakable walls/floors; 0=unregistered)
 __attribute__((used)) int32 p6_w_platform_classid   = 0;  // Platform->classID (Batch 3 step 2)
 __attribute__((used)) int32 p6_w_platform_aniframes = -2; // Platform->aniFrames (GHZ/Platform.bin)
 __attribute__((used)) int32 p6_w_invblock_classid   = 0;  // InvisibleBlock->classID (Batch 3 step 3)

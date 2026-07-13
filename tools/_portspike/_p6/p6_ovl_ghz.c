@@ -96,6 +96,18 @@ extern ObjectShield *Shield;
  * DebugMode (registered), RSDK.GetEntitySlot -- all resolved. Register the shared pack
  * symbol (same recipe as Dust/Shield, no rewire). */
 extern ObjectBoundsMarker *BoundsMarker;
+/* BreakableWall (2026-07-12): the 23 placed breakable walls/floors/ceilings in GHZ1
+ * (x1520..13040, all pre-signpost). Pack-resident (Game_BreakableWall.o). Its solidity
+ * is an object hitbox (Player_CheckCollisionBox) and its break REMOVES the FG tiles via
+ * RSDK.SetTile(-1) -- now functional (SaturnLayout_SetTile, commit 46b9359) so the broken
+ * wall/floor becomes passable (Collision.cpp reads the same store). EntityBreakableWall has
+ * NO big arrays (the debris TABLEs live in the Object struct) -> fits the 344 narrow stride.
+ * StageLoad loads Global/TicMark.bin (DEBUG-only wireframe, visible=false in play -> no sheet
+ * needed) + LedgeBreak.wav (GetSfx -1 => PlaySfx no-op if unstaged) + Far Plane layer
+ * (guarded). Ice_PlayerState_Frozen ref resolves via Game_Ice.o (already linked). The falling
+ * debris fragments use RSDK.DrawTile (Saturn no-op until the S4 tile-fragment piece) -> the
+ * wall breaks + becomes passable, fragments just don't render yet. */
+extern ObjectBreakableWall *BreakableWall;
 extern ObjectNewtron *Newtron;
 extern ObjectCrabmeat *Crabmeat;
 extern ObjectBuzzBomber *BuzzBomber;
@@ -351,6 +363,7 @@ extern int32 p6_w_scorebonus_classid, p6_w_scorebonus_aniframes;
 extern int32 p6_w_dust_classid, p6_w_dust_aniframes;
 extern int32 p6_w_shield_classid, p6_w_shield_aniframes;
 extern int32 p6_w_boundsmarker_classid;
+extern int32 p6_w_breakwall_classid;
 extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
 extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
@@ -856,6 +869,12 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityBoundsMarker), (unsigned)sizeof(ObjectBoundsMarker),
                               BoundsMarker_Update, BoundsMarker_LateUpdate, BoundsMarker_StaticUpdate,
                               BoundsMarker_Draw, BoundsMarker_Create, BoundsMarker_StageLoad, BoundsMarker_Serialize);
+    /* BreakableWall (2026-07-12): 23 breakable walls/floors. SetTile removal now works
+     * (46b9359) so a broken wall becomes passable. EntityBreakableWall fits the 344 stride. */
+    api->register_object_full((void **)&BreakableWall, "BreakableWall",
+                              (unsigned)sizeof(EntityBreakableWall), (unsigned)sizeof(ObjectBreakableWall),
+                              BreakableWall_Update, BreakableWall_LateUpdate, BreakableWall_StaticUpdate,
+                              BreakableWall_Draw, BreakableWall_Create, BreakableWall_StageLoad, BreakableWall_Serialize);
     api->register_object_full((void **)&Newtron, "Newtron",
                               (unsigned)sizeof(EntityNewtron), (unsigned)sizeof(ObjectNewtron),
                               Newtron_Update, Newtron_LateUpdate, Newtron_StaticUpdate,
@@ -1922,6 +1941,7 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     /* BoundsMarker (2026-07-12): classid>0 == registered (markers spawn -> Zone camera +
      * death boundaries track the level). No sheet (pure logic). */
     if (BoundsMarker && BoundsMarker->classID) p6_w_boundsmarker_classid = (int32)BoundsMarker->classID;
+    if (BreakableWall && BreakableWall->classID) p6_w_breakwall_classid = (int32)BreakableWall->classID;
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
     /* Batch 3 step 2: full Platform (R22/R23). */
     if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;
