@@ -807,6 +807,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_drawgrp -u _p6_w_tlogo_visible -u _p6_w_tlogo_onscreen -u _p6_w_tlogo_type -u _p6_w_tlogo_sheetid -u _p6_w_tlogo_handle -u _p6_w_tlogo_landed} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tlogo_existmask -u _p6_w_tlogo_vismask -u _p6_w_tlogo_onscrmask -u _p6_w_tlogo_boundmask -u _p6_w_tsetup_statetag} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_shtslot -u _p6_w_tsonic_surfidx -u _p6_w_tsonic_surfslot -u _p6_w_tsonic_surfscope -u _p6_w_tsonic_surfh0 -u _p6_w_tsonic_h0} \
+    ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_bandpre -u _p6_w_tsonic_bandcap -u _p6_w_tsonic_stageret} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_tsonic_visible -u _p6_w_tsonic_onscreen -u _p6_w_tsonic_sheetid -u _p6_w_tsonic_handle -u _p6_w_tsonic_animid -u _p6_w_tsonic_frameid} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_title_backdrop_done -u _p6_w_title_backdrop_armed} \
     ${P6_FRONTEND_TITLE:+-u _p6_w_title_island_armed -u _p6_w_title_island_angle -u _p6_w_title_island_kast -u _p6_w_title_island_coeff0 -u _p6_w_title_island_rpta -u _p6_w_isl_tx -u _p6_w_isl_ty -u _p6_w_title_clouds_armed -u _p6_w_title_clouds_ntiles} \

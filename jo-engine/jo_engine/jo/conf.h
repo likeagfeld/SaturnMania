@@ -166,7 +166,19 @@
 /** @brief Max filename length (DOS) <=> GFS_FNAME_LEN + 1 */
 # define JO_MAX_FILENAME_LENGTH             (13)
 /** @brief Max file available in the entire file system (on the CD of course) */
-# define JO_FS_MAX_FILES					(256)
+// STRICTLY-NECESSARY EXTENSION (2026-07-12, title-Sonic fix): the shipping ISO now
+// carries 271 files in cd/. GFS_Init's directory table holds only JO_FS_MAX_FILES
+// entries, so files sorted PAST index 256 in the ISO9660 directory (TSONIC.SHT at
+// position 257 = the 1024x1024 TitleSonic head sheet) get NO GFS directory entry ->
+// GFS_NameToId() returns -1 -> rsdk_storage_load_to_lwram("TSONIC.SHT") fails ->
+// TSONIC never stages -> the title-Sonic head/finger surface stays unbound
+// (tsonic_handle=-3) -> Sonic disappears from the ring. TLOGO.SHT (pos 248) stays
+// under 256 -> the logo still rendered, matching the exact symptom. MEASURED live:
+// tsonic_bandpre=25890 (store 891KB free, NOT an overflow) + tsonic_stageret unset
+// (the sn>0 file-load guard failed). 280 covers 271 + 9 headroom; +~960 B .bss --
+// fits the chain (GLOBALS 0x060C8000, ~28 KB) and plain-GHZ (ANIMPAK 0x060B6C00,
+// verified _end still under). Was (256).
+# define JO_FS_MAX_FILES					(280)
 
 #if JO_FRAMERATE < 1
 # error "JO_FRAMERATE must be greater than zero"

@@ -340,6 +340,14 @@ extern "C" uint32 SaturnSheet_ResRemain(void)
     return (a < SATURNSHEET_RES_END) ? (SATURNSHEET_RES_END - a) : 0;
 }
 
+// Band-store (VDP2/cart) allocator introspection for the title-Sonic TSONIC
+// overflow diagnosis (2026-07-12): the band store bump cursor + its base/end.
+// Lets the TSONIC stage site witness the EXACT fill at the stage attempt so the
+// re-pack fix is sized from the measured overflow, not guessed.
+extern "C" uint32 SaturnSheet_BandCursor(void) { return s_cursor; }
+extern "C" uint32 SaturnSheet_BandBase(void)   { return SATURNSHEET_VRAM_BASE; }
+extern "C" uint32 SaturnSheet_BandEnd(void)    { return SATURNSHEET_VRAM_END; }
+
 // MEASURED live clobber (qa_p6_frd F2, 2026-07-10): the front-end arms the
 // engine `scanlines` backing at 0x22400000 == SATURNSHEET_RES_BASE and
 // DrawLayer's ungated layer->scanlineCallback(scanlines) WRITES deform data

@@ -1484,6 +1484,14 @@ __attribute__((used)) int32 p6_w_tsetup_statetag = -9;
 //       FlashIn flips TitleSonic visible=true); sheetid = the resolved frame's sheetID;
 //       handle = p6_vdp1_handle_for_surface(sheetID) (>=0 == bound == GREEN).
 __attribute__((used)) int32 p6_w_tsonic_shtslot   = -9;
+// title-Sonic chain-overflow diag (2026-07-12): measure the band-store fill at
+// TSONIC's stage attempt. bandpre = bytes used before TSONIC; bandcap = store
+// capacity; stageret = SaturnSheet_Stage return (>=0 slot, -1 overflow). Confirms
+// whether the total genuinely exceeds capacity (needs resize/defer) or just
+// fragments (needs re-order).
+__attribute__((used)) int32 p6_w_tsonic_bandpre   = -1;
+__attribute__((used)) int32 p6_w_tsonic_bandcap   = -1;
+__attribute__((used)) int32 p6_w_tsonic_stageret  = -9;
 __attribute__((used)) int32 p6_w_tsonic_surfidx   = -9;
 __attribute__((used)) int32 p6_w_tsonic_surfslot  = -9;
 __attribute__((used)) int32 p6_w_tsonic_surfscope = -9;
@@ -4141,6 +4149,9 @@ extern "C" __attribute__((used)) void p6_eng_write_placement(void *ent, int32 cl
 // plain-C++ helper resolves the UNMANGLED C symbols (else the refs mangle -> undefined).
 extern "C" {
 int32 SaturnSheet_Stage(const void *blob, uint32 bytes);
+uint32 SaturnSheet_BandCursor(void); // title-Sonic overflow diag
+uint32 SaturnSheet_BandBase(void);
+uint32 SaturnSheet_BandEnd(void);
 void SaturnSheet_SetHash(int32 slot, const uint32 *hash);
 int32 SaturnSheet_MakeResident(int32 slot);
 void  SaturnSheet_ResReset(void); // #317 draw/inflate hog: reclaim dead RES at the seam
@@ -4654,8 +4665,13 @@ extern "C" void p6_scene_run(void)
         {
             int sn = rsdk_storage_load_to_lwram("TSONIC.SHT",
                                                 (void *)P6_LW_ENTITYLIST, 0x20000);
+            // title-Sonic overflow diag: band-store fill BEFORE the TSONIC stage +
+            // the store capacity (measured, so the fix is sized not guessed).
+            p6_w_tsonic_bandpre = (int32)(SaturnSheet_BandCursor() - SaturnSheet_BandBase());
+            p6_w_tsonic_bandcap = (int32)(SaturnSheet_BandEnd() - SaturnSheet_BandBase());
             if (sn > 0) {
                 int32 slot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)sn);
+                p6_w_tsonic_stageret = slot; // >=0 slot, -1 overflow
                 if (slot >= 0) {
                     RETRO_HASH_MD5(ph);
                     GEN_HASH_MD5("Title/Sonic.gif", ph);
