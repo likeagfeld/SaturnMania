@@ -169,6 +169,9 @@ extern int p6_w_vdp1_landed; /* global VDP1 landed-blit counter (p6_vdp1.c) */
 extern ObjectTitleSonic *TitleSonic;
 extern int32 p6_w_tsonic_visible, p6_w_tsonic_onscreen, p6_w_tsonic_sheetid,
              p6_w_tsonic_handle, p6_w_tsonic_animid, p6_w_tsonic_frameid;
+/* task #326 RING-SONIC forensic: publish TitleSonic->classID so the main image's
+ * p6_draw_flipped can key its per-blit witness (it can't dereference TitleSonic). */
+extern int32 p6_w_tsonic_classid;
 /* CLOSURE EDGE (overlay-resident, flat-TU rule): symbols TitleSetup.c references
  * that no other linked TU provides.
  *   - TitleBG_SetupFX: called in TitleSetup_State_FlashIn. CP5b.4 (Task #272):
@@ -1318,6 +1321,7 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * TitleSetup_State_FlashIn. There is ONE TitleSonic entity (Scene1.bin places it
      * once); take the first live one. */
     if (TitleSonic && TitleSonic->classID) {
+        p6_w_tsonic_classid = (int32)TitleSonic->classID;
         foreach_all(TitleSonic, ts2) {
             p6_w_tsonic_visible  = (int32)ts2->visible;
             p6_w_tsonic_onscreen = (int32)ts2->onScreen;

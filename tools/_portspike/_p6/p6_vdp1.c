@@ -145,6 +145,28 @@ __attribute__((used)) int p6_w_vdp1_slots = 0;
 /* P6.7a diagnostic: the LAST-uploaded cache key, packed
  * (sx<<20)|(sy<<12)|(w<<6)|h -- identifies an unexpected 17th rect. */
 __attribute__((used)) int p6_w_vdp1_lastkey = 0;
+#if defined(P6_FRONTEND_TITLE)
+/* task #326 HEAD-FETCH forensic: for the TitleSonic head rect (a tall frame from
+ * a sheet-slot >= the title's first title-sheet slot), latch whether the fetch
+ * served from RESIDENT pixels (headfetch_resident=1) or the banded path (0), and
+ * the count of NON-transparent (index != 0) source bytes in the fetched rect.
+ * headfetch_nz == 0 -> the staged head is ALL transparent == invisible (root cause
+ * of a black ring hole despite a valid, in-front, correctly-placed blit). */
+__attribute__((used)) int p6_w_headfetch_resident = -9;
+__attribute__((used)) int p6_w_headfetch_nz       = -9;
+__attribute__((used)) int p6_w_headfetch_shtslot  = -9;
+__attribute__((used)) int p6_w_headfetch_sxsy     = -9;
+__attribute__((used)) int p6_w_headfetch_calls    = -9;
+__attribute__((used)) int p6_w_headfetch_bucketbw = -9;
+__attribute__((used)) int p6_w_headvram_nz        = -9;
+__attribute__((used)) int p6_w_headvram_wh        = -9;
+__attribute__((used)) int p6_w_headvram_adr       = -9;
+__attribute__((used)) int p6_w_headvram_jid       = -9;
+__attribute__((used)) int p6_w_headslot_bk        = -9;
+__attribute__((used)) int p6_w_headslot_ret       = -9;
+__attribute__((used)) int p6_w_headslot_jid       = -9;
+__attribute__((used)) int p6_w_headfetch_ret      = -9;
+#endif
 /* W12b scale-safety: rect-cache exhaustion / oversize-frame drops.
  * Task #241: with LRU eviction this is now ONLY oversize (>64x64) or banded-
  * fetch-fail; a normal cache miss on a full cache EVICTS instead of dropping,
@@ -1728,6 +1750,19 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
 
     if (!p6_title_ensure_prealloc()) { ++p6_w_vdp1_drops; return -1; }
 
+#if defined(P6_FRONTEND_TITLE)
+    /* task #326: does the head rect even REACH the title bucket router? Count every
+     * call for a tall rect (the head is the only h>=100 title rect) -- hit or miss.
+     * headfetch_calls stays -9 == the head never routes here (dropped upstream or a
+     * different frame settled). */
+    if (h >= 100 && w >= 100 && sy >= 400) {
+        if (p6_w_headfetch_calls < 0) p6_w_headfetch_calls = 0;
+        ++p6_w_headfetch_calls;
+        p6_w_headfetch_sxsy    = (sx << 16) | (sy & 0xFFFF);
+        p6_w_headfetch_bucketbw = b->bw;
+    }
+#endif
+
     for (i = 0; i < b->n; ++i) {            /* HIT: same rect already content-staged */
         if (b->slots[i].sheet == sheet &&
             b->slots[i].sx == sx && b->slots[i].sy == sy &&
@@ -1758,6 +1793,13 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
         if (fi.pattern) { /* staged from the FRD -- skip the sheet paths */ }
         else
 #endif
+#if defined(P6_FRONTEND_TITLE)
+    /* task #326: for the head rect, latch whether the sheet is RESIDENT (px!=0). */
+    if (h >= 100 && w >= 100 && sy >= 400) {
+        p6_w_headfetch_resident = (s_sheets[sheet].px != 0) ? 1 : 0;
+        p6_w_headfetch_shtslot  = s_sheets[sheet].shtSlot;
+    }
+#endif
     if (s_sheets[sheet].px) {
         srcPx     = s_sheets[sheet].px + sy * s_sheets[sheet].w + sx;
         srcStride = s_sheets[sheet].w;
@@ -1767,6 +1809,9 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
 #if defined(P6_GHZCUT_BOOT)
         p6_w_vdp1_lastfetch = ((s_sheets[sheet].shtSlot & 0xFF) << 24) | ((w & 0xFFF) << 12) | (h & 0xFFF);
         p6_w_vdp1_fetchret  = s_fetchFn ? s_fetchFn(s_sheets[sheet].shtSlot, sx, sy, w, h, s_fetch) : -2;
+#if defined(P6_FRONTEND_TITLE)
+        if (h >= 100 && w >= 100 && sy >= 400) p6_w_headfetch_ret = p6_w_vdp1_fetchret;
+#endif
         if (p6_w_vdp1_fetchret <= 0) { ++p6_w_vdp1_drops; return -1; }
 #else
         if (!s_fetchFn
@@ -1797,6 +1842,24 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
 #if defined(P6_FRAMEDIR)
     } /* close the FRD-dispatch block */
 #endif
+
+    /* task #326 HEAD-FETCH forensic: the settled TitleSonic head is anim0 frame48
+     * = sheet rect (sx=496,sy=636,110x120) -- uniquely the only tall (h>=100) rect
+     * fetched from the high sheet rows on the title. Count its non-transparent
+     * source bytes: nz==0 == the staged head is all-transparent == the invisible
+     * head (a valid, in-front, correctly-placed blit of BLANK content). */
+    if (h >= 100 && w >= 100 && sy >= 400) {
+        int k, n = w * h, nz = 0;
+        for (k = 0; k < n; ++k) {
+            /* srcPx has stride srcStride; walk row-by-row so padding is skipped */
+            int row = k / w, col = k % w;
+            if (srcPx[row * srcStride + col] != 0) ++nz;
+        }
+        p6_w_headfetch_nz       = nz;
+        p6_w_headfetch_resident = (s_sheets[sheet].px != 0) ? 1 : 0;
+        p6_w_headfetch_shtslot  = s_sheets[sheet].shtSlot;
+        p6_w_headfetch_sxsy     = (sx << 16) | (sy & 0xFFFF);
+    }
 
     /* LRU victim among this bucket's pre-allocated slots (all jo_id >= 0). */
     {
@@ -1905,6 +1968,16 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
     int pw = (w + 7) & ~7, ph = h;
     if (bk < 0) { ++p6_w_vdp1_drops; P6_DR(6); return -1; } /* oversize (w>248 or h>160) */
     s = p6_title_pool_for(&s_buckets[bk], sheet, sx, sy, w, h, &pw, &ph);
+#if defined(P6_FRONTEND_TITLE)
+    /* task #326: latch the router result for the head rect -- bk, the returned slot
+     * s, and slots[s].jo_id. slotret<0 == p6_title_pool_for dropped the head; jid<0
+     * == the slot exists but its jo sprite was never allocated (prealloc short). */
+    if (h >= 100 && w >= 100 && sy >= 400) {
+        p6_w_headslot_bk  = bk;
+        p6_w_headslot_ret = s;
+        p6_w_headslot_jid = (s >= 0) ? s_buckets[bk].slots[s].jo_id : -100;
+    }
+#endif
     if (s < 0) return -1;
     s_last_box_w = pw; s_last_box_h = ph;
     return s_buckets[bk].slots[s].jo_id;
@@ -2066,6 +2139,25 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
     if (jid < 0)
         return;
 
+#if defined(P6_FRONTEND_TITLE)
+    /* task #326 HEAD-VRAM forensic: for the head rect (496,636,110,120), read the
+     * ACTUAL staged VDP1 VRAM the head command will reference (__jo_sprite_def[jid]
+     * .adr, size) and count non-transparent (index != 0) bytes. headvram_nz == 0 ->
+     * the head's staged sprite is BLANK (the invisible head despite a valid, in-front,
+     * correctly-placed command). Byte reads on VDP1 VRAM are doc-legal (VDP1 manual). */
+    if (h >= 100 && w >= 100 && sy >= 400) {
+        const volatile unsigned char *vr = (const volatile unsigned char *)
+            (JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[jid].adr));
+        unsigned short cs = __jo_sprite_def[jid].size; /* (w/8)<<8 | h */
+        int vw = ((cs >> 8) & 0x3F) * 8, vh = cs & 0xFF;
+        int k, n = vw * vh, nz = 0;
+        for (k = 0; k < n; ++k) if (vr[k] != 0) ++nz;
+        p6_w_headvram_nz   = nz;
+        p6_w_headvram_wh   = (vw << 16) | (vh & 0xFFFF);
+        p6_w_headvram_adr  = __jo_sprite_def[jid].adr;
+        p6_w_headvram_jid  = jid;
+    }
+#endif
     ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
     /* STEP B: per-frame VDP1 workload (ROUTED box-as-drawn vs content-ideal). */
     ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += s_last_box_w * s_last_box_h;
@@ -2148,6 +2240,22 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
     if (jid < 0)
         return;
 
+#if defined(P6_FRONTEND_TITLE)
+    /* task #326 HEAD-VRAM forensic (THE REAL PATH): count the head sprite's staged
+     * VDP1 VRAM non-transparent bytes. nz==0 -> the head's staged content is BLANK. */
+    if (h >= 100 && w >= 100 && sy >= 400) {
+        const volatile unsigned char *vr = (const volatile unsigned char *)
+            (JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[jid].adr));
+        unsigned short cs = __jo_sprite_def[jid].size;
+        int vw = ((cs >> 8) & 0x3F) * 8, vh = cs & 0xFF;
+        int k, n = vw * vh, nz = 0;
+        for (k = 0; k < n; ++k) if (vr[k] != 0) ++nz;
+        p6_w_headvram_nz  = nz;
+        p6_w_headvram_wh  = (vw << 16) | (vh & 0xFFFF);
+        p6_w_headvram_adr = __jo_sprite_def[jid].adr;
+        p6_w_headvram_jid = jid;
+    }
+#endif
     ++p6_w_vdp1_landed; /* W18: a blit that reached a valid VDP1 slot */
     ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += s_last_box_w * s_last_box_h;
     p6_w_vdp1_contentpx += w * h;

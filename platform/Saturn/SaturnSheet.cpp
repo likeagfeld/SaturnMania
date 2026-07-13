@@ -375,6 +375,7 @@ extern "C" void SaturnSheet_ResFloor(uint32 guardBytes)
 // because the caller invokes this ONLY at the handoff seam, where none of the pre-GHZ
 // resident sheets are drawn again; the caller then re-promotes the Green Hill Zone
 // gameplay sheets from the reclaimed store. Front-end only -> plain GHZ byte-identical.
+__attribute__((used)) int32 p6_w_sht_resreset_n = 0; /* task #326: ResReset call count */
 extern "C" void SaturnSheet_ResReset(void)
 {
     for (int32 s = 0; s < s_count; ++s)
@@ -383,6 +384,7 @@ extern "C" void SaturnSheet_ResReset(void)
     p6_w_sht_resfill = 0;
     p6_w_sht_resmask = 0;
     p6_w_sht_resident = 0;
+    ++p6_w_sht_resreset_n;
 }
 #endif
 #endif

@@ -1491,6 +1491,7 @@ __attribute__((used)) int32 p6_w_tsonic_shtslot   = -9;
 // fragments (needs re-order).
 __attribute__((used)) int32 p6_w_tsonic_bandpre   = -1;
 __attribute__((used)) int32 p6_w_tsonic_bandcap   = -1;
+__attribute__((used)) int32 p6_w_tsonic_makeres   = -9; /* task #326: MakeResident ret */
 __attribute__((used)) int32 p6_w_tsonic_stageret  = -9;
 __attribute__((used)) int32 p6_w_tsonic_surfidx   = -9;
 __attribute__((used)) int32 p6_w_tsonic_surfslot  = -9;
@@ -1503,6 +1504,43 @@ __attribute__((used)) int32 p6_w_tsonic_sheetid   = -9;
 __attribute__((used)) int32 p6_w_tsonic_handle    = -9;
 __attribute__((used)) int32 p6_w_tsonic_animid    = -9;
 __attribute__((used)) int32 p6_w_tsonic_frameid   = -9;
+// RING-SONIC render forensic (task #326, RED-first qa_title_ring_sonic.py): the
+// visible/handle witnesses above prove ENTITY STATE (visible=1, surface bound)
+// but NOT that TitleSonic_Draw actually ran + emitted a VDP1 command that SURVIVED
+// (skill gotcha #4: proxy witness). These count the ACTUAL blit. p6_draw_flipped
+// sets sonic_curr=1 when the drawing entity is the TitleSonic global; then:
+//   tsonic_drawcalls = times p6_draw_flipped ran for TitleSonic (dispatch proof)
+//   tsonic_drawclip  = times it CLIP-rejected (returned before validDraw)
+//   tsonic_drawhandle= the handle the blit used (== HandleBySurface[sheetID]);
+//                      <0 == unbound-drop at the blit
+//   tsonic_drawx/y   = the last screen (x,y) top-left the head blit landed at
+__attribute__((used)) int32 p6_w_tsonic_drawcalls  = 0;
+__attribute__((used)) int32 p6_w_tsonic_drawclip   = 0;
+__attribute__((used)) int32 p6_w_tsonic_drawhandle = -9;
+__attribute__((used)) int32 p6_w_tsonic_drawx      = -9999;
+__attribute__((used)) int32 p6_w_tsonic_drawy      = -9999;
+// TitleSonic->classID, published by the overlay diag (it can dereference the
+// TitleSonic global; this main image cannot). p6_draw_flipped reads it to key the
+// per-blit forensic above.
+__attribute__((used)) int32 p6_w_tsonic_classid    = -9;
+// EMIT-ORDER forensic (task #326): the emblem (TitleLogo type 0) black disc vs the
+// TitleSonic head are both drawGroup 4; on Saturn VDP1 the LAST-emitted command is
+// drawn IN FRONT. tsonic_emitseq = p6_w_draw_calls at the FIRST sonic blit of the
+// frame (the head). emblem_emitseq = p6_w_draw_calls at the emblem's blit. If
+// emblem_emitseq > tsonic_emitseq, the black disc paints OVER the head (root cause).
+// TitleLogo->classID published by the overlay (p6_w_tlogo_classid, already exists).
+__attribute__((used)) int32 p6_w_tsonic_emitseq    = -9;
+__attribute__((used)) int32 p6_w_emblem_emitseq    = -9;
+// HEAD blit geometry (first sonic blit of the frame -- NOT the finger which is
+// latched into drawx/y). If (headx,heady)+(headw,headh) does NOT cover the ring
+// hole (screen ~x[146..178] y[50..82]), the head is being drawn OFF the hole.
+__attribute__((used)) int32 p6_w_tsonic_headx      = -9999;
+__attribute__((used)) int32 p6_w_tsonic_heady      = -9999;
+__attribute__((used)) int32 p6_w_tsonic_headw      = -9;
+__attribute__((used)) int32 p6_w_tsonic_headh      = -9;
+// max emit-seq reached this frame (last VDP1 blit) -- anything with emitseq >
+// tsonic_emitseq that overlaps the hole draws OVER the head.
+__attribute__((used)) int32 p6_w_frame_maxemit     = -9;
 #endif
 // #181 GHZ Bridge witnesses (set by the game-side p6_brg_witness(),
 // p6_wave1_reg.c -- only that TU has the Bridge class type/global). classid>0 +
@@ -2306,10 +2344,43 @@ ScreenInfo *currentScreen     = NULL;
 // Partial overlap draws the full part; VDP1 clips at the framebuffer edge.
 static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
 {
+#if defined(P6_FRONTEND_TITLE)
+    // RING-SONIC forensic (task #326): is the current draw the TitleSonic head?
+    // sceneInfo.entity is the entity ProcessObjectDrawLists is dispatching. Match
+    // its classID to TitleSonic's classID -- which the OVERLAY publishes into
+    // p6_w_tsonic_classid (the TitleSonic global lives in Game_TitleSonic.o, which
+    // links into the OVERLAY, NOT this main image; so we cannot dereference it here,
+    // only compare the classID the overlay latched). classid<=0 == not yet known.
+    int32 p6_sonic_curr = 0;
+    if (p6_w_tsonic_classid > 0 && sceneInfo.entity
+        && sceneInfo.entity->classID == (uint16)p6_w_tsonic_classid)
+        p6_sonic_curr = 1;
+    if (p6_sonic_curr) ++p6_w_tsonic_drawcalls;
+#endif
     if (x + frame->width <= currentScreen->clipBound_X1 || x >= currentScreen->clipBound_X2
-        || y + frame->height <= currentScreen->clipBound_Y1 || y >= currentScreen->clipBound_Y2)
+        || y + frame->height <= currentScreen->clipBound_Y1 || y >= currentScreen->clipBound_Y2) {
+#if defined(P6_FRONTEND_TITLE)
+        if (p6_sonic_curr) ++p6_w_tsonic_drawclip;
+#endif
         return;
+    }
     validDraw = true;
+#if defined(P6_FRONTEND_TITLE)
+    if (p6_sonic_curr) {
+        p6_w_tsonic_drawhandle = p6_vdp1HandlesInit
+                                 ? p6_vdp1HandleBySurface[frame->sheetID] : -1;
+        // Latch the HEAD (first sonic blit of the frame; emitseq still -9) coords +
+        // its frame w/h; the finger (later) would otherwise overwrite these.
+        if (p6_w_tsonic_emitseq < 0) {
+            p6_w_tsonic_headx = x;
+            p6_w_tsonic_heady = y;
+            p6_w_tsonic_headw = frame->width;
+            p6_w_tsonic_headh = frame->height;
+        }
+        p6_w_tsonic_drawx = x;
+        p6_w_tsonic_drawy = y;
+    }
+#endif
 #if defined(P6_GHZCUT_BOOT)
     // #311 mechanism 6 (the original "fxAnimator/-1 handling"): an anim whose
     // sheet was UNSTAGED at load carries sheetID -1 (mech-2 contract) -> the
@@ -2363,6 +2434,20 @@ static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
     p6_w_draw_rect    = ((int32)frame->sprX << 16) | (int32)frame->sprY;
     p6_w_draw_sheetid = (int32)frame->sheetID;
     ++p6_w_draw_calls;
+#if defined(P6_FRONTEND_TITLE)
+    // EMIT-ORDER forensic (task #326): latch the FIRST sonic-head blit and the FIRST
+    // TitleLogo (emblem) blit of THIS frame. p6_frontend_frame resets both to -9 just
+    // before ProcessObjectDrawLists, so "the first blit whose witness is still -9"
+    // captures the per-frame emit order. On Saturn VDP1 the LAST-emitted command is in
+    // FRONT: emblem_emitseq > tsonic_emitseq == the black disc paints OVER the head.
+    if (p6_sonic_curr && p6_w_tsonic_emitseq < 0)
+        p6_w_tsonic_emitseq = p6_w_draw_calls;
+    if (p6_w_titlelogo_classid > 0 && sceneInfo.entity
+        && sceneInfo.entity->classID == (uint16)p6_w_titlelogo_classid
+        && p6_w_emblem_emitseq < 0)
+        p6_w_emblem_emitseq = p6_w_draw_calls;
+    p6_w_frame_maxemit = p6_w_draw_calls; /* every blit -> last one wins == frame max */
+#endif
 #if defined(P6_GHZ_AUTORUN)
     // Signpost campaign: attribute this dispatch to the player when the draw
     // callback's current entity is SLOT_PLAYER1 (sceneInfo.entity is set by
@@ -4619,6 +4704,22 @@ extern "C" void p6_scene_run(void)
 #endif // P6_FRAMEDIR (plain-GHZ boot FRD staging)
 #endif // P6_FRONTEND_TITLE (skip 9 GHZ sheet loads) / else (GHZ verbatim loop)
         P6_LT_MARK(2); // Task #271 S2: chain loads (OVLRING/DORM/LAYT/ANIMPACK/GHZ Player sheets)
+#if defined(P6_FRONTEND_TITLE) && defined(P6_FRONTEND_MENU)
+        // RING-SONIC FIX (task #326, MEASURED 2026-07-13): in the CHAIN the SaturnSheet
+        // resident store is ~1.56 MB full (LIVE p6_w_sht_resfill=1,563,468 at title
+        // load) from PRIOR scenes' sheets, so SaturnSheet_MakeResident(TSONIC, 1 MB)
+        // overflows -> TSONIC stays BANDED -> the head's banded FetchRect (frame48 rect
+        // sx=496,sy=636,110x120) fails at the settled title -> p6_title_pool_for drops
+        // the head blit -> the ring interior renders the emblem's opaque black disc
+        // (the user-reported "SONIC STILL MISSING FROM RING"). Reclaim the store here,
+        // AFTER the scratch is wired (SetScratch @~:4564) and BEFORE the FOUR title
+        // sheets (LOGOS/TLOGO/TSONIC/TBG) stage+MakeResident, so TSONIC's 1 MB fits.
+        // The stale residents are from scenes the title never draws (safe to reclaim;
+        // they fall back to banded). Companion: the cutscene-promote block (~:5058)
+        // is gated to NOT run on the front-end so it can't re-clobber this. Title+menu
+        // (chain) only -> plain GHZ + direct-boot title byte-behaviour identical.
+        SaturnSheet_ResReset();
+#endif
 #if defined(P6_FRONTEND_LOGOS)
         // CP4 (Task #266): stage LOGOS.SHT (Logos/Logos.gif, the 4-logo splash sheet,
         // 512x256 banded ~6.4 KB) into the 10th SaturnSheet slot so UIPicture's
@@ -4710,7 +4811,9 @@ extern "C" void p6_scene_run(void)
                     // qa_title_twirl_resident.py RED->GREEN. GHZ flavor byte-identical
                     // (no P6_FRONTEND_TITLE -> this whole TSONIC block is #if'd out).
 #ifndef P6_SHT_NO_RESIDENT
-                    SaturnSheet_MakeResident(slot);
+                    /* task #326: capture the TSONIC resident result (>=0 resident,
+                     * -1 = overflow/band-reject -> the head stays banded). */
+                    p6_w_tsonic_makeres = SaturnSheet_MakeResident(slot);
 #endif
                 }
             }
@@ -4948,6 +5051,50 @@ extern "C" void p6_scene_run(void)
             // -> plain GHZ byte-identical (this whole seam is chain-gated).
             static void *p6_cutScr = (void *)P6_LW_LAYSCRATCH;
             SaturnSheet_SetScratch(&p6_cutScr, 0x8000);
+            // RING-SONIC FIX (task #326, MEASURED root cause 2026-07-13): this
+            // cutscene-sheet promote block is #if P6_FRONTEND_MENU (a COMPILE gate),
+            // so in the chain it runs on EVERY scene load -- INCLUDING the Title. Its
+            // SaturnSheet_ResReset() below WIPES the resident store; at the Title load
+            // this clobbers TSONIC.SHT's residency (which the title-staging block just
+            // set, MEASURED p6_w_tsonic_makeres=0=success), leaving TSONIC banded. The
+            // banded SaturnSheet_FetchRect then FAILS for the head's high rows (frame48
+            // rect sx=496,sy=636 -> ret=0, dropreason=4) -> p6_title_pool_for returns
+            // -1 -> the TitleSonic head blit is DROPPED every frame -> the ring
+            // interior shows the emblem's own opaque black disc (the user-reported
+            // "SONIC STILL MISSING FROM RING"). LIVE-MEASURED at the settled title:
+            // headslot_ret=-1, headfetch_resident=0, drawcalls=125 (Draw ran), emitseq
+            // 2011>emblem 2008 (head ordered in FRONT), headx/y=(106,13) 110x120
+            // (over the ring hole) -- every link GREEN except the reclaimed residency.
+            // FIX: this reclaim+promote is only meaningful when loading a scene that
+            // USES the cutscene sheets (GHZCutscene, and the GHZ handoff). GATE it to
+            // skip the Title/Logos/Menu front-end scenes so the title's TSONIC (and
+            // LOGOS/TLOGO/TBG) residency SURVIVES. The GHZCutscene load still runs it
+            // (its own seam re-stages + promotes the cutscene sheets). Runtime folder
+            // guard; plain GHZ (no P6_FRONTEND_MENU) unaffected.
+            // Gate on the ACTUAL PRESENCE of cutscene sheets, NOT the folder string
+            // (currentSceneFolder is unreliable mid-load: it holds the PREVIOUS folder
+            // until LoadSceneFolder re-strcpy's it, and the chain advance made it read
+            // "AIZ" at the settled title -- MEASURED). The HBHOBJ/GHCOBJ/PLROBJ slots are
+            // staged ONLY on the GHZCutscene (and the GHZ handoff) load; at the Title/
+            // Logos/Menu loads they are all -1, so this reclaim+promote (and its
+            // TSONIC-clobbering ResReset) must NOT run there. Key off hbh_slot>=0 (the
+            // Heavy atlas, staged only for the cutscene) -> the reset runs exactly when
+            // the cutscene sheets exist to be promoted.
+            // MEASURED (task #326, 2026-07-13): the presence gate (hbh_slot>=0) is
+            // DEFEATED -- p6_w_hbh_slot latches 9 and PERSISTS across loads, so it read
+            // >=0 at the Title (LIVE) and this ResReset still fired, re-clobbering the
+            // title-load TSONIC residency. Gate POSITIVELY on the destination folder
+            // being a cutscene/gameplay scene (the SAME currentSceneFolder discriminator
+            // the GHZCutscene/GHZ seams at :7896/:8091 already trust for their own
+            // ResResets). At the Title/Logos/Menu front-end loads the folder is NOT
+            // GHZCutscene/GHZ, so this reclaim+promote (and its ResReset) is skipped and
+            // the title's TSONIC residency SURVIVES; the GHZCutscene/GHZ loads still run
+            // it. Runtime folder guard; plain GHZ (no P6_FRONTEND_MENU) unaffected.
+            const char *p6_csf = currentSceneFolder ? currentSceneFolder : "";
+            int p6_cut_promote = (!strcmp(p6_csf, "GHZCutscene") || !strcmp(p6_csf, "GHZ"))
+                                 && ((p6_w_hbh_slot >= 0) || (p6_w_ghcobj_slot >= 0)
+                                     || (p6_w_dispsht_slot >= 0));
+            if (p6_cut_promote) {
             SaturnSheet_ResReset();
             if (p6_w_dispsht_slot >= 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
             if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
@@ -4962,6 +5109,7 @@ extern "C" void p6_scene_run(void)
             if (p6_w_ghcobj_slot  >= 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
             if (p6_w_rubyobj_slot >= 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
             if (p6_w_itemsht_slot >= 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
+            } /* p6_cut_promote (task #326: skip on Title/Logos/Menu) */
         }
 #endif
         // Task #311 (residual garble): stage the 2 sheets the scene's OTHER drawing
@@ -8844,6 +8992,11 @@ static void p6_frontend_frame(void)
     // composite VDP2 backdrops an opaque VDP1 quad would occlude.
     if (currentSceneFolder && !strcmp(currentSceneFolder, "Logos"))
         p6_dl_backfill(0x8000u);
+#endif
+#if defined(P6_FRONTEND_TITLE)
+    p6_w_tsonic_emitseq = -9; /* task #326 emit-order forensic: per-frame reset */
+    p6_w_emblem_emitseq = -9;
+    p6_w_frame_maxemit  = -9;
 #endif
     ProcessObjectDrawLists(); // emits the UIPicture VDP1 sprite list (jo swaps it)
 #if defined(P6_FRONTEND_MENU)
