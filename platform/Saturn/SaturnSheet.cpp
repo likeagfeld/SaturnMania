@@ -184,6 +184,19 @@ extern "C" void SaturnSheet_SetScratch(void **bufp, uint32 cap)
 extern "C" {
 __attribute__((used)) int32 p6_w_sht_staged  = 0; // sheets staged into VDP2
 __attribute__((used)) int32 p6_w_sht_fetches = 0; // FetchRect band inflates
+#if defined(P6_FRONTEND_MENU)
+// #243 attribution (2026-07-16): per-STORE-SLOT banded-inflate histogram +
+// each slot's engine-path hash word0 so the offline reader NAMES the fetching
+// sheets (store slots are stable across VDP1 handles -- the #321/#328 dup-
+// handle hazard does not apply here). Existing witnesses cannot attribute:
+// p6_w_sht_fetches is a single global sum. Gated on P6_FRONTEND_MENU (the
+// flag threaded to this TU that the chain build sets and plain GHZ does not
+// -- build_p6scene_objs.sh :601) so plain GHZ stays byte-identical. .bss
+// cost 256 B, chain-only (chain _end ceiling GLOBALS 0x060C8000, ~28 KB
+// headroom per the frontend-cart-map-recarve memory). Gate: qa_ghz_fetch.py.
+__attribute__((used)) int32 p6_w_fetch_hist[32]    = { 0 }; // banded inflates per store slot
+__attribute__((used)) int32 p6_w_sht_slothash0[32] = { 0 }; // GEN_HASH_MD5 word0 per slot
+#endif
 }
 
 // fixed-window inflate (SaturnLayout.cpp, Task #227 STG sizing)
@@ -395,6 +408,11 @@ extern "C" void SaturnSheet_SetHash(int32 slot, const uint32 *hash)
         return;
     for (int32 i = 0; i < 4; ++i)
         s_sheets[slot].hash[i] = hash[i];
+#if defined(P6_FRONTEND_MENU)
+    // #243 attribution: mirror hash word0 so qa_ghz_fetch.py names the slot.
+    if (slot < 32)
+        p6_w_sht_slothash0[slot] = (int32)hash[0];
+#endif
 }
 
 extern "C" int32 SaturnSheet_FindSlot(const uint32 *hash)
@@ -487,6 +505,11 @@ extern "C" int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
         if (p6_mz_uncompress(raw, &dlen, zbuf + lead, zsz) != MZ_OK)
             return 0;
         ++p6_w_sht_fetches;
+#if defined(P6_FRONTEND_MENU)
+        // #243 attribution: bump this store slot's banded-inflate tally.
+        if (slot < 32)
+            ++p6_w_fetch_hist[slot];
+#endif
 #if defined(P6_FRAMEDIR)
         // C1 identification (2026-07-11): attribute this banded inflate to the
         // currently-drawing entity (sceneInfo.entity) so a live read names the

@@ -1842,7 +1842,17 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
             fi.pattern = 0;
         (void)_frdret;
         if (fi.pattern) { /* staged from the FRD -- skip the sheet paths */ }
-        else
+        else {
+        /* #243 FIX (dangling-else, MEASURED 2026-07-16): with BOTH P6_FRAMEDIR
+         * and P6_FRONTEND_TITLE defined (the chain build), the bare `else` here
+         * bound to the #326 head-forensic `if (h >= 100 ...)` below -- NOT to
+         * the sheet-path fallback -- so after an FRD HIT the resident/banded
+         * path STILL ran and the banded miniz fetch overwrote srcPx (MEASURED:
+         * d(frd_lookups)=280 hits WITH d(p6_w_sht_fetches)=592 band inflates
+         * over the same 16 emu-s GHZ-play window, frd_misses=0 -- the whole
+         * 6.65-inflates/frame chain draw wall). Plain GHZ compiles the forensic
+         * out, so its else bound correctly -- chain-only symptom. Braces make
+         * the else own the entire fallback; closed at the block tail below. */
 #endif
 #if defined(P6_FRONTEND_TITLE)
     /* task #326: for the head rect, latch whether the sheet is RESIDENT (px!=0). */
@@ -1891,6 +1901,7 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
 #endif
     }
 #if defined(P6_FRAMEDIR)
+        } /* close the FRD-miss else (#243 dangling-else fix) */
     } /* close the FRD-dispatch block */
 #endif
 
