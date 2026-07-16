@@ -311,16 +311,34 @@ def main():
     # cutscene seam). Copied VERBATIM into the temp dir (85 B, 1 frame, sheet
     # GHZCutscene/Objects.gif -- staged at the seam per dccf167); no rewrite needed.
     ghzcut_plat = "GHZCutscene/Platform.bin"
-    _src = os.path.join(SP, ghzcut_plat.replace("/", os.sep))
-    _dst = os.path.join(heavy_tmpdir, ghzcut_plat.replace("/", os.sep))
-    if not os.path.isdir(os.path.dirname(_dst)):
-        os.makedirs(os.path.dirname(_dst))
-    with open(_src, "rb") as _f:
-        _pb = _f.read()
-    with open(_dst, "wb") as _g:
-        _g.write(_pb)
+    # #302 AIZ->GHZCutscene seam CD-storm elimination (2026-07-16, measured via
+    # tools/_aiz_cdprobe.py fill attribution): these StageLoad anims slow-path
+    # into DATA.RSDK at the GHZCutscene seam = one scattered CD seek each while
+    # the handoff is frozen (21 fills / io_vbl +248). HBHOBJ.PAK is the OBJ pack
+    # mounted at that seam (P6_HW_OBJANIMPAK), so carry them VERBATIM here (the
+    # Platform.bin pattern above). Caller strings verified in _decomp_raw:
+    # Player.c:795 (SuperSonic -- Sonic/Tails already ride as the REWRITTEN
+    # atlas bins above), HUD.c:485 (SuperButtons), UIWidgets.c:76 (TextEN),
+    # UIWaitSpinner.c:73 (WaitSpinner), AIZKingClaw.c:89 (GHZCutscene/Claw.bin).
+    extra_verbatim = [
+        ghzcut_plat,
+        "Players/SuperSonic.bin",
+        "Global/SuperButtons.bin",
+        "UI/TextEN.bin",
+        "UI/WaitSpinner.bin",
+        "GHZCutscene/Claw.bin",
+    ]
+    for _rel in extra_verbatim:
+        _src = os.path.join(SP, _rel.replace("/", os.sep))
+        _dst = os.path.join(heavy_tmpdir, _rel.replace("/", os.sep))
+        if not os.path.isdir(os.path.dirname(_dst)):
+            os.makedirs(os.path.dirname(_dst))
+        with open(_src, "rb") as _f:
+            _pb = _f.read()
+        with open(_dst, "wb") as _g:
+            _g.write(_pb)
     try:
-        build_pack(heavy_bins + player_bins + [ghzcut_plat], pak_path, 0x20000)
+        build_pack(heavy_bins + player_bins + extra_verbatim, pak_path, 0x20000)
     finally:
         bap.SPRITES = saved_sprites
 

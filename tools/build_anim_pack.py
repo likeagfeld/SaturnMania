@@ -149,6 +149,31 @@ AIZ_OBJ_BINS = [
     # path fails -> aniFrames=-1 -> Platform_Draw's DrawRect gray 64x32 placeholders
     # appear at the dig site; with it the wooden platforms render (PC parity).
     "AIZ/Platform.bin",
+    # #302 Menu->AIZ seam CD-storm elimination (2026-07-16, measured via
+    # tools/_aiz_cdprobe.py sector->DATA.RSDK-entry attribution of every live
+    # GFS fill at the seam): these StageLoad LoadSpriteAnimation calls slow-path
+    # into DATA.RSDK = one scattered ~135-200 ms CD seek EACH while the intro is
+    # frozen (23 fills / io_vbl +285 = 4.75 s pure CD wait, tick frozen).
+    # Packing them here (AIZOBJ.PAK is mounted into the 256 KB P6_HW_OBJANIMPAK
+    # cart window by p6_aiz_reload BEFORE StageLoad) resolves them from RAM with
+    # ZERO CD I/O -- the exact #322 GHZANIM/AIZANIM idiom, zero engine change.
+    # Caller strings verified against tools/_decomp_raw:
+    #   Player.c:794/795/799 (Sonic/SuperSonic/Tails), HUD.c:485 (SuperButtons),
+    #   UIWidgets.c:76 (TextEN), UIWaitSpinner.c:73 (WaitSpinner),
+    #   StarPost.c:80, EggPrison.c:206, SpeedGate.c:153 (the 59881/59802
+    #   fill-cluster candidates -- trivially cheap to carry).
+    # Players/Sonic.bin+Tails.bin were DELIBERATELY left out of AIZANIM.PAK
+    # (69,632 B WRAM-window cap, note below); the OBJ window is 256 KB with
+    # ~253 KB free, so they ride HERE instead.
+    "Players/Sonic.bin",
+    "Players/SuperSonic.bin",
+    "Players/Tails.bin",
+    "Global/SuperButtons.bin",
+    "UI/TextEN.bin",
+    "UI/WaitSpinner.bin",
+    "Global/StarPost.bin",
+    "Global/EggPrison.bin",
+    "Global/SpeedGate.bin",
 ]
 AIZ_OBJ_OUT = os.path.join(ROOT, "cd", "AIZOBJ.PAK")
 
