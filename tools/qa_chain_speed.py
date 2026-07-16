@@ -110,28 +110,49 @@ def main() -> int:
             print("[HARNESS] left GHZ during settle (folder=%s)" % folder(), file=sys.stderr)
             return 2
 
+        # EMULATED-VBLANK ANCHOR (binding, 2026-07-16): the original wall-clock
+        # divisor produced a FALSE 60.2-tick/s GREEN when RetroArch ran faster
+        # than realtime (base retroarch.cfg fastforward_ratio=0.0 = unlimited;
+        # only observe_override.cfg paces to realtime). Mednafen two-capture
+        # (emulated time) proved the true speed was 23.5. Anchoring to
+        # p6_w_perf_vblanks (the 60Hz emulated vblank counter) makes the metric
+        # throttle-INDEPENDENT: speed = d(tick)/d(vblanks)*60 regardless of how
+        # fast the host emulates. Wall-based fps is kept as display-only info.
+        a_vbl = sym("p6_w_perf_vblanks")
+        if a_vbl is None:
+            print("[HARNESS] p6_w_perf_vblanks symbol absent -- cannot measure "
+                  "throttle-independent speed", file=sys.stderr)
+            return 2
         tk0 = rd.r32(a_tick)
         c0 = rd.r32(a_cont)
+        v0 = rd.r32(a_vbl)
         w0 = time.time()
         time.sleep(args.window)
         tk1 = rd.r32(a_tick)
         c1 = rd.r32(a_cont)
+        v1 = rd.r32(a_vbl)
         w1 = time.time()
 
         dt = (tk1 - tk0) if (tk0 is not None and tk1 is not None) else None
         dc = (c1 - c0) if (c0 is not None and c1 is not None) else None
+        dv = (v1 - v0) if (v0 is not None and v1 is not None) else None
         wall = w1 - w0
-        tick_ps = (dt / wall) if dt is not None else None
-        cont_ps = (dc / wall) if dc is not None else None
+        # PRIMARY: ticks per emulated second (vblank-anchored, throttle-free)
+        tick_ps = (dt * 60.0 / dv) if (dt is not None and dv and dv > 0) else None
+        cont_ps = (dc * 60.0 / dv) if (dc is not None and dv and dv > 0) else None
         speed_pct = (tick_ps / 60.0 * 100.0) if tick_ps is not None else None
+        throttle = (dv / 60.0 / wall) if (dv is not None and wall > 0) else None
+        if throttle is not None and (throttle < 0.5 or throttle > 1.5):
+            print("[note] emulator pacing = %.2fx realtime (wall-based numbers "
+                  "would lie by that factor; vblank anchor corrects for it)" % throttle)
 
         print("=" * 66)
         print("CHAIN GHZ GAME-SPEED gate (%.1fs wall window)" % wall)
-        print("  p6_w_tick_frames /wall-sec = %s   (min %.0f, target 60)  [PRIMARY]"
+        print("  p6_w_tick_frames /emulated-sec = %s   (min %.0f, target 60)  [PRIMARY]"
               % (("%.1f" % tick_ps) if tick_ps is not None else "?", args.min))
         print("  game speed                 = %s%% of realtime"
               % (("%.0f" % speed_pct) if speed_pct is not None else "?"))
-        print("  p6_w_cont_frames /wall-sec = %s   (render fps, secondary)"
+        print("  p6_w_cont_frames /emulated-sec = %s   (render fps, secondary)"
               % (("%.1f" % cont_ps) if cont_ps is not None else "?"))
         print("=" * 66)
 
