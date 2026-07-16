@@ -39,6 +39,32 @@
  * frame callback. */
 volatile unsigned int p6_perf_vbl_count = 0;
 
+/* =============================================================================
+ * #331 sync-floor attribution (Step 1). The chain measures ~3 vbl/frame OUTSIDE
+ * p6_frontend_frame (d73b052 attribution table); the jo loop body contains
+ * exactly ONE sync wait per rendered frame -- slSynch at core.c:633 (console.c:
+ * 307 / core.c:564 are debug-only paths; the direct-VDP1 present is a vblank-ISR
+ * patch with no wait). ST-238-R1 p.188: slSynch waits to the "event processing
+ * unit time" (V-blank units per slInitSystem's 3rd arg; jo passes JO_FRAMERATE=1
+ * -> nominal 1 vblank) and performs the data-transfer/screen-switch step. These
+ * witnesses (incremented by the #if-gated bracket in jo core.c) split the
+ * outside-frame region into (a) inside-slSynch vs (b) the rest of the loop body,
+ * and p6_w_sync_edsr_busy samples VDP1 EDSR.CEF (ST-013-R3, 0x05D00010 bit1) at
+ * slSynch ENTRY: CEF=0 there = the sync window includes VDP1 still rasterizing
+ * the prior command list (draw-bound floor); CEF=1 = pure cadence/transfer wait.
+ * Chain-only (#if P6_FRONTEND_MENU, via the top Makefile CCFLAGS): the plain GHZ
+ * flavor never defines it -> byte-identical .bss/.text. volatile + used: jo
+ * compiles with -flto (jo_engine_makefile:277); these are cross-TU debugger-read
+ * counters and must survive LTO internalization (memory rule
+ * sync-load-eliminates-cross-tu-volatile). Read by tools/qa_sync_floor.py.
+ * ============================================================================= */
+#if defined(P6_FRONTEND_MENU)
+__attribute__((used)) volatile int p6_w_sync_vbl_sum   = 0; /* cumulative vblanks inside slSynch  */
+__attribute__((used)) volatile int p6_w_sync_vbl_max   = 0; /* worst single slSynch vblank span   */
+__attribute__((used)) volatile int p6_w_sync_n         = 0; /* slSynch calls (jo loop iterations) */
+__attribute__((used)) volatile int p6_w_sync_edsr_busy = 0; /* CEF=0 at slSynch entry (VDP1 busy) */
+#endif
+
 /* CP5b.7: VDP1 DUTY-CYCLE witnesses (pack-side, p6_io_main.cpp). Master-only
  * writes (this ISR runs on the master), so master + savestate read directly. */
 extern int p6_w_cont_frames;

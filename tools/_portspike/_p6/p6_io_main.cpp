@@ -1959,6 +1959,13 @@ __attribute__((used)) int32 p6_w_aiz_vbl_fgpresent = 0; // FG-Low NBG1 present (
 __attribute__((used)) int32 p6_w_aiz_vbl_bgstream  = 0; // 3x p6_vdp2_aiz_bg_stream + p6_vdp2_aiz_bg_frame
 __attribute__((used)) int32 p6_w_aiz_vbl_vdp1emit  = 0; // p6_dl_begin..ProcessObjectDrawLists..p6_dl_end
 __attribute__((used)) int32 p6_w_aiz_vbl_framesum  = 0; // whole p6_frontend_frame (jo-body = total - this)
+// #331 sync-floor attribution (Step 1): CUMULATIVE outside-frame vblanks -- the
+// sum of every frontend jo_gap (previous frame END -> this frame START = the jo
+// loop body INCLUDING the single slSynch, core.c:633). Paired with the jo-side
+// p6_w_sync_vbl_sum (p6_perf.c, vblanks INSIDE slSynch itself) the split is
+// exact: jo-else = d(jo_vbl_sum) - d(sync_vbl_sum). Same MENU gate as the #302
+// sums -> plain GHZ .bss byte-identical. Read by tools/qa_sync_floor.py.
+__attribute__((used)) int32 p6_w_jo_vbl_sum        = 0; // cumulative jo-body vblanks (incl. slSynch)
 #endif
 // LOCKED-60 (#243): loop1 scan occupancy -- sizes the maxOccupiedSlot trim AND
 // explains the 5.82->15.95ms scan growth. pop = populated slots (classID!=0);
@@ -8379,6 +8386,9 @@ static void p6_frontend_frame(void)
         int32 jo_gap = (int32)(fe_vbl_start - p6_perf_vbl_prev);
         p6_w_perf_vbl_jo = jo_gap;
         if (jo_gap > p6_w_perf_vbl_jo_max) p6_w_perf_vbl_jo_max = jo_gap;
+#if defined(P6_FRONTEND_MENU)
+        p6_w_jo_vbl_sum += jo_gap; // #331: cumulative outside-frame vblank sum
+#endif
     }
     unsigned short fe_t0, fe_t1;
     unsigned int   fe_v0, fe_v1;

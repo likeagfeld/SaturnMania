@@ -630,7 +630,37 @@ void			        jo_core_run(void)
 #endif
 
 #if JO_COMPILE_USING_SGL
+#if defined(P6_FRONTEND_MENU)
+        /* Sonic-Mania-Saturn #331 (sync-floor attribution) -- MINIMAL #if-gated
+           extension per the repo rule (CLAUDE.md sec.5: jo_engine edits only as
+           strictly-necessary documented extensions). Brackets the loop's single
+           slSynch with the true-60Hz vblank tally (tools/_portspike/_p6/
+           p6_perf.c) + a VDP1 EDSR.CEF sample at entry, splitting the measured
+           ~3-vbl/frame outside-frame region (d73b052) into slSynch-wait vs
+           loop-body. Citations: ST-238-R1 p.188 (slSynch = wait to the event
+           processing unit time, V-blank units per slInitSystem; this file:192
+           passes JO_FRAMERATE=1) + ST-013-R3 EDSR.CEF (0x05D00010 bit1, read-
+           only). Compiled ONLY in the front-end chain flavor (-DP6_FRONTEND_MENU
+           via the project Makefile CCFLAGS): plain GHZ builds are byte-identical. */
+        {
+            extern volatile unsigned int p6_perf_vbl_count;      /* p6_perf.c */
+            extern volatile int p6_w_sync_vbl_sum, p6_w_sync_vbl_max,
+                                p6_w_sync_n, p6_w_sync_edsr_busy;
+            unsigned int sync_v0 = p6_perf_vbl_count;
+            if (!((*(volatile unsigned short *)0x05d00010u) & 0x0002u))
+                ++p6_w_sync_edsr_busy;               /* CEF=0: VDP1 mid-draw at entry */
+            slSynch();
+            {
+                int sync_dv = (int)(p6_perf_vbl_count - sync_v0);
+                p6_w_sync_vbl_sum += sync_dv;
+                if (sync_dv > p6_w_sync_vbl_max)
+                    p6_w_sync_vbl_max = sync_dv;
+                ++p6_w_sync_n;
+            }
+        }
+#else
         slSynch();
+#endif
 #else
         jo_vdp1_flush();
         jo_wait_vblank_out();
