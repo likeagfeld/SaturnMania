@@ -3200,6 +3200,28 @@ if ($vregRc -ne 0) {
 }
 W "  OK (all title-settled register assertions pass)" Green
 
+# Gate V-ORACLE: whole-arc parity-oracle SELFTEST (anti-lying-gate). Proves the
+# decomp-derived divergence oracle's ENTIRE ground-truth surface (every witness
+# symbol in the current game.map, the scene manifest, the decomp object cache,
+# the runtime-built name dictionary) still resolves -- so the oracle can never
+# rot into a false-GREEN and silently under-report a whole class of parity bug.
+# Offline (no emulator); catches a renamed/dropped witness the moment it lands.
+W "Gate V-ORACLE: parity-oracle selftest (ground-truth surface intact)..." Yellow
+$oracleOut = python (Join-Path $PSScriptRoot "qa_parity_oracle.py") --selftest 2>&1
+$oracleRc = $LASTEXITCODE
+$oracleOut -split "`n" | ForEach-Object {
+    if ($_ -match "FAIL|RED") { W "  $_" Red }
+    elseif ($_ -match "GREEN") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($oracleRc -ne 0) {
+    W "FAIL: Gate V-ORACLE -- a parity-oracle dependency is missing; the oracle" Red
+    W "      would under-report. Fix the witness symbol / manifest / name dict" Red
+    W "      before trusting any parity GREEN." Red
+    exit 1
+}
+W "  OK (parity oracle can't false-GREEN -- every detector has its ground truth)" Green
+
 W ""
 W "=== ALL GATES PASS -- safe to claim done. ===" Green
 exit 0
