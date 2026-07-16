@@ -234,7 +234,11 @@ class Oracle:
             off = cid_idx * OBJCLASS_SIZE
             nm = H2N.get(cls_raw[off:off + 16], "?")
             sv_ptr = int.from_bytes(cls_raw[off + 56:off + 60], "big")  # staticVars @ +16+40
-            sv_ok = 0x00200000 <= sv_ptr < 0x00300000 or 0x06000000 <= sv_ptr < 0x06100000
+            # valid staticVars homes: WRAM-L, WRAM-H, AND the 4MB cart (overlay-resident
+            # classes -- Options/MenuSetup/GHZCutsceneST/Batbrain -- keep statics on cart,
+            # 0x02xxxxxx / cache-through 0x22xxxxxx). WRAM-only was a false-CLASSREG flood.
+            sv_ok = (0x00200000 <= sv_ptr < 0x00300000 or 0x06000000 <= sv_ptr < 0x06100000
+                     or 0x02000000 <= sv_ptr < 0x03000000 or 0x22000000 <= sv_ptr < 0x23000000)
             rows.append({"listIdx": listIdx, "classID": cid_idx, "name": nm, "sv_ok": sv_ok})
         return rows
 
@@ -383,12 +387,15 @@ def main():
         if folder not in UI_SCENES and expected:
             NONSPAWN = {"GHZSetup", "APICallback", "BadnikHelpers", "Music", "Zone",
                         "COverlay", "AIZSetup", "CPZSetup", "CutsceneSeq"}
-            for nm in sorted(expected & reg_names):
-                if nm in NONSPAWN:
-                    continue
-                if live_counts.get(nm, 0) == 0:
-                    D(folder, "SPAWN", f"registered class '{nm}' has 0 live instances "
-                                       f"(placed-but-not-spawned? verify vs Scene{folder} placements)")
+            # only judge a SETTLED scene -- a mid-load sample (n_entities ~0) has
+            # legitimately not spawned anything yet (GHZCutscene at t=189 false-flagged).
+            if (last["n_entities"] or 0) >= 4:
+                for nm in sorted(expected & reg_names):
+                    if nm in NONSPAWN:
+                        continue
+                    if live_counts.get(nm, 0) == 0:
+                        D(folder, "SPAWN", f"registered class '{nm}' has 0 live instances "
+                                           f"(placed-but-not-spawned? verify vs Scene{folder} placements)")
 
         # D4 ANIM: any live entity with an out-of-range animID for its class
         for e in last["entities"]:
