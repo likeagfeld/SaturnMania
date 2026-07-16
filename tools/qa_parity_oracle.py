@@ -84,7 +84,8 @@ MAP = (_ROOT / "game.map").read_text(errors="replace")
 OBJCLASS_BASE = 0x060D8000
 OBJCLASS_SIZE = 72
 STAGEIDS = 0x002FEF80
-EDGE_MAX = 128            # p6_w_edge_hits[P6_EDGE_MAX]; P6_EDGE_MAX=128 (p6_closure_edge.c)
+EDGE_MAX = 96             # p6_w_edge_hits[P6_EDGE_MAX]; P6_EDGE_MAX=96 (p6_closure_edge.c:44)
+                          # -- reading past 96 over-reads adjacent memory (garbage ordinals).
 
 # scenes where the decomp starts a BGM track on entry (Music_PlayTrack)
 AUDIO_EXPECT = {"Title", "Menu", "AIZ", "GHZCutscene", "GHZ"}
@@ -237,6 +238,19 @@ class Oracle:
             rows.append({"listIdx": listIdx, "classID": cid_idx, "name": nm, "sv_ok": sv_ok})
         return rows
 
+    def measure_speed_light(self, dt=3.0):
+        """Game-speed via a DEDICATED minimal-read burst (only tick/cont), so the
+        heavy structural sample's UDP read-load can't stall the emulator during
+        the measurement (observer effect). Matches qa_chain_speed.py's method --
+        which reads 60.3 tick/s at GHZ where the coupled heavy-sample read only
+        23 (a pure artifact). Returns (tick_per_s, render_per_s)."""
+        t0 = self.w("p6_w_tick_frames"); c0 = self.w("p6_w_cont_frames"); w0 = time.time()
+        time.sleep(dt)
+        t1 = self.w("p6_w_tick_frames"); c1 = self.w("p6_w_cont_frames"); dw = time.time() - w0
+        if None in (t0, t1, c0, c1) or dw <= 0:
+            return None, None
+        return (t1 - t0) / dw, (c1 - c0) / dw
+
     def sample(self):
         s = qa_trace.sample(self.rd, MAP, 700)   # raises loud if unhealthy
         s["reg"] = self.registration()
@@ -272,7 +286,8 @@ def main():
     samples = []
     t0 = time.time()
     prev = None
-    print("t     folder        n   reg  tick     cont  tick/s cont/s edge palhash")
+    scene_speed = {}   # folder -> (tick_per_s, render_per_s) via a LIGHT burst (no observer effect)
+    print("t     folder        n   reg  tick     cont  edge palhash")
     while time.time() - t0 < SECS:
         try:
             s = o.sample()
@@ -280,19 +295,17 @@ def main():
             sys.stderr.write(f"qa_parity_oracle: sample failed -- {e}\n")
             return 2
         s["wall"] = time.time() - t0
-        tps = cps = 0.0
-        if prev is not None and s["tick"] is not None and prev["tick"] is not None:
-            dw = s["wall"] - prev["wall"]
-            if dw > 0:
-                tps = (s["tick"] - prev["tick"]) / dw
-                cps = ((s["cont"] or 0) - (prev["cont"] or 0)) / dw
-        s["tps"], s["cps"] = tps, cps
-        print("%4.0f  %-12s %3s  %3d  %7s %7s  %5.1f %5.1f  %3d %8s" % (
+        # game-SPEED must be measured with MINIMAL reads (the heavy structural
+        # sample's UDP load stalls the emulator -> a false low reading). Take one
+        # dedicated light burst per distinct scene the first time it's seen.
+        fol = s["folder"]
+        if fol not in scene_speed and fol not in UI_SCENES and s["n_entities"] and s["n_entities"] > 3:
+            scene_speed[fol] = o.measure_speed_light(3.0)
+        print("%4.0f  %-12s %3s  %3d  %7s %7s  %3d %8s" % (
             s["wall"], (s["folder"] or "?")[:12], s["n_entities"], len(s["reg"]),
-            s["tick"], s["cont"], tps, cps, len(s["edge"]),
+            s["tick"], s["cont"], len(s["edge"]),
             s["pal_hash"] if s["pal_hash"] is not None else "?"))
         samples.append(s)
-        prev = s
         time.sleep(PERIOD)
 
     # ---------- per-scene DECOMP-vs-LIVE divergence analysis ----------
@@ -326,17 +339,33 @@ def main():
                 reg_rows[r["name"]] = r
         reg_names = set(n for n in reg_rows if n != "?")
 
-        # D1 REGISTER: manifest class never registered live
-        if expected and reg_names:
-            missing = sorted(expected - reg_names)
-            # GHZSetup-class setup objects + boss/cutscene objects may be legitimately
-            # absent mid-act; report ALL, do not pre-filter (agent judges vs decomp).
-            for nm in missing:
-                D(folder, "REGISTER", f"decomp class '{nm}' NOT in live registration table "
-                                      f"({len(reg_names)} registered) -- whole class absent")
+        # D1 REGISTER: a decomp class not registered live. HONEST-ONLY: asserting a
+        # class is ABSENT requires resolving the WHOLE registered set by name. The
+        # objectClassList name-hash (md5, halfword-swapped) resolves cleanly for
+        # well-formed entries but many stage indices are empty/pointer slots, so
+        # resolution is partial. If we did NOT resolve the full set, we CANNOT
+        # conclude absence (that produced a false-positive flood in run 1) -> emit a
+        # coverage NOTE, not a divergence. Per-class absence is asserted ONLY when
+        # every registered class resolved.
+        classcount = len(last["reg"])
+        resolved_count = len(reg_names)
+        if expected:
+            if classcount > 0 and resolved_count >= classcount:
+                for nm in sorted(expected - reg_names):
+                    D(folder, "REGISTER", f"decomp class '{nm}' NOT registered "
+                                          f"({resolved_count}/{classcount} classes resolved) -- absent")
+            else:
+                print(f"  [{folder or '?':12s}] NOTE     REGISTER coverage-limited: "
+                      f"{resolved_count}/{classcount} class names resolved, manifest expects "
+                      f"{len(expected)} stage classes -- per-class absence NOT asserted "
+                      f"(name-resolution calibration TODO; not a false GREEN, a KNOWN blind spot)")
 
-        # D2 CLASSREG: registered but staticVars broken
+        # D2 CLASSREG: a RESOLVED class whose *staticVars is NULL. Restricted to
+        # resolved names -- an unresolved ('?') entry is often an empty/unused class
+        # slot whose all-zero staticVars is expected, not a broken port.
         for nm, r in reg_rows.items():
+            if nm == "?":
+                continue
             if not r["sv_ok"]:
                 D(folder, "CLASSREG", f"class '{nm}' (id {r['classID']}) *staticVars unreadable/NULL "
                                       f"-- broken registration / stub bind")
@@ -393,14 +422,19 @@ def main():
             D(folder, "EDGE", f"edge-audit ordinals fired {dict(sorted(edge_union.items()))} "
                               f"-- a PORTED object forwarded to its own STUB (silently-broken port)")
 
-        # D7 SPEED: game-speed vs 60Hz in an active scene
-        if folder not in UI_SCENES:
-            tp = [s["tps"] for s in ss if s["tps"] > 0]
-            if tp:
-                avg = sum(tp) / len(tp)
-                if avg < 55.0:
-                    D(folder, "SPEED", f"game-speed {avg:.1f} tick/s vs 60 = {avg/60*100:.0f}% "
-                                       f"realtime (LOGIC-SLOW / #243 pacing)")
+        # D7 SPEED: game-speed vs 60Hz, from the DEDICATED light burst (not the
+        # heavy-sample cadence, which is observer-contaminated). game-time < wall =
+        # slow-motion; game-time == 60 but low render = choppy (render-bound, a
+        # DIFFERENT problem -- reported as info, not a speed divergence).
+        if folder in scene_speed and scene_speed[folder][0] is not None:
+            tps, rps = scene_speed[folder]
+            if tps < 55.0:
+                D(folder, "SPEED", f"game-speed {tps:.1f} tick/s vs 60 = {tps/60*100:.0f}% "
+                                   f"realtime (SLOW-MOTION / logic pacing #243)")
+            elif rps < 20.0:
+                print(f"  [{folder or '?':12s}] NOTE     game-speed OK ({tps:.0f} tick/s = "
+                      f"{tps/60*100:.0f}% realtime) but render {rps:.0f} fps -- CHOPPY not slow "
+                      f"(render-bound, #243 catch-up; separate from parity)")
 
         # D8 AUDIO: BGM idle where the decomp starts a track
         if folder in AUDIO_EXPECT:
