@@ -9,8 +9,19 @@ This is the 606fbfb bug class (banded/unstaged asset falls through to GFS per
 frame) surfacing at the Menu->AIZ seam.
 
 THE GATE (both axes must pass):
-  PRIMARY   p6_w_tick_frames advance per WALL-second at AIZ >= --min (50)
+  PRIMARY   p6_w_tick_frames advance per EMULATED second at AIZ >= --min (50).
+            VBLANK-ANCHORED (binding 2026-07-16, commit 666634b pattern): speed
+            = d(tick_frames)/d(p6_w_perf_vblanks)*60. The original wall-clock
+            divisor lied whenever RetroArch ran off realtime (base retroarch.cfg
+            fastforward_ratio=0.0 = unlimited); the vblank anchor is
+            throttle-independent on any emulator at any pacing.
   SECONDARY p6_w_gfs_io_vbl delta per rendered frame (cont_frames) <= --max-io (1.0)
+
+ATTRIBUTION TABLE (#302): when the build carries the p6_w_aiz_vbl_* witnesses
+(cumulative per-section vblank sums, p6_io_main.cpp), the gate prints the
+vbl/frame breakdown -- objtick / fgpresent / bgstream / vdp1emit / other-in-
+frame / jo-body(slSynch+VDP1 wait) -- so the render wall is attributed, not
+guessed.
 
 MEASUREMENT DISCIPLINE (mirrors qa_chain_speed.py, commit 446ff0d): MINIMAL
 UDP reads -- endpoints only over a >= 8 s window. Heavy read bursts stall the
@@ -50,7 +61,7 @@ qa_trace = _load("qa_trace", "qa_trace.py")
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--min", type=float, default=50.0,
-                    help="min p6_w_tick_frames advance/wall-sec for GREEN")
+                    help="min p6_w_tick_frames advance/emulated-sec (vblank-anchored) for GREEN")
     ap.add_argument("--max-io", type=float, default=1.0,
                     help="max p6_w_gfs_io_vbl delta per rendered frame")
     ap.add_argument("--max-seam-fills", type=int, default=15,
@@ -84,10 +95,18 @@ def main() -> int:
         a_iov  = sym("p6_w_gfs_io_vbl")
         a_fill = sym("p6_w_gfs_fills")
         a_sht  = sym("p6_w_sht_fetches")
+        a_vbl  = sym("p6_w_perf_vblanks")
         if a_tick is None or a_csf is None or a_cont is None or a_iov is None:
             print("[HARNESS] missing symbol(s): tick=%s csf=%s cont=%s io_vbl=%s"
                   % (a_tick, a_csf, a_cont, a_iov), file=sys.stderr)
             return 2
+        if a_vbl is None:
+            print("[HARNESS] p6_w_perf_vblanks symbol absent -- cannot measure "
+                  "throttle-independent speed", file=sys.stderr)
+            return 2
+        # #302 attribution witnesses (optional -- older maps lack them).
+        attrib = {n: sym("p6_w_aiz_vbl_" + n)
+                  for n in ("objtick", "fgpresent", "bgstream", "vdp1emit", "framesum")}
 
         def folder():
             try:
@@ -145,13 +164,17 @@ def main() -> int:
         # ---- Phase 2: play-phase window. Endpoint reads ONLY (minimal-read
         # discipline -- heavy UDP bursts stall the emulator and fake a low tick).
         tk0 = rd.r32(a_tick); c0 = rd.r32(a_cont); io0 = rd.r32(a_iov)
+        v0 = rd.r32(a_vbl)
         fl0 = rd.r32(a_fill) if a_fill else None
         sh0 = rd.r32(a_sht) if a_sht else None
+        at0 = {n: (rd.r32(a) if a else None) for n, a in attrib.items()}
         w0 = time.time()
         time.sleep(args.window)
         tk1 = rd.r32(a_tick); c1 = rd.r32(a_cont); io1 = rd.r32(a_iov)
+        v1 = rd.r32(a_vbl)
         fl1 = rd.r32(a_fill) if a_fill else None
         sh1 = rd.r32(a_sht) if a_sht else None
+        at1 = {n: (rd.r32(a) if a else None) for n, a in attrib.items()}
         w1 = time.time()
         f_end = folder()
 
@@ -159,8 +182,14 @@ def main() -> int:
         dt  = (tk1 - tk0) if (tk0 is not None and tk1 is not None) else None
         dc  = (c1 - c0) if (c0 is not None and c1 is not None) else None
         dio = (io1 - io0) if (io0 is not None and io1 is not None) else None
-        tick_ps = (dt / wall) if dt is not None else None
-        cont_ps = (dc / wall) if dc is not None else None
+        dv  = (v1 - v0) if (v0 is not None and v1 is not None) else None
+        # PRIMARY: ticks per EMULATED second (vblank-anchored, throttle-free).
+        tick_ps = (dt * 60.0 / dv) if (dt is not None and dv and dv > 0) else None
+        cont_ps = (dc * 60.0 / dv) if (dc is not None and dv and dv > 0) else None
+        throttle = (dv / 60.0 / wall) if (dv is not None and wall > 0) else None
+        if throttle is not None and (throttle < 0.5 or throttle > 1.5):
+            print("[note] emulator pacing = %.2fx realtime (wall-based numbers "
+                  "would lie by that factor; vblank anchor corrects for it)" % throttle)
         io_pf   = (dio / dc) if (dio is not None and dc and dc > 0) else None
         fill_pf = ((fl1 - fl0) / dc) if (fl0 is not None and fl1 is not None
                                          and dc and dc > 0) else None
@@ -175,7 +204,7 @@ def main() -> int:
               % (seam_fills, seam_io,
                  (seam_io / 60.0) if seam_io is not None else -1, seam_wall,
                  args.max_seam_fills))
-        print("  p6_w_tick_frames /wall-sec  = %s  (min %.0f, target 60) [PRIMARY]"
+        print("  p6_w_tick_frames /emulated-sec = %s  (min %.0f, target 60) [PRIMARY]"
               % (("%.1f" % tick_ps) if tick_ps is not None else "?", args.min))
         print("  game speed                  = %s%% of realtime"
               % (("%.0f" % speed_pct) if speed_pct is not None else "?"))
@@ -185,8 +214,27 @@ def main() -> int:
               % (("%.2f" % fill_pf) if fill_pf is not None else "?"))
         print("  sht_fetches / rendered frame= %s"
               % (("%.2f" % sht_pf) if sht_pf is not None else "?"))
-        print("  render fps (cont/wall-sec)  = %s"
+        print("  render fps (cont/emulated-sec) = %s"
               % (("%.1f" % cont_ps) if cont_ps is not None else "?"))
+        # ---- #302 attribution table (vbl/frame per frontend-frame section) ----
+        d_at = {n: ((at1[n] - at0[n]) if (at0[n] is not None and at1[n] is not None)
+                    else None) for n in attrib}
+        if dc and dc > 0 and dv is not None and all(v is not None for v in d_at.values()):
+            per = {n: d_at[n] / dc for n in d_at}
+            total_pf = dv / dc
+            sections = per["objtick"] + per["fgpresent"] + per["bgstream"] + per["vdp1emit"]
+            other_in = per["framesum"] - sections
+            jo_body  = total_pf - per["framesum"]
+            print("  -- #302 AIZ frame attribution (vbl/frame; total %.2f = %.1f fps) --"
+                  % (total_pf, 60.0 / total_pf if total_pf > 0 else 0))
+            print("     objtick   (ProcessObjects x catch-up) = %6.2f" % per["objtick"])
+            print("     fgpresent (FG-Low NBG1 present)       = %6.2f" % per["fgpresent"])
+            print("     bgstream  (3x AIZ BG stream + frame)  = %6.2f" % per["bgstream"])
+            print("     vdp1emit  (DrawLists + direct list)   = %6.2f" % per["vdp1emit"])
+            print("     other-in-frame (input/arm/witness)    = %6.2f" % other_in)
+            print("     jo-body   (slSynch + VDP1/vbl wait)   = %6.2f" % jo_body)
+        else:
+            print("  -- #302 attribution witnesses absent on this build (older map) --")
         print("=" * 70)
 
         if f_end != "AIZ":

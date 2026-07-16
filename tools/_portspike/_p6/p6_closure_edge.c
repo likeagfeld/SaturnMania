@@ -397,11 +397,29 @@ void KleptoMobile_StateArm_Idle(void) { P6_EDGE(16); }
 void KleptoMobile_StateHand_Boss(void) { P6_EDGE(17); }
 void KleptoMobile_StateHand_Cutscene(void) { P6_EDGE(18); }
 void KleptoMobile_State_CutsceneControlled(void) { P6_EDGE(19); }
+#if defined(P6_AIZ_TEST)
+// #302 batch fix: the 14 _MenuSetup_rev02.c call sites deref the returned param
+// UNGUARDED (decomp MenuParam.c:16 returns the reserved SLOT_MENUPARAM entity,
+// never NULL) -- a NULL here made every deref read Saturn address 0x0.. = BIOS
+// ROM = garbage menu params. Same pattern as p6_aiz_starpost_instance above: a
+// ZEROED static instance == the decomp's fresh-boot globals->menuParam
+// semantics (the reserved slot is zero until a mode writes it; writes persist
+// across calls, mirroring the reserved-slot lifetime). P6_EDGE(20) kept so the
+// crossing stays visible in the edge histogram. Chain/menu flavors only
+// (P6_AIZ_TEST); plain GHZ keeps NULL -> byte-identical.
+static EntityMenuParam p6_menuparam_instance; // zero-init (.bss)
+EntityMenuParam *MenuParam_GetParam(void)
+{
+    P6_EDGE(20);
+    return &p6_menuparam_instance;
+}
+#else
 EntityMenuParam *MenuParam_GetParam(void)
 {
     P6_EDGE(20);
     return NULL;
 }
+#endif
 void PhantomKing_SetupKing(EntityPhantomKing *king)
 {
     (void)king;

@@ -1945,6 +1945,20 @@ __attribute__((used)) int32 g_p6_fe_ghz_cull   = 0;
 // g_p6_fe_ghz_cull every frontend frame, so a plain live poke would be overwritten;
 // the RED/GREEN A/B (qa_objprof_watch --ab) pokes THIS instead. Shipping default -1.
 __attribute__((used)) int32 g_p6_fe_cull_override = -1;
+// #302 AIZ render-wall attribution (2026-07-16): CUMULATIVE VBLANK sums per
+// frontend-frame section, read as deltas over a live window by qa_aiz_speed.py
+// (vbl/frame = d(witness)/d(p6_w_cont_frames)). VBLANK-stamped, NOT FRT: the
+// 16-bit FRT wraps at ~78 ms and an AIZ fly-in frame is ~105 ms (9.5 fps), so
+// FRT per-section deltas undercount (the same reason as the #317 vbl witnesses
+// above). Cumulative sums beat the existing last-frame p6_w_perf_vbl_* here:
+// a sub-vblank section reads 0 on most single frames (integer vblank counter)
+// but its true cost accumulates over an 8 s window. Chain-gated
+// (P6_FRONTEND_MENU) -> plain GHZ .bss byte-identical.
+__attribute__((used)) int32 p6_w_aiz_vbl_objtick   = 0; // ProcessObjects catch-up tick group
+__attribute__((used)) int32 p6_w_aiz_vbl_fgpresent = 0; // FG-Low NBG1 present (p6_vdp2_present_ghz_camera)
+__attribute__((used)) int32 p6_w_aiz_vbl_bgstream  = 0; // 3x p6_vdp2_aiz_bg_stream + p6_vdp2_aiz_bg_frame
+__attribute__((used)) int32 p6_w_aiz_vbl_vdp1emit  = 0; // p6_dl_begin..ProcessObjectDrawLists..p6_dl_end
+__attribute__((used)) int32 p6_w_aiz_vbl_framesum  = 0; // whole p6_frontend_frame (jo-body = total - this)
 #endif
 // LOCKED-60 (#243): loop1 scan occupancy -- sizes the maxOccupiedSlot trim AND
 // explains the 5.82->15.95ms scan growth. pop = populated slots (classID!=0);
@@ -8687,6 +8701,9 @@ static void p6_frontend_frame(void)
     else {
         g_p6_fe_ghz_cull = 0;
     }
+#if defined(P6_FRONTEND_MENU)
+    unsigned int aizb_v0 = p6_perf_vbl_count; // #302 objtick bracket (vblank-stamped)
+#endif
 #if defined(P6_TICK_CATCHUP)
     /* #315 GAME-SPEED FIX (audit-1 headline, user "animation jumps / not decomp
      * authoritative"): the frontend ticked logic ONCE per RENDERED frame, so game
@@ -8733,6 +8750,9 @@ static void p6_frontend_frame(void)
 #else
     ProcessObjects();
     ProcessSceneTimer();
+#endif
+#if defined(P6_FRONTEND_MENU)
+    p6_w_aiz_vbl_objtick += (int32)(p6_perf_vbl_count - aizb_v0); // #302 objtick close
 #endif
 #if defined(P6_GHZCUT_BOOT)
     // GL1 (2026-07-06): advance the GHZ act card once per frontend frame (its
@@ -8899,6 +8919,7 @@ static void p6_frontend_frame(void)
         // island RBG0 arm above (p6_vdp2_title_island_rbg0_frame) then survives to the
         // settled frame instead of being clobbered black (the "title backdrop broken"
         // report). Menu/Logos never needed this present (they run no FG-Low plane).
+        unsigned int aizb_fg0 = p6_perf_vbl_count; // #302 fgpresent bracket (vblank-stamped)
         if (currentSceneFolder
             && (!strcmp(currentSceneFolder, "AIZ")
                 || !strcmp(currentSceneFolder, "GHZCutscene")
@@ -8924,6 +8945,7 @@ static void p6_frontend_frame(void)
                                        screens[0].position.x, screens[0].position.y,
                                        (const unsigned short *)fullPalette[0], &ph, &nb);
         }
+        p6_w_aiz_vbl_fgpresent += (int32)(p6_perf_vbl_count - aizb_fg0); // #302 fgpresent close
         // M3.2 FG probe: the present just bound SaturnLayout slot 0 -> layer fgl (FG-Low).
         // Read 4 in-window tiles to see if the windowed accessor returns the varied AIZ
         // FG-Low or a uniform constant (binding/window/refill vs page-build discriminator).
@@ -8956,6 +8978,7 @@ static void p6_frontend_frame(void)
         // assets; its background comes from the FG tilemap layers, presented above). Guard
         // it to folder=="AIZ" so the GHZCutscene boot does not stream UNINITIALIZED cart
         // garbage onto NBG0/NBG2/NBG3. The FG-Low present above runs for both folders.
+        unsigned int aizb_bg0 = p6_perf_vbl_count; // #302 bgstream bracket (vblank-stamped)
         if (strcmp(currentSceneFolder, "AIZ") == 0) {
             int cam_x  = screens[0].position.x;
             int bg4_sx = (cam_x * 0xC0) >> 8;   /* BG4 parallax 0.75 (sInfo 0xC0, scrollPos 0) */
@@ -9020,6 +9043,7 @@ static void p6_frontend_frame(void)
             p6_vdp2_ghzcut_bg_frame(bg_sx);
         }
 #endif
+        p6_w_aiz_vbl_bgstream += (int32)(p6_perf_vbl_count - aizb_bg0); // #302 bgstream close
     }
 #endif
 
@@ -9054,6 +9078,9 @@ static void p6_frontend_frame(void)
     unsigned short fe_tpod = fe_t0; // #324: tail bracket start (updated post-dl_end)
 #endif
 #ifndef P6_TITLE_NODRAW
+#if defined(P6_FRONTEND_MENU)
+    unsigned int aizb_dl0 = p6_perf_vbl_count; // #302 vdp1emit bracket (vblank-stamped)
+#endif
 #if defined(P6_DIRECT_VDP1)
     // #316 F1: open the direct command list -- every blit inside
     // ProcessObjectDrawLists (and the FillScreen fades) writes a VDP1 command
@@ -9114,6 +9141,7 @@ static void p6_frontend_frame(void)
     }
 #endif
 #if defined(P6_FRONTEND_MENU)
+    p6_w_aiz_vbl_vdp1emit += (int32)(p6_perf_vbl_count - aizb_dl0); // #302 vdp1emit close
     fe_tpod = p6_perf_frt_get(); // #324: DrawLists+emit done; tail (fade/card/diag) follows
 #endif
 #else
@@ -9270,6 +9298,9 @@ static void p6_frontend_frame(void)
         unsigned int vnow = p6_perf_vbl_count;
         int32 slip = (int32)(vnow - p6_perf_vbl_prev);
         p6_w_perf_vbl_frame = (int32)(vnow - fe_vbl_start);
+#if defined(P6_FRONTEND_MENU)
+        p6_w_aiz_vbl_framesum += p6_w_perf_vbl_frame; // #302: jo-body = d(vblanks) - d(this)
+#endif
         p6_perf_vbl_prev    = vnow;
         p6_w_perf_vblanks   = (int32)vnow;
         p6_w_perf_frames    = p6_w_cont_frames;
