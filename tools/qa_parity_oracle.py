@@ -413,14 +413,21 @@ def main():
                                          f"(characters missing / not drawn)")
                     break
 
-        # D6 EDGE: any nonzero edge-audit ordinal (broken port -- ALL ordinals)
-        edge_union = {}
-        for s in ss:
-            for k, v in s["edge"].items():
-                edge_union[k] = max(edge_union.get(k, 0), v)
-        if edge_union:
-            D(folder, "EDGE", f"edge-audit ordinals fired {dict(sorted(edge_union.items()))} "
-                              f"-- a PORTED object forwarded to its own STUB (silently-broken port)")
+        # D6 EDGE: any edge-audit ordinal that fired DURING THIS SCENE's window.
+        # p6_w_edge_hits[] is CUMULATIVE SINCE BOOT (p6_closure_edge.c) -- attributing
+        # the running total to whichever scene was being sampled mis-blamed AIZ for
+        # hits accumulated in Menu (calibration finding, 2026-07-16). Use the
+        # first-vs-last delta within the scene window; a count that grew here fired here.
+        first_e, last_e = ss[0]["edge"], ss[-1]["edge"]
+        edge_delta = {}
+        for k, v in last_e.items():
+            d = v - first_e.get(k, 0)
+            if d > 0:
+                edge_delta[k] = d
+        if edge_delta:
+            D(folder, "EDGE", f"edge-audit ordinals fired IN this scene {dict(sorted(edge_delta.items()))} "
+                              f"(delta within window; map ordinal->fn via p6_closure_edge.c) "
+                              f"-- a boundary stub was crossed (classify dead-cosmetic vs broken-gameplay)")
 
         # D7 SPEED: game-speed vs 60Hz, from the DEDICATED light burst (not the
         # heavy-sample cadence, which is observer-contaminated). game-time < wall =
