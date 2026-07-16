@@ -3064,6 +3064,10 @@ void   SaturnSheet_ResFloor(uint32 guardBytes);
 void   p6_vdp1_set_frd(int32 (*fn)(int32, int32, int32, int32, int32, void *));
 void   p6_vdp1_sheet_set_frd(int handle, int frdSlot);
 void   p6_vdp1_frd_detach_all(void);
+void   p6_vdp1_frd_set_store(int shtSlot, int frdSlot);
+void   p6_vdp1_frd_clear_store(void);
+int32  SaturnSheet_SlotCount(void);
+void   SaturnSheet_SlotHashCopy(int32 slot, uint32 *out);
 }
 #endif // P6_FRAMEDIR (declarations)
 
@@ -8160,15 +8164,28 @@ static void p6_frontend_frame(void)
                         // ResReset killed the cutscene leg's blobs.
                         SaturnFrameDir_Reset();
                         p6_vdp1_frd_detach_all();
+                        p6_vdp1_frd_clear_store(); // #328: drop stale store->FRD map
                         static const char *ghzFrdFiles[9] = {
                             "SONIC1.FRD", "SONIC2.FRD", "SONIC3.FRD",
                             "ITEMS.FRD",  "DISPLAY.FRD", "SHIELDS.FRD",
                             "TAILS1.FRD", "GLOBJ.FRD",  "GHZOBJ.FRD"
                         };
                         int32 frdOk[9];
-                        for (int32 fi = 0; fi < 9; ++fi)
+                        for (int32 fi = 0; fi < 9; ++fi) {
                             frdOk[fi] = p6_frd_stage_file(ghzFrdFiles[fi],
                                                           ghzShtPaths[fi]);
+                            // DRAW-WALL FIX (task #328): route the FRD dispatch by
+                            // SaturnSheet STORE slot (dup-handle safe) -- see p6_vdp1.c
+                            // s_frdByStore. The Player draws Sonic1/Tails1 through a VDP1
+                            // handle whose per-handle frdSlot stays -1 (a duplicate handle
+                            // bound in the AIZ/cutscene leg the #321 reuse leaves un-
+                            // attached), so the miss re-inflated the band every frame
+                            // (MEASURED p6_w_sht_fetches ~8/frame = the ~7 fps chain draw
+                            // wall). Keying the dispatch by the STABLE store slot serves
+                            // the pre-cut FRD pattern regardless of which handle draws.
+                            if (frdOk[fi] >= 0 && ghzGslot[fi] >= 0)
+                                p6_vdp1_frd_set_store(ghzGslot[fi], frdOk[fi]);
+                        }
                         static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
                         for (int32 pi = 0; pi < 8; ++pi) {
                             int32 gs = ghzGslot[promoteOrder[pi]];
@@ -8207,6 +8224,14 @@ static void p6_frontend_frame(void)
                         p6_w_objapk_bytes = on;
                 }
                 p6_scene_load_and_arm(); // load+arm the GHZ scene SetupGHZ1 selected
+#if defined(P6_FRAMEDIR)
+                // DRAW-WALL FIX (task #328): re-run the per-handle FRD attach AFTER the
+                // arm re-binds the scene surfaces. The store-slot dispatch (s_frdByStore,
+                // populated at FRD-staging above) is the primary route; this covers any
+                // resident (px!=0, shtSlot<0) sheet whose dispatch falls back to the
+                // per-handle frdSlot. Front-end-chain only -> plain GHZ byte-identical.
+                p6_frd_attach_bound();
+#endif
                 // F-LAND-SONIC (savestate-proven, _v4_land.mcs): Sonic's Create-time
                 // SetSpriteAnimation during the load storm read its anim entry as
                 // ALL-ONES (failed A-Bus cart read under concurrent CD/GFS traffic):
@@ -8431,6 +8456,30 @@ static void p6_frontend_frame(void)
                 p6_scan_index_build(); // no load-path build happened -- rebuild here (pre-#325 case)
             s_ghz_idx_built = 2;
         }
+#if defined(P6_FRAMEDIR)
+        // DRAW-WALL FIX (task #328, 2026-07-13, MEASURED): every GHZ frame, refresh the
+        // STORE-slot -> FRD-slot table (p6_vdp1.c s_frdByStore) for every live
+        // SaturnSheet store slot that has a staged frame directory. The FRD dispatch
+        // keys off this table (by the stable store slot), NOT the per-VDP1-handle
+        // frdSlot, so a sheet drawn through a duplicate/late-bound handle (the #321
+        // AIZ-reuse leaves the Player's Sonic1/Tails1 handles with frdSlot=-1) still
+        // serves from the pre-cut pattern instead of re-inflating the band every frame
+        // (MEASURED p6_w_sht_fetches drop). Idempotent + cheap (<=27 store slots x one
+        // FindSlot). Front-end-chain only -> plain GHZ byte-identical. Gate:
+        // tools/qa_chain_draw.py.
+        {
+            int32 nsheet = SaturnSheet_SlotCount();
+            for (int32 st = 0; st < nsheet; ++st) {
+                RETRO_HASH_MD5(shash);
+                SaturnSheet_SlotHashCopy(st, shash);
+                if (!shash[0] && !shash[1] && !shash[2] && !shash[3])
+                    continue;
+                int32 fds = SaturnFrameDir_FindSlot((const uint32 *)shash);
+                if (fds >= 0)
+                    p6_vdp1_frd_set_store(st, fds);
+            }
+        }
+#endif
 #if defined(P6_DDW_ARENA)
         // DDWrecker boss bring-up diagnostic (2026-07-11, milestone a/b/c): the boss
         // at (15792,1588) is camera-local DORMANT until the camera reaches it, and the

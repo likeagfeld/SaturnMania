@@ -383,6 +383,37 @@ void p6_vdp1_set_frd(int (*fn)(int, int, int, int, int, P6FrameInfo *))
 {
     s_frdFn = fn;
 }
+/* DRAW-WALL FIX (task #328, 2026-07-13): FRD slot indexed by SaturnSheet STORE slot
+ * (NOT the per-VDP1-handle frdSlot). ROOT CAUSE (MEASURED, tools/_disp_probe.py
+ * banded-case latch): the Player draws Sonic1/Tails1 through a VDP1 handle whose
+ * per-handle frdSlot is -1 (a duplicate handle from the AIZ/cutscene leg that the
+ * one-shot + per-frame handle-attach never covered -- the handle index differs
+ * from the recorded ghzGslot store slot due to the #321 AIZ-reuse). The banded
+ * FetchRect always fetches by STORE slot (s_sheets[sheet].shtSlot), which IS stable
+ * and correct (MEASURED store 11=Sonic1, 14=Tails1). So key the FRD dispatch by the
+ * store slot: any handle drawing a store slot that has a staged FRD serves from the
+ * pre-cut pattern, regardless of that handle's own frdSlot. io_main populates this
+ * table once per GHZ frame (p6_vdp1_frd_set_store). -1 = no FRD for that store slot.
+ * Chain flavor only (P6_FRAMEDIR) -> plain GHZ byte-identical. Gate: qa_chain_draw.py. */
+#define P6_FRD_STORE_MAX 32
+static int s_frdByStore[P6_FRD_STORE_MAX];
+static int s_frdByStore_init = 0;
+void p6_vdp1_frd_set_store(int shtSlot, int frdSlot)
+{
+    int i;
+    if (!s_frdByStore_init) {
+        for (i = 0; i < P6_FRD_STORE_MAX; ++i) s_frdByStore[i] = -1;
+        s_frdByStore_init = 1;
+    }
+    if (shtSlot >= 0 && shtSlot < P6_FRD_STORE_MAX)
+        s_frdByStore[shtSlot] = frdSlot;
+}
+void p6_vdp1_frd_clear_store(void)
+{
+    int i;
+    for (i = 0; i < P6_FRD_STORE_MAX; ++i) s_frdByStore[i] = -1;
+    s_frdByStore_init = 1;
+}
 #endif
 static struct {
     const unsigned char *px; /* resident surface pixels, or NULL if banded */
@@ -393,6 +424,20 @@ static struct {
 #endif
 } s_sheets[P6_VDP1_NSHEETS];
 static int s_sheet_count = 0;
+
+#if defined(P6_FRAMEDIR)
+/* DRAW-WALL FIX (task #328): effective FRD slot for a bound handle -- prefer the
+ * store-slot table (covers duplicate handles bound to the same store slot across
+ * legs), fall back to the per-handle frdSlot (resident px sheets have shtSlot<0). */
+static int p6_frd_slot_for_sheet(int sheet)
+{
+    int ss = s_sheets[sheet].shtSlot;
+    if (ss >= 0 && ss < P6_FRD_STORE_MAX && s_frdByStore_init
+        && s_frdByStore[ss] >= 0)
+        return s_frdByStore[ss];
+    return s_sheets[sheet].frdSlot;
+}
+#endif
 
 typedef struct {
     int sheet;        /* W12b: bind handle joins the cache key */
@@ -1454,6 +1499,7 @@ void p6_vdp1_frd_detach_all(void)
     for (i = 0; i < s_sheet_count; ++i)
         s_sheets[i].frdSlot = -1;
 }
+
 #endif
 
 #if defined(P6_FRONTEND_CHAIN)
@@ -1599,8 +1645,9 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
      * resident/banded sheet path on a directory miss (non-anim rect). */
     {
         P6FrameInfo fi;
-        if (s_sheets[sheet].frdSlot >= 0 && s_frdFn
-            && s_frdFn(s_sheets[sheet].frdSlot, sx, sy, w, h, &fi)
+        int _fslot = p6_frd_slot_for_sheet(sheet); /* store-slot table, dup-handle safe */
+        if (_fslot >= 0 && s_frdFn
+            && s_frdFn(_fslot, sx, sy, w, h, &fi)
             && fi.mode == 0) {
             srcPx     = fi.pattern;
             srcStride = fi.pw;
@@ -1782,14 +1829,18 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
      * aligned-u32 fast path packs the whole pattern. */
     {
         P6FrameInfo fi;
-        if (s_sheets[sheet].frdSlot >= 0 && s_frdFn
-            && s_frdFn(s_sheets[sheet].frdSlot, sx, sy, w, h, &fi)
-            && fi.mode == 0) {
-            srcPx     = fi.pattern;
-            srcStride = fi.pw;
-        }
-        else
+        int _frdret = 0;
+        int _fslot = p6_frd_slot_for_sheet(sheet); /* store-slot table, dup-handle safe */
+        if (_fslot >= 0 && s_frdFn) {
+            _frdret = s_frdFn(_fslot, sx, sy, w, h, &fi);
+            if (_frdret && fi.mode == 0) {
+                srcPx     = fi.pattern;
+                srcStride = fi.pw;
+            } else
+                fi.pattern = 0;
+        } else
             fi.pattern = 0;
+        (void)_frdret;
         if (fi.pattern) { /* staged from the FRD -- skip the sheet paths */ }
         else
 #endif

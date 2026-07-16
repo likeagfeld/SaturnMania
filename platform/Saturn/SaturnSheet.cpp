@@ -415,6 +415,21 @@ extern "C" void SaturnSheet_Dims(int32 slot, int32 *w, int32 *h)
     *h = s_sheets[slot].height;
 }
 
+#if defined(P6_FRAMEDIR)
+// DRAW-WALL FIX (task #328): the live SaturnSheet store-slot count + a full-hash
+// copy, so io_main can route the FRD dispatch by STORE slot for EVERY live store
+// slot that has a staged frame directory (the #321 AIZ-reuse leaves the Player's
+// sheet handles with a per-handle frdSlot=-1; keying by the stable store slot in
+// p6_vdp1.c s_frdByStore serves the pre-cut pattern regardless). Pure accessors.
+extern "C" int32 SaturnSheet_SlotCount(void) { return s_count; }
+extern "C" void  SaturnSheet_SlotHashCopy(int32 slot, uint32 *out)
+{
+    if (slot < 0 || slot >= s_count) { out[0] = out[1] = out[2] = out[3] = 0; return; }
+    out[0] = s_sheets[slot].hash[0]; out[1] = s_sheets[slot].hash[1];
+    out[2] = s_sheets[slot].hash[2]; out[3] = s_sheets[slot].hash[3];
+}
+#endif
+
 // Fetch the rect [sx, sx+w) x [sy, sy+h) into dst (w*h bytes, row-major).
 // Per intersecting band: copy the compressed stream VDP2 -> scratch low half
 // (16-bit reads), inflate into the scratch high half (WRAM->WRAM), copy the

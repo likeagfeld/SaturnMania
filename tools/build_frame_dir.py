@@ -116,10 +116,14 @@ def collect_rects():
     return by_sheet
 
 
-ALL8 = "--all8" in sys.argv  # stage-1 loader integration: emit every frame
-                             # 8bpp (the P6_FRAMEDIR hook serves mode 0 only
-                             # until the P6_FRAMEDIR_4BPP command plumbing
-                             # lands -- see the feature checklist)
+# DEFAULT-ON (task #328, 2026-07-13): the runtime FRD dispatch serves mode 0 (8bpp)
+# ONLY -- a 4bpp (mode 1) frame is FOUND by SaturnFrameDir_Lookup (so it does NOT count
+# as an frd_miss) but then REJECTED by the `fi.mode == 0` guard and silently falls back
+# to the slow banded FetchRect inflate. That was the chain-GHZ draw-wall's hidden half:
+# Tails1/Items/Display had 4bpp frames -> never served from FRD -> banded every frame.
+# Emitting every frame 8bpp makes ALL frames FRD-serveable. Pass --4bpp to opt back in
+# ONLY once the P6_FRAMEDIR_4BPP draw path is coded. Was: `"--all8" in sys.argv`.
+ALL8 = "--4bpp" not in sys.argv
 
 
 def build_one(rel, outname, rects):
