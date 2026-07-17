@@ -638,6 +638,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_engine_boot_and_run \
     -u _p6_lean_boot \
     ${P6_GHZ_AUTORUN:+-u _p6_w_plr_draws -u _p6_w_btch_calls -u _p6_w_btch_hits -u _p6_w_btch_lastdy -u _p6_w_btch_lastvy -u _p6_w_arun_brg_live -u _p6_w_arun_brg_active -u _p6_w_arun_brg_firstx -u _p6_w_arun_brg_gapmiss -u _p6_w_arun_inspan} \
+    ${P6_FRONTEND_MENU:+-u _p6_w_fxfade_timer -u _p6_w_fxfade_draws} \
     -u _p6_w_perf_vblanks -u _p6_w_perf_frames -u _p6_w_perf_vbl_max \
     -u _p6_w_perf_cyc_input -u _p6_w_perf_cyc_obj -u _p6_w_perf_cyc_draw \
     -u _p6_w_perf_cyc_present -u _p6_w_perf_cyc_total -u _p6_w_perf_cks \
