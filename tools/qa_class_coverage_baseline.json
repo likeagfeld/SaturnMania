@@ -8,17 +8,13 @@
     "Eggman",
     "ForceUnstick",
     "GHZ2Outro",
-    "Splats",
     "Water",
     "ZipLine"
   ],
-  "AIZ": [
-    "FXFade"
-  ],
+  "AIZ": [],
   "GHZCutscene": [
     "DERobot",
     "Eggman",
-    "FXFade",
     "FXTrail",
     "GHZ2Outro",
     "GHZCutsceneK"
