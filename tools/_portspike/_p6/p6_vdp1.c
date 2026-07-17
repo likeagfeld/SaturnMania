@@ -556,10 +556,38 @@ static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MA
  * 8*320 + 18*5,120 + 11*9,856 + 8*25,600 + 1*39,680 = 447,616 B <
  * JO_VDP1_USER_AREA_SIZE 466,232 (18,616 B margin). .bss +2 slots * 28 B =
  * +56 B (front-end flavors only; chain _end headroom ~38 KB). */
-#define P6_BK0 8
+/* Fix 2 (user-symptom-map-v2 R3, digits/ball/ring flashing -- RED-gated,
+ * tools/qa_vdp1_thrash.py): MEASURED at settled GHZ (live, 2026-07-17):
+ * p6_w_vdp1_evicts = 6.10/frame with dl_cmds_max = 43 sprites/frame while the
+ * FRD layer was CLEAN (239 lookups, 0 misses) -> the flashing is TINY-bucket
+ * LRU thrash: the alternating rects (HUD digits 9x14, placed ring 12x16,
+ * StarPost ball 16x16) ALL route to idx0 (16x20), whose 8 slots sat far under
+ * the settled-GHZ play demand. Demand enumerated from the ACTUAL bins
+ * (parse_spr, gate T1): 10 digit glyphs + lives 'x' + ring frame + 3 collect
+ * sparkles + 3 StarPost (bulb + star spins) + dust puff + 2 ScoreBonus = 21
+ * distinct concurrent tiny rects -> 26 slots (21 + 20% headroom; the old
+ * "climax fmax=6 -> 8" sizing was measured on the CUTSCENE leg, not settled
+ * GHZ play with full HUD + ring collection). An intra-frame slot reuse
+ * re-stages a live jid's VRAM mid-frame -> the M1b stale-CMDSIZE/content
+ * alternation the user sees as digit/ball/ring flashing.
+ * FUNDING: 160x160 idx3 8 -> 7 (-25,600 B) -- its measured fmax across the
+ * whole chain is 3 (#312 note: "b2 8 slots, measured fmax 3 -- headroom");
+ * worst modeled concurrent demand is the 5 GHZCut Heavies + 1 = 6 <= 7. The
+ * hot set (player frames idx1, HUD digits + ring idx0) needs no explicit pin:
+ * capacity now exceeds worst-case demand in BOTH buckets, so plain LRU keeps
+ * it resident (pinning would only mask a future demand growth the fmax
+ * witnesses + this gate exist to catch).
+ * VRAM (8bpp 1 B/px): 26*320 + 18*5,120 + 11*9,856 + 7*25,600 + 1*39,680 =
+ * 427,776 B < JO_VDP1_USER_AREA_SIZE 466,232 -> 38,456 B margin >= the
+ * 18,240 B data-driven reserve (TitleCard glyph cache worst 14,656 B, gate
+ * T3, + 3 lazy fill sprites 1,536 B + 2 KB safety). .bss: +18 -1 slots *
+ * 28 B = +476 B, FRONT-END FLAVORS ONLY (plain-GHZ has no buckets, byte-
+ * identical); chain headroom ~38 KB (#324 note) so no cart-window
+ * relocation needed -- qa_p6_mapoverlap guards _end < 0x060C8000 post-build. */
+#define P6_BK0 26            /* idx0 TINY 16x20 (was 8; settled-GHZ demand 21 + 20%) */
 #define P6_BK1 18
 #define P6_BKW 11            /* idx2 WIDE 176x56 (menu rows + title wide-flats) */
-#define P6_BK2 8
+#define P6_BK2 7             /* idx3 160x160 (was 8; measured fmax 3, modeled worst 6) */
 #define P6_GHZCUT_TINY_B1 1  /* idx0 box = 16x20 (see the P6_BUCK table below) */
 #elif defined(P6_FRONTEND_MENU)
 /* M1b STRIPED-ICON FIX (this session) -- MEASURED root cause + sizing.
