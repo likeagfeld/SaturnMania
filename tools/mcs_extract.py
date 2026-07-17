@@ -114,6 +114,14 @@ REGION_MAP = [
     # P6.6b (Task #209): SCSP sound RAM -- the audible-evidence region for
     # audio gates (qa_p6_scsp.py searches it for engine PCM sample windows).
     ("SCSP",  "RAM",           0x05A00000, 0x00080000),
+    # 2026-07-16 (digits-for-sparkles probe): the 4MB extended RAM cart,
+    # phys 0x02400000..0x027FFFFF (cache-through alias 0x224xxxxx..0x227xxxxx).
+    # Mednafen stores it as two 2MB banks CART_EXTRAM/LO + /HI. This is where
+    # the anim packs (P6_HW_ANIMPAK/OBJANIMPAK), sheet stores, and overlays
+    # live in front-end flavors -- pak-resolved SpriteFrame tables included.
+    # Byte order verified empirically against the ANM1 pack magic before use.
+    ("CART_EXTRAM", "LO",      0x02400000, 0x00200000),
+    ("CART_EXTRAM", "HI",      0x02600000, 0x00200000),
 ]
 
 # VDP1 individual register addresses (per ST-013-R3 SSregister map).
@@ -248,9 +256,11 @@ def _peek_bytes(sections: Dict, addr: int, nbytes: int) -> Optional[bytes]:
             # big-endian (Saturn-visible) order. Plain RAM (WorkRAM,
             # BackupRAM) is stored as raw bytes — no swap needed; the
             # SH-2 already wrote them in big-endian.
-            if section in ("VDP1", "VDP2") and var in (
+            if (section in ("VDP1", "VDP2") and var in (
                 "VRAM", "CRAM", "RawRegs", "&FB[0][0]"
-            ):
+            )) or section == "CART_EXTRAM":
+                # CART_EXTRAM: pair-swap VERIFIED 2026-07-16 (raw read of the
+                # ANM1 pack magic at 0x225A0000 returned "NA1M").
                 # Swap pairs around the requested range.
                 start_pair = off_in_region & ~1
                 # extract pair-aligned window large enough to cover request

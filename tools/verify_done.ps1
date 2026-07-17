@@ -3222,6 +3222,30 @@ if ($oracleRc -ne 0) {
 }
 W "  OK (parity oracle can't false-GREEN -- every detector has its ground truth)" Green
 
+# Gate V-CLASS: registered-vs-placed class coverage don't-regress (2026-07-16).
+# THE FAILURE THIS RETIRES: CollapsingPlatform ("ground break not occurring")
+# was simply never linked and no gate said so. Offline: diffs the decomp scene
+# manifest against the <Obj>_StageLoad symbols in game.map + ovl_ring.map.
+# GREEN = missing set is a subset of the acknowledged baseline
+# (tools/qa_class_coverage_baseline.json). RED = a class that used to link (or
+# was never in the backlog) is now missing == a real coverage regression.
+# After landing a port: python tools/qa_registered_vs_placed.py --write-baseline
+W ""
+W "Gate V-CLASS: class-coverage don't-regress (manifest vs linked StageLoads)..." Yellow
+$vclassOut = python (Join-Path $PSScriptRoot "qa_registered_vs_placed.py") --baseline 2>&1
+$vclassRc = $LASTEXITCODE
+$vclassOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN|NEWLY LINKED") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($vclassRc -ne 0) {
+    W "FAIL: Gate V-CLASS -- an object class stopped linking (or baseline missing)." Red
+    W "      A manifest class with no StageLoad in any map CANNOT exist at runtime." Red
+    exit 1
+}
+W "  OK (no object class silently dropped out of the build)" Green
+
 W ""
 W "=== ALL GATES PASS -- safe to claim done. ===" Green
 exit 0
