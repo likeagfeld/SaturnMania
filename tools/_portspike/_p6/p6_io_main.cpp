@@ -2129,6 +2129,13 @@ int  p6_vdp1_sheet_bind_banded(int shtSlot, int sheetWidth,
 void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy);
 void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
                           int flipX, int flipY);
+#if defined(P6_DIRECT_VDP1)
+// Fix 1 ("Sonic invisible on slopes"): rotated draw -- VDP1 DISTORTED SPRITE
+// (ST-013-R3 sec 7.6) through the same slot plumbing as blit_flipped. (x,y) is
+// the entity screen pos (NOT pos+pivot); sn/cs = Sin512/Cos512(rotation).
+void p6_vdp1_blit_rot(int sheet, int x, int y, int w, int h, int sx, int sy,
+                      int pivotX, int pivotY, int sn, int cs, int flipX);
+#endif
 #if defined(P6_FRONTEND_TITLE)
 // CP5b.4 (Task #272): set/clear VDP1 half-transparency (CL_Trans) for INK_BLEND/
 // INK_ADD title sprites. Defined in p6_vdp1.c (jo-side). Title flavor only.
@@ -2714,8 +2721,62 @@ void DrawSprite(Animator *animator, Vector2 *position, bool32 screenRelative)
                 break;
 
             default:
-                // FIXME P6.5b4+: FX_ROTATE (resolved rotation != 0) via VDP1
-                // scaled/distorted parts (ST-013-R3 sec 6); FX_SCALE same.
+#if defined(P6_DIRECT_VDP1)
+                // Fix 1 (user-symptom-map-v2 "Sonic invisible on slopes/ramps"):
+                // FX_ROTATE and FX_ROTATE|FX_FLIP with resolved rotation != 0
+                // (ROTSTYLE_FULL slope draws; also the snapped 45/90/180/
+                // STATICFRAMES styles). Mirrors Drawing.cpp:2815-2823 --
+                // DrawSpriteRotozoom(pos, pivot, ..., 0x200, 0x200,
+                // direction & FLIP_X, rotation, ...) at identity scale -- onto
+                // the VDP1 DISTORTED SPRITE emit (ST-013-R3 sec 7.6) via
+                // p6_vdp1_blit_rot. FX_SCALE combos stay undrawn (FIXME Phase Z:
+                // needs the scaled-part path; no GHZ-chain object draws scaled
+                // yet -- Drawing.cpp:2826-2848).
+                if (!(drawFX & FX_SCALE)) {
+                    // Decomp masks direction to FLIP_X for rotated draws
+                    // (Drawing.cpp:2822); plain FX_ROTATE draws unflipped (:2817).
+                    int32 rotFlipX = (drawFX & FX_FLIP)
+                                     ? (sceneInfo.entity->direction & FLIP_X) : 0;
+                    int32 sn = Sin512(rotation);  // Math.hpp:72 (baked P6.1-fast tables)
+                    int32 cs = Cos512(rotation);  // Math.hpp:73
+                    // Conservative clip-accept: the rotated quad's corner radius
+                    // from pos is bounded by max|dx| + max|dy| (|cos|,|sin| <= 512
+                    // and |dx*cos - dy*sin| <= 512*(|dx|+|dy|), >>9). Mirrors the
+                    // DrawSpriteFlipped clip-reject (Drawing.cpp:2882-2905) so a
+                    // fully-off entity still skips validDraw; VDP1 pre-clipping
+                    // (ST-013-R3 sec 7.6) trims any partial overlap.
+                    int32 ax1 = frame->pivotX, ax2 = frame->pivotX + frame->width;
+                    int32 ay1 = frame->pivotY, ay2 = frame->pivotY + frame->height;
+                    int32 rad = ((ax1 < 0 ? -ax1 : ax1) > (ax2 < 0 ? -ax2 : ax2)
+                                     ? (ax1 < 0 ? -ax1 : ax1) : (ax2 < 0 ? -ax2 : ax2))
+                              + ((ay1 < 0 ? -ay1 : ay1) > (ay2 < 0 ? -ay2 : ay2)
+                                     ? (ay1 < 0 ? -ay1 : ay1) : (ay2 < 0 ? -ay2 : ay2));
+                    if (pos.x + rad <= currentScreen->clipBound_X1
+                        || pos.x - rad >= currentScreen->clipBound_X2
+                        || pos.y + rad <= currentScreen->clipBound_Y1
+                        || pos.y - rad >= currentScreen->clipBound_Y2)
+                        break;
+#if defined(P6_GHZCUT_BOOT)
+                    // #311 mech-6 twin: an unstaged sheet's sheetID -1 wraps the
+                    // uint8 to 255 -> OOB handle read (see p6_draw_flipped).
+                    if (frame->sheetID >= SURFACE_COUNT) {
+                        ++p6_w_draw_wrap255;
+                        break;
+                    }
+#endif
+                    validDraw = true;
+                    p6_vdp1_blit_rot(p6_vdp1HandlesInit
+                                         ? p6_vdp1HandleBySurface[frame->sheetID] : -1,
+                                     pos.x, pos.y, frame->width, frame->height,
+                                     frame->sprX, frame->sprY,
+                                     frame->pivotX, frame->pivotY, sn, cs, rotFlipX);
+                }
+#else
+                // FIXME P6.5b4+ (non-direct SGL flavors only -- plain-GHZ QA
+                // parity build stays byte-identical): FX_ROTATE via VDP1
+                // distorted parts lands with P6_DIRECT_VDP1 (the shipping
+                // chain, build_shipping.sh:172); FX_SCALE same.
+#endif
                 break;
         }
     }

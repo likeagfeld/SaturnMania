@@ -1071,6 +1071,72 @@ static void p6_dl_sprite(int jid, int x, int y, int flipX, int flipY, int palblk
     ++s_dl_n;
 }
 
+/* Fix 1 (user-symptom-map-v2: "Sonic invisible on slopes") -- ROTATED sprite
+ * emit: a VDP1 DISTORTED SPRITE command (CMDCTRL Comm=0010B = 0x0002,
+ * ST-013-R3 sec 7.6 pp.124-125). The character pattern is sampled across the
+ * arbitrary quad A..D: A=upper-left, B=upper-right, C=lower-right,
+ * D=lower-left (doc-verbatim vertex order). Same PMOD/COLR/SRCA/SIZE as
+ * p6_dl_sprite -- the content-size restage already maintains the exact TEXDEF,
+ * so the quad just places the four PIVOT-RELATIVE corners of the content rect
+ * rotated by the RSDK angle around the entity position.
+ *
+ * ROTATION MATH (decomp DrawSpriteRotozoom at identity scale 0x200,
+ * Drawing.cpp:3515-3588): the software rasterizer maps screen->texture with
+ * angle = 0x200 - rotation (:3541), i.e. the FORWARD corner transform is the
+ * plain clockwise (y-down) rotation by `rotation`:
+ *     dx' = (dx*cos - dy*sin) >> 9      (Sin512/Cos512 are <<9 fixed point)
+ *     dy' = (dx*sin + dy*cos) >> 9
+ * (derived: posX[0] = x + (cos(-r)*px + sin(-r)*py)>>9 = x + (px*cos r -
+ * py*sin r)>>9, Drawing.cpp:3564-3571.) sn/cs arrive AS VALUES from the C++
+ * caller (p6_io_main.cpp computes RSDK::Sin512/Cos512(rotation), Math.hpp:72-73
+ * over the baked P6.1-fast tables, map symbol RSDK::sin512LookupTable) because
+ * this C TU cannot name the C++-mangled table without a brittle asm alias.
+ *
+ * FLIP_X (decomp FX_ROTATE|FX_FLIP arm, Drawing.cpp:2820-2823, direction
+ * masked to FLIP_X only) mirrors the pivot-relative X extents BEFORE rotation
+ * (Drawing.cpp:3575-3583: extents become [-pivotX-width, -pivotX]) and sets
+ * the VDP1 Dir HF read-direction bit (CMDCTRL bit4). Doc sec 7.6: "inversion
+ * ... by the specification of the read direction" -- with HF the character
+ * columns read reversed inside the quad, so the mult-8 pad columns (content
+ * width padded to pw) mirror to the quad's LEFT edge and the CONTENT lands
+ * exactly on [-pivotX-w, -pivotX], matching the RSDK formula; hence the quad
+ * spans [dxl, dxl+pw] with dxl = -pivotX - pw.
+ *
+ * Clipping: no p6_box_in_stride cull here -- the distorted command is bounded
+ * by the preamble's system-clip command + VDP1 pre-clipping (sec 7.6 "Set
+ * pre-clipping ... in consideration of the clipping area"), and slope draws
+ * are on-screen gameplay sprites. ph is the content height (no pad). */
+static void p6_dl_sprite_rot(int jid, int x, int y, int pw, int ph,
+                             int pivotX, int pivotY, int sn, int cs,
+                             int flipX, int palblk)
+{
+    volatile unsigned short *p;
+    int dxl, dxr, dyt, dyb;
+    if (s_dl_n >= P6_DL_MAX) { ++p6_w_dl_drops; return; }
+    p = p6_dl_next();
+    dxl = flipX ? (-pivotX - pw) : pivotX;   /* mirror X extents BEFORE rot */
+    dxr = dxl + pw;
+    dyt = pivotY;
+    dyb = pivotY + ph;
+    p[0]  = (unsigned short)(0x0002u | (flipX ? 0x0010u : 0)); /* Comm=2 + Dir HF */
+    p[1]  = 0;                                                 /* CMDLINK (JP=next) */
+    p[2]  = (unsigned short)(0x00A0u | (s_dl_ink ? 0x0003u : 0)); /* PMOD (== p6_dl_sprite) */
+    p[3]  = (unsigned short)(palblk << 8);                     /* CMDCOLR = bank */
+    p[4]  = __jo_sprite_def[jid].adr;                          /* CMDSRCA */
+    p[5]  = __jo_sprite_def[jid].size;                         /* CMDSIZE */
+    /* Vertices A..D (sec 7.6 order: UL, UR, LR, LL), localcoord origin (160,120). */
+    p[6]  = (unsigned short)(short)(x - 160 + ((dxl * cs - dyt * sn) >> 9)); /* XA */
+    p[7]  = (unsigned short)(short)(y - 120 + ((dxl * sn + dyt * cs) >> 9)); /* YA */
+    p[8]  = (unsigned short)(short)(x - 160 + ((dxr * cs - dyt * sn) >> 9)); /* XB */
+    p[9]  = (unsigned short)(short)(y - 120 + ((dxr * sn + dyt * cs) >> 9)); /* YB */
+    p[10] = (unsigned short)(short)(x - 160 + ((dxr * cs - dyb * sn) >> 9)); /* XC */
+    p[11] = (unsigned short)(short)(y - 120 + ((dxr * sn + dyb * cs) >> 9)); /* YC */
+    p[12] = (unsigned short)(short)(x - 160 + ((dxl * cs - dyb * sn) >> 9)); /* XD */
+    p[13] = (unsigned short)(short)(y - 120 + ((dxl * sn + dyb * cs) >> 9)); /* YD */
+    p[14] = 0;                                                 /* CMDGRDA unused */
+    ++s_dl_n;
+}
+
 static void p6_dl_poly(unsigned short rgb555, int x0, int y0, int x1, int y1,
                        int x2, int y2, int x3, int y3, int half)
 {
@@ -2362,3 +2428,60 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
 #endif
     }
 }
+
+#if defined(P6_DIRECT_VDP1)
+/* Fix 1 (user-symptom-map-v2 "Sonic invisible on slopes/ramps"): the ROTATED
+ * draw entry the DrawSprite FX_ROTATE arms call (p6_io_main.cpp default: arm,
+ * resolved rotation != 0 -- ROTSTYLE_FULL slope draws, plus the 90-degree-step
+ * STATICFRAMES/45DEG/90DEG/180DEG styles). Same slot/texture plumbing as
+ * p6_vdp1_blit_flipped (handle check -> p6_slot_for LRU fetch/stage ->
+ * witnesses); the ONLY difference is the emitted command: a DISTORTED SPRITE
+ * (ST-013-R3 sec 7.6) via p6_dl_sprite_rot instead of the axis-aligned normal
+ * sprite. (x,y) is the RSDK entity screen position (pos, NOT pos+pivot --
+ * Drawing.cpp:2815-2823 passes pos and the pivot separately to
+ * DrawSpriteRotozoom); sn/cs = RSDK::Sin512/Cos512(rotation) computed by the
+ * C++ caller (see p6_dl_sprite_rot's citation block). flipX = direction &
+ * FLIP_X (decomp masks FLIP_Y off for rotated draws, Drawing.cpp:2822).
+ * s_last_box_w/h after p6_slot_for hold the CONTENT (mult-8 padded w, h) in
+ * the P6_FRONTEND_TITLE bucket flavor -- the pw/ph the quad spans. No
+ * p6_box_in_stride cull (see the emit's clipping note). DIRECT-list flavors
+ * only: the non-direct SGL path has no distorted-part emitter, so plain-GHZ
+ * (no P6_DIRECT_VDP1) keeps its byte-identical dispatch (flag-parity rule);
+ * the shipping chain build always runs P6_DIRECT_VDP1 (build_shipping.sh:172). */
+void p6_vdp1_blit_rot(int sheet, int x, int y, int w, int h, int sx, int sy,
+                      int pivotX, int pivotY, int sn, int cs, int flipX)
+{
+    int jid;
+
+    if (sheet < 0 || sheet >= s_sheet_count) {
+        ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
+        p6_w_vdp1_lastdrop_h = sheet;
+        return;
+    }
+    jid = p6_slot_for(sheet, sx, sy, w, h);
+    if (jid < 0)
+        return;
+    ++p6_w_vdp1_landed;
+    ++p6_w_vdp1_cmds; p6_w_vdp1_boxpx += s_last_box_w * s_last_box_h;
+    p6_w_vdp1_contentpx += w * h;
+    if (w > p6_w_vdp1_maxw) p6_w_vdp1_maxw = w;
+    if (h > p6_w_vdp1_maxh) p6_w_vdp1_maxh = h;
+    {
+        int palblk;
+#if defined(P6_GHZCUT_BOOT)
+        /* #2a SURFACE-DRIVEN player palette (rotated player draws are the
+         * dominant caller): the PLROBJ sheet routes to block 7. */
+        if (sheet == p6_plr_sheet_slot && p6_plr_sheet_slot >= 0) {
+            palblk = P6_BLIT_PLAYER_PALBLOCK;
+            ++p6_w_plr_cut_landed;
+        } else {
+            palblk = P6_BLIT_PALBLOCK;
+        }
+#else
+        palblk = P6_BLIT_PALBLOCK;
+#endif
+        p6_dl_sprite_rot(jid, x, y, s_last_box_w, s_last_box_h,
+                         pivotX, pivotY, sn, cs, flipX, palblk);
+    }
+}
+#endif /* P6_DIRECT_VDP1 */
