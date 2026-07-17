@@ -895,6 +895,8 @@ __attribute__((used)) int32 p6_w_shield_aniframes     = -2; // Shield->aniFrames
 __attribute__((used)) int32 p6_w_boundsmarker_classid = 0;  // BoundsMarker->classID (22 camera/death-bound markers; 0=unregistered -> camera+death bounds wrong)
 __attribute__((used)) int32 p6_w_breakwall_classid = 0;     // BreakableWall->classID (23 breakable walls/floors; 0=unregistered)
 __attribute__((used)) int32 p6_w_cplat_classid     = 0;     // CollapsingPlatform->classID (15 GHZ1 collapsing ledges; 0=unregistered -> ground never breaks)
+__attribute__((used)) int32 p6_w_splats_classid    = 0;     // Splats->classID (GHZ manifest badnik; 0 authored GHZ1/GHZ2 placements -- manifest/DebugMode closure; 0=unregistered)
+__attribute__((used)) int32 p6_w_splats_aniframes  = -2;    // Splats->aniFrames (GHZ/Splats.bin, sheet GHZ/Objects.gif=GHZOBJ.SHT; -1=load failed)
 __attribute__((used)) int32 p6_w_platform_classid   = 0;  // Platform->classID (Batch 3 step 2)
 __attribute__((used)) int32 p6_w_platform_aniframes = -2; // Platform->aniFrames (GHZ/Platform.bin)
 __attribute__((used)) int32 p6_w_invblock_classid   = 0;  // InvisibleBlock->classID (Batch 3 step 3)

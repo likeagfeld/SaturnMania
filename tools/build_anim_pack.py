@@ -110,6 +110,12 @@ OBJ_BINS = [
     "GHZ/Crabmeat.bin",
     "GHZ/Newtron.bin",
     "GHZ/BuzzBomber.bin",
+    # Splats port (2026-07-17): Splats_StageLoad LoadSpriteAnimation("GHZ/Splats.bin")
+    # on the GHZ folder (Splats.c:85). 1 anim "Bounce", 2 frames, sheet
+    # "GHZ/Objects.gif" == GHZOBJ.SHT (already staged) -- no new .SHT. ~90 B,
+    # trivial vs OBJ_CAP. 0 authored placements in GHZ1/GHZ2 (manifest/DebugMode
+    # closure) but the StageLoad load must fast-path like the other 6 badniks.
+    "GHZ/Splats.bin",
     # DDWrecker GHZ1 boss (2026-07-11): DDWrecker_StageLoad LoadSpriteAnimation(
     # "GHZ/DDWrecker.bin") -- 52 frames across 3 sheets (GHZ/Ball.gif,
     # GHZ/Objects.gif[=GHZOBJ.SHT already staged], GHZ/DDWrecker.gif). Packing the

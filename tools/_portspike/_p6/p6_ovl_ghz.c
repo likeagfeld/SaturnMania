@@ -127,6 +127,19 @@ extern ObjectBuzzBomber *BuzzBomber;
 extern ObjectChopper *Chopper;
 extern ObjectMotobug *Motobug;
 extern ObjectBatbrain *Batbrain;
+/* Splats (2026-07-17): the GHZ-manifest ink badnik (stage_config objects list;
+ * qa_registered_vs_placed RED row "MISSING: Splats"). VERBATIM decomp GHZ/Splats.c
+ * -- the GHZ arm only (Splats_StageLoad CheckSceneFolder("GHZ") -> GHZ/Splats.bin,
+ * initialState = Splats_State_BounceAround, Splats.c:84-87); the PSZ1 ink-jar arm
+ * compiles but is folder-dead here. ZERO authored placements in GHZ Scene1/Scene2
+ * (MEASURED, tools/_parse_ghz_scene.py both acts: "Splats 0 entities") -- the class
+ * exists for manifest closure + DEBUGMODE_ADD_OBJ spawns, same runtime shape as
+ * the other 6 badniks. Entity 172 B <= 344 narrow stride (2 Animators @24B; no
+ * Saturn shrink needed). Closure: Player_CheckBadnikTouch/Break +
+ * Player_CheckCollisionBox/Touch (pack via -R, all -u rooted for the badnik set),
+ * Zone/DebugMode (pack). Sfx PSZ/SplatsSpawn.wav + PSZ/SplatsLand.wav: GetSfx -1
+ * => PlaySfx no-op if unstaged (the BreakableWall LedgeBreak.wav declared gap). */
+extern ObjectSplats *Splats;
 #if defined(P6_DDWRECKER)
 /* GHZ1 boss (2026-07-11). Overlay-resident (Game_DDWrecker.o in this link when
  * P6_DDWRECKER). Its defeat fires the natural end-of-act signpost drop->spin.
@@ -381,6 +394,7 @@ extern int32 p6_w_shield_classid, p6_w_shield_aniframes;
 extern int32 p6_w_boundsmarker_classid;
 extern int32 p6_w_breakwall_classid;
 extern int32 p6_w_cplat_classid;
+extern int32 p6_w_splats_classid, p6_w_splats_aniframes;
 extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
 extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
@@ -922,6 +936,12 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityBatbrain), (unsigned)sizeof(ObjectBatbrain),
                               Batbrain_Update, Batbrain_LateUpdate, Batbrain_StaticUpdate,
                               Batbrain_Draw, Batbrain_Create, Batbrain_StageLoad, Batbrain_Serialize);
+    /* Splats (2026-07-17): the 7th GHZ badnik -- manifest closure (0 authored
+     * placements in either act; DebugMode-spawnable). Entity 172 B fits narrow. */
+    api->register_object_full((void **)&Splats, "Splats",
+                              (unsigned)sizeof(EntitySplats), (unsigned)sizeof(ObjectSplats),
+                              Splats_Update, Splats_LateUpdate, Splats_StaticUpdate,
+                              Splats_Draw, Splats_Create, Splats_StageLoad, Splats_Serialize);
 #if defined(P6_DDWRECKER)
     /* GHZ1 BOSS (2026-07-11): the placed DDWrecker at (15792,1588) whose defeat
      * fires DDWrecker_State_SpawnSignpost -> the natural signpost drop->spin.
@@ -1969,6 +1989,12 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     /* CollapsingPlatform (2026-07-16): classid>0 == registered + StageLoad ran (the
      * 15 GHZ1 collapsing ledges spawn -> ground break works). */
     if (CollapsingPlatform && CollapsingPlatform->classID) p6_w_cplat_classid = (int32)CollapsingPlatform->classID;
+    /* Splats (2026-07-17): classid>0 == registered + StageLoad ran; aniframes>=0 ==
+     * GHZ/Splats.bin resolved (GHZOBJ.PAK fast path; sheet GHZOBJ.SHT staged). */
+    if (Splats && Splats->classID) {
+        p6_w_splats_classid   = (int32)Splats->classID;
+        p6_w_splats_aniframes = (int32)(int16)Splats->aniFrames;
+    }
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
     /* Batch 3 step 2: full Platform (R22/R23). */
     if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;
