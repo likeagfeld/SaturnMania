@@ -315,7 +315,7 @@ $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     Game_BadnikHelpers.o Game_Explosion.o Game_Animals.o \
     Game_Newtron.o Game_Crabmeat.o Game_BuzzBomber.o Game_Chopper.o Game_Motobug.o Game_Batbrain.o \
     Game_ItemBox.o Game_Debris.o Game_InvincibleStars.o Game_Platform.o Game_InvisibleBlock.o \
-    Game_BreakableWall.o \
+    Game_BreakableWall.o Game_CollapsingPlatform.o \
     $OVL_FE \
     -b coff-sh -R /work/game.elf -o ovl_ring.elf
 $OBJCOPY -O binary "$P6/ovl_ring.elf" /work/cd/OVLRING.BIN

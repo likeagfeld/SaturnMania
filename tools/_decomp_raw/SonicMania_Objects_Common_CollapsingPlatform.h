@@ -38,7 +38,21 @@ struct EntityCollapsingPlatform {
     bool32 mightyOnly;
     int32 unused1;
     int32 collapseDelay;
+#if defined(SATURN_GLOBALS_RETARGET)
+    // CollapsingPlatform port (2026-07-16): storedTiles[256] (512 B) makes
+    // sizeof(EntityCollapsingPlatform) ~656 B -- scene placements live in NARROW
+    // 344 B slots (Object.hpp:88/114) and even a clamped array cannot cover the
+    // MEASURED whole-game ceiling (176 tiles GHZ2 slot 45; 121 in GHZ1 slot 828;
+    // tools/_cplat_census.py) inside the 200 B budget. The Saturn .c reads the
+    // tiles LIVE via RSDK.GetTile in State_Left/Right/Center instead (exact for
+    // every shipped placement: BreakableWall_State_FallingTile removes tiles only
+    // after timer>=3 frames, and all GHZ placements are respawn=false). Precedent:
+    // CutsceneHBH colors[128]->[1] (census Cutscene/CutsceneHBH.h). Entity 148 B
+    // (compile-measured) <= 344.
+    uint16 storedTiles[1];
+#else
     uint16 storedTiles[256];
+#endif
     Hitbox hitboxTrigger;
     Vector2 stoodPos;
 };

@@ -441,6 +441,20 @@ extern "C" void SaturnLayout_SetTile(int32 slot, int32 tx, int32 ty, uint16 tile
         if (SaturnLayout_WindowHas(W, tx, ty))
             W->win[(uint32)(ty - W->wy) * SATURNLAYOUT_WIN_COLS + (uint32)(tx - W->wx)] = raw;
     }
+    // (c) CollapsingPlatform port (2026-07-16): invalidate the VDP2 FG static-map
+    // cache so the mutation is VISIBLE immediately. The present rebuilds only on
+    // `p6_vdp2_present_dirty || camera-tile crossing` (p6_vdp2.c:2023) -- without
+    // this, a crumble/wall-break under a STANDING player keeps drawing the removed
+    // tiles until the camera crosses a 16-px boundary (the declared "ghost" gap
+    // above). Cost = one map rebuild on a mutation frame, the same work already
+    // paid on every camera tile crossing. p6_vdp2.o and SaturnLayout.o are both
+    // unconditional pack members (build_p6scene_objs.sh) -> the extern always links.
+    {
+        extern int p6_vdp2_present_dirty; // p6_vdp2.c:1284 (C TU; this file is
+                                          // compiled with -fno-rtti C++ but the
+                                          // symbol is extern "C"-plain either way)
+        p6_vdp2_present_dirty = 1;
+    }
 }
 
 // #237 DIAGNOSTIC (cheap): which layer is a slot CURRENTLY bound to? The GHZ2

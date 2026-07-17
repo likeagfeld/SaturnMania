@@ -140,6 +140,16 @@ void CollapsingPlatform_Create(void *data)
         int32 xOff          = (self->position.x >> 20) - (self->size.x >> 21);
         int32 yOff          = (self->position.y >> 20) - (self->size.y >> 21);
 
+#if defined(SATURN_GLOBALS_RETARGET)
+        // Saturn (2026-07-16): storedTiles is shrunk to [1] (the 512 B array breaks
+        // the 344 B narrow pool stride -- see Common/CollapsingPlatform.h). Writing
+        // the store loop would corrupt the adjacent slot, and the crumble states
+        // below read the tiles LIVE via RSDK.GetTile instead (exact: the layer is
+        // untouched between Create and the crumble loop; BreakableWall's dynamic
+        // tiles SetTile(-1) only after timer>=3 frames, BreakableWall.c:160-175).
+        (void)xOff;
+        (void)yOff;
+#else
         if ((self->size.y & 0xFFF00000) && !(self->size.y & 0xFFF00000 & 0x80000000)) {
             int32 sx = self->size.x >> 20;
             int32 sy = self->size.y >> 20;
@@ -149,6 +159,7 @@ void CollapsingPlatform_Create(void *data)
                 }
             }
         }
+#endif
 
         self->hitboxTrigger.left   = -(self->size.x >> 17);
         self->hitboxTrigger.top    = -16 - (self->size.y >> 17);
@@ -200,7 +211,13 @@ void CollapsingPlatform_State_Left(void)
         for (int32 x = 0; x < sx; ++x) {
             EntityBreakableWall *tile = CREATE_ENTITY(BreakableWall, INT_TO_VOID(BREAKWALL_TILE_DYNAMIC), tx, ty);
             tile->targetLayer         = self->targetLayer;
+#if defined(SATURN_GLOBALS_RETARGET)
+            // Saturn (2026-07-16): live tile read replaces the Create-time store
+            // (storedTiles[256] does not fit the 344 B narrow slot -- header note).
+            tile->tileInfo            = RSDK.GetTile(self->targetLayer, x + startTX, y + startTY);
+#else
             tile->tileInfo            = *tiles;
+#endif
             tile->drawGroup           = self->drawGroup;
             tile->tilePos.x           = x + startTX;
             tile->tilePos.y           = y + startTY;
@@ -235,7 +252,13 @@ void CollapsingPlatform_State_Right(void)
         for (int32 x = 0; x < sx; ++x) {
             EntityBreakableWall *tile = CREATE_ENTITY(BreakableWall, INT_TO_VOID(BREAKWALL_TILE_DYNAMIC), tx, ty);
             tile->targetLayer         = self->targetLayer;
+#if defined(SATURN_GLOBALS_RETARGET)
+            // Saturn (2026-07-16): live tile read replaces the Create-time store
+            // (storedTiles[256] does not fit the 344 B narrow slot -- header note).
+            tile->tileInfo            = RSDK.GetTile(self->targetLayer, x + startTX, y + startTY);
+#else
             tile->tileInfo            = *tiles;
+#endif
             tile->drawGroup           = self->drawGroup;
             tile->tilePos.x           = x + startTX;
             tile->tilePos.y           = y + startTY;
@@ -271,7 +294,13 @@ void CollapsingPlatform_State_Center(void)
         for (int32 x = 0; x < sx; ++x) {
             EntityBreakableWall *tile = CREATE_ENTITY(BreakableWall, INT_TO_VOID(BREAKWALL_TILE_DYNAMIC), tx, ty);
             tile->targetLayer         = self->targetLayer;
+#if defined(SATURN_GLOBALS_RETARGET)
+            // Saturn (2026-07-16): live tile read replaces the Create-time store
+            // (storedTiles[256] does not fit the 344 B narrow slot -- header note).
+            tile->tileInfo            = RSDK.GetTile(self->targetLayer, x + startTX, y + startTY);
+#else
             tile->tileInfo            = *tiles;
+#endif
             tile->drawGroup           = self->drawGroup;
             tile->tilePos.x           = x + startTX;
             tile->tilePos.y           = y + startTY;

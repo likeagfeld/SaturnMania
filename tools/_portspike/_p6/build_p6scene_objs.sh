@@ -420,6 +420,7 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           Global_InvincibleStars:Game_InvincibleStars \
           Common_Platform:Game_Platform \
           Common_BreakableWall:Game_BreakableWall \
+          Common_CollapsingPlatform:Game_CollapsingPlatform \
           Global_InvisibleBlock:Game_InvisibleBlock \
           GHZ_DDWrecker:Game_DDWrecker; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
@@ -747,6 +748,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_shield_classid -u _p6_w_shield_aniframes \
     -u _p6_w_boundsmarker_classid \
     -u _p6_w_breakwall_classid \
+    -u _p6_w_cplat_classid \
     -u _p6_w_pdiag_posx -u _p6_w_pdiag_gvel -u _p6_w_pdiag_velx -u _p6_w_pdiag_gnd \
     -u _p6_w_pdiag_plane -u _p6_w_pdiag_mode -u _p6_w_pdiag_dir -u _p6_w_pdiag_ang \
     -u _HangPoint -u _PlatformNode -u _PlatformControl -u _TurboTurtle \

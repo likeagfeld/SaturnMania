@@ -108,6 +108,19 @@ extern ObjectBoundsMarker *BoundsMarker;
  * debris fragments use RSDK.DrawTile (Saturn no-op until the S4 tile-fragment piece) -> the
  * wall breaks + becomes passable, fragments just don't render yet. */
 extern ObjectBreakableWall *BreakableWall;
+/* CollapsingPlatform (2026-07-16): the 15 placed collapsing ledges in GHZ1 (user
+ * symptom "ground break is not occurring when standing on it" -- the class was never
+ * linked/registered, qa_registered_vs_placed RED). Overlay-resident
+ * (Game_CollapsingPlatform.o, this link -- it CREATE_ENTITYs the overlay's
+ * BreakableWall dynamic tiles, decomp CollapsingPlatform.c:201/236/272, which do the
+ * staggered SetTile(-1) removal + falling debris). SATURN DELTA (header note,
+ * Common/CollapsingPlatform.h): storedTiles[256] shrunk to [1] (512 B breaks the
+ * 344 B narrow scene stride; measured whole-game ceiling 176 tiles) -- the crumble
+ * states live-read RSDK.GetTile instead, exact for every shipped placement.
+ * StageLoad loads Global/TicMark.bin (already in GHZOBJ.PAK via BreakableWall,
+ * debug-only visual) + Stage/LedgeBreak.wav (GetSfx -1 => PlaySfx no-op if
+ * unstaged, same gap as BreakableWall). */
+extern ObjectCollapsingPlatform *CollapsingPlatform;
 extern ObjectNewtron *Newtron;
 extern ObjectCrabmeat *Crabmeat;
 extern ObjectBuzzBomber *BuzzBomber;
@@ -367,6 +380,7 @@ extern int32 p6_w_dust_classid, p6_w_dust_aniframes;
 extern int32 p6_w_shield_classid, p6_w_shield_aniframes;
 extern int32 p6_w_boundsmarker_classid;
 extern int32 p6_w_breakwall_classid;
+extern int32 p6_w_cplat_classid;
 extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
 extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
@@ -878,6 +892,12 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityBreakableWall), (unsigned)sizeof(ObjectBreakableWall),
                               BreakableWall_Update, BreakableWall_LateUpdate, BreakableWall_StaticUpdate,
                               BreakableWall_Draw, BreakableWall_Create, BreakableWall_StageLoad, BreakableWall_Serialize);
+    /* CollapsingPlatform (2026-07-16): 15 collapsing ledges in GHZ1. Entity ~148 B
+     * (storedTiles Saturn-shrunk, live GetTile crumble) fits the 344 narrow stride. */
+    api->register_object_full((void **)&CollapsingPlatform, "CollapsingPlatform",
+                              (unsigned)sizeof(EntityCollapsingPlatform), (unsigned)sizeof(ObjectCollapsingPlatform),
+                              CollapsingPlatform_Update, CollapsingPlatform_LateUpdate, CollapsingPlatform_StaticUpdate,
+                              CollapsingPlatform_Draw, CollapsingPlatform_Create, CollapsingPlatform_StageLoad, CollapsingPlatform_Serialize);
     api->register_object_full((void **)&Newtron, "Newtron",
                               (unsigned)sizeof(EntityNewtron), (unsigned)sizeof(ObjectNewtron),
                               Newtron_Update, Newtron_LateUpdate, Newtron_StaticUpdate,
@@ -1946,6 +1966,9 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * death boundaries track the level). No sheet (pure logic). */
     if (BoundsMarker && BoundsMarker->classID) p6_w_boundsmarker_classid = (int32)BoundsMarker->classID;
     if (BreakableWall && BreakableWall->classID) p6_w_breakwall_classid = (int32)BreakableWall->classID;
+    /* CollapsingPlatform (2026-07-16): classid>0 == registered + StageLoad ran (the
+     * 15 GHZ1 collapsing ledges spawn -> ground break works). */
+    if (CollapsingPlatform && CollapsingPlatform->classID) p6_w_cplat_classid = (int32)CollapsingPlatform->classID;
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
     /* Batch 3 step 2: full Platform (R22/R23). */
     if (Platform && Platform->classID) p6_w_platform_classid = (int32)Platform->classID;
