@@ -4,8 +4,11 @@
 
   "1up.ogg":               { "loop_start_samples": null, "loop_end_samples": null, "todo": "one-shot jingle; mark non-looping when ogg_to_cdda supports it" },
   "ActClear.ogg":          { "loop_start_samples": null, "loop_end_samples": null, "todo": "one-shot jingle; mark non-looping when ogg_to_cdda supports it" },
+  "AngelIsland.ogg":       { "loop_start_samples": 0,    "loop_end_samples": null, "note": "full-track loop, not seamless - 15s AIZ fly-in ambient (CUE track 4; 2026-07-17 fly-in-audio fix)" },
+  "HBHMischief.ogg":       { "loop_start_samples": 0,    "loop_end_samples": null, "note": "full-track loop, not seamless - AIZ Heavies beats (AIZSetup.c:372/724; CUE track 6)" },
+  "RubyPresence.ogg":      { "loop_start_samples": 0,    "loop_end_samples": null, "note": "full-track loop; decomp loop 198457 samples (AIZSetup.c:188) - CD-DA whole-track approximation acknowledged (CUE track 5)" },
   "BlueSpheres.ogg":       { "loop_start_samples": null, "loop_end_samples": null, "todo": "measure at Phase 12 (Blue Spheres special stage)" },
-  "BossEggman1.ogg":       { "loop_start_samples": null, "loop_end_samples": null, "todo": "measure at Phase 10 (per-zone bosses)" },
+  "BossEggman1.ogg":       { "loop_start_samples": 0,    "loop_end_samples": null, "note": "full-track loop; decomp loop 282240 samples (Music.c:55) - CD-DA whole-track approximation acknowledged (CUE track 7; AIZ TRACK_EGGMAN1 beat + Phase 10 bosses)" },
   "BossEggman2.ogg":       { "loop_start_samples": null, "loop_end_samples": null, "todo": "measure at Phase 10 (per-zone bosses)" },
   "BossFinal.ogg":         { "loop_start_samples": null, "loop_end_samples": null, "todo": "measure at Phase 13 (ending)" },
   "BossMini.ogg":          { "loop_start_samples": null, "loop_end_samples": null, "todo": "measure at Phase 10 (per-zone bosses)" },

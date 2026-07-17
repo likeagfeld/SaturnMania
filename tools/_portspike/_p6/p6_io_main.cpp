@@ -2741,6 +2741,23 @@ void AudioDevice::HandleStreamLoad(ChannelInfo *channel, bool32 async)
         track = 3;
     else if (!strcmp(base, "GreenHill1.ogg"))
         track = 2;
+    // 2026-07-17 fly-in-audio fix (user symptom "no audio during flyin animation
+    // scene"): MEASURED at the AIZ fly-in (_flyin_audio.mcs): streamFilePath ==
+    // "Data/Music/AngelIsland.ogg" (the engine requested the CORRECT decomp
+    // track) but this map had no entry -> track=-1 -> p6_cdda_play never ran ->
+    // SILENCE while the channel still read "armed" (the str_state proxy lie).
+    // The four AIZ-cutscene tracks now ship as CUE tracks 4-7 (build_cdda args
+    // in the build_shipping.sh header + qa_live.ps1; loop curation in
+    // tools/loops.json; decomp cites: AIZSetup.c:188 RubyPresence, :372/:724
+    // TRACK_HBHMISCHIEF, :568/:809 TRACK_EGGMAN1 = "BossEggman1.ogg" Music.c:55).
+    else if (!strcmp(base, "AngelIsland.ogg"))
+        track = 4;
+    else if (!strcmp(base, "RubyPresence.ogg"))
+        track = 5;
+    else if (!strcmp(base, "HBHMischief.ogg"))
+        track = 6;
+    else if (!strcmp(base, "BossEggman1.ogg"))
+        track = 7;
     // FIXME P6.7+: table-ize from tools/loops.json as zones come online
     // (bgm-loops-hand-curated: every shipped BGM needs an acknowledged entry).
 

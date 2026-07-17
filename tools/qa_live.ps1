@@ -27,7 +27,9 @@ $RA   = "$root\tools\retroarch\RetroArch-Win64"
 # 1. multi-track cue (Beetle needs a valid disc; build_shipping emits a malformed one)
 if (-not $NoCdda) {
   Push-Location $root
-  python tools/build_cdda.py cd_audio/track02.wav cd_audio/track03.wav --cue-out game.cue --iso game.iso | Out-Null
+  # 2026-07-17 fly-in-audio fix: tracks 4-7 = AngelIsland/RubyPresence/HBHMischief/
+  # BossEggman1 (AIZ cutscene BGM; HandleStreamLoad map + tools/loops.json entries).
+  python tools/build_cdda.py cd_audio/track02.wav cd_audio/track03.wav cd_audio/track04.wav cd_audio/track05.wav cd_audio/track06.wav cd_audio/track07.wav --cue-out game.cue --iso game.iso | Out-Null
   Pop-Location
   Write-Output "qa_live: rebuilt multi-track game.cue"
 }

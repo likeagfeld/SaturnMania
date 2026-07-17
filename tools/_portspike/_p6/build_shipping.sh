@@ -19,9 +19,12 @@
 # BGM (PlayStream("GreenHill1.ogg") -> HandleStreamLoad -> CUE audio track 2) has
 # no CD-DA track to play. After this build, run ON THE HOST (mirrors build.bat:16):
 #   python tools/build_cdda.py cd_audio/track02.wav cd_audio/track03.wav \
-#       --cue-out game.cue --iso game.iso
+#       cd_audio/track04.wav cd_audio/track05.wav cd_audio/track06.wav \
+#       cd_audio/track07.wav --cue-out game.cue --iso game.iso
 # -> rewrites game.cue multi-track: TRACK 01 (game.iso) + TRACK 02 AUDIO
-#    (cd_audio/track02.bin = GreenHill1/GHZ) + TRACK 03 AUDIO (track03.bin = title).
+#    (GreenHill1/GHZ) + 03 (title) + 04 (AngelIsland, AIZ fly-in) + 05
+#    (RubyPresence) + 06 (HBHMischief) + 07 (BossEggman1) -- 2026-07-17
+#    fly-in-audio fix; keep in sync with HandleStreamLoad's name->track map.
 #
 # The do-not-touch COMMON SGL tree is untouched; the engine-sized SGL work area
 # (SaturnSGLArea.c) replaces stock SGLAREA.O via the make SYSOBJS override, same
@@ -313,7 +316,7 @@ $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
     Game_Decoration.o Game_ForceSpin.o Game_SpinBooster.o \
     Game_BadnikHelpers.o Game_Explosion.o Game_Animals.o \
-    Game_Newtron.o Game_Crabmeat.o Game_BuzzBomber.o Game_Chopper.o Game_Motobug.o Game_Batbrain.o \
+    Game_Newtron.o Game_Crabmeat.o Game_BuzzBomber.o Game_Chopper.o Game_Motobug.o Game_Batbrain.o Game_Splats.o \
     Game_ItemBox.o Game_Debris.o Game_InvincibleStars.o Game_Platform.o Game_InvisibleBlock.o \
     Game_BreakableWall.o Game_CollapsingPlatform.o \
     $OVL_FE \
