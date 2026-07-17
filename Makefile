@@ -249,6 +249,20 @@ ifeq ($(P6_FRAMEDIR),1)
 CCFLAGS += -DP6_FRAMEDIR
 endif
 
+# P6_GHZ_AUTORUN (diagnostic traversal flavor): the scripted "hold RIGHT + data-
+# driven jump table" input injection lives in platform/Saturn/InputDevice_Saturn.cpp
+# (a platform TU built by THIS make, NOT by build_p6scene_objs.sh). Without the
+# define reaching the engine/platform compile, InputDevice_Saturn.cpp takes the
+# #else (real pad only) branch and the autorun never drives Sonic, even though the
+# pack forensics (build_p6scene_objs.sh:152) already compile -DP6_GHZ_AUTORUN. Thread
+# it here so the pad-source injection compiles in. build_shipping.sh passes
+# P6_GHZ_AUTORUN=1 only when the env knob is set; DEFAULT + shipping builds leave it
+# unset -> every #if defined(P6_GHZ_AUTORUN) site is byte-identical (folder-gated to
+# "GHZ" at runtime so title/menu/AIZ auto-nav is untouched anyway).
+ifeq ($(P6_GHZ_AUTORUN),1)
+CCFLAGS += -DP6_GHZ_AUTORUN
+endif
+
 # M1b STRIPED-ICON FIX (this session): the MENU front-end flavor MUST also reach the
 # jo-make compile of p6_vdp1.c. P6_FRONTEND_MENU IMPLIES P6_FRONTEND_TITLE -> LOGOS.
 # WITHOUT this define on the jo compile, p6_vdp1.c took the #else (TITLE) bucket-count

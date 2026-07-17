@@ -220,7 +220,7 @@ cd /work
 # hybrid-image rule).
 rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
       tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} ${P6_FRAMEDIR:+P6_FRAMEDIR=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} ${P6_FRAMEDIR:+P6_FRAMEDIR=1} ${P6_GHZ_AUTORUN:+P6_GHZ_AUTORUN=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
 LD=/work/jo-engine/Compiler/LINUX/sh-none-elf/bin/ld
@@ -328,7 +328,7 @@ cd /work
 
 echo "[4/5] re-master the ISO with the overlay on disc ..."
 rm -f game.iso
-make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} ${P6_FRAMEDIR:+P6_FRAMEDIR=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
+make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} ${P6_FRAMEDIR:+P6_FRAMEDIR=1} ${P6_GHZ_AUTORUN:+P6_GHZ_AUTORUN=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[5/5] sanity: _end + lean-boot entry + flavor flag + overlay entry ..."
 grep " _end = " game.map
