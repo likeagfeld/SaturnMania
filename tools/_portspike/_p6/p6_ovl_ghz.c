@@ -15,7 +15,7 @@
 // verbatim globals + callbacks) and WITH -ffunction-sections so ovl_ring.ld places
 // .text.p6_overlay_entry FIRST at the window base (the main calls that constant).
 // =============================================================================
-#include "Game.h"          /* Object*/Entity* + globals + X_* callbacks + foreach_all */
+#include "Game.h"          /* Object/Entity types + globals + X_* callbacks + foreach_all */
 #include "p6_ovl_api.h"
 
 /* Ring is now the VERBATIM Game_Ring (Global/Ring.c) compiled into the overlay --

@@ -46,10 +46,16 @@ WAIVED = set()  # none waived: report everything; the reader judges.
 
 
 def linked_classes():
+    # BOTH maps required: with game.map absent (e.g. mid-build after the clean
+    # step) engine-side StageLoads (GHZSetup etc.) vanish and the audit lies --
+    # a partial map set produced a polluted baseline on 2026-07-16. Hard-fail.
     txt = ""
     for m in (_ROOT / "game.map", _ROOT / "tools/_portspike/_p6/ovl_ring.map"):
-        if m.exists():
-            txt += m.read_text(errors="replace")
+        if not m.exists():
+            print(f"qa_registered_vs_placed: {m} MISSING -- build first "
+                  f"(a partial map set under-counts linked classes)", file=sys.stderr)
+            return set()
+        txt += m.read_text(errors="replace")
     return set(re.findall(r"\b([A-Za-z0-9_]+)_StageLoad\b", txt))
 
 

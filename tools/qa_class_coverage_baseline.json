@@ -1,0 +1,26 @@
+{
+  "GHZ": [
+    "BurningLog",
+    "CheckerBall",
+    "CorkscrewPath",
+    "DDWrecker",
+    "DERobot",
+    "Eggman",
+    "ForceUnstick",
+    "GHZ2Outro",
+    "Splats",
+    "Water",
+    "ZipLine"
+  ],
+  "AIZ": [
+    "FXFade"
+  ],
+  "GHZCutscene": [
+    "DERobot",
+    "Eggman",
+    "FXFade",
+    "FXTrail",
+    "GHZ2Outro",
+    "GHZCutsceneK"
+  ]
+}
