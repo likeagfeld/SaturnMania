@@ -118,7 +118,21 @@ void p6_snd_play(void)
  * clears (slots and EXTS are separate paths). */
 void p6_cdda_play(int track, int loop)
 {
+    /* 2026-07-17 (user: title music "starts, stops, restarts at the ring
+     * animation"): IDEMPOTENCE GUARD -- a repeat request for the track that is
+     * already playing is a no-op instead of a CDC_CdPlay RESTART. The decomp
+     * fires Music_PlayTrack for a track that may already be audible (e.g. the
+     * TitleSetup FlashIn PlayTrack after the scene-load arm, TitleSetup.c:
+     * 137-150); on PC the stream engine dedups by buffer, on CD-DA a re-play
+     * seeks to the track start = an audible restart. Track CHANGES still
+     * restart (correct: zone transitions). Cleared on a data-read displacement?
+     * No -- the CDC keeps the play context; a displaced play RESUMES via the
+     * repeat mode (PM endless, ST-38-R1 p.24), so the guard stays valid. */
+    static int s_cdda_current = -1;
     if (track <= 0 || track > 99)
         return;
+    if (track == s_cdda_current)
+        return;
+    s_cdda_current = track;
     jo_audio_play_cd_track(track, track, loop != 0);
 }

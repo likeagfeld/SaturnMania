@@ -7044,13 +7044,19 @@ static void p6_scene_load_and_arm(void)
     // memory measured that auto-drive as unreliable on the shipping boot). The decomp's
     // own Music_PlayTrack may also fire ~1s later when the wait timer expires; the
     // play-once CD-DA + the static guard below keep this trigger from restarting it.
+    // 2026-07-17 REMOVED the early scene-load PlayStream arm (user symptom:
+    // title music "starts, STOPS, restarts as the ring animation begins").
+    // MEASURED mechanism: this arm started CD-DA at title LOAD; post-load GFS
+    // reads DISPLACED it (the 7c shared-CD-block hazard above); then the
+    // decomp's own TitleSetup FlashIn Music_PlayTrack (TitleSetup.c:137-150,
+    // = the ring-anim moment) RESTARTED it -- the audible restart is the proof
+    // the canonical path fires in this flavor. PC-canonical = NO music until
+    // FlashIn, ONE start. The canonical PlayTrack now performs the single
+    // start (post-load, CD block free); p6_cdda_play's same-track idempotence
+    // guard (p6_snd.c:119) suppresses any later duplicate PlayTrack.
     if (!strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "Title")) {
-        static int32 s_titleBgmArmed = 0;
-        if (!s_titleBgmArmed) {
-            engine.streamsEnabled = true; // NO-CTORS TRAP (:1237): set explicitly
-            PlayStream("TitleScreen.ogg", 0, 0, 1, true);
-            s_titleBgmArmed = 1;
-        }
+        engine.streamsEnabled = true; // NO-CTORS TRAP (:1237): the canonical
+                                      // PlayTrack path still needs it armed
     }
 #endif
     // F.2 diag: probe the windowed store at the spawn column right after the
