@@ -1733,6 +1733,14 @@ extern void *Debris;
 // Player.c:2224) share ONE ObjectStarPost instance with the overlay class.
 // Same Ring-seam pattern as above.
 extern void *StarPost;
+// R2 regression fix (2026-07-17, gate qa_starpost_fxfade_gates.py G1/G2): the
+// load-duration detach (p6_closure_edge.c). Called at the top of
+// p6_scene_load_and_arm (P6_FRONTEND_MENU only) so the pack's StarPost copy can
+// never dangle into the defragged/re-allocated DATASET_STG pool while the
+// load-time pack writers run (SaveGame_StageLoad -> SaveGame_LoadSaveData
+// fresh-act reset, decomp SaveGame.c:151-163). The per-frame rewire below
+// re-attaches on the first post-load frame.
+extern "C" void p6_starpost_detach(void);
 // F.5: the verbatim SignPost TU defines `ObjectSignPost *SignPost;` (C linkage).
 // Its first field is the registered classID (uint16 @ off 0); entities of that
 // class carry the same classID -> a drift-proof entity locator.
@@ -6452,6 +6460,19 @@ static int32 s_ghz_compact_rearm = 0; // set by the reload reset; re-arms the co
 #endif
 static void p6_scene_load_and_arm(void)
 {
+#if defined(P6_FRONTEND_MENU)
+    // R2 regression fix (2026-07-17, gate qa_starpost_fxfade_gates.py G1): the
+    // whole load below (ClearStageObjects -> STG defrag -> AllocateStorage ->
+    // StageLoads) runs INSIDE this call while the pack `StarPost` copy still
+    // holds LAST frame's rewire target -- a dangling pool address the load-time
+    // pack writers (SaveGame_LoadSaveData's fresh-act StarPost reset,
+    // SaveGame.c:151-163; SaveGame = GameConfig global #2 < StarPost #18)
+    // scribbled through at every folder-change seam (Menu/AIZ/GHZCutscene/GHZ).
+    // Detach to the safe zeroed instance for the load; the per-frame rewire
+    // re-attaches to the fresh zero-allocated statics next frame. Chain-only
+    // (plain GHZ never changes folder; its .o stays exactly as the batch built).
+    p6_starpost_detach();
+#endif
     // #250: MEASURED root cause of the garbled FG after a DEATH reload. A same-
     // FOLDER reload makes LoadSceneFolder early-return (Scene.cpp:71-91) WITHOUT
     // re-decoding the tileset (LoadStageGIF never runs), so tilesetPixels is stale

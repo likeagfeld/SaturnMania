@@ -166,6 +166,40 @@ ObjectStarPost *StarPost         = &p6_aiz_starpost_instance;
 #else
 ObjectStarPost *StarPost         = NULL;
 #endif
+// R2 regression fix (2026-07-17, gate qa_starpost_fxfade_gates.py G1/G2): detach
+// the pack `StarPost` pointer for the DURATION of a scene load. The 8d98790
+// api->starpost_slot rewire re-points this global at the overlay's DATASET_STG
+// static block once per FRAME -- but a scene load happens INSIDE one frame:
+// ClearStageObjects NULLs *staticVars (rsdkv5 Object.cpp:1979-1987),
+// DefragmentAndGarbageCollectStorage moves the STG pool, AllocateStorage lays
+// the NEW scene's blocks (Scene.cpp:208-241) -- while this pack copy still
+// holds LAST frame's address. Pack writers that run DURING the load then stomp
+// re-allocated pool memory: SaveGame is GameConfig global #2 and StarPost #18
+// (MEASURED, parse_gameconfig), so SaveGame_StageLoad -> SaveGame_LoadSaveData's
+// fresh-act StarPost reset (decomp SaveGame.c:151-163) fired through the
+// DANGLING pointer at every folder-change load (Menu seam included) -- a
+// batch-new corruption class. Detach aims those loads at the safe zeroed
+// instance; the per-frame rewire (p6_ghz_frame / p6_frontend_frame) re-attaches
+// to the fresh statics (zero-allocated, Storage.cpp:350-351) on the first
+// post-load frame. Re-zeroing the instance = the decomp's own fresh-act reset
+// semantics (SaveGame.c:153-162: postIDs/playerPositions/playerDirections/
+// stored* -> 0) aimed at the one instance the load-time pack writes can safely
+// hit -> a first act entry can never inherit respawn state, so the spawn
+// source stays the Scene1.bin Player placement (StarPost.c:92 guard reads 0).
+// Called only from the P6_FRONTEND_MENU (chain) load path -- plain GHZ never
+// changes folder mid-run, keeping its behavior exactly as the batch shipped.
+void p6_starpost_detach(void)
+{
+#if defined(P6_AIZ_TEST)
+    unsigned char *b = (unsigned char *)&p6_aiz_starpost_instance;
+    unsigned int i;
+    for (i = 0; i < (unsigned int)sizeof(p6_aiz_starpost_instance); ++i)
+        b[i] = 0; /* memset-free: keep this TU's import set unchanged */
+    StarPost = &p6_aiz_starpost_instance;
+#else
+    StarPost = NULL; /* pre-8d98790 semantics: load-time writes -> ROM no-op */
+#endif
+}
 ObjectSuperSparkle *SuperSparkle = NULL;
 // StarPost port (2026-07-17): StarPost_StageLoad/CheckCollisions guard the
 // id-based auto-activation behind `if (!TMZ2Setup)` (StarPost.c:97/244 -- TMZ2's
