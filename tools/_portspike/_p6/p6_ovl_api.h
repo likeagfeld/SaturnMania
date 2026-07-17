@@ -208,6 +208,19 @@ typedef struct {
     /* screen transform (UIControl_Draw:52-53) lands every row + plate on-screen, fitting */
     /* 320 cleanly. NULL on GHZ/Logos/Title (overlay sets it only under P6_FRONTEND_MENU).*/
     void (*menu_layout_fn)(void);
+    /* StarPost port (2026-07-17): the checkpoint class is OVERLAY-resident        */
+    /* (Game_StarPost.o) but its STATIC state (postIDs/playerPositions/stored*)    */
+    /* is read+written by PACK TUs on the death-respawn chain: SaveGame.c:96-158   */
+    /* (recallEntities restore + new-act reset), Zone.c:883 (State_ReloadScene     */
+    /* stores the clock), GameOver.c:319, PauseMenu.c:476-501, Player.c:2224.      */
+    /* Those bind to the pack `StarPost` placeholder (p6_closure_edge.c), so the   */
+    /* pack global is REWIRED per-frame to this slot (the #235 Ring-seam pattern,  */
+    /* same as animals_slot/itembox_slot) -> one shared ObjectStarPost instance.   */
+    void *starpost_slot;              /* &StarPost (overlay's registered object**) */
+    /* ActClear.c:766/790 (PACK) calls StarPost_ResetStarPosts -> binds to the     */
+    /* pack stub (P6_EDGE(55)); the stub forwards through this to the overlay's    */
+    /* REAL reset (the #258b p6_ovl_loserings_raw pattern).                        */
+    void *starpost_reset_fn;          /* real StarPost_ResetStarPosts              */
 #if defined(P6_GHZCUT_BOOT)
     /* Task #309 Tier-B.1 (GHZCutscene FXRuby fade): the overlay reads the live   */
     /* FXRuby entity's fade fields into engine-visible ints. The overlay has the  */

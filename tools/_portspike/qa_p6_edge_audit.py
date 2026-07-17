@@ -94,8 +94,10 @@ ORD = {
 # return BEFORE P6_EDGE when wired -- so a nonzero hit means the forward is
 # unwired == the ported behavior is shadowed (the #258 class). InvincibleStars
 # has no stubs (fully overlay-internal).
+# StarPost port (2026-07-17): ord 55 (StarPost_ResetStarPosts) now forwards to
+# the overlay's real reset -- a nonzero hit means the forward is unwired.
 PORTED = {"Ring", "Spring", "Bridge", "PlaneSwitch", "SpikeLog", "Spikes",
-          "ItemBox", "Debris"}
+          "ItemBox", "Debris", "StarPost"}
 
 
 def main(argv):

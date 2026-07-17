@@ -897,6 +897,8 @@ __attribute__((used)) int32 p6_w_breakwall_classid = 0;     // BreakableWall->cl
 __attribute__((used)) int32 p6_w_cplat_classid     = 0;     // CollapsingPlatform->classID (15 GHZ1 collapsing ledges; 0=unregistered -> ground never breaks)
 __attribute__((used)) int32 p6_w_splats_classid    = 0;     // Splats->classID (GHZ manifest badnik; 0 authored GHZ1/GHZ2 placements -- manifest/DebugMode closure; 0=unregistered)
 __attribute__((used)) int32 p6_w_splats_aniframes  = -2;    // Splats->aniFrames (GHZ/Splats.bin, sheet GHZ/Objects.gif=GHZOBJ.SHT; -1=load failed)
+__attribute__((used)) int32 p6_w_starpost_classid   = 0;    // StarPost->classID (4 GHZ1 + 7 GHZ2 checkpoints; 0=unregistered -> no lampposts, death respawns at act start)
+__attribute__((used)) int32 p6_w_starpost_aniframes = -2;   // StarPost->aniFrames (Global/StarPost.bin, sheet Global/Objects.gif=GLOBJ.SHT; -1=load failed)
 __attribute__((used)) int32 p6_w_platform_classid   = 0;  // Platform->classID (Batch 3 step 2)
 __attribute__((used)) int32 p6_w_platform_aniframes = -2; // Platform->aniFrames (GHZ/Platform.bin)
 __attribute__((used)) int32 p6_w_invblock_classid   = 0;  // InvisibleBlock->classID (Batch 3 step 3)
@@ -913,6 +915,10 @@ extern "C" void *p6_ovl_losehyperrings_raw = 0;
 // Batch 3: pack->overlay forward pointers for the ItemBox/Debris ports (see
 // p6_closure_edge.c -- SaveGame assigns ItemBox_State_Broken, Shield assigns
 // Debris_State_Move; both bind to pack stubs that forward through these).
+// StarPost port (2026-07-17): pack->overlay forward for StarPost_ResetStarPosts
+// (ActClear.c:766/790 callers bind to the p6_closure_edge stub; the stub forwards
+// through this once the overlay entry runs -- the #258b pattern).
+extern "C" void *p6_ovl_starpost_reset_raw = 0;
 extern "C" void *p6_ovl_itembox_break_raw = 0;
 extern "C" void *p6_ovl_itembox_state_broken_raw = 0;
 extern "C" void *p6_ovl_itembox_state_falling_raw = 0;
@@ -1718,6 +1724,14 @@ extern void *Animals;
 // Shield.c:194+ CREATE_ENTITY(Debris,...). Same Ring-seam pattern as above.).
 extern void *ItemBox;
 extern void *Debris;
+// StarPost port (2026-07-17): the pack's StarPost object pointer (NULL placeholder
+// in p6_closure_edge -- or the M3.1 zeroed instance under P6_AIZ_TEST); rewired to
+// the overlay's registered StarPost in p6_ghz_frame / p6_frontend_frame so the
+// pack death-respawn readers/writers (SaveGame.c:96-158 recall restore + reset,
+// Zone.c:883 State_ReloadScene clock store, GameOver.c:319, PauseMenu.c:476-501,
+// Player.c:2224) share ONE ObjectStarPost instance with the overlay class.
+// Same Ring-seam pattern as above.
+extern void *StarPost;
 // F.5: the verbatim SignPost TU defines `ObjectSignPost *SignPost;` (C linkage).
 // Its first field is the registered classID (uint16 @ off 0); entities of that
 // class carry the same classID -> a drift-proof entity locator.
@@ -3731,6 +3745,11 @@ static void p6_ghz_frame(void)
         ItemBox = *(void **)s_ovl.itembox_slot;
     if (s_ovl.debris_slot && *(void **)s_ovl.debris_slot)
         Debris = *(void **)s_ovl.debris_slot;
+    // StarPost port (2026-07-17): same seam -- pack death-respawn readers/writers
+    // (SaveGame recall restore, Zone_State_ReloadScene clock store, GameOver,
+    // PauseMenu restart, Player) share the overlay's live ObjectStarPost.
+    if (s_ovl.starpost_slot && *(void **)s_ovl.starpost_slot)
+        StarPost = *(void **)s_ovl.starpost_slot;
 
     // Per-section attribution: FRT (sub-78ms precision) + VBLANK (overflow-immune
     // for >78ms sections -- the real discriminator). vb0/vb1 = true-60Hz tally.
@@ -5274,6 +5293,8 @@ extern "C" void p6_scene_run(void)
         p6_ovl_itembox_state_falling_raw = s_ovl.itembox_state_falling_fn;
         p6_ovl_itembox_state_idle_raw    = s_ovl.itembox_state_idle_fn;
         p6_ovl_debris_state_move_raw     = s_ovl.debris_state_move_fn;
+        // StarPost port (2026-07-17): the ActClear reset forward (stub -> real).
+        p6_ovl_starpost_reset_raw        = s_ovl.starpost_reset_fn;
     }
 
     globalObjectIDs[0] = TYPE_DEFAULTOBJECT; // RetroEngine.cpp:1230
@@ -7719,6 +7740,12 @@ static void p6_frontend_frame(void)
         ItemBox = *(void **)s_ovl.itembox_slot;
     if (s_ovl.debris_slot && *(void **)s_ovl.debris_slot)
         Debris = *(void **)s_ovl.debris_slot;
+    // StarPost port (2026-07-17): same seam on the front-end tick -- the AIZ
+    // overlay TUs (AIZTornado/AIZTornadoPath) and the chain GHZ leg then read the
+    // ONE registered instance (fresh-boot postIDs 0 == the M3.1 zeroed-instance
+    // semantics; see p6_closure_edge.c).
+    if (s_ovl.starpost_slot && *(void **)s_ovl.starpost_slot)
+        StarPost = *(void **)s_ovl.starpost_slot;
 
     // CP4 SCOPE: LogoSetup auto-advances (RSDK.LoadScene -> ++listPos -> Title)
     // once all 4 logos have displayed. The Title scene's objects are NOT ported

@@ -202,6 +202,18 @@ void StarPost_CheckBonusStageEntry(void)
     self->hitboxStars.right  = self->starRadius >> 2;
     self->hitboxStars.bottom = -40;
 
+#if !defined(SATURN_GLOBALS_RETARGET)
+    // SATURN delta (StarPost port 2026-07-17): the bonus-stage WARP is gated out.
+    // (1) The destination scenes ("Blue Spheres" SetScene below; "Pinball" in the
+    //     MANIA_USE_PLUS arm) are NOT in the Saturn scene set -- LoadScene into an
+    //     unmounted category is undefined on this port.
+    // (2) Link closure: SaveGame_SaveGameState / SaveGame_GetSaveRAM are not
+    //     exported by the pack image (grep game.map 2026-07-17: 0 hits) -- an
+    //     overlay reference here would fail the ovl_ring -R link.
+    // The arming site (bonusStageID quota block in StarPost_CheckCollisions) is
+    // gated by the same flag, so this block is doubly unreachable. Checkpoint
+    // save/respawn behavior (the port's goal) is untouched. Restore both blocks
+    // verbatim when Blue Spheres ports.
     if (self->starTimer >= 60) {
         if (!globals->recallEntities) {
             if (Player_CheckCollisionTouch(RSDK_GET_ENTITY(SLOT_PLAYER1, Player), self, &self->hitboxStars)) {
@@ -230,6 +242,7 @@ void StarPost_CheckBonusStageEntry(void)
             }
         }
     }
+#endif // !SATURN_GLOBALS_RETARGET (bonus-stage warp -- see the delta note above)
 }
 void StarPost_CheckCollisions(void)
 {
@@ -292,6 +305,12 @@ void StarPost_CheckCollisions(void)
                 }
 
                 self->timer = 0;
+#if !defined(SATURN_GLOBALS_RETARGET)
+                // SATURN delta (StarPost port 2026-07-17): bonus-stage ARMING gated
+                // out -- bonusStageID>0 leads to StarPost_CheckBonusStageEntry's
+                // warp into the unported "Blue Spheres" scene (see the paired delta
+                // note there). With this block out, the floating-stars circle never
+                // spawns; checkpoint save/spin/respawn is verbatim decomp.
                 if (globals->gameMode < MODE_TIMEATTACK) {
                     int32 quota = 25;
 #if MANIA_USE_PLUS
@@ -309,6 +328,7 @@ void StarPost_CheckCollisions(void)
                         self->bonusStageID = (player->rings - 20) % 3 + 1;
                     }
                 }
+#endif // !SATURN_GLOBALS_RETARGET (bonus-stage arming -- see the delta note above)
 
                 if (!self->interactedPlayers) {
                     RSDK.SetSpriteAnimation(StarPost->aniFrames, 2, &self->ballAnimator, true, 0);

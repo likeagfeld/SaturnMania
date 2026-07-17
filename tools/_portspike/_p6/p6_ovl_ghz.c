@@ -140,6 +140,24 @@ extern ObjectBatbrain *Batbrain;
  * Zone/DebugMode (pack). Sfx PSZ/SplatsSpawn.wav + PSZ/SplatsLand.wav: GetSfx -1
  * => PlaySfx no-op if unstaged (the BreakableWall LedgeBreak.wav declared gap). */
 extern ObjectSplats *Splats;
+/* StarPost (2026-07-17): the GLOBAL checkpoint class (user symptom: lampposts do
+ * not exist; first death past a checkpoint respawns at act start). VERBATIM decomp
+ * Global/StarPost.c with TWO cited Saturn deltas (in-file, tools/_decomp_raw):
+ * the bonus-stage ARMING (StarPost.c quota block) + the bonus WARP
+ * (CheckBonusStageEntry SetScene("Blue Spheres")) are #if'd out -- the destination
+ * scene is unported AND SaveGame_SaveGameState is not exported by game.elf (grep
+ * game.map: 0 hits -> the verbatim ref would fail this -R link). Checkpoint
+ * touch/spin/save/respawn is untouched decomp. GHZ1 authors 4 placements
+ * (slots 15/44/365/399 at x=6528/4580/7784/14860 -- tools/_parse_ghz_scene.py),
+ * GHZ2 authors 7. Entity 224 B <= 344 narrow (3 Animators); Object ~72 B <= 592.
+ * Static-state sharing with the pack (SaveGame/Zone/GameOver/PauseMenu/Player
+ * readers) rides the api->starpost_slot rewire seam (p6_ovl_api.h note).
+ * Anim Global/StarPost.bin (sheet Global/Objects.gif == GLOBJ.SHT staged; pack
+ * entry added to build_anim_pack.py OBJ_BINS; already in AIZ_OBJ_BINS). Sfx
+ * Global/StarPost.wav + Global/SpecialWarp.wav: GetSfx -1 => PlaySfx no-op if
+ * unstaged (declared gap class). TMZ2Setup ref (StageLoad/CheckCollisions
+ * !TMZ2Setup guards) = NULL placeholder in p6_closure_edge.c (unregistered). */
+extern ObjectStarPost *StarPost;
 #if defined(P6_DDWRECKER)
 /* GHZ1 boss (2026-07-11). Overlay-resident (Game_DDWrecker.o in this link when
  * P6_DDWRECKER). Its defeat fires the natural end-of-act signpost drop->spin.
@@ -395,6 +413,7 @@ extern int32 p6_w_boundsmarker_classid;
 extern int32 p6_w_breakwall_classid;
 extern int32 p6_w_cplat_classid;
 extern int32 p6_w_splats_classid, p6_w_splats_aniframes;
+extern int32 p6_w_starpost_classid, p6_w_starpost_aniframes;
 extern int32 p6_w_platform_classid, p6_w_platform_aniframes;
 extern int32 p6_w_invblock_classid, p6_w_batbrain_aniframes;
 extern int32 p6_w_b2_registered;       /* count of the 9 chain+badnik objs with classID>0 */
@@ -942,6 +961,14 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntitySplats), (unsigned)sizeof(ObjectSplats),
                               Splats_Update, Splats_LateUpdate, Splats_StaticUpdate,
                               Splats_Draw, Splats_Create, Splats_StageLoad, Splats_Serialize);
+    /* StarPost (2026-07-17): the 4 GHZ1 / 7 GHZ2 checkpoint lampposts. Registered
+     * in ALL flavors (global class; the AIZ flavor's zeroed pack instance is
+     * superseded by the starpost_slot rewire -- fresh-boot postIDs stay 0, the
+     * exact semantics the M3.1 zeroed instance provided). Entity 224 B narrow. */
+    api->register_object_full((void **)&StarPost, "StarPost",
+                              (unsigned)sizeof(EntityStarPost), (unsigned)sizeof(ObjectStarPost),
+                              StarPost_Update, StarPost_LateUpdate, StarPost_StaticUpdate,
+                              StarPost_Draw, StarPost_Create, StarPost_StageLoad, StarPost_Serialize);
 #if defined(P6_DDWRECKER)
     /* GHZ1 BOSS (2026-07-11): the placed DDWrecker at (15792,1588) whose defeat
      * fires DDWrecker_State_SpawnSignpost -> the natural signpost drop->spin.
@@ -1011,6 +1038,10 @@ int p6_overlay_entry(p6_ovl_api *api)
      * UIModeButton world positions to the 320-fit grid + sets the scroll origin). */
     api->menu_layout_fn = p6_menu_apply_layout;
 #endif
+    /* StarPost (2026-07-17): export the rewire slot + the reset forward (see the
+     * p6_ovl_api.h field notes -- pack death-respawn TUs share the static state). */
+    api->starpost_slot    = (void *)&StarPost;
+    api->starpost_reset_fn = (void *)StarPost_ResetStarPosts;
 #if defined(P6_GHZCUT_BOOT)
     /* Task #309 Tier-B.1: export the FXRuby fade reader so the pack applies the
      * VDP2 color offset each frame (p6_vdp2_fade_apply) from the live FXRuby. */
@@ -1994,6 +2025,12 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     if (Splats && Splats->classID) {
         p6_w_splats_classid   = (int32)Splats->classID;
         p6_w_splats_aniframes = (int32)(int16)Splats->aniFrames;
+    }
+    /* StarPost (2026-07-17): classid>0 == registered + StageLoad ran (the 4 GHZ1
+     * lampposts spawn); aniframes>=0 == Global/StarPost.bin resolved (pack path). */
+    if (StarPost && StarPost->classID) {
+        p6_w_starpost_classid   = (int32)StarPost->classID;
+        p6_w_starpost_aniframes = (int32)(int16)StarPost->aniFrames;
     }
     if (Batbrain) p6_w_batbrain_aniframes = (int32)(int16)Batbrain->aniFrames;
     /* Batch 3 step 2: full Platform (R22/R23). */

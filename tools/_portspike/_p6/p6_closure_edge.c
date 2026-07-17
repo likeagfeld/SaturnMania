@@ -167,6 +167,12 @@ ObjectStarPost *StarPost         = &p6_aiz_starpost_instance;
 ObjectStarPost *StarPost         = NULL;
 #endif
 ObjectSuperSparkle *SuperSparkle = NULL;
+// StarPost port (2026-07-17): StarPost_StageLoad/CheckCollisions guard the
+// id-based auto-activation behind `if (!TMZ2Setup)` (StarPost.c:97/244 -- TMZ2's
+// non-linear layout disables it). TMZ2 is unported; NULL == unregistered -> the
+// guards take the normal (linear-zone) arm. Same NULL-class pattern as
+// Platform/Press/Ice above. -u rooted so the overlay's -R ref resolves.
+ObjectTMZ2Setup *TMZ2Setup       = NULL;
 ObjectTitleCard *TitleCard       = NULL;
 ObjectUIButton *UIButton         = NULL;
 ObjectUIControl *UIControl       = NULL;
@@ -236,7 +242,19 @@ uint32 TimeAttackData_GetPackedTime(int32 m, int32 s, int32 ms)
 {
     (void)m; (void)s; (void)ms; P6_EDGE(54); return 0;
 }
-void StarPost_ResetStarPosts(void) { P6_EDGE(55); }
+// StarPost port (2026-07-17): the REAL StarPost is OVERLAY-resident
+// (Game_StarPost.o); ActClear.c:766/790 (PACK) binds here. Forward through the
+// runtime pointer (set by p6_io_main after the overlay entry runs -- the #258b
+// Ring_LoseRings pattern). Until then the stub no-ops + counts (ord 55).
+extern void *p6_ovl_starpost_reset_raw;
+void StarPost_ResetStarPosts(void)
+{
+    if (p6_ovl_starpost_reset_raw) {
+        ((void (*)(void))p6_ovl_starpost_reset_raw)();
+        return;
+    }
+    P6_EDGE(55);
+}
 void GameProgress_MarkZoneCompleted(int32 zoneID) { (void)zoneID; P6_EDGE(56); }
 void APICallback_TrackTAClear(uint8 z, uint8 a, uint8 p, int32 t)
 {

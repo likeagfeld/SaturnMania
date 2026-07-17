@@ -116,6 +116,13 @@ OBJ_BINS = [
     # trivial vs OBJ_CAP. 0 authored placements in GHZ1/GHZ2 (manifest/DebugMode
     # closure) but the StageLoad load must fast-path like the other 6 badniks.
     "GHZ/Splats.bin",
+    # StarPost port (2026-07-17): StarPost_StageLoad LoadSpriteAnimation(
+    # "Global/StarPost.bin") on EVERY stage (global class; StarPost.c:80). 6 anims
+    # (Post/Bulb Unused/Bulb Used/Stars 1-3), sheet "Global/Objects.gif" ==
+    # GLOBJ.SHT (already staged) -- no new .SHT. Already in AIZ_OBJ_BINS (the #302
+    # seam batch anticipated the load); this entry gives the GHZ landing the same
+    # fast pack path. ~300 B, trivial vs OBJ_CAP.
+    "Global/StarPost.bin",
     # DDWrecker GHZ1 boss (2026-07-11): DDWrecker_StageLoad LoadSpriteAnimation(
     # "GHZ/DDWrecker.bin") -- 52 frames across 3 sheets (GHZ/Ball.gif,
     # GHZ/Objects.gif[=GHZOBJ.SHT already staged], GHZ/DDWrecker.gif). Packing the
