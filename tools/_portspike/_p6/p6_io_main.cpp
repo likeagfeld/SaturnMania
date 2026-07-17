@@ -9248,6 +9248,37 @@ static void p6_frontend_frame(void)
         currentScreen->position.y = p6_w_menu_force_scry;
     }
 #endif
+#if defined(P6_GHZCUT_BOOT) && !defined(P6_MENU_LAYOUT320)
+    // CHAIN MENU CENTERING (task chain-menu-rows-offscreen-scroll-2026-07-17):
+    // at the chain Menu leg the menu LOGIC is fully alive (ctrl_count=27, Mania
+    // Mode selected) but currentScreen->position stayed (0,0) -> the DrawSprite
+    // world->screen subtract (:2587) left the rows at raw world (756,358) = off
+    // the 320-wide screen (only 12 VDP1 cmds, no rows). ROOT (MEASURED): the
+    // decomp UIControl_Draw (UIControl.c:52-53) writes ScreenInfo->position =
+    // FROM_FIXED(activeControl->position) - center, but the Mania-side port
+    // (src/mania/Objects/Menu/UIControl.c:183-186) writes the Mania MIRROR
+    // ScreenInfo (Game.h:173, a ManiaScreenInfo), which is NOT the RSDK
+    // screens[0]/currentScreen that DrawSprite reads -> the centering never
+    // reached the engine scroll origin. NOT a seam stomp (p6_frontend_frame only
+    // re-points currentScreen=&screens[0]; it does not zero .position).
+    //
+    // FIX: consume the overlay-computed active-control origin p6_w_menu_force_scrx/
+    // scry (p6_ovl_ghz.c:1801-1802 = activeControl->position>>16 - (160,112),
+    // written every frame by the P6_FRONTEND_MENU witness -- the chain compiles
+    // P6_FRONTEND_MENU via P6_AIZ_TEST) and FORCE it into currentScreen->position
+    // BEFORE ProcessObjectDrawLists. This mirrors UIControl_Draw's own formula
+    // applied to the GUARANTEED active control, so world 756 -> screen 160 (center).
+    // Menu leg only (folder=="Menu"); every other chain leg (AIZ/GHZCutscene/GHZ)
+    // drives currentScreen->position from its own camera and is untouched.
+    // -999999 sentinel == the overlay has not found the active control yet (skip).
+    // Plain-GHZ + menu-boot (P6_FRONTEND_MENU without P6_GHZCUT_BOOT) never compile
+    // this block -> byte-identical.
+    if (currentScreen && currentSceneFolder && !strcmp(currentSceneFolder, "Menu")
+        && p6_w_menu_force_scrx > -900000 && p6_w_menu_force_scry > -900000) {
+        currentScreen->position.x = p6_w_menu_force_scrx;
+        currentScreen->position.y = p6_w_menu_force_scry;
+    }
+#endif
     p6_w_perf_cyc_fgbg = P6_FRT_DELTA(fe_fgbg_t0, p6_perf_frt_get()); // #322 (see above)
     fe_v0 = p6_perf_vbl_count; fe_t0 = p6_perf_frt_get();
 #if defined(P6_FRONTEND_MENU)
