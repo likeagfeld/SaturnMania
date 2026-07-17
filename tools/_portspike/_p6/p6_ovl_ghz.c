@@ -386,6 +386,27 @@ extern ObjectAIZKingClaw   *AIZKingClaw;
 extern ObjectAIZEggRobo    *AIZEggRobo;
 extern ObjectPhantomRuby   *PhantomRuby;
 extern ObjectFXRuby        *FXRuby;
+/* FXFade (2026-07-17): the scene-seam fade class -- AIZ Scene1 authors ONE placed
+ * entity (slot 2, vars timer=512 speedIn=32 color=0 oneWay=1, MEASURED from the
+ * .bin: a 16-frame fade-FROM-BLACK at AIZ start) and the GHZCutscene manifest
+ * expects the class (0 placed; MenuSetup + RubyPortal CREATE_ENTITY it at
+ * runtime). VERBATIM decomp Cutscene/FXFade.c (entity 128 B narrow; empty
+ * StageLoad; Object = bare RSDK_OBJECT). The decomp Draw is
+ * RSDK.FillScreen(color, timer, timer-128, timer-256) -- the RSDKv5 SW
+ * framebuffer is never presented on Saturn (the Tier-B.1 finding), so the Draw
+ * is registered through the p6_fxfade_draw SHIM below, which LATCHES the live
+ * color/timer for the per-frame VDP2 Color Offset bridge (p6_ghzcut_fade_fn ->
+ * p6_vdp2_fade_apply, ST-058-R2 Ch.13 -- the exact FXRuby fade mechanism).
+ * The pack's `ObjectFXFade *FXFade = NULL` placeholder (p6_closure_edge.c:118,
+ * for the pack ERZStart TU -- GHZ-dead) stays; no pack TU reads it on the
+ * shipped scenes (grep-verified) -> no rewire seam needed. */
+extern ObjectFXFade        *FXFade;
+extern int32 p6_w_fxfade_classid; /* pack witness (p6_io_main.cpp), -R import */
+/* Draw shim + wash latches (consumed by p6_ghzcut_fade_fn when GHZCUT is on;
+ * without the GHZCUT bridge the latch is written but unread -- the SW FillScreen
+ * fade stays a declared no-present gap in AIZ-only flavors). */
+static void p6_fxfade_draw(void);
+static int32 s_fxfade_wash_w = 0, s_fxfade_wash_b = 0;
 /* the M3.1 witnesses are pack globals (DEFINED in p6_io_main.cpp), -R import */
 extern int32 p6_w_aiz_cutscene_state, p6_w_aiz_setup_classid, p6_w_aiz_seq_classid;
 extern int32 p6_w_aiz_tornado_classid, p6_w_aiz_path_classid, p6_w_aiz_cam_x;
@@ -812,6 +833,14 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityFXRuby), (unsigned)sizeof(ObjectFXRuby),
                               FXRuby_Update, FXRuby_LateUpdate, FXRuby_StaticUpdate,
                               FXRuby_Draw, FXRuby_Create, FXRuby_StageLoad, FXRuby_Serialize);
+    /* FXFade (2026-07-17): scene-seam fades (AIZ slot-2 placed fade-from-black +
+     * the GHZCutscene/Menu manifest class). Registered with the p6_fxfade_draw
+     * SHIM (latch->VDP2-color-offset bridge; the verbatim FXFade_Draw is called
+     * by the shim -- the p6_cuthbh_draw precedent). Entity 128 B narrow. */
+    api->register_object_full((void **)&FXFade, "FXFade",
+                              (unsigned)sizeof(EntityFXFade), (unsigned)sizeof(ObjectFXFade),
+                              FXFade_Update, FXFade_LateUpdate, FXFade_StaticUpdate,
+                              p6_fxfade_draw, FXFade_Create, FXFade_StageLoad, FXFade_Serialize);
 #endif
 #if defined(P6_GHZCUT_BOOT)
     /* Task #309: the AIZ->GHZCutscene destination scene's 2 NEW driver objects. Register
@@ -1050,6 +1079,37 @@ int p6_overlay_entry(p6_ovl_api *api)
     return 0;
 }
 
+#if defined(P6_AIZ_TEST)
+// =============================================================================
+// FXFade Draw SHIM (2026-07-17). The decomp FXFade_Draw is
+// RSDK.FillScreen(color, timer, timer-128, timer-256) (FXFade.c:23-28) into the
+// RSDKv5 SW framebuffer -- which the Saturn true-port never presents (the
+// Tier-B.1 finding). The Saturn present for full-screen washes is the VDP2
+// Color Offset (p6_vdp2_fade_apply, ST-058-R2 Ch.13). This shim LATCHES the
+// live color/timer whenever the entity actually draws (visible + on the draw
+// list -- zero per-frame pool scans, unlike a foreach_all; the #324 tail-hog
+// lesson) and then calls the verbatim decomp Draw. p6_ghzcut_fade_fn consumes
+// the latch right after ProcessObjectDrawLists each tick (its call site).
+// Scalar mapping: timer 0..512 is the SAME convention as FXRuby fadeWhite/
+// fadeBlack (p6_vdp2_fade_apply clamps to 255). Channel classification: the
+// shipped colors are 0x000000 (AIZ slot-2 placed fade + Zone black) and
+// 0xF0F0F0 (RubyPortal/menu white); mean-luma >= 128 -> white wash else black.
+// =============================================================================
+static void p6_fxfade_draw(void)
+{
+    RSDK_THIS(FXFade);
+    int32 v = self->timer;
+    if (v > 0) {
+        uint32 c   = self->color;
+        int32 luma = (int32)(((c >> 16) & 0xFF) + ((c >> 8) & 0xFF) + (c & 0xFF)) / 3;
+        if (v > 512) v = 512;
+        if (luma >= 128) { if (v > s_fxfade_wash_w) s_fxfade_wash_w = v; }
+        else             { if (v > s_fxfade_wash_b) s_fxfade_wash_b = v; }
+    }
+    FXFade_Draw(); /* verbatim decomp (SW FillScreen, unpresented; the latch IS the Saturn present) */
+}
+#endif /* P6_AIZ_TEST */
+
 #if defined(P6_GHZCUT_BOOT)
 // =============================================================================
 // Task #309 Tier-B.1: the FXRuby fade reader (api->fade_fn). Called from
@@ -1070,7 +1130,10 @@ int p6_overlay_entry(p6_ovl_api *api)
 #ifndef P6_GHZCUT_HOLD_WHITE
 #define P6_GHZCUT_HOLD_WHITE 256
 #endif
-static void p6_ghzcut_fade_fn(int *outWhite, int *outBlack)
+/* FXFade port (2026-07-17): the FXRuby scan below is now the RUBY half; the
+ * api->fade_fn wrapper (p6_ghzcut_fade_fn, after this fn) max-combines it with
+ * the FXFade Draw-shim latch so BOTH wash sources drive the one VDP2 offset. */
+static void p6_ghzcut_fade_ruby(int *outWhite, int *outBlack)
 {
     int w = 0, b = 0;
     /* #324 (AIZ draw-bracket tail hog): this runs EVERY front-end frame, and
@@ -1131,6 +1194,27 @@ static void p6_ghzcut_fade_fn(int *outWhite, int *outBlack)
         b = (int)fx->fadeBlack;
         foreach_break;
     }
+    if (outWhite) *outWhite = w;
+    if (outBlack) *outBlack = b;
+}
+
+/* FXFade port (2026-07-17): api->fade_fn. Max-combine the FXRuby scan with the
+ * FXFade Draw-shim latch (latched during THIS frame's ProcessObjectDrawLists;
+ * this fn runs right after it -- the p6_io_main call site). Decomp draw order
+ * makes overlapping washes composite; the single VDP2 offset-A approximates
+ * with the STRONGER wash per channel (black already dominates white inside
+ * p6_vdp2_fade_apply, matching the decomp's draws-black-last rule). The latch
+ * is consumed (zeroed) each tick so a destroyed/settled FXFade decays to 0. */
+static void p6_ghzcut_fade_fn(int *outWhite, int *outBlack)
+{
+    int w = 0, b = 0;
+    p6_ghzcut_fade_ruby(&w, &b);
+#if defined(P6_AIZ_TEST)
+    if (s_fxfade_wash_w > w) w = s_fxfade_wash_w;
+    if (s_fxfade_wash_b > b) b = s_fxfade_wash_b;
+    s_fxfade_wash_w = 0;
+    s_fxfade_wash_b = 0;
+#endif
     if (outWhite) *outWhite = w;
     if (outBlack) *outBlack = b;
 }
@@ -1441,6 +1525,9 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
      * SLOT_CUTSCENESEQ by StartSequence, then 0+ == EnterAIZ running). cam_x reads
      * SLOT_CAMERA1's live position.x (C2 corroboration: the cutscene-driven camera). */
     if (AIZSetup       && AIZSetup->classID)       p6_w_aiz_setup_classid   = (int32)AIZSetup->classID;
+    /* FXFade (2026-07-17): classid>0 == registered (the AIZ slot-2 placed fade +
+     * the GHZCutscene manifest row resolve). */
+    if (FXFade && FXFade->classID) p6_w_fxfade_classid = (int32)FXFade->classID;
     if (CutsceneSeq    && CutsceneSeq->classID)    p6_w_aiz_seq_classid     = (int32)CutsceneSeq->classID;
     if (AIZTornado     && AIZTornado->classID)     p6_w_aiz_tornado_classid = (int32)AIZTornado->classID;
     if (AIZTornadoPath && AIZTornadoPath->classID) p6_w_aiz_path_classid    = (int32)AIZTornadoPath->classID;

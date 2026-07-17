@@ -899,6 +899,7 @@ __attribute__((used)) int32 p6_w_splats_classid    = 0;     // Splats->classID (
 __attribute__((used)) int32 p6_w_splats_aniframes  = -2;    // Splats->aniFrames (GHZ/Splats.bin, sheet GHZ/Objects.gif=GHZOBJ.SHT; -1=load failed)
 __attribute__((used)) int32 p6_w_starpost_classid   = 0;    // StarPost->classID (4 GHZ1 + 7 GHZ2 checkpoints; 0=unregistered -> no lampposts, death respawns at act start)
 __attribute__((used)) int32 p6_w_starpost_aniframes = -2;   // StarPost->aniFrames (Global/StarPost.bin, sheet Global/Objects.gif=GLOBJ.SHT; -1=load failed)
+__attribute__((used)) int32 p6_w_fxfade_classid     = 0;    // FXFade->classID (AIZ slot-2 placed fade-from-black + GHZCutscene manifest; 0=unregistered -> abrupt seams)
 __attribute__((used)) int32 p6_w_platform_classid   = 0;  // Platform->classID (Batch 3 step 2)
 __attribute__((used)) int32 p6_w_platform_aniframes = -2; // Platform->aniFrames (GHZ/Platform.bin)
 __attribute__((used)) int32 p6_w_invblock_classid   = 0;  // InvisibleBlock->classID (Batch 3 step 3)

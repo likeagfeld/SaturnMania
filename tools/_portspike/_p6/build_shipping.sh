@@ -288,7 +288,7 @@ fi
 # line below (the GHZ batch), so it is NOT added here. Their cross-class refs (Camera/
 # Music/Player/MathHelpers/StarPost) import from game.elf via -R.
 if [ -n "${P6_AIZ_TEST:-}" ]; then
-    OVL_FE="$OVL_FE Game_AIZSetup.o Game_CutsceneSeq.o Game_AIZTornado.o Game_AIZTornadoPath.o Game_AIZKingClaw.o Game_AIZEggRobo.o Game_PhantomRuby.o Game_FXRuby.o"
+    OVL_FE="$OVL_FE Game_AIZSetup.o Game_CutsceneSeq.o Game_AIZTornado.o Game_AIZTornadoPath.o Game_AIZKingClaw.o Game_AIZEggRobo.o Game_PhantomRuby.o Game_FXRuby.o Game_FXFade.o"
 fi
 # Task #309 (P6_GHZCUT_BOOT): the 2 NEW AIZ->GHZCutscene driver TUs join the overlay so
 # they link against game.elf via -R like every other overlay obj. GHZSetup/BGSwitch are

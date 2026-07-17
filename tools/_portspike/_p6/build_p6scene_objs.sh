@@ -533,7 +533,8 @@ if [ -n "${P6_AIZ_TEST:-}" ]; then
                 AIZ_AIZTornadoPath:Game_AIZTornadoPath \
                 AIZ_AIZKingClaw:Game_AIZKingClaw \
                 AIZ_AIZEggRobo:Game_AIZEggRobo \
-                ERZ_PhantomRuby:Game_PhantomRuby; do
+                ERZ_PhantomRuby:Game_PhantomRuby \
+                Cutscene_FXFade:Game_FXFade; do
         src_tu="${waiz%%:*}"; out_tu="${waiz##*:}"
         "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
             $GAME_DEFS -DP6_AIZ_TEST -DP6_FRONTEND_MENU -I"$GINC" -I"$NEWLIB" \
@@ -801,6 +802,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     ${P6_AIZ_TEST:+-u _p6_w_aiz_p2_classid -u _p6_w_aiz_p2_onground -u _p6_w_aiz_p2_posx -u _p6_w_aiz_p2_posy -u _p6_w_aiz_p2_vely -u _p6_w_aiz_p2_sidekick -u _p6_w_aiz_p1_posy} \
     ${P6_AIZ_TEST:+-u _p6_w_aiz_p2_stateptr -u _p6_w_aiz_p2_inputptr -u _p6_w_aiz_p2_tilecoll -u _p6_w_aiz_p2_visible} \
     ${P6_AIZ_TEST:+-u _p6_w_aiz_ruby_active -u _p6_w_aiz_ruby_timer -u _p6_w_aiz_ruby_flashfin} \
+    ${P6_AIZ_TEST:+-u _p6_w_fxfade_classid} \
     ${P6_FRONTEND_MENU:+-u _p6_w_menu_startscene_tag -u _p6_w_menu_start_cat -u _p6_w_menu_start_listpos} \
     ${P6_FRONTEND_MENU:+-u _p6_menu_start_witness_root} \
     ${P6_FRONTEND_MENU:+-u _MathHelpers_PointInHitbox} \
