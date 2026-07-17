@@ -900,6 +900,13 @@ __attribute__((used)) int32 p6_w_splats_aniframes  = -2;    // Splats->aniFrames
 __attribute__((used)) int32 p6_w_starpost_classid   = 0;    // StarPost->classID (4 GHZ1 + 7 GHZ2 checkpoints; 0=unregistered -> no lampposts, death respawns at act start)
 __attribute__((used)) int32 p6_w_starpost_aniframes = -2;   // StarPost->aniFrames (Global/StarPost.bin, sheet Global/Objects.gif=GLOBJ.SHT; -1=load failed)
 __attribute__((used)) int32 p6_w_fxfade_classid     = 0;    // FXFade->classID (AIZ slot-2 placed fade-from-black + GHZCutscene manifest; 0=unregistered -> abrupt seams)
+// R1 discriminator (2026-07-17, gate qa_starpost_fxfade_gates.py G3): live FXFade
+// draw-time state, latched by the p6_fxfade_draw shim (zero pool scans). If the
+// menu settles BLACK: timer>0 here == the fade IS the wash (state machine stuck;
+// chase MenuSetup_InitAPI/FXFade_Update); timer==0 (or draws not advancing) ==
+// the black is NOT the FXFade wash -- look at the seam-stomp class instead.
+__attribute__((used)) int32 p6_w_fxfade_timer = -1; // self->timer at the last FXFade draw (-1 = never drew)
+__attribute__((used)) int32 p6_w_fxfade_draws = 0;  // total FXFade draw-shim invocations
 __attribute__((used)) int32 p6_w_platform_classid   = 0;  // Platform->classID (Batch 3 step 2)
 __attribute__((used)) int32 p6_w_platform_aniframes = -2; // Platform->aniFrames (GHZ/Platform.bin)
 __attribute__((used)) int32 p6_w_invblock_classid   = 0;  // InvisibleBlock->classID (Batch 3 step 3)

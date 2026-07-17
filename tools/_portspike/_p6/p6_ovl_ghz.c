@@ -402,6 +402,11 @@ extern ObjectFXRuby        *FXRuby;
  * shipped scenes (grep-verified) -> no rewire seam needed. */
 extern ObjectFXFade        *FXFade;
 extern int32 p6_w_fxfade_classid; /* pack witness (p6_io_main.cpp), -R import */
+/* R1 discriminator (2026-07-17): draw-time timer + draw count, latched in the
+ * shim below (pack witnesses, -R import). A settled-black menu with timer>0 ==
+ * the FXFade wash is live (state machine stuck -> chase MenuSetup_InitAPI /
+ * FXFade_Update); timer<=0 or draws static == the black is NOT this fade. */
+extern int32 p6_w_fxfade_timer, p6_w_fxfade_draws;
 /* Draw shim + wash latches (consumed by p6_ghzcut_fade_fn when GHZCUT is on;
  * without the GHZCUT bridge the latch is written but unread -- the SW FillScreen
  * fade stays a declared no-present gap in AIZ-only flavors). */
@@ -1099,6 +1104,11 @@ static void p6_fxfade_draw(void)
 {
     RSDK_THIS(FXFade);
     int32 v = self->timer;
+    /* R1 discriminator: latch the live timer + count draws (per-draw, zero pool
+     * scans). Read live/from a savestate to split "fade stuck" from "black is
+     * elsewhere" at a settled-black front-end scene. */
+    p6_w_fxfade_timer = v;
+    ++p6_w_fxfade_draws;
     if (v > 0) {
         uint32 c   = self->color;
         int32 luma = (int32)(((c >> 16) & 0xFF) + ((c >> 8) & 0xFF) + (c & 0xFF)) / 3;
