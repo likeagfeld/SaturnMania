@@ -120,6 +120,31 @@ OBJ_BINS = [
     # the boss draws placeholder/nothing but Update/state still run. 1036 B, trivial
     # vs the 256 KB OBJ_CAP.
     "GHZ/DDWrecker.bin",
+    # USER-REPORTED sprite-corruption batch (2026-07-16 audit, memory
+    # user-symptom-to-cause-map-2026-07-16): systematic decomp-vs-pack diff of
+    # every LINKED GHZ object's LoadSpriteAnimation strings found these 11 anims
+    # absent from BOTH GHZ packs. In the chain front-end the DATA.RSDK slow path
+    # can FAIL (the AIZ R3.2 aniFrames=-1 class: both GFS handles busy) -> the
+    # object draws NOTHING or from a STALE/WRONG sheet. MEASURED user symptoms
+    # this explains: invincibility sparkles rendering HUD DIGITS
+    # (InvincibleStars.c:? loads Global/Invincible.bin -- was packed ONLY in
+    # AIZANIM.PAK, which the GHZ handoff REPLACES), invisible badnik-kill
+    # explosions/animals, missing score popups, spikes, signpost spin, plane-
+    # switch triggers, BreakableWall tic debris, GHZ decorations. Total ~16 KB
+    # vs 230 KB free under OBJ_CAP. Global/Explosions.bin was newly extracted
+    # (was missing from maniafilelist.txt -- the c1-inflate class, second
+    # instance).
+    "Global/Invincible.bin",   # InvincibleStars (sparkles -> were drawing digits)
+    "Global/Explosions.bin",   # Explosion (badnik kills)
+    "Global/Animals.bin",      # Animals (freed critters)
+    "Global/ScoreBonus.bin",   # ScoreBonus (score popups)
+    "Global/SignPost.bin",     # SignPost (act-end spin)
+    "Global/Spikes.bin",       # Spikes
+    "Global/PlaneSwitch.bin",  # PlaneSwitch/ForceSpin/SpinBooster
+    "Global/TicMark.bin",      # BreakableWall debris ticks
+    "GHZ/Decoration.bin",      # GHZ decorations
+    "Global/HUD.bin",          # HUD/ActClear
+    "Global/SuperButtons.bin", # HUD super prompt
 ]
 OBJ_OUT = os.path.join(ROOT, "cd", "GHZOBJ.PAK")
 OBJ_CAP = 0x40000  # 256 KB cart window (0x22760000..0x227A0000 has 320 KB clear)
