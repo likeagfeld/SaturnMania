@@ -7817,9 +7817,32 @@ static void p6_frontend_frame(void)
     // its entry (run inside p6_menu_reload's load_and_arm), so the pointer is valid
     // here. Installs the real APICallback struct + globals->noSave=true so InitAPI
     // returns true -> MenuSetup_Initialize wires the UIControl row tree (M6).
+    //
+    // R1 FIX (2026-07-17, BLACK MENU regression): gate the one-shot on
+    // currentSceneFolder=="Menu". WHY (MEASURED, live qa_netmem Menu window of the
+    // CHAIN build): p6_w_fxfade_timer stuck at 500, p6_w_ghzcut_fade=500 -> full
+    // black VDP2 wash. The FXFade (Menu/Scene1.bin slot 8: timer=512 speedOut=12)
+    // ran exactly one FadeIn tick (512-12=500) then froze because
+    // MenuSetup->initializedAPI never latched -> InitAPI (MenuSetup.c:414-415) kept
+    // force-writing timer=512. Root: this one-shot is folder-agnostic, and
+    // s_ovl.menu_apic_init_fn is non-NULL from overlay entry, so in the CHAIN
+    // (boot=Logos, then Logos->Title->Menu) it fired during LOGOS frame 1 and
+    // latched s_menu_apic_done; the Logos-time APICallback/noSave writes did not
+    // survive the intervening TitleSetup + MenuSetup StageLoad inits, so by Menu
+    // time InitAPI read authStatus!=STATUS_OK/noSave!=true -> returned false forever
+    // -> initializedAPI never latched -> fade never rolled out -> BLACK. The
+    // PLAIN-MENU boot was unaffected only because p6_menu_reload runs FIRST there
+    // (p6_io_main.cpp ~:9850) so folder=="Menu" on the first tick. Folder-gating
+    // makes the CHAIN match that plain-menu timing: apic_init cannot fire during
+    // Logos/Title and DOES fire on the first Menu frame, when MenuSetup's first
+    // StaticUpdate -> InitAPI reads the just-installed offline no-save state and
+    // latches. Gate qa_menu_fade.py (RED->GREEN). Plain-menu byte-identical: the
+    // first Menu tick still has folder=="Menu". (currentSceneFolder is re-strcpy'd
+    // to the loaded folder inside LoadSceneFolder, Scene.cpp:148.)
     {
         static int32 s_menu_apic_done = 0;
-        if (!s_menu_apic_done && s_ovl.menu_apic_init_fn) {
+        if (!s_menu_apic_done && s_ovl.menu_apic_init_fn
+            && currentSceneFolder && !strcmp(currentSceneFolder, "Menu")) {
             s_ovl.menu_apic_init_fn();
             s_menu_apic_done = 1;
         }
