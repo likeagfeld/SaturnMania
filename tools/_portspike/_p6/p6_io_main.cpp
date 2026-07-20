@@ -7806,14 +7806,25 @@ static void p6_ghzcut_reload(void)
 // so plain Green Hill Zone is byte-identical. Saturn CRAM = BGR555, MSB set:
 // R5=c&0x1F, G5=(c>>5)&0x1F, B5=(c>>10)&0x1F -> magenta = R & B high, G low.
 __attribute__((used)) int32 p6_w_cram_hash    = 0;
-__attribute__((used)) int32 p6_w_cram_magenta = 0;
+__attribute__((used)) int32 p6_w_cram_magenta = 0;   // instantaneous magenta count this frame
 __attribute__((used)) int32 p6_w_cram_nonzero = 0;
+// GAP-5/FN-1 fix (adversarial-QA 2026-07-20): (1) the CRAM is 2048 u16 entries
+// (4 KB); the old i<1024 loop covered only the FIRST HALF -> it was blind to the
+// VDP1 SPRITE palette banks at CRAM[1024..2047] (exactly where the AIZ Tornado
+// pink-wing bank-collision lives). Loop the FULL 2048. (2) The oracle samples at
+// ~1 Hz but a pink FLASH can be <1 s -> Nyquist violation, the 1 Hz read misses
+// it entirely. Fix with two MONOTONIC accumulators the oracle diffs by DELTA
+// (delta>0 over any window == a flash happened in that window, regardless of the
+// oracle's sample rate): p6_w_cram_magenta_max (peak magnitude ever seen) and
+// p6_w_cram_magenta_frames (count of frames whose magenta exceeded the floor).
+__attribute__((used)) int32 p6_w_cram_magenta_max    = 0;  // monotonic peak magenta
+__attribute__((used)) int32 p6_w_cram_magenta_frames = 0;  // monotonic #frames mag>MAG_FLOOR
 static void p6_cram_witness(void)
 {
     volatile unsigned short *cram = (volatile unsigned short *)0x25F00000u;
     unsigned int h = 5381u;
     int mag = 0, nz = 0;
-    for (int i = 0; i < 1024; ++i) {
+    for (int i = 0; i < 2048; ++i) {
         unsigned short c = cram[i];
         h = ((h << 5) + h) ^ (unsigned int)c;
         if (c & 0x7FFFu)
@@ -7825,6 +7836,47 @@ static void p6_cram_witness(void)
     p6_w_cram_hash    = (int32)h;
     p6_w_cram_magenta = mag;
     p6_w_cram_nonzero = nz;
+    if (mag > p6_w_cram_magenta_max)
+        p6_w_cram_magenta_max = mag;
+    if (mag > 4)                              // MAG_FLOOR = 4 (mirrors oracle D9)
+        ++p6_w_cram_magenta_frames;
+}
+// GAP-A1 fix (adversarial-QA 2026-07-20): the port runs the VERBATIM decomp
+// audio logic, so gameplay objects DO call PlaySfx -> the engine channels[]
+// array shows CHANNEL_SFX-armed slots with real soundIDs. But there is NO Saturn
+// mix callback draining channels[] to the SCSP (only p6_snd_play() reaches the
+// SCSP, with ONE fixed MenuBleep buffer). So gameplay SFX are effectively silent
+// AND, until now, UNDETECTABLE. This witness proves the divergence blind: it
+// samples channels[] every ENGINE frame (60 Hz -> Nyquist-proof, unlike the
+// oracle's 1 Hz netmem read) and accumulates MONOTONIC counters the oracle diffs
+// by delta. p6_w_sfx_armed_frames rising while p6_w_snd_plays stays flat ==
+// "gameplay requested SFX the SCSP never played" == dead SFX. p6_w_sfx_last_id
+// carries the most-recent gameplay soundID so a spot check can name it.
+__attribute__((used)) int32 p6_w_sfx_armed_frames = 0;  // monotonic #frames a non-bleep SFX ch was armed
+__attribute__((used)) int32 p6_w_sfx_arm_events   = 0;  // monotonic #new-soundID arm transitions
+__attribute__((used)) int32 p6_w_sfx_last_id      = -1;  // most-recent gameplay SFX soundID
+__attribute__((used)) int32 p6_w_stream_frames    = 0;  // monotonic #frames a STREAM (BGM) ch was armed
+static int16 s_sfx_prev_id[CHANNEL_COUNT];
+static void p6_audio_witness(void)
+{
+    int armed = 0, streamed = 0;
+    for (int c = 0; c < CHANNEL_COUNT; ++c) {
+        uint8 st = channels[c].state;
+        int16 sid = channels[c].soundID;
+        if (st == CHANNEL_SFX) {
+            ++armed;
+            p6_w_sfx_last_id = (int32)sid;
+            if (sid != s_sfx_prev_id[c])          // new sound landed on this slot
+                ++p6_w_sfx_arm_events;
+        }
+        if (st == CHANNEL_STREAM)
+            ++streamed;
+        s_sfx_prev_id[c] = (st == CHANNEL_SFX) ? sid : (int16)-1;
+    }
+    if (armed > 0)
+        ++p6_w_sfx_armed_frames;
+    if (streamed > 0)
+        ++p6_w_stream_frames;
 }
 static void p6_frontend_frame(void)
 {
@@ -9679,6 +9731,9 @@ static void p6_frontend_frame(void)
     // Backend-parity: fingerprint the composited CRAM for the oracle (blind
     // colour/flash/blank detection across EVERY scene the chain visits).
     p6_cram_witness();
+    // Backend-parity: sample the audio channels every frame (Nyquist-proof) so
+    // the oracle can prove gameplay-SFX / BGM-stream activity blind (GAP-A1).
+    p6_audio_witness();
 #if defined(P6_FRONTEND_MENU)
     // M7: latch the global VDP1 landed-blit count so the gate can assert the menu
     // emitted >=1 sprite command (the M1a black-screen RED was landed==0). This is a

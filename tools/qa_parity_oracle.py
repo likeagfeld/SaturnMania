@@ -48,8 +48,11 @@ unlisted bug is still caught):
   D12 SPRITE    VDP1 drop count rising (MISSING SPRITES the engine wanted drawn)
                 + slot-cache thrash (sprites FLICKER).
   D13 PERF      render fps << 60 in gameplay (unplayable framerate = parity miss).
-  D14 LAYER     VDP2 BG plane unarmed (black sky) or FG-High not composited
-                (missing foreground tiles).
+  D14 LAYER     VDP2 BG plane unarmed (black sky, GHZ+GHZCutscene) or FG-High not
+                composited (missing foreground tiles, GHZ).
+  BLIND         a backend witness that read None for the WHOLE scene window -> the
+                dimension it feeds is blind HERE; reported LOUD, never silently
+                skipped (None != clean -- the anti-false-GREEN guard, FN-2).
 
 COVERAGE (what a defect in each maps to; * = needs a render witness, now present):
   sprite present  D12*  sprite anim   D4    colour/pink  D9*   BGM/SFX      D8
@@ -94,7 +97,15 @@ qa_trace = _load("qa_trace", "qa_trace.py")
 qa_invariants = _load("qa_invariants", "qa_invariants.py")
 qa_netmem = _load("qa_netmem", "qa_netmem.py")
 
-_POS = [a for a in sys.argv[1:] if not a.startswith("--")]
+# positionals = args that are neither a --flag NOR the value that follows --baseline
+# (that value is a path, not the SECS/PERIOD positionals -- else it was misparsed
+# as PERIOD and crashed float()).
+_argv = sys.argv[1:]
+_skip = set()
+for _i, _a in enumerate(_argv):
+    if _a == "--baseline" and _i + 1 < len(_argv):
+        _skip.add(_i + 1)
+_POS = [a for _i, a in enumerate(_argv) if not a.startswith("--") and _i not in _skip]
 SECS = float(_POS[0]) if len(_POS) > 0 else 180.0
 PERIOD = float(_POS[1]) if len(_POS) > 1 else 1.0
 MAP = (_ROOT / "game.map").read_text(errors="replace")
@@ -186,11 +197,23 @@ CORE_SYMS = ["p6_w_edge_hits", "p6_w_tick_frames", "p6_w_cont_frames",
              "p6_w_str_state", "p6_w_str_track", "p6_w_sfx_inited", "p6_w_pal_hash",
              # audio-differential (live channels) + SFX liveness
              "p6_w_snd_plays",
+             # Nyquist-proof gameplay-SFX/BGM activity witnesses (GAP-A1 fix): the
+             # engine channels[] show real gameplay SFX/stream arming (verbatim decomp
+             # logic runs) but nothing drains them to the SCSP -> dead SFX. Sampled at
+             # 60Hz SH-2-side into monotonic accumulators so a 1Hz oracle read still
+             # sees every arm via delta. sfx_armed rising + snd_plays flat = dead SFX.
+             "p6_w_sfx_armed_frames", "p6_w_sfx_arm_events", "p6_w_sfx_last_id",
+             "p6_w_stream_frames",
              # backend-parity render witnesses (SH-2-hashed CRAM -> netmem-visible).
              # These are what make PALETTE/pink-flash detection possible at all --
              # without them D9 is blind (the whole reason the old oracle missed the
              # user's "tons of pink flashes"). A build lacking them = loud selftest RED.
+             # magenta_max/magenta_frames are the Nyquist-proof transient-flash pair
+             # (GAP-5/FN-1: the 1Hz read misses a sub-second pink flash; the monotonic
+             # per-frame accumulators catch it by delta). The witness now scans the
+             # FULL 2048-entry CRAM (was 1024 -> blind to VDP1 sprite palette banks).
              "p6_w_cram_hash", "p6_w_cram_magenta", "p6_w_cram_nonzero",
+             "p6_w_cram_magenta_max", "p6_w_cram_magenta_frames",
              # sprite/draw pipeline (missing-sprite, flicker, layer coverage)
              "p6_w_vdp1_drops", "p6_w_vdp1_evicts", "p6_w_dl_cmds_max",
              "p6_w_b1_registered", "p6_w_fg_highfill"]
@@ -246,6 +269,45 @@ def selftest():
         return 2
     print("qa_parity_oracle: SELFTEST GREEN -- every ground-truth dependency resolves; "
           "no detector is blind.")
+    return 0
+
+
+def selftest_live():
+    """LIVE guard (RA must be up): the offline selftest only proves the SYMBOLS
+    exist in game.map -- it can't prove the netmem READ PATH delivers them. FN-2
+    (adversarial-QA 2026-07-20): a witness that resolves in the map but reads None
+    live still makes a detector silently skip. This connects and reads EVERY core
+    witness once; any that read None are announced LOUD. Exit 2 if the harness is
+    unhealthy or any core witness is dead live."""
+    print("=" * 72)
+    print("qa_parity_oracle --selftest-live  (prove the LIVE read path delivers every witness)")
+    print("=" * 72)
+    try:
+        o = Oracle()
+    except Exception as e:
+        sys.stderr.write(f"selftest-live: LIVE HARNESS UNHEALTHY -- {e}\n")
+        return 2
+    dead = []
+    for n in CORE_SYMS:
+        try:
+            v = o.w(n)
+        except Exception as e:  # noqa: BLE001
+            dead.append(f"{n} (read raised {e})")
+            continue
+        if v is None:
+            dead.append(f"{n} (read None -- detector BLIND)")
+    ch = o.channels()
+    if not ch:
+        dead.append("RSDK::channels (empty -- D8 audio channel array blind)")
+    print(f"  core witnesses probed live : {len(CORE_SYMS)}")
+    print(f"  channel array entries       : {len(ch)}")
+    if dead:
+        for d in dead:
+            print(f"  DEAD {d}")
+        print(f"qa_parity_oracle: SELFTEST-LIVE RED -- {len(dead)} witness(es) dead on the live "
+              f"read path; those detectors would false-GREEN. Fix before trusting a run.")
+        return 2
+    print("qa_parity_oracle: SELFTEST-LIVE GREEN -- every core witness delivers a live value.")
     return 0
 
 
@@ -353,6 +415,11 @@ class Oracle:
         s["str_track"] = self.w("p6_w_str_track")
         s["sfx_inited"] = self.w("p6_w_sfx_inited")
         s["snd_plays"] = self.w("p6_w_snd_plays")
+        # Nyquist-proof gameplay-SFX/BGM activity (60Hz SH-2 accumulators):
+        s["sfx_armed_frames"] = self.w("p6_w_sfx_armed_frames")
+        s["sfx_arm_events"] = self.w("p6_w_sfx_arm_events")
+        s["sfx_last_id"] = s32(self.w("p6_w_sfx_last_id"))
+        s["stream_frames"] = self.w("p6_w_stream_frames")
         s["channels"] = self.channels()
         s["pal_hash"] = self.w("p6_w_pal_hash")
         # backend-parity render witnesses (SH-2-hashed CRAM -> netmem-visible):
@@ -360,6 +427,8 @@ class Oracle:
         s["cram_hash"] = self.w("p6_w_cram_hash")
         s["cram_magenta"] = self.w("p6_w_cram_magenta")
         s["cram_nonzero"] = self.w("p6_w_cram_nonzero")
+        s["cram_magenta_max"] = self.w("p6_w_cram_magenta_max")
+        s["cram_magenta_frames"] = self.w("p6_w_cram_magenta_frames")
         # sprite/draw pipeline (missing-sprite + flicker + layer coverage):
         s["vdp1_drops"] = self.w("p6_w_vdp1_drops")    # sprites the emitter DROPPED
         s["vdp1_evicts"] = self.w("p6_w_vdp1_evicts")  # slot-cache thrash (flicker)
@@ -400,6 +469,8 @@ def dump_classmap():
 
 
 def main():
+    if "--selftest-live" in sys.argv:
+        return selftest_live()
     if "--selftest" in sys.argv:
         return selftest()
     if "--dump-classmap" in sys.argv:
@@ -423,6 +494,7 @@ def main():
     t0 = time.time()
     prev = None
     scene_speed = {}   # folder -> (tick_per_s, render_per_s) via a LIGHT burst (no observer effect)
+    stable_seen = {}   # folder -> consecutive settled samples (n_entities>3) seen so far
     print("t     folder        n   reg  tick     cont  edge palhash")
     consec_fail = 0
     while time.time() - t0 < SECS:
@@ -447,8 +519,17 @@ def main():
         # sample's UDP load stalls the emulator -> a false low reading). Take one
         # dedicated light burst per distinct scene the first time it's seen.
         fol = s["folder"]
-        if fol not in scene_speed and fol not in UI_SCENES and s["n_entities"] and s["n_entities"] > 3:
-            scene_speed[fol] = o.measure_speed_light(3.0)
+        # FP-2 fix (adversarial-QA 2026-07-20): measure game-speed only once the scene
+        # is SETTLED, never on first sighting. The first n>3 sample often still lands
+        # in the scene-LOAD window where tick is stalled -> a false "0.0 tick/s" /
+        # slow-motion RED (the memory-documented artifact). Require TWO consecutive
+        # settled samples (scene has been live >=1 period) before the light burst.
+        if fol not in UI_SCENES and s["n_entities"] and s["n_entities"] > 3:
+            stable_seen[fol] = stable_seen.get(fol, 0) + 1
+            if fol not in scene_speed and stable_seen[fol] >= 2:
+                scene_speed[fol] = o.measure_speed_light(3.0)
+        else:
+            stable_seen[fol] = 0
         print("%4.0f  %-12s %3s  %3d  %7s %7s  %3d %8s" % (
             s["wall"], (s["folder"] or "?")[:12], s["n_entities"], len(s["reg"]),
             s["tick"], s["cont"], len(s["edge"]),
@@ -479,6 +560,30 @@ def main():
                 man = zd
                 break
         expected = set((man or {}).get("stage_config", {}).get("objects", []) or [])
+
+        # FN-2 fix (adversarial-QA 2026-07-20): a witness that reads None every
+        # sample makes its detector SILENTLY SKIP -> false GREEN, the exact lying
+        # gate this project forbids. None is NOT clean: if a backend witness is dead
+        # across the WHOLE scene window, the corresponding dimension is BLIND here,
+        # so say so LOUD as a divergence (a blind detector is a defect to fix, not a
+        # pass). Only flag witnesses that SHOULD be live in this scene (the CRAM/audio
+        # witnesses are front-end-chain-gated; in a plain-GHZ build they are absent by
+        # design and selftest already caught that offline).
+        BLIND_WITNESSES = {
+            "cram_magenta": "D9 PALETTE (pink/colour)",
+            "cram_nonzero": "D9 PALETTE (blank screen)",
+            "cram_magenta_frames": "D9 PALETTE (transient pink flash, Nyquist)",
+            "vdp1_drops": "D12 SPRITE (missing sprites)",
+            "vdp1_evicts": "D12 SPRITE (flicker)",
+            "sfx_armed_frames": "D8 AUDIO (gameplay SFX liveness)",
+            "stream_frames": "D8 AUDIO (BGM stream liveness)",
+            "cont": "D7/D13 SPEED/PERF (frame clock)",
+        }
+        for key, dim in BLIND_WITNESSES.items():
+            if all(s.get(key) is None for s in ss):
+                D(folder, "BLIND", f"witness '{key}' read None for ALL {len(ss)} samples -> "
+                                   f"{dim} is BLIND in this scene (None != clean; fix the witness "
+                                   f"or the read path before trusting any GREEN here)")
 
         # registration set seen across the window (union -- a class may register late)
         reg_rows = {}
@@ -563,6 +668,18 @@ def main():
                     D(folder, "VISIBLE", f"no VISIBLE player at t={s['wall']:.0f}s "
                                          f"(characters missing / not drawn)")
                     break
+            # FN-4 fix (adversarial-QA 2026-07-20): the old check ONLY looked at the
+            # player (classID 8). A total sprite blackout (badniks/rings/bridges all
+            # invisible while the world is populated) passed. Flag a SETTLED gameplay
+            # scene where MANY entities are live but NONE are drawn -- the whole
+            # visible-sprite class, not just the player.
+            for s in ss:
+                if (s["n_entities"] or 0) >= 8:
+                    vis = sum(1 for e in s["entities"] if (e.get("visible") or 0))
+                    if vis == 0:
+                        D(folder, "VISIBLE", f"ZERO of {s['n_entities']} live entities are visible at "
+                                             f"t={s['wall']:.0f}s -- total sprite blackout (nothing drawn)")
+                        break
 
         # D6 EDGE: any edge-audit ordinal that fired DURING THIS SCENE's window.
         # p6_w_edge_hits[] is CUMULATIVE SINCE BOOT (p6_closure_edge.c) -- attributing
@@ -615,12 +732,34 @@ def main():
                 if wrong:
                     D(folder, "AUDIO", f"WRONG BGM track {wrong} (decomp expects {sorted(exp)} for "
                                        f"{folder}) -- wrong music playing")
-            # SFX liveness: during gameplay PlaySfx must fire as the player acts.
+            # SFX liveness (GAP-A1 upgrade): the DEAD-SFX class the old check missed.
+            # p6_w_snd_plays only counts the boot proof + the fixed MenuBleep re-trigger
+            # -- it is BLIND to gameplay SFX. The new 60Hz-sampled channel witnesses see
+            # the verbatim decomp PlaySfx arming channels[]: sfx_arm_events counts every
+            # new-soundID arm. The DIVERGENCE is gameplay REQUESTING SFX (arm_events
+            # grew) while the SCSP-audible path did NOT play them (snd_plays flat) ==
+            # the sound is armed in the engine but never reaches the speaker = dead SFX.
             if folder not in UI_SCENES:
+                armev = [s.get("sfx_arm_events") for s in ss if s.get("sfx_arm_events") is not None]
                 plays = [s["snd_plays"] for s in ss if s["snd_plays"] is not None]
-                if len(plays) >= 3 and (max(plays) - min(plays)) == 0:
-                    D(folder, "AUDIO", f"NO SFX activity across the window (p6_w_snd_plays flat at "
-                                       f"{plays[0]}) -- SFX path dead during gameplay")
+                arm_grew = len(armev) >= 2 and (max(armev) - min(armev)) > 0
+                plays_flat = len(plays) >= 2 and (max(plays) - min(plays)) == 0
+                if arm_grew and plays_flat:
+                    D(folder, "AUDIO", f"gameplay armed {max(armev) - min(armev)} SFX events "
+                                       f"(engine channels[]) but the SCSP-audible count is FLAT at "
+                                       f"{plays[0]} (last soundID={ss[-1].get('sfx_last_id')}) -- SFX "
+                                       f"REQUESTED but NOT PLAYED (no channel->SCSP mix path = dead SFX)")
+                elif len(armev) >= 3 and (max(armev) - min(armev)) == 0 and (last["n_entities"] or 0) >= 6:
+                    D(folder, "AUDIO", f"NO SFX arming at all across the window (sfx_arm_events flat "
+                                       f"at {armev[0]}) with {last['n_entities']} live entities -- "
+                                       f"gameplay produced zero SFX (silent world)")
+            # BGM stream liveness cross-check (Nyquist): a scene that should have BGM
+            # but never held a STREAM channel for any frame in the window.
+            strf = [s.get("stream_frames") for s in ss if s.get("stream_frames") is not None]
+            if strf and (max(strf) - min(strf)) == 0 and folder in BGM_EXPECT:
+                D(folder, "AUDIO", f"no STREAM channel active for ANY frame in the window "
+                                   f"(p6_w_stream_frames flat at {strf[0]}) -- BGM not audibly "
+                                   f"playing (expected track {sorted(BGM_EXPECT[folder])})")
             # garbage channel: an active SFX channel whose soundID is out of range.
             for ch in (last.get("channels") or []):
                 if ch["state"] == 1 and not (0 <= ch["soundID"] < 0x100):
@@ -638,8 +777,19 @@ def main():
             D(folder, "PALETTE", f"MAGENTA/PINK in CRAM -- up to {max(mags)} pink entries "
                                  f"(wrong colour / CRAM-bank collision -- the pink-flash class, "
                                  f"any bank; count>4 rules out incidental sprite colours)")
+        # GAP-5/FN-1 Nyquist upgrade: the instantaneous 1Hz read above misses a
+        # sub-second pink FLASH. p6_w_cram_magenta_frames is a 60Hz monotonic count
+        # of frames whose magenta exceeded the floor -> a delta>0 across the window
+        # means a flash happened even if no 1Hz sample landed on it. magenta_max is
+        # the peak magnitude ever seen (also covers CRAM[1024..2047] sprite banks now).
+        mgf = [s.get("cram_magenta_frames") for s in ss if s.get("cram_magenta_frames") is not None]
+        mgx = [s.get("cram_magenta_max") for s in ss if s.get("cram_magenta_max") is not None]
+        if len(mgf) >= 2 and (max(mgf) - min(mgf)) > 0 and (not mags or max(mags) <= 4):
+            D(folder, "PALETTE", f"TRANSIENT pink FLASH -- {max(mgf) - min(mgf)} frames had magenta "
+                                 f"CRAM in this window (peak {max(mgx) if mgx else '?'} entries) that the "
+                                 f"1Hz sample missed (Nyquist; 60Hz accumulator caught it) -- pink flicker")
         if nzs and folder not in ("", "?", None, "Logos") and max(nzs) < 8:
-            D(folder, "PALETTE", f"CRAM nearly empty (max {max(nzs)} nonzero of 1024) -- "
+            D(folder, "PALETTE", f"CRAM nearly empty (max {max(nzs)} nonzero of 2048) -- "
                                  f"blank/black screen (palette not composed)")
 
         # D12 SPRITE (missing sprites): the engine's draw list requests N sprites;
@@ -674,12 +824,19 @@ def main():
         # VDP2 BG plane (sky/parallax) and composite FG tiles. b1_registered==0 = no
         # BG plane (black sky class); fg_highfill==0 = no FG-High tiles (missing
         # foreground / grass). Both are the "half the screen is missing" class.
-        if folder == "GHZ":  # the witnesses are GHZ-FG specific
+        # FN-6 fix (adversarial-QA 2026-07-20): b1_registered (the VDP2 BG-plane
+        # armed witness) is meaningful for EVERY scene that renders a NBG BG behind a
+        # transparent FG -- GHZ AND GHZCutscene use the same NBG-BG path (#310), so a
+        # black sky there was previously undetectable. fg_highfill stays GHZ-specific
+        # (it counts GHZ FG-High tiles). Title/Menu/AIZ black-screen is covered by the
+        # D9 cram_nonzero blank-CRAM detector (scene-agnostic), so no false blind.
+        if folder in ("GHZ", "GHZCutscene"):
             b1 = [s["b1_reg"] for s in ss if s.get("b1_reg") is not None]
-            fgh = [s["fg_highfill"] for s in ss if s.get("fg_highfill") is not None]
             if b1 and max(b1) == 0:
                 D(folder, "LAYER", "VDP2 BG plane never armed (p6_w_b1_registered=0) -- "
                                    "black sky / missing background")
+        if folder == "GHZ":  # fg_highfill is GHZ-FG specific
+            fgh = [s["fg_highfill"] for s in ss if s.get("fg_highfill") is not None]
             if fgh and max(fgh) == 0:
                 D(folder, "LAYER", "FG-High layer never composited (p6_w_fg_highfill=0) -- "
                                    "missing foreground tiles (grass/palms)")
