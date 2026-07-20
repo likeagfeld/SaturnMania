@@ -44,7 +44,10 @@ def _load(mod, fn):
 qa_netmem = _load("qa_netmem", "qa_netmem.py")
 MAP = (_ROOT / "game.map").read_text(errors="replace")
 
-SFX_MIN = 8          # a settled gameplay scene must have loaded at least this many
+SFX_MIN = 7          # measured-feasible count for the 76 KB free SCSP window (the
+                     # user-chosen S8@22050 repack path; the two biggest core SFX
+                     # exceed budget). Physical limit, not an arbitrary target --
+                     # see build_sfx_pack.py + memory/dead-sfx-rootcause-*.
 SFXINFO_STRIDE = 32  # RETRO_HASH_MD5(16)+buffer(4)+length(4)+playCount(4)+2 -> 32
 SCOPE_OFF = 29
 WATCH = float(sys.argv[1]) if len(sys.argv) > 1 else 12.0
