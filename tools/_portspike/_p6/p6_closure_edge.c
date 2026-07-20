@@ -213,6 +213,42 @@ ObjectUIControl *UIControl       = NULL;
 ObjectUIDialog *UIDialog         = NULL;
 ObjectUIWidgets *UIWidgets       = NULL;
 ObjectWater *Water               = NULL;
+#if defined(P6_WATER)
+// Water.c (docs/feature_checklists/water.md M1) closure boundary. Verbatim Game_Water.o
+// links against these GHZ-ABSENT symbols; NULL/inert is faithful for GHZ (no entities of
+// these HCZ/CPZ types exist -- Water null-guards each). Gated -> P6_WATER build only.
+//   (1) object pointers behind if(Button)/!Current/if(PullChain) (Water.c:303/497/313).
+ObjectButton    *Button          = NULL;
+ObjectCurrent   *Current         = NULL;
+ObjectPullChain *PullChain       = NULL;
+//   (2) Current (HCZ water-current) player-state fns Water COMPARES the player state
+//       against (Water.c:822-823, != comparisons only -- never called). GHZ player never
+//       enters a Current state, so a unique inert address makes every compare correctly
+//       false. Empty-body stub = address-stable, zero behavior.
+void Current_PlayerState_Left(void)  {}
+void Current_PlayerState_Right(void) {}
+void Current_PlayerState_Up(void)    {}
+void Current_PlayerState_Down(void)  {}
+//   (3) the REAL Player states Water compares against (Water.c:402/747). They live in
+//       Game_Player.o but --gc-sections drops them (nothing else references them), so the
+//       overlay -R game.elf can't resolve them. Force game.elf to RETAIN the real symbols
+//       via a used address-array (correct behavior: compares the real state pointer).
+//       These are kept in game.elf via -u _p6_water_keep (pack gc --gc-sections roots;
+//       only the overlay references them, so a plain def would be gc-dropped).
+extern void Player_State_TransportTube(void);
+extern void Player_State_Bubble(void);
+__attribute__((used)) const void *const p6_water_keep[] = {
+    (const void *)Player_State_TransportTube,
+    (const void *)Player_State_Bubble,
+};
+//   (4) Water_StaticUpdate's HCZ waterLevelVolume/30.0 emits libgcc __truncdfsf2; game.elf
+//       never used a double->float op so libgcc didn't pull it, leaving the overlay -R
+//       unable to resolve it. This double->float (kept via -u _p6_water_force_sf) forces
+//       __truncdfsf2 into game.elf so the overlay resolves it (the op is dead in GHZ --
+//       moveWaterLevel is false).
+volatile double p6_water_sf = 30.0;
+__attribute__((used)) float p6_water_force_sf(void) { return (float)(p6_water_sf / 30.0); }
+#endif
 // F.3: GameProgress's achievement table. SignPost reads &achievementList[ACH_
 // SIGNPOST]=idx 5; sized to 6 (idx 0-5) to stay under the WRAM-H floor.
 // The unlock API is a no-op on Saturn, so the .id field value is irrelevant.

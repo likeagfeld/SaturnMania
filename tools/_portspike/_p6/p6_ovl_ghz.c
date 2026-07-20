@@ -43,6 +43,7 @@ extern ObjectForceUnstick *ForceUnstick;
 extern ObjectSpinBooster *SpinBooster;
 extern ObjectCorkscrewPath *CorkscrewPath;
 extern int32 p6_w_corkscrew_classid;
+extern int32 p6_w_water_classid, p6_w_water_level; /* Water M1 (feature_checklists/water.md) */
 /* ForceUnstick deferred to Batch 3 -- its StageLoad loads the 69-frame
  * Global/ItemBox.bin which overflows DATASET_STG by ~1.3KB here (MEASURED:
  * pool 153600, at_fail 152376). It shares ItemBox's anim, so it ports for free
@@ -915,6 +916,21 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityCorkscrewPath), (unsigned)sizeof(ObjectCorkscrewPath),
                               CorkscrewPath_Update, CorkscrewPath_LateUpdate, CorkscrewPath_StaticUpdate,
                               CorkscrewPath_Draw, CorkscrewPath_Create, CorkscrewPath_StageLoad, CorkscrewPath_Serialize);
+#if defined(P6_WATER)
+    /* Water (6 GHZ Act 1 placements x384..9400, WaterLevel/Pool -- on the player
+     * path). VERBATIM decomp Common/Water.c (Game_Water.o, overlay-resident). Sets
+     * the global Water->waterLevel that the already-compiled Player reads for the
+     * underwater buoyancy/drown subsystem (Player.c short-circuits Water->waterLevel
+     * behind underwater&& so the no-Water build was safe). Draw states use standard
+     * RSDK.DrawSprite/DrawRect -> the surface renders via existing paths once
+     * Water.bin is packed (M1b). Closure: Music/Player/Shield/Spikes already linked;
+     * Button/Current/PullChain = GHZ-absent NULL stubs (p6_closure_edge.c).
+     * docs/feature_checklists/water.md M1. */
+    api->register_object_full((void **)&Water, "Water",
+                              (unsigned)sizeof(EntityWater), (unsigned)sizeof(ObjectWater),
+                              Water_Update, Water_LateUpdate, Water_StaticUpdate,
+                              Water_Draw, Water_Create, Water_StageLoad, Water_Serialize);
+#endif
 
     /* MASS-PORT BATCH 2 -- the badnik break CHAIN. Register order is irrelevant
      * (engine matches by md5(name)). CHAIN TUs first: BadnikHelpers (no-op helper
@@ -1964,6 +1980,13 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         p6_w_b1_registered = b1;
     }
     p6_w_corkscrew_classid = (CorkscrewPath) ? (int32)CorkscrewPath->classID : -1;
+#if defined(P6_WATER)
+    /* Water M1 witnesses (docs/feature_checklists/water.md): classid proves the
+     * register; water_level proves Water_StageLoad ran (seeds 0x7FFFFFFF) and, once a
+     * WATERLEVEL entity Creates, drops to the real GHZ water Y. Read after settle. */
+    p6_w_water_classid = (Water) ? (int32)Water->classID : -1;
+    p6_w_water_level   = (Water) ? (int32)Water->waterLevel : 0;
+#endif
     {   /* Batch 2: count how many of the 9 chain+badnik objects registered (classID>0),
          * and latch each one's classID for the per-object diagnostic. */
         extern int32 p6_w_b2_cids[9];

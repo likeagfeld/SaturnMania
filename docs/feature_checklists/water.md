@@ -108,6 +108,64 @@ byte-identical until verified (mirrors P6_DDWRECKER/P6_AIZ_TEST discipline).
   offset (peek COAR/G/B) + screenshot vs PC ref; above-water unchanged. Separate
   revertible commit. Flip `#if P6_WATER` default-on only after M1-M3 GREEN.
 
+## M1 closure (MEASURED at the overlay link, 2026-07-20 — the complete undefined set)
+The verbatim Game_Water.o compiled clean; the OVERLAY link (`ld -R game.elf`) reported
+exactly 10 undefined refs (linker reports all at once -> no hidden second-order):
+- `Button`, `Current`, `PullChain` -> GHZ-absent object ptrs behind null guards. NULL
+  stubs in p6_closure_edge.c (gated) + `-u` roots (pack --gc-sections drops them since
+  ONLY the overlay references them; the existing `Water` stub survives WITHOUT a root
+  because Player.c (pack) reads Water->waterLevel -- the new ones have no pack referencer).
+- `Current_PlayerState_{Left,Right,Up,Down}` -> HCZ Current player-states Water only
+  COMPARES against (Water.c:822-823, != only, never called). Empty inert stubs + `-u`
+  roots (unique address -> every GHZ compare correctly false).
+- `Player_State_TransportTube` (Water.c:402), `Player_State_Bubble` (Water.c:747) -> REAL
+  Player states in Game_Player.o but --gc-sections-dropped (nothing else refs them).
+  Kept via `p6_water_keep[]` used address-array (gated, `-u` rooted) -> forces the real
+  symbols into game.elf so the overlay -R resolves the real state pointers.
+- `__truncdfsf2` -> libgcc soft-float from `Water_StaticUpdate` `waterLevelVolume/30.0`
+  (HCZ water-level SFX, dead in GHZ -- moveWaterLevel=false). game.elf never used a
+  double->float op so libgcc didn't pull the helper. `p6_water_force_sf()` (gated, `-u`
+  rooted, a used double->float) forces `__truncdfsf2` into game.elf for the overlay -R.
+All 5 fix classes gated behind P6_WATER; plain/plain-chain byte-identical.
+
+## M1 STATUS (2026-07-20) -- LIVE-GREEN VERIFIED via RA netmem
+RED->GREEN watched LIVE (tools/qa_p6_water.py --live, RA netmem over _gl_boot.ps1 so the
+chain advances -- the audio clock is required, [[headless-ra-cant-advance-chain-no-audio-clock]]):
+the poll (pool anchor 0x00243000 HEALTHY throughout) tracked the chain t+0 all-zero -> t+133
+b1=1/ring=12 (GHZ badniks registering) -> t+240 GHZ SETTLED (cork=53,b1=4,ring=12) with
+**p6_w_water_classid=56** (Water REGISTERED, live classID) + **p6_w_water_level=0x081C0000
+(Y=2076px)** (off the 0x7FFFFFFF sentinel -> a WATER_WATERLEVEL entity Created + State_Water
+computed the real GHZ water line). Gate GREEN. So Water registers + the water line is live +
+the decomp Player's underwater subsystem is armed (it reads Water->waterLevel=2076px).
+The EARLIER "blocked" note below was the HEADLESS harness (audio_driver=null, no clock) --
+_gl_boot (wasapi) advances the chain and RA reads are clean. LESSON: RA live memory IS the
+harness (user directive); just boot GL, not headless, for the chain.
+
+## M1a BUILD STATUS (2026-07-20) -- LINK-VERIFIED + GATED-SAFE (superseded by LIVE-GREEN above)
+The P6_WATER=1 chain build (btxhhr7ri) is GREEN at the link level:
+- 0 undefined references (closure fully resolved).
+- Water witnesses in game.map: p6_w_water_classid @ 0x0609bf50, p6_w_water_level @ 0x0609bf4c.
+- _end = 0x060c2a40 < 0x060C8000 chain ceiling (~22 KB headroom; #228 safe).
+- All wiring gated (${P6_WATER:+...} / #if defined(P6_WATER)) -> default chain byte-identical.
+
+LIVE-VERIFY BLOCKED on a HARNESS limitation (NOT a Water defect): the headless RA
+netmem harness (qa_live.ps1) uses audio_driver=null -> NO audio clock -> the core does
+not advance the long autorun chain (logos->title->menu->AIZ->GHZCut->GHZ, ~17k frames);
+qa_trace's health guard fires LOUD (objectEntityList=0x0, "4MB cart not applied / data-cue
+not booting") and all witness reads are garbage (constant 0x2000). This is pre-existing
+[[retroarch-live-memory-harness]] flakiness, orthogonal to Water. M1a is logic-only
+(Water.bin NOT packed -> the surface sprite drops), so a GL-boot screenshot can't verify it
+either -- the physics needs the WITNESS read (classid + water_level) or an entity-pool
+player.underwater read.
+
+PATH FORWARD (next focused session, healthy harness): (a) Mednafen savestate deep-chain
+capture (CLAUDE.md sec 8.5 PRIMARY) landing in settled GHZ + `python tools/qa_p6_water.py
+STATE.mcs` -> expect classid>0 + water_level off the 0x7FFFFFFF sentinel; OR (b) fix the
+headless harness to advance the chain (audio clock), then the qa_p6_water witness read.
+Then M1b: pack Water.bin (add to build_anim_pack OBJ_BINS + maniafilelist -> FRD auto-folds;
+stage the Global/Water.gif sheet) for the visible surface. Wiring stays UNCOMMITTED until
+the live RED->GREEN lands (no claiming done without it).
+
 ## Budget / risk
 - WRAM: register-only object adds ~cart .text + ~few B pack witnesses; chain
   `_end` currently ~0x060c1xxx << 0x060C8000 (25 KB headroom) — safe. Confirm

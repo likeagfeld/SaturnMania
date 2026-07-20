@@ -72,6 +72,12 @@ if [ -n "${P6_DDW_ARENA:-}" ]; then
 fi
 [ -n "${P6_DDWRECKER:-}" ] && export P6_DDWRECKER
 
+# Water subsystem (GHZ Act 1, 6 placements) -- verbatim decomp compile, gated
+# during bring-up so plain/plain-chain stay BYTE-IDENTICAL (docs/feature_checklists/
+# water.md M1). Export so the child build_p6scene_objs.sh compiles Game_Water.o +
+# the register block + witness -u roots.
+[ -n "${P6_WATER:-}" ] && export P6_WATER
+
 # Task #309 (P6_GHZCUT_BOOT): the AIZ->GHZCutscene direct-boot diagnostic BUILDS ON the
 # AIZ-test flavor (it reuses the AIZ overlay objects + the AIZ FG present block + the
 # closure_edge AIZ stubs), and additionally registers GHZSetup/BGSwitch/GHZCutsceneST/
@@ -323,6 +329,12 @@ fi
 # 0x30000 for its ~9.8 KB (p6_ovl_api.h). Promote to default once (a)-(c) GREEN.
 if [ -n "${P6_DDWRECKER:-}" ]; then
     OVL_FE="$OVL_FE Game_DDWrecker.o"
+fi
+# Water (docs/feature_checklists/water.md M1): overlay-resident like the badniks;
+# references already-linked Music/Player/Shield/Spikes + GHZ-absent Button/Current/
+# PullChain NULL stubs (p6_closure_edge.c). Gated -> plain GHZ byte-identical.
+if [ -n "${P6_WATER:-}" ]; then
+    OVL_FE="$OVL_FE Game_Water.o"
 fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \

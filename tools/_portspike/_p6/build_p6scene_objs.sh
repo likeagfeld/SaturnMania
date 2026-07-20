@@ -331,7 +331,7 @@ done
 # boot 0 == arm the tornado); a NULL StarPost would crash. Default/GHZ/menu builds leave
 # P6_AIZ_TEST unset -> StarPost stays NULL -> byte-identical.
 "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} -I"$GINC" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_WATER:+-DP6_WATER} -I"$GINC" -I"$NEWLIB" \
     -c -o "$P6/p6_closure_edge.o" "$P6/p6_closure_edge.c"
 
 echo "[7p] P6.7 Player wave GAME TUs (VERBATIM 17-TU closure, -Os census knob) ..."
@@ -426,7 +426,8 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           Common_BreakableWall:Game_BreakableWall \
           Common_CollapsingPlatform:Game_CollapsingPlatform \
           Global_InvisibleBlock:Game_InvisibleBlock \
-          GHZ_DDWrecker:Game_DDWrecker; do
+          GHZ_DDWrecker:Game_DDWrecker \
+          ${P6_WATER:+Common_Water:Game_Water}; do
     src_tu="${w4%%:*}"; out_tu="${w4##*:}"
     "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
         $GAME_DEFS -I"$GINC" -I"$NEWLIB" \
@@ -582,7 +583,7 @@ echo "[7l2] p6_ovl_ghz.o (O1 GHZ overlay entry -- Ring + Spring multi-class) ...
 # compile-stripped from the SHIPPING build, the same way the pack's census is. Without
 # this the #ifndef in the overlay never engages -> the scan ships -> fps halves.
 $CC -x c -std=gnu11 -m2 -O2 -fno-builtin -ffunction-sections -fdata-sections \
-    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_HOLD_WHITE:+-DP6_GHZCUT_HOLD_WHITE=$P6_GHZCUT_HOLD_WHITE} ${P6_MENU_AUTOSELECT:+-DP6_MENU_AUTOSELECT} ${P6_TITLEBG_SPRITES_OFF:+-DP6_TITLEBG_SPRITES_OFF} ${P6_TITLE3D_ON:+-DP6_TITLE3D_ON} ${P6_DDWRECKER:+-DP6_DDWRECKER} ${P6_DDW_ARENA:+-DP6_DDW_ARENA} ${P6_DDW_KILL:+-DP6_DDW_KILL} -I"$GINC" -I"$P6" -I"$NEWLIB" \
+    $GAME_DEFS ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_BACKTRACK_PROOF:+-DP6_BACKTRACK_PROOF} ${P6_BT_NOSKIP:+-DP6_BT_NOSKIP} ${P6_POOLINV_LEAK:+-DP6_POOLINV_LEAK} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_HOLD_WHITE:+-DP6_GHZCUT_HOLD_WHITE=$P6_GHZCUT_HOLD_WHITE} ${P6_MENU_AUTOSELECT:+-DP6_MENU_AUTOSELECT} ${P6_TITLEBG_SPRITES_OFF:+-DP6_TITLEBG_SPRITES_OFF} ${P6_TITLE3D_ON:+-DP6_TITLE3D_ON} ${P6_DDWRECKER:+-DP6_DDWRECKER} ${P6_DDW_ARENA:+-DP6_DDW_ARENA} ${P6_DDW_KILL:+-DP6_DDW_KILL} ${P6_WATER:+-DP6_WATER} -I"$GINC" -I"$P6" -I"$NEWLIB" \
     -c -o "$P6/p6_ovl_ghz.o" "$P6/p6_ovl_ghz.c"
 
 echo "[7n] SaturnLayout.o (P6.7 W11a: layout band store + camera-local sliding windows; miniz inflate decoder) ..."
@@ -721,6 +722,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_spikelog_classid -u _p6_w_spikelog_frames \
     -u _p6_w_spikelog_aniframes -u _p6_w_spring_aniframes -u _p6_w_brg_aniframes \
     -u _p6_w_ring_aniframes -u _p6_w_ring_classid -u _p6_w_spikes_aniframes -u _p6_w_b1_registered -u _p6_w_corkscrew_classid \
+    ${P6_WATER:+-u _Button -u _Current -u _PullChain -u _Current_PlayerState_Left -u _Current_PlayerState_Right -u _Current_PlayerState_Up -u _Current_PlayerState_Down -u _p6_water_keep -u _p6_water_force_sf} \
     -u _p6_w_b2_registered -u _p6_w_b2_cids -u _p6_w_explosion_aniframes -u _p6_w_animals_aniframes -u _p6_w_newtron_aniframes \
     -u _p6_vdp1_handle_for_surface \
     -u _p6_w_ghzobj_surf_idx -u _p6_w_ghzobj_surf_slot -u _p6_w_ghzobj_surf_scope \
@@ -733,6 +735,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_bind_demand -u _p6_w_bind_log16 \
     -u _Player_CheckBadnikBreak -u _Player_ProjectileHurt -u _Player_CheckBadnikTouch \
     ${P6_DDWRECKER:+-u _p6_w_ddw_classid -u _Player_CheckBossHit} \
+    ${P6_WATER:+-u _p6_w_water_classid -u _p6_w_water_level} \
     ${P6_DDW_ARENA:+-u _p6_w_ddw_warp_fired -u _p6_w_ddw_seen -u _p6_w_ddw_state0 -u _p6_w_ddw_health_min} \
     ${P6_DDW_KILL:+-u _p6_w_ddw_hits_injected -u _p6_w_ddw_sign_live} \
     -u _p6_ovl_badnikbreak_unseeded_raw -u _p6_ovl_badnikbreak_raw \
