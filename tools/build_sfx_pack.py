@@ -16,10 +16,11 @@ All Green Hill SFX measured mono/44100/16-bit, so the conversion is uniform:
   * S16 -> S8 : signed 8-bit = sample >> 8  (SCSP PCM8B interprets signed 8-bit)
 
 Output cd/GHZSFX.PCM (big-endian, SH-2/SCSP native):
-  magic 'P6SF' (4)  |  version u16 = 1  |  count u16  |  sampleRate u32 = 22050
+  magic 'P6SF' (4)  |  version u16 = 2  |  count u16  |  sampleRate u32 = 22050
   reserved u32 (0)
-  then `count` entries, each 24 bytes:
-     md5(name) digest         16 bytes   (GEN_HASH_MD5 of e.g. "Global/Ring.wav")
+  then `count` entries, each 12 bytes:
+     djb2(name)               u32        (of e.g. "Global/Ring.wav"; engine-side
+                                          djb2 mirrors Audio.cpp:430 -- cheap on SH-2)
      byteOffsetInData         u32        (from the start of the DATA blob)
      sampleCount              u32        (S8 samples; SCSP LEA = count-1)
   then the DATA blob: each SFX's S8 samples, 2-byte aligned (SCSP SA byte addr).
@@ -31,11 +32,18 @@ OCT=-1) when a channel arms one of these soundIDs.
 """
 from __future__ import annotations
 
-import hashlib
 import os
 import struct
 import sys
 from pathlib import Path
+
+
+def djb2(s: str) -> int:
+    """Mirror the engine-side djb2 (Audio.cpp:430): h=5381; h=((h<<5)+h)^byte."""
+    h = 5381
+    for b in s.encode():
+        h = (((h << 5) + h) ^ b) & 0xFFFFFFFF
+    return h
 
 _ROOT = Path(__file__).resolve().parent.parent
 SOUNDFX = _ROOT / "extracted" / "Data" / "SoundFX"
@@ -102,10 +110,10 @@ def main():
     if not SOUNDFX.exists():
         sys.stderr.write(f"build_sfx_pack: {SOUNDFX} not found (extract Data.rsdk first)\n")
         return 2
-    entries = []          # (name, md5digest, s8bytes)
+    entries = []          # (name, djb2key, s8bytes)
     total = 0
     skipped = []
-    hdr_per_entry = 24
+    hdr_per_entry = 12
     for name in PRIORITY:
         p = SOUNDFX / name
         if not p.exists():
@@ -121,8 +129,8 @@ def main():
         if prospective + prospective_hdr > BUDGET:
             skipped.append((name, f"over budget ({len(s8)} B)"))
             continue
-        md5 = hashlib.md5(name.encode()).digest()
-        entries.append((name, md5, s8))
+        key = djb2(name)
+        entries.append((name, key, s8))
         total += len(s8)
 
     # assemble
@@ -133,12 +141,11 @@ def main():
         data += s8
     out = bytearray()
     out += b"P6SF"
-    out += struct.pack(">HH", 1, len(entries))
+    out += struct.pack(">HH", 2, len(entries))
     out += struct.pack(">I", TARGET_RATE)
     out += struct.pack(">I", 0)
-    for (name, md5, s8), off in zip(entries, offsets):
-        out += md5
-        out += struct.pack(">II", off, len(s8))
+    for (name, key, s8), off in zip(entries, offsets):
+        out += struct.pack(">III", key, off, len(s8))
     out += data
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
