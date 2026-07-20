@@ -406,6 +406,7 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           Common_Decoration:Game_Decoration \
           Common_ForceSpin:Game_ForceSpin \
           Common_ForceUnstick:Game_ForceUnstick \
+          GHZ_CorkscrewPath:Game_CorkscrewPath \
           Common_SpinBooster:Game_SpinBooster \
           Helpers_BadnikHelpers:Game_BadnikHelpers \
           Global_Explosion:Game_Explosion \
@@ -719,7 +720,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _Player_Hurt -u _APICallback_UnlockAchievement -u _achievementList \
     -u _p6_w_spikelog_classid -u _p6_w_spikelog_frames \
     -u _p6_w_spikelog_aniframes -u _p6_w_spring_aniframes -u _p6_w_brg_aniframes \
-    -u _p6_w_ring_aniframes -u _p6_w_ring_classid -u _p6_w_spikes_aniframes -u _p6_w_b1_registered \
+    -u _p6_w_ring_aniframes -u _p6_w_ring_classid -u _p6_w_spikes_aniframes -u _p6_w_b1_registered -u _p6_w_corkscrew_classid \
     -u _p6_w_b2_registered -u _p6_w_b2_cids -u _p6_w_explosion_aniframes -u _p6_w_animals_aniframes -u _p6_w_newtron_aniframes \
     -u _p6_vdp1_handle_for_surface \
     -u _p6_w_ghzobj_surf_idx -u _p6_w_ghzobj_surf_slot -u _p6_w_ghzobj_surf_scope \

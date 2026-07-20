@@ -41,6 +41,8 @@ extern ObjectDecoration *Decoration;
 extern ObjectForceSpin *ForceSpin;
 extern ObjectForceUnstick *ForceUnstick;
 extern ObjectSpinBooster *SpinBooster;
+extern ObjectCorkscrewPath *CorkscrewPath;
+extern int32 p6_w_corkscrew_classid;
 /* ForceUnstick deferred to Batch 3 -- its StageLoad loads the 69-frame
  * Global/ItemBox.bin which overflows DATASET_STG by ~1.3KB here (MEASURED:
  * pool 153600, at_fail 152376). It shares ItemBox's anim, so it ports for free
@@ -902,6 +904,17 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntitySpinBooster), (unsigned)sizeof(ObjectSpinBooster),
                               SpinBooster_Update, SpinBooster_LateUpdate, SpinBooster_StaticUpdate,
                               SpinBooster_Draw, SpinBooster_Create, SpinBooster_StageLoad, SpinBooster_Serialize);
+    /* CorkscrewPath (2 placements x9088/9472): the GHZ loop-de-loop path guide.
+     * Draw + StageLoad are EMPTY in play (invisible path-physics region) -- on a
+     * fast grounded player it snaps position.y to a cosine path + sets the player's
+     * ANI_SPRING_CS corkscrew-run pose. Verbatim decomp GHZ/CorkscrewPath.c; closure =
+     * Player fields + RSDK.Cos1024/GetEntitySlot/SetSpriteAnimation + ANI_SPRING_CS
+     * (Player.h enum). Register-only, no sheet (the ANI_SPRING_CS player pose is an
+     * atlas-completeness matter, not a blocker -- the physics path-snap runs regardless). */
+    api->register_object_full((void **)&CorkscrewPath, "CorkscrewPath",
+                              (unsigned)sizeof(EntityCorkscrewPath), (unsigned)sizeof(ObjectCorkscrewPath),
+                              CorkscrewPath_Update, CorkscrewPath_LateUpdate, CorkscrewPath_StaticUpdate,
+                              CorkscrewPath_Draw, CorkscrewPath_Create, CorkscrewPath_StageLoad, CorkscrewPath_Serialize);
 
     /* MASS-PORT BATCH 2 -- the badnik break CHAIN. Register order is irrelevant
      * (engine matches by md5(name)). CHAIN TUs first: BadnikHelpers (no-op helper
@@ -1950,6 +1963,7 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         if (SpinBooster && SpinBooster->classID) ++b1;
         p6_w_b1_registered = b1;
     }
+    p6_w_corkscrew_classid = (CorkscrewPath) ? (int32)CorkscrewPath->classID : -1;
     {   /* Batch 2: count how many of the 9 chain+badnik objects registered (classID>0),
          * and latch each one's classID for the per-object diagnostic. */
         extern int32 p6_w_b2_cids[9];

@@ -859,7 +859,8 @@ __attribute__((used)) int32 p6_w_ringsarmed     = 0;
 __attribute__((used)) int32 p6_w_ring_aniframes = -2; // Ring->aniFrames (-1=load failed, >=0=armed)
 __attribute__((used)) int32 p6_w_ring_classid   = 0;  // Ring->classID (live)
 __attribute__((used)) int32 p6_w_spikes_aniframes = -2; // Spikes->aniFrames (-1=load failed, >=0=armed)
-__attribute__((used)) int32 p6_w_b1_registered = 0; // mass-port Batch 1: count of 3 clean objs with classID>0 (target 3; ForceUnstick deferred->Batch3 w/ ItemBox)
+__attribute__((used)) int32 p6_w_b1_registered = 0; // mass-port Batch 1: count of the 4 clean objs with classID>0 (Decoration/ForceSpin/ForceUnstick/SpinBooster; target 4 since ForceUnstick landed 9a0792b)
+__attribute__((used)) int32 p6_w_corkscrew_classid = 0; // CorkscrewPath (GHZ loop-de-loop path) register gate: 0/-1 RED, classID>0 GREEN
 __attribute__((used)) int32 p6_w_b2_registered = 0; // mass-port Batch 2 (badnik break chain): count of the 9 chain+badnik objs with classID>0 (target 9)
 // Per-object classID latch (diagnostic for the b2 count): index order =
 // {BadnikHelpers,Explosion,Animals,Newtron,Crabmeat,BuzzBomber,Chopper,Motobug,Batbrain}.
