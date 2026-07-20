@@ -166,6 +166,34 @@ Then M1b: pack Water.bin (add to build_anim_pack OBJ_BINS + maniafilelist -> FRD
 stage the Global/Water.gif sheet) for the visible surface. Wiring stays UNCOMMITTED until
 the live RED->GREEN lands (no claiming done without it).
 
+## M1b TURNKEY (visible INK_ADD surface) -- MEASURED 2026-07-20, budget SAFE
+Global/Water.bin (113 frames) references TWO sheets: **Global/Water.gif** (256x512, anim 0 =
+the 112-rect surface strip) + Global/Display.gif (1 rect, HCZ drown-countdown digit, already
+staged/FRD'd). Water.gif is NEITHER FRD-covered NOR staged as a .SHT -> Water_Draw_Water's
+DrawSprite drops (surface saturnSheetSlot==-1). Water_Draw_Water (Water.c:1288) tiles a 64px
+surface sprite across the screen at Y=waterLevel; drawGroup = hudDrawGroup-1.
+
+BUDGET (measured): chain SATURNSHEET_SLOTS=27 (SaturnSheet.cpp:85), P6_VDP1_NSHEETS=25
+(p6_vdp1.c:136, 14+11 GHZ-handoff binds). Adding WATER.SHT = +1 each (27->28, 25->26) = the
+CERTIFIED-SAFE +64B .bss class (chain ceiling GLOBALS 0x060C8000; M1 _end 0x060c2a40 = ~22 KB
+headroom). Water.gif is 256x512 but FRD cuts only the small surface-strip rect, so VDP1 VRAM
+cost is tiny (not the 256KB whole sheet).
+
+EDITS (keep default chain BYTE-IDENTICAL: OFFLINE builders add Water always -- harmless extra
+CD files when P6_WATER is off; COMPILE-time changes stay #if P6_WATER):
+- OFFLINE: build_sheet_bands.py SHEETS += ("Global/Water.gif","WATER.SHT"); build_frame_dir.py
+  SHEETS += ("Global/Water.gif","WATER.FRD"); build_anim_pack.py OBJ_BINS += Global/Water.bin
+  (FRD auto-folds via commit 3d78704) + tools/maniafilelist.txt line.
+- COMPILE (#if P6_WATER): SATURNSHEET_SLOTS 27->28; P6_VDP1_NSHEETS 25->26; add WATER.SHT to the
+  ghzShtFiles[11] handoff bind list (p6_io_main.cpp ~5xxx, becomes [12]); + a witness
+  p6_w_water_aniframes = (Water)?(int16)Water->aniFrames:-1.
+VERIFY (aniframes witness, NOT on-screen -- the surface is at Y=2076px, off-screen at the spawn
+autorun): qa_p6_water.py --live extended to also read p6_w_water_aniframes; GREEN = aniframes>=0
+(Water.bin loaded + Water.gif bound). The on-screen render is then guaranteed by the same
+DrawSprite/FRD path every GHZ sprite uses. NOTE: INK_ADD (alpha 0xE0) may render OPAQUE (color-
+calc unwired) = M3 refinement, not an M1b blocker (an opaque animated surface band still reads
+as "water surface present").
+
 ## Budget / risk
 - WRAM: register-only object adds ~cart .text + ~few B pack witnesses; chain
   `_end` currently ~0x060c1xxx << 0x060C8000 (25 KB headroom) — safe. Confirm
