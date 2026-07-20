@@ -660,6 +660,39 @@
           "hash": "0xEB422FBA"
         }
       ]
+    },
+    {
+      "sheet": "Global/Water.gif",
+      "file": "WATER.SHT",
+      "width": 256,
+      "height": 512,
+      "band_rows": 16,
+      "bands": 32,
+      "bytes": 18274,
+      "file_hash": "0x1B60D416",
+      "probes": [
+        {
+          "sx": 0,
+          "sy": 0,
+          "w": 48,
+          "h": 48,
+          "hash": "0x000BD665"
+        },
+        {
+          "sx": 192,
+          "sy": 248,
+          "w": 64,
+          "h": 64,
+          "hash": "0x4ADF77BD"
+        },
+        {
+          "sx": 16,
+          "sy": 472,
+          "w": 48,
+          "h": 40,
+          "hash": "0x07A09D05"
+        }
+      ]
     }
   ]
 }

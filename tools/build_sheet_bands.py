@@ -162,6 +162,13 @@ SHEETS = [
     # headroom, unlike the plain-GHZ 64B wall). Probes chain-gated (P6_GHZCUT_BOOT).
     ("Global/Explosions.gif", "EXPLOS.SHT"),
     ("Global/Animals.gif", "ANIMALS.SHT"),
+    # Water M1b: Global/Water.gif (256x512 -> 18 KB banded WATER.SHT). The banded .SHT
+    # provides the SaturnSheet slot the arm_env bind loop needs (saturnSheetSlot>=0 ->
+    # VDP1 surface bind); WATER.FRD (build_frame_dir) then attaches for the fast pixels.
+    # Staged ONLY by the chain GHZ handoff #if P6_WATER; probe rows SUPPRESSED
+    # (NOPROBE_SHEETS below) so the shared p6_sheet_probes.inc stays byte-identical for
+    # every non-P6_WATER flavor (no slot-shift, no #228 .rodata growth).
+    ("Global/Water.gif", "WATER.SHT"),
 ]
 
 # CP4c _end-leak FIX (Task #266): sheets that ONLY a FRONT-END boot stages. Their
@@ -326,6 +333,11 @@ def main():
                           # Task #311: GHZCUT-only sheets, probe rows suppressed for
                           # the same #228 WRAM-H reason as AIZOBJ.
                           "GHCOBJ.SHT", "RUBYOBJ.SHT",
+                          # Water M1b: chain-P6_WATER-only handoff sheet; suppress its probe
+                          # row so the shared .inc is byte-identical for every non-P6_WATER
+                          # flavor (no slot-shift, no #228 WRAM-H .rodata growth). SAME reason
+                          # as EXPLOS/ANIMALS.
+                          "WATER.SHT",
                           # 2026-07-11: EXPLOS/ANIMALS are staged at the chain GHZ handoff
                           # (guard P6_GHZCUT_BOOT). Suppress their probe rows for the SAME
                           # #228 WRAM-H reason -- and so the probe-count logic below never
