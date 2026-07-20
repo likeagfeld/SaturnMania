@@ -346,12 +346,24 @@ def main():
     prev = None
     scene_speed = {}   # folder -> (tick_per_s, render_per_s) via a LIGHT burst (no observer effect)
     print("t     folder        n   reg  tick     cont  edge palhash")
+    consec_fail = 0
     while time.time() - t0 < SECS:
         try:
             s = o.sample()
+            consec_fail = 0
         except Exception as e:
-            sys.stderr.write(f"qa_parity_oracle: sample failed -- {e}\n")
-            return 2
+            # TRANSIENT-TOLERANT (2026-07-20): a single UDP hiccup (WinError 10054
+            # connection-reset / timeout while RA is inside a heavy scene load)
+            # previously ABORTED the whole arc run after one sample. Retry with
+            # backoff; only give up after 10 consecutive failures (~50 s dead air
+            # = the core is genuinely gone, not busy).
+            consec_fail += 1
+            sys.stderr.write(f"qa_parity_oracle: sample failed ({consec_fail}/10) -- {e}\n")
+            if consec_fail >= 10:
+                sys.stderr.write("qa_parity_oracle: 10 consecutive failures -- core gone; aborting.\n")
+                return 2
+            time.sleep(5.0)
+            continue
         s["wall"] = time.time() - t0
         # game-SPEED must be measured with MINIMAL reads (the heavy structural
         # sample's UDP load stalls the emulator -> a false low reading). Take one
