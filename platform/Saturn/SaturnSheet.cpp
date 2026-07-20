@@ -404,6 +404,28 @@ extern "C" void SaturnSheet_ResReset(void)
     p6_w_sht_resident = 0;
     ++p6_w_sht_resreset_n;
 }
+// Water M1b (2026-07-20, MEASURED band-store overflow): the 384 KB chain band store
+// [0x227A0000,0x22800000) is NEVER reset across the Logos->Title->Menu->AIZ->
+// GHZCutscene->GHZ chain (s_cursor/s_count monotonic), so at the GHZ handoff it is
+// 372,713/384 KB FULL of dead front-end debris (TSONIC 121 KB, HBHOBJ 185 KB, Menu/
+// AIZOBJ/Logos) that GHZ never draws. WATER.SHT (18,274 B) then overflows by 6,475 B
+// -> SaturnSheet_Stage returns -1 -> the water surface never binds (shtslot -3,
+// bandcur 0x227FD1E9 vs bandend 0x22800000, slotcnt 24<28 -- NOT slot-exhaustion).
+// The store CANNOT be enlarged here: SaturnLayout owns [0x22600000,0x227A0000) below
+// the band base (title-precedent base-lower would collide). SYMMETRIC FIX (mirrors
+// SaturnSheet_ResReset above, called at the SAME GHZ-handoff seam for the RES store):
+// rewind the band cursor/count to empty BEFORE the GHZ ghzShtFiles loop re-stages all
+// GHZ sheets fresh (FindSlot returns -1 post-reset -> clean re-stage) + WATER fits.
+// p6_frd_attach_bound re-routes persisted surfaces by STORE slot (task #328). Only
+// pure front-end debris is dropped (GHZ draws none of it). Chain-only (P6_FRONTEND_MENU)
+// -> plain GHZ byte-identical. Witness: p6_w_sht_bandreset_n counts the rewinds.
+__attribute__((used)) int32 p6_w_sht_bandreset_n = 0;
+extern "C" void SaturnSheet_BandReset(void)
+{
+    s_cursor = SATURNSHEET_VRAM_BASE;
+    s_count  = 0;
+    ++p6_w_sht_bandreset_n;
+}
 #endif
 #endif
 

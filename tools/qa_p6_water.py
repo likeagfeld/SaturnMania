@@ -63,15 +63,25 @@ def swap32(v: int) -> int:
     return ((v & 0xFF00FF00) >> 8) | ((v & 0x00FF00FF) << 8)
 
 
-def _verdict(cid: int, lvl: int) -> int:
-    if cid >= 0x80000000:
-        cid -= 0x100000000
+def _s32(v: int) -> int:
+    return v - 0x100000000 if v >= 0x80000000 else v
+
+
+def _verdict(cid: int, lvl: int, sht: int = 0) -> int:
+    cid = _s32(cid)
+    sht = _s32(sht)
     registered = cid > 0
     line_set = lvl not in (0, SENTINEL)
+    # M1b: WATER.SHT staged into the band store -> the VDP1 surface is bound (the FRD
+    # attaches to it) -> Water_Draw_Water tiles the surface strip at the water line.
+    # shtslot -3 = SaturnSheet_Stage overflow (pre-BandReset fix); >=0 = surface bound.
+    surf_bound = sht >= 0
     print(f"  p6_w_water_classid = {cid} ({'registered' if registered else 'NOT registered'})")
     print(f"  p6_w_water_level   = 0x{lvl & 0xFFFFFFFF:08X} "
           f"({'water line SET (Y=%d px)' % (lvl >> 16) if line_set else 'sentinel/unset'})")
-    ok = registered and line_set
+    print(f"  p6_w_water_shtslot = {sht} "
+          f"({'surface BOUND (band slot)' if surf_bound else 'surface UNBOUND (stage overflow)'})")
+    ok = registered and line_set and surf_bound
     print(f"qa_p6_water: -> {'GREEN' if ok else 'RED'}")
     return 0 if ok else 1
 
@@ -84,6 +94,7 @@ def _run_live(mp: Path) -> int:
     try:
         sym_cid = map_symbol(mp, "p6_w_water_classid")
         sym_lvl = map_symbol(mp, "p6_w_water_level")
+        sym_sht = map_symbol(mp, "p6_w_water_shtslot")
         sym_pool = map_symbol(mp, "objectEntityList")
     except KeyError as e:
         sys.stderr.write(f"qa_p6_water: symbol missing from map: {e}\n")
@@ -97,7 +108,8 @@ def _run_live(mp: Path) -> int:
         return 2
     cid = c.read32_saturn(sym_cid)
     lvl = c.read32_saturn(sym_lvl)
-    return _verdict(cid, lvl)
+    sht = c.read32_saturn(sym_sht)
+    return _verdict(cid, lvl, sht)
 
 
 def _run_state(mp: Path, state: str) -> int:
@@ -105,6 +117,7 @@ def _run_state(mp: Path, state: str) -> int:
     try:
         sym_cid = map_symbol(mp, "p6_w_water_classid")
         sym_lvl = map_symbol(mp, "p6_w_water_level")
+        sym_sht = map_symbol(mp, "p6_w_water_shtslot")
     except KeyError as e:
         sys.stderr.write(f"qa_p6_water: witness missing from map: {e}\n")
         return 2
@@ -116,7 +129,7 @@ def _run_state(mp: Path, state: str) -> int:
             raise ValueError(f"address 0x{addr:08X} not in any savestate region")
         return swap32(int.from_bytes(raw, "big"))  # WRAM pair-swap (gotcha #10)
 
-    return _verdict(peek32(sym_cid), peek32(sym_lvl))
+    return _verdict(peek32(sym_cid), peek32(sym_lvl), peek32(sym_sht))
 
 
 def main(argv=None) -> int:

@@ -869,6 +869,16 @@ __attribute__((used)) int32 p6_w_water_level   = 0;
 // (>=0 = Water.bin anim loaded + Global/Water.gif sheet resolved -> the surface WILL draw when on-screen).
 __attribute__((used)) int32 p6_w_water_shtslot   = -2;
 __attribute__((used)) int32 p6_w_water_aniframes = -2;
+// M1b staging diagnostics: distinguish GFS-load-fail (loadrc<=0) vs Stage-fail (shtslot==-3)
+// vs FRD-fail (frdrc<0). shtslot: -2 block never ran, -1 FindSlot only, -3 Stage failed, >=0 OK.
+__attribute__((used)) int32 p6_w_water_loadrc    = -2;
+__attribute__((used)) int32 p6_w_water_frdrc     = -2;
+// M1b Stage-fail localizer: band cursor + remaining bytes + slot count AT the
+// WATER.SHT stage attempt. Overflow => (bandcur + loadrc) > bandend; slot-full
+// => slotcnt >= SATURNSHEET_SLOTS. Diagnostic only (throwaway, removed post-fix).
+__attribute__((used)) int32 p6_w_water_bandcur   = -2;
+__attribute__((used)) int32 p6_w_water_bandend   = -2;
+__attribute__((used)) int32 p6_w_water_slotcnt   = -2;
 __attribute__((used)) int32 p6_w_b2_registered = 0; // mass-port Batch 2 (badnik break chain): count of the 9 chain+badnik objs with classID>0 (target 9)
 // Per-object classID latch (diagnostic for the b2 count): index order =
 // {BadnikHelpers,Explosion,Animals,Newtron,Crabmeat,BuzzBomber,Chopper,Motobug,Batbrain}.
@@ -4426,6 +4436,7 @@ uint32 SaturnSheet_BandEnd(void);
 void SaturnSheet_SetHash(int32 slot, const uint32 *hash);
 int32 SaturnSheet_MakeResident(int32 slot);
 void  SaturnSheet_ResReset(void); // #317 draw/inflate hog: reclaim dead RES at the seam
+void  SaturnSheet_BandReset(void); // Water M1b: reclaim dead front-end band debris at the GHZ seam
 void  SaturnSheet_SetScratch(void **bufp, uint32 cap); // #317: inflate scratch
 int32 SaturnSheet_FetchRect(int32 slot, int32 sx, int32 sy,
                             int32 w, int32 h, uint8 *dst); // #311 fetch bisect
@@ -8320,6 +8331,16 @@ static void p6_frontend_frame(void)
                         "Global/Explosions.gif", "Global/Animals.gif"
                     };
                     int32 ghzGslot[11] = { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 };
+#if defined(P6_WATER)
+                    // Water M1b (MEASURED band overflow, SaturnSheet.cpp SaturnSheet_BandReset
+                    // comment): rewind the 384 KB band store to empty BEFORE re-staging the GHZ
+                    // sheets, dropping the dead front-end debris (TSONIC 121 KB, HBHOBJ 185 KB,
+                    // Menu/AIZOBJ/Logos) that filled it to 372,713/384 KB and overflowed WATER.SHT.
+                    // The loop below re-stages all 11 GHZ sheets fresh (FindSlot=-1 post-reset), the
+                    // FRD block re-attaches persisted surfaces by STORE slot, and WATER then fits.
+                    // Mirrors the SaturnSheet_ResReset() done at this same seam for the RES store.
+                    SaturnSheet_BandReset();
+#endif
                     for (int32 gi = 0; gi < 11; ++gi) {
                         // #321: REUSE the AIZ-staged Sonic sheets (SONIC1/2/3 banded earlier in
                         // p6_aiz_reload) instead of double-staging -> keeps the band store under
@@ -8427,16 +8448,25 @@ static void p6_frontend_frame(void)
                             if (wslot < 0) {
                                 int wsn = rsdk_storage_load_to_lwram("WATER.SHT",
                                                                      (void *)P6_LW_ENTITYLIST, 0x10000);
+                                p6_w_water_loadrc = wsn; // M1b diag: GFS load byte count (<=0 = load FAIL)
                                 if (wsn > 0) {
+                                    // M1b Stage-fail localizer (throwaway): band state AT the attempt.
+                                    p6_w_water_bandcur = (int32)SaturnSheet_BandCursor();
+                                    p6_w_water_bandend = (int32)SaturnSheet_BandEnd();
+                                    p6_w_water_slotcnt = SaturnSheet_SlotCount();
                                     wslot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)wsn);
-                                    if (wslot >= 0)
+                                    if (wslot < 0)
+                                        p6_w_water_shtslot = -3; // load OK but Stage FAILED (store/slot full)
+                                    else
                                         SaturnSheet_SetHash(wslot, (const uint32 *)wgph);
                                 }
                             }
                             int32 wfrd = p6_frd_stage_file("WATER.FRD", "Global/Water.gif");
+                            p6_w_water_frdrc = wfrd; // M1b diag: FRD stage slot (<0 = FRD FAIL)
                             if (wfrd >= 0 && wslot >= 0)
                                 p6_vdp1_frd_set_store(wslot, wfrd);
-                            p6_w_water_shtslot = wslot; // >=0 = WATER.SHT staged (surface can bind)
+                            if (wslot >= 0)
+                                p6_w_water_shtslot = wslot; // >=0 = WATER.SHT staged (surface can bind)
                         }
 #endif
                         static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };

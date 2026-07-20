@@ -735,7 +735,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_bind_demand -u _p6_w_bind_log16 \
     -u _Player_CheckBadnikBreak -u _Player_ProjectileHurt -u _Player_CheckBadnikTouch \
     ${P6_DDWRECKER:+-u _p6_w_ddw_classid -u _Player_CheckBossHit} \
-    ${P6_WATER:+-u _p6_w_water_classid -u _p6_w_water_level -u _p6_w_water_shtslot -u _p6_w_water_aniframes} \
+    ${P6_WATER:+-u _p6_w_water_classid -u _p6_w_water_level -u _p6_w_water_shtslot -u _p6_w_water_aniframes -u _p6_w_water_loadrc -u _p6_w_water_frdrc -u _p6_w_water_bandcur -u _p6_w_water_bandend -u _p6_w_water_slotcnt} \
     ${P6_DDW_ARENA:+-u _p6_w_ddw_warp_fired -u _p6_w_ddw_seen -u _p6_w_ddw_state0 -u _p6_w_ddw_health_min} \
     ${P6_DDW_KILL:+-u _p6_w_ddw_hits_injected -u _p6_w_ddw_sign_live} \
     -u _p6_ovl_badnikbreak_unseeded_raw -u _p6_ovl_badnikbreak_raw \
