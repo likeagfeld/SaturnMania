@@ -326,7 +326,7 @@ if [ -n "${P6_DDWRECKER:-}" ]; then
 fi
 $LD -b elf32-sh -T ovl_ring.ld -Map ovl_ring.map \
     p6_ovl_ghz.o Game_Ring.o Game_Spring.o Game_Bridge.o Game_PlaneSwitch.o Game_SpikeLog.o Game_Spikes.o \
-    Game_Decoration.o Game_ForceSpin.o Game_SpinBooster.o \
+    Game_Decoration.o Game_ForceSpin.o Game_ForceUnstick.o Game_SpinBooster.o \
     Game_BadnikHelpers.o Game_Explosion.o Game_Animals.o \
     Game_Newtron.o Game_Crabmeat.o Game_BuzzBomber.o Game_Chopper.o Game_Motobug.o Game_Batbrain.o Game_Splats.o \
     Game_StarPost.o \

@@ -405,6 +405,7 @@ for w4 in Common_BGSwitch:Game_BGSwitch \
           Global_Spikes:Game_Spikes \
           Common_Decoration:Game_Decoration \
           Common_ForceSpin:Game_ForceSpin \
+          Common_ForceUnstick:Game_ForceUnstick \
           Common_SpinBooster:Game_SpinBooster \
           Helpers_BadnikHelpers:Game_BadnikHelpers \
           Global_Explosion:Game_Explosion \

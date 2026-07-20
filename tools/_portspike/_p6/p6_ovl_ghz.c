@@ -39,6 +39,7 @@ extern int32 p6_w_spikes_aniframes;
 extern int32 p6_w_b1_registered; /* mass-port Batch 1: count of the 4 clean objects with classID>0 */
 extern ObjectDecoration *Decoration;
 extern ObjectForceSpin *ForceSpin;
+extern ObjectForceUnstick *ForceUnstick;
 extern ObjectSpinBooster *SpinBooster;
 /* ForceUnstick deferred to Batch 3 -- its StageLoad loads the 69-frame
  * Global/ItemBox.bin which overflows DATASET_STG by ~1.3KB here (MEASURED:
@@ -887,6 +888,16 @@ int p6_overlay_entry(p6_ovl_api *api)
                               (unsigned)sizeof(EntityForceSpin), (unsigned)sizeof(ObjectForceSpin),
                               ForceSpin_Update, ForceSpin_LateUpdate, ForceSpin_StaticUpdate,
                               ForceSpin_Draw, ForceSpin_Create, ForceSpin_StageLoad, ForceSpin_Serialize);
+    /* ForceUnstick (2 placements x6724/8680): pure player-state trigger region --
+     * visible=false in play (draws only in DebugMode), gameplay effect is
+     * collisionMode=CMODE_FLOOR on touch (anti-stuck). Verbatim decomp
+     * Common/ForceUnstick.c; closure = Player_CheckCollisionTouch + Knux states
+     * (inert for Sonic/Tails but link-resolved via Game_Player.o) + ItemBox.bin
+     * anim (debug-only, dedup via SCOPE_STAGE). Completes the intended Batch 1 (4). */
+    api->register_object_full((void **)&ForceUnstick, "ForceUnstick",
+                              (unsigned)sizeof(EntityForceUnstick), (unsigned)sizeof(ObjectForceUnstick),
+                              ForceUnstick_Update, ForceUnstick_LateUpdate, ForceUnstick_StaticUpdate,
+                              ForceUnstick_Draw, ForceUnstick_Create, ForceUnstick_StageLoad, ForceUnstick_Serialize);
     api->register_object_full((void **)&SpinBooster, "SpinBooster",
                               (unsigned)sizeof(EntitySpinBooster), (unsigned)sizeof(ObjectSpinBooster),
                               SpinBooster_Update, SpinBooster_LateUpdate, SpinBooster_StaticUpdate,
@@ -1935,6 +1946,7 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
         int32 b1 = 0;
         if (Decoration && Decoration->classID) ++b1;
         if (ForceSpin && ForceSpin->classID) ++b1;
+        if (ForceUnstick && ForceUnstick->classID) ++b1;
         if (SpinBooster && SpinBooster->classID) ++b1;
         p6_w_b1_registered = b1;
     }
