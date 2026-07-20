@@ -47,6 +47,7 @@
 import hashlib
 import os
 import struct
+import subprocess
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
@@ -404,6 +405,24 @@ def main():
     # Task #322: AIZ scene GLOBAL + AIZSetup anim pack -> P6_HW_ANIMPAK (front-end-free).
     print("--- AIZ scene anim pack (Global+AIZSetup; #322 seek-stall fix) ---")
     build_pack(AIZ_ANIM_BINS, AIZ_ANIM_OUT, AIZ_ANIM_CAP)
+
+    # PROCESS MANDATE (user 2026-07-17, user-symptom-map-v2 R3): the pre-cut FRD
+    # frame directories (cd/*.FRD, build_frame_dir.py) are keyed by the rects
+    # every extracted anim .bin references. When this pack build adds/moves .bins
+    # (new badnik, new effect, re-staged sheet), stale FRDs -> FRD lookup MISS ->
+    # banded cross-sheet fetch = the "rings flash to digits / pink washes" class.
+    # The FRDs are NOT derived from the .PAK blobs (build_frame_dir walks
+    # extracted/*.bin directly), so this is a same-source sibling rebuild: run it
+    # HERE so an anim-pack change can never leave the FRDs behind. Fail loud (the
+    # game build must not proceed on a broken FRD emit -- its S1/S2/S3 self-tests
+    # are the correctness proof).
+    print("--- pre-cut FRD frame directories (chained; keeps cd/*.FRD in sync) ---")
+    frd_rc = subprocess.call([sys.executable,
+                              os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "build_frame_dir.py")])
+    if frd_rc != 0:
+        print("build_anim_pack: FRD rebuild FAILED (rc=%d) -- aborting" % frd_rc)
+        return frd_rc
     return 0
 
 
