@@ -1585,6 +1585,23 @@ void p6_vdp1_sheet_set_frd(int handle, int frdSlot)
     s_sheets[handle].frdSlot = frdSlot;
 }
 
+/* Water M1b regression fix (2026-07-20, MEASURED): SaturnSheet_BandReset() at the
+ * GHZ chain handoff RENUMBERS the band store (slots 24 -> 11 fresh), but handles
+ * bound in EARLIER chain legs (Tails1/Sonic1-3/Items... at AIZ) keep their OLD
+ * latched shtSlot -> the s_frdByStore dispatch keys a stale slot AND the banded
+ * fallback reads a stale slot -> the draw DROPS (live: frd_misses +11.3/s ==
+ * drops +11.1/s, fetches +0 -> Tails invisible every frame, his last direct-list
+ * quad frozen on screen). Called from the seam remap loop with the surface's
+ * re-resolved store slot so persisted handles follow the renumbering. */
+void p6_vdp1_sheet_update_slot(int handle, int shtSlot)
+{
+    if (handle < 0 || handle >= s_sheet_count)
+        return;
+    if (s_sheets[handle].px)
+        return; /* resident-pixel handle: shtSlot unused */
+    s_sheets[handle].shtSlot = shtSlot;
+}
+
 /* Seam-reclaim companion (feature checklist sec 7): SaturnSheet_ResReset()
  * kills the FRD blobs' cart backing, so every attachment must drop with it
  * -- a stale frdSlot against a re-staged DIFFERENT blob would serve wrong

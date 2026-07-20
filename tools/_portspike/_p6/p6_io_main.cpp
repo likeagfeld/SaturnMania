@@ -2195,6 +2195,11 @@ void p6_vdp1_set_ink(int half);
  * change. See the definition in p6_vdp1.c for the MEASURED root cause. */
 void p6_vdp1_frontend_pal_reset(void);
 #endif
+#if defined(P6_FRAMEDIR)
+/* Water M1b regression fix: update a persisted handle's latched shtSlot after
+ * SaturnSheet_BandReset renumbers the band store (see p6_vdp1.c definition). */
+void p6_vdp1_sheet_update_slot(int handle, int shtSlot);
+#endif
 }
 // W12b: surfaceID -> vdp1 sheet handle (filled at bind time; -1 = unbound).
 static int8 p6_vdp1HandleBySurface[SURFACE_COUNT];
@@ -8331,16 +8336,15 @@ static void p6_frontend_frame(void)
                         "Global/Explosions.gif", "Global/Animals.gif"
                     };
                     int32 ghzGslot[11] = { -1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1 };
-#if defined(P6_WATER)
-                    // Water M1b (MEASURED band overflow, SaturnSheet.cpp SaturnSheet_BandReset
-                    // comment): rewind the 384 KB band store to empty BEFORE re-staging the GHZ
-                    // sheets, dropping the dead front-end debris (TSONIC 121 KB, HBHOBJ 185 KB,
-                    // Menu/AIZOBJ/Logos) that filled it to 372,713/384 KB and overflowed WATER.SHT.
-                    // The loop below re-stages all 11 GHZ sheets fresh (FindSlot=-1 post-reset), the
-                    // FRD block re-attaches persisted surfaces by STORE slot, and WATER then fits.
-                    // Mirrors the SaturnSheet_ResReset() done at this same seam for the RES store.
-                    SaturnSheet_BandReset();
-#endif
+                    // Water M1b NOTE (2026-07-20): a SaturnSheet_BandReset() here (dropping the
+                    // dead front-end band debris so WATER.SHT fits) DID stage the water sheet
+                    // (shtslot 11 GREEN) but REGRESSED the chain: persisted VDP1 handles kept
+                    // pre-reset slot numbers -> Tails' draws dropped every frame (frd_misses
+                    // +11.3/s == drops +11.1/s) + the autorun bot wedged at x~585; the follow-up
+                    // handle-slot remap then DETERMINISTICALLY froze the handoff (cont=1792, two
+                    // boots). Both attempts REVERTED -- the store keeps its (full) monotonic
+                    // contents and WATER.SHT staging fails soft (shtslot -1, surface pending)
+                    // until the reclaim is redesigned with the persisted-handle contract solved.
                     for (int32 gi = 0; gi < 11; ++gi) {
                         // #321: REUSE the AIZ-staged Sonic sheets (SONIC1/2/3 banded earlier in
                         // p6_aiz_reload) instead of double-staging -> keeps the band store under
@@ -8468,6 +8472,8 @@ static void p6_frontend_frame(void)
                             if (wslot >= 0)
                                 p6_w_water_shtslot = wslot; // >=0 = WATER.SHT staged (surface can bind)
                         }
+                        // (Water M1b handle-slot remap REVERTED here -- see the BandReset
+                        // NOTE above: the remap deterministically froze the GHZ handoff.)
 #endif
                         static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
                         for (int32 pi = 0; pi < 8; ++pi) {
