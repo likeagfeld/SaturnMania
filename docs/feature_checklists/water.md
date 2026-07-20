@@ -238,16 +238,29 @@ probe .inc and IS the primary pixel path anyway.
 REMAINING = FRD-based runtime staging wiring (no budget risk, no probe pollution):
   1. build_anim_pack.py OBJ_BINS += Global/Water.bin (the anim; FRD auto-folds via 3d78704). DONE-check:
      confirm GHZOBJ.PAK has headroom for +113 frames.
-  2. p6_io_main.cpp chain handoff (~8306): stage WATER.FRD via p6_frd_stage_file("WATER.FRD",
-     "Global/Water.gif") gated #if P6_WATER + ensure the sheet gets a SaturnSheet SLOT the FRD
-     attaches to. OPEN: does LoadSpriteSheet auto-create a slot for an FRD-only sheet (no band-store
-     SHT), or must ghzShtFiles stage a .SHT? If a SLOT is required WITHOUT the probe-polluting .SHT,
-     stage WATER.SHT from a SEPARATE builder that does NOT write the probe .inc (or make the .inc
-     flavor-conditional). Read SaturnSheet_Stage/LoadSpriteSheet slot-alloc for FRD sheets first.
-  3. witness p6_w_water_aniframes = (Water)?(int16)Water->aniFrames:-1 (+ -DP6_WATER into p6_io_main.o
-     if the stage is gated); qa_p6_water.py --live reads it.
+  2. p6_io_main.cpp chain handoff (~8306): Water needs BOTH -- (a) WATER.SHT staged via the
+     ghzShtFiles loop (band store -> saturnSheetSlot>=0 -> the arm_env bind loop binds a VDP1
+     surface), AND (b) WATER.FRD staged via p6_frd_stage_file (cart -> the fast-pixel attach).
+     BOTH gated #if P6_WATER (update the [11]->[12] arrays + loop bounds + ghzGslot init).
+  3. SaturnSheet.cpp:85 SATURNSHEET_SLOTS 27->28; p6_vdp1.c:136 P6_VDP1_NSHEETS 25->26 (EXPLOS-
+     precedent +64B reserve).
+  4. -DP6_WATER into p6_io_main.o (build_p6scene_objs.sh:151) for the gated staging.
+  5. witness p6_w_water_aniframes = (Water)?(int16)Water->aniFrames:-1; qa_p6_water.py --live reads it.
 VERIFY: aniframes witness >=0 at settled GHZ (Water anim + sheet resolved). One 12-min chain build.
-ASSETS BUILT: cd/WATER.FRD = 89,044 B (committed via build_frame_dir.py + manifest).
+
+*** FRD MECHANISM RESOLVED (2026-07-20, read p6_io_main.cpp:3551-3565 arm_env bind loop): the FRD
+does NOT replace the band-store SHT. A surface binds a VDP1 handle ONLY via saturnSheetSlot>=0
+(from SaturnSheet_Stage = the banded .SHT) OR resident pixels; if neither, the loop `continue`s
+(no handle -> no draw). The FRD ATTACHES to the already-bound surface (SaturnFrameDir_FindSlot by
+gif-MD5 -> p6_vdp1_sheet_set_frd) to route slot-cache misses through the pre-cut patterns. So
+Water REQUIRES WATER.SHT (18 KB banded, fits the 55 KB margin) for the slot/bind + WATER.FRD (89 KB
+cart) for the pixels. FRD-only is a NON-STARTER. => build WATER.SHT WITHOUT probe pollution: gate
+its p6_sheet_probes.inc entries `#if defined(P6_WATER)` in build_sheet_bands.py's probe emission
+(the probe is optional djb2 verification; excluding Water from the DEFAULT flavor's table keeps the
+default sheet-probe check intact while the P6_WATER build gets Water's probes).
+
+ASSETS BUILT: cd/WATER.FRD = 89,044 B (committed via build_frame_dir.py + manifest). M1b is now
+FULLY SPECIFIED (zero open questions) -- a clean multi-point gated unit + one chain build.
 
 ## Budget / risk
 - WRAM: register-only object adds ~cart .text + ~few B pack witnesses; chain
