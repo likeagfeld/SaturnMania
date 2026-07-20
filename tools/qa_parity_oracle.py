@@ -36,11 +36,30 @@ unlisted bug is still caught):
                 sane position but never drawn (invisible-sprite class).
   D6 EDGE       any nonzero p6_w_edge_hits[ordinal] (broken-port class, ALL ports).
   D7 SPEED      game-speed d(tick)/d(wall) < 55Hz (logic-slow / #243 pacing).
-  D8 AUDIO      a scene the decomp starts a track in, with the BGM stream idle.
-  D9 PALETTE    pal_hash temporal oscillation (flash -- ANY bank, not just sky).
+  D8 AUDIO      BGM/SFX differential vs the decomp's Music track map + the live
+                channel array: no music, WRONG music (Saturn boot chime not game
+                BGM), requested-but-not-playing, dead SFX, garbage soundIDs.
+  D9 PALETTE    the composited CRAM (SH-2-hashed into WRAM witnesses -> netmem sees
+                the render backend): magenta/pink count (wrong-colour / CRAM-bank
+                collision -- the pink-flash class, ANY bank) + blank/black CRAM.
   D10 TEMPORAL  entity-count collapse or a player frozen in place across the
                 window (streaming/pool loss, stuck-state -- generic).
   D11 SANE      universal invariants (qa_invariants: sane pos, players, camera).
+  D12 SPRITE    VDP1 drop count rising (MISSING SPRITES the engine wanted drawn)
+                + slot-cache thrash (sprites FLICKER).
+  D13 PERF      render fps << 60 in gameplay (unplayable framerate = parity miss).
+  D14 LAYER     VDP2 BG plane unarmed (black sky) or FG-High not composited
+                (missing foreground tiles).
+
+COVERAGE (what a defect in each maps to; * = needs a render witness, now present):
+  sprite present  D12*  sprite anim   D4    colour/pink  D9*   BGM/SFX      D8
+  missing layer   D14*  registration  D1    spawn        D3    framerate    D13*
+  game speed      D7    stuck/frozen  D10   sane pos     D11   broken port  D6
+  STILL PARTIAL (honest): exact per-sprite SCREEN PLACEMENT (pixel x,y) and
+  BGM<->animation SYNC need a render-differential vs a PC-reference frame trace
+  (the ultimate catch-all) -- the witness tier above catches presence/colour/
+  count/layer/fps, not sub-pixel position. Registration D1/D3 are gated on the
+  live class-table read (skew under investigation).
 
 Usage (boots nothing -- run tools/_gl_boot.ps1 first so RA is live on game.cue):
   pwsh tools/_gl_boot.ps1
@@ -90,6 +109,13 @@ EDGE_MAX = 96             # p6_w_edge_hits[P6_EDGE_MAX]; P6_EDGE_MAX=96 (p6_clos
 # scenes where the decomp starts a BGM track on entry (Music_PlayTrack)
 AUDIO_EXPECT = {"Title", "Menu", "AIZ", "GHZCutscene", "GHZ"}
 UI_SCENES = {"", "?", None, "Logos", "Title", "Menu"}
+# authoritative CUE-track per scene (from AudioDevice::HandleStreamLoad's name->track
+# map, p6_io_main.cpp: GreenHill1=2 TitleScreen=3 AngelIsland=4 RubyPresence=5
+# HBHMischief=6 BossEggman1=7). A set = the tracks legitimately heard in that scene
+# (AIZ's beats transition AngelIsland->RubyPresence->HBHMischief->Eggman1). None =
+# don't assert an exact track (only require SOME track playing). This is the audio
+# REFERENCE: str_track != this = wrong BGM (the "Saturn boot chime not music" class).
+BGM_EXPECT = {"GHZ": {2}, "AIZ": {4, 5, 6, 7}, "GHZCutscene": {6, 2}}
 
 
 def build_name_dict():
@@ -101,6 +127,16 @@ def build_name_dict():
         m = re.match(r"SonicMania_Objects_[^_]+_(.+)\.(c|h)$", os.path.basename(f))
         if m:
             names.add(m.group(1))
+    # COMPLETE object-name set (544 classes) from the whole-game census -- this is
+    # what makes per-class REGISTER/SPAWN parity COMPREHENSIVE (the cached decomp
+    # file set is only ~41 names -> the old dict resolved 1/60 GHZ classes -> D1/D3
+    # were structurally blind. object_census.json['objects'] is every Mania class).
+    try:
+        _oc = json.loads((_ROOT / "docs/object_census.json").read_text())
+        for o in (_oc.get("objects") or {}):
+            names.add(o)
+    except Exception:
+        pass
     try:
         man = json.loads((_ROOT / "docs/scene_objects.json").read_text())
         for zd in man.values():
@@ -147,8 +183,19 @@ except Exception as e:  # noqa: BLE001
 # GREEN = the exact lying-gate this project forbids). This is the anti-regression
 # guard for the ORACLE itself.
 CORE_SYMS = ["p6_w_edge_hits", "p6_w_tick_frames", "p6_w_cont_frames",
-             "p6_w_str_state", "p6_w_str_track", "p6_w_sfx_inited", "p6_w_pal_hash"]
-REG_SYMS = ["RSDK::sceneInfo", "RSDK::objectEntityList", "RSDK::currentSceneFolder"]
+             "p6_w_str_state", "p6_w_str_track", "p6_w_sfx_inited", "p6_w_pal_hash",
+             # audio-differential (live channels) + SFX liveness
+             "p6_w_snd_plays",
+             # backend-parity render witnesses (SH-2-hashed CRAM -> netmem-visible).
+             # These are what make PALETTE/pink-flash detection possible at all --
+             # without them D9 is blind (the whole reason the old oracle missed the
+             # user's "tons of pink flashes"). A build lacking them = loud selftest RED.
+             "p6_w_cram_hash", "p6_w_cram_magenta", "p6_w_cram_nonzero",
+             # sprite/draw pipeline (missing-sprite, flicker, layer coverage)
+             "p6_w_vdp1_drops", "p6_w_vdp1_evicts", "p6_w_dl_cmds_max",
+             "p6_w_b1_registered", "p6_w_fg_highfill"]
+REG_SYMS = ["RSDK::sceneInfo", "RSDK::objectEntityList", "RSDK::currentSceneFolder",
+            "RSDK::channels"]
 
 # per-class aniframes witness -> class name (drives the animID-range check)
 ANIFRAMES = {
@@ -278,6 +325,24 @@ class Oracle:
             return None, None
         return (t1 - t0) / dw, (c1 - c0) / dw
 
+    def channels(self):
+        """Read the live engine SFX/stream channel array (RSDK::channels[16],
+        ChannelInfo 36 B: soundID int16 @+32, state uint8 @+35). States: 0 IDLE,
+        1 SFX, 2 STREAM, 3 LOADING_STREAM, 0x40 PAUSED. This is the AUTHORITATIVE
+        audio state -- what the engine is actually playing right now."""
+        a = self.sym("RSDK::channels")
+        if a is None:
+            return []
+        raw = self.rb(a, 36 * 16)
+        out = []
+        for c in range(16):
+            b = c * 36
+            sid = int.from_bytes(raw[b + 32:b + 34], "big")
+            if sid >= 0x8000:
+                sid -= 0x10000
+            out.append({"ch": c, "soundID": sid, "state": raw[b + 35]})
+        return out
+
     def sample(self):
         s = qa_trace.sample(self.rd, MAP, 700)   # raises loud if unhealthy
         s["reg"] = self.registration()
@@ -287,7 +352,20 @@ class Oracle:
         s["str_state"] = self.w("p6_w_str_state")
         s["str_track"] = self.w("p6_w_str_track")
         s["sfx_inited"] = self.w("p6_w_sfx_inited")
+        s["snd_plays"] = self.w("p6_w_snd_plays")
+        s["channels"] = self.channels()
         s["pal_hash"] = self.w("p6_w_pal_hash")
+        # backend-parity render witnesses (SH-2-hashed CRAM -> netmem-visible):
+        # the port's render bugs live in CRAM/VDP, invisible to WRAM otherwise.
+        s["cram_hash"] = self.w("p6_w_cram_hash")
+        s["cram_magenta"] = self.w("p6_w_cram_magenta")
+        s["cram_nonzero"] = self.w("p6_w_cram_nonzero")
+        # sprite/draw pipeline (missing-sprite + flicker + layer coverage):
+        s["vdp1_drops"] = self.w("p6_w_vdp1_drops")    # sprites the emitter DROPPED
+        s["vdp1_evicts"] = self.w("p6_w_vdp1_evicts")  # slot-cache thrash (flicker)
+        s["dl_cmds_max"] = self.w("p6_w_dl_cmds_max")  # peak VDP1 cmds/frame
+        s["b1_reg"] = self.w("p6_w_b1_registered")     # VDP2 BG plane armed (sky)
+        s["fg_highfill"] = self.w("p6_w_fg_highfill")  # FG-High tiles composited
         s["aniframes"] = {c: self.w(sym) for c, sym in ANIFRAMES.items()}
         return s
 
@@ -516,19 +594,95 @@ def main():
                       f"{tps/60*100:.0f}% realtime) but render {rps:.0f} fps -- CHOPPY not slow "
                       f"(render-bound, #243 catch-up; separate from parity)")
 
-        # D8 AUDIO: BGM idle where the decomp starts a track
+        # D8 AUDIO (differential vs the decomp's BGM reference + the live channel
+        # array). Catches the WHOLE audio-defect class: no music, wrong music (the
+        # "Saturn boot chime instead of game music"), BGM requested-but-not-playing,
+        # dead SFX, garbage channels -- all from the AUTHORITATIVE engine audio state.
         if folder in AUDIO_EXPECT:
-            if not any((s["str_state"] or 0) for s in ss):
-                D(folder, "AUDIO", "BGM stream idle (p6_w_str_state=0) -- decomp Music_PlayTrack "
-                                   "should be active (silent-intro class)")
-            if not any((s["sfx_inited"] or 0) for s in ss):
-                D(folder, "AUDIO", "p6_w_sfx_inited=0 -- SCSP SFX path uninitialised")
+            tracks = set(s["str_track"] for s in ss if s["str_track"] is not None)
+            stream_on = any(any(ch["state"] == 2 for ch in (s.get("channels") or []))
+                            for s in ss)
+            if tracks and max(tracks) <= 0:
+                D(folder, "AUDIO", f"NO CD-DA BGM mapped (p6_w_str_track={sorted(tracks)}) -- the "
+                                   f"engine requested a stream with no CUE-track mapping -> SILENCE "
+                                   f"or the default/boot chime instead of game music")
+            elif not stream_on:
+                D(folder, "AUDIO", f"BGM track {sorted(t for t in tracks if t > 0)} requested but NO "
+                                   f"channel in CHANNEL_STREAM state -- CD-DA not actually playing")
+            exp = BGM_EXPECT.get(folder)
+            if exp is not None and tracks:
+                wrong = sorted(t for t in tracks if t > 0 and t not in exp)
+                if wrong:
+                    D(folder, "AUDIO", f"WRONG BGM track {wrong} (decomp expects {sorted(exp)} for "
+                                       f"{folder}) -- wrong music playing")
+            # SFX liveness: during gameplay PlaySfx must fire as the player acts.
+            if folder not in UI_SCENES:
+                plays = [s["snd_plays"] for s in ss if s["snd_plays"] is not None]
+                if len(plays) >= 3 and (max(plays) - min(plays)) == 0:
+                    D(folder, "AUDIO", f"NO SFX activity across the window (p6_w_snd_plays flat at "
+                                       f"{plays[0]}) -- SFX path dead during gameplay")
+            # garbage channel: an active SFX channel whose soundID is out of range.
+            for ch in (last.get("channels") or []):
+                if ch["state"] == 1 and not (0 <= ch["soundID"] < 0x100):
+                    D(folder, "AUDIO", f"channel {ch['ch']} plays garbage soundID={ch['soundID']} "
+                                       f"(outside sfxList[0..255]) -- wrong/corrupt SFX")
 
-        # D9 PALETTE: temporal pal_hash oscillation = a flash (ANY bank)
-        ph = [s["pal_hash"] for s in ss if s["pal_hash"] is not None]
-        if len(ph) >= 4 and len(set(ph)) >= max(3, len(ph) // 2):
-            D(folder, "PALETTE", f"pal_hash oscillates ({len(set(ph))} distinct / {len(ph)} samples) "
-                                 f"-- TEMPORAL palette instability (flash; confirm colour via savestate CRAM)")
+        # D9 PALETTE (differential vs the composited CRAM, hashed SH-2-side into WRAM
+        # witnesses so netmem sees the render backend). CRAM is where colour bugs
+        # live -- the engine palette can be correct while composition is wrong. This
+        # catches the pink-flash class GENERALLY (magenta in ANY bank, ANY scene) +
+        # blank/black screens, no keyword enumeration.
+        mags = [s["cram_magenta"] for s in ss if s.get("cram_magenta") is not None]
+        nzs = [s["cram_nonzero"] for s in ss if s.get("cram_nonzero") is not None]
+        if mags and max(mags) > 4:
+            D(folder, "PALETTE", f"MAGENTA/PINK in CRAM -- up to {max(mags)} pink entries "
+                                 f"(wrong colour / CRAM-bank collision -- the pink-flash class, "
+                                 f"any bank; count>4 rules out incidental sprite colours)")
+        if nzs and folder not in ("", "?", None, "Logos") and max(nzs) < 8:
+            D(folder, "PALETTE", f"CRAM nearly empty (max {max(nzs)} nonzero of 1024) -- "
+                                 f"blank/black screen (palette not composed)")
+
+        # D12 SPRITE (missing sprites): the engine's draw list requests N sprites;
+        # the Saturn VDP1 emitter DROPS a sprite it can't seat (slot-pool overflow,
+        # unbound sheet, oversize). p6_w_vdp1_drops counts EVERY dropped blit -> a
+        # rising drop count = sprites the game wanted on screen that AREN'T. General
+        # missing-sprite detector across ALL objects. evicts = slot-cache thrash =
+        # sprites flickering in/out (the visible-but-blinking class).
+        drp = [s["vdp1_drops"] for s in ss if s.get("vdp1_drops") is not None]
+        if len(drp) >= 2 and (max(drp) - min(drp)) > 8:
+            D(folder, "SPRITE", f"VDP1 dropped {max(drp) - min(drp)} sprite blits across the window "
+                                f"-- MISSING SPRITES (slot-pool overflow / unbound sheet / oversize)")
+        ev = [s["vdp1_evicts"] for s in ss if s.get("vdp1_evicts") is not None]
+        conts = [s["cont"] for s in ss if s.get("cont") is not None]
+        if len(ev) >= 2 and len(conts) >= 2 and (conts[-1] - conts[0]) > 0:
+            evr = (max(ev) - min(ev)) / max(1, (conts[-1] - conts[0]))
+            if evr > 2.0:
+                D(folder, "SPRITE", f"VDP1 slot-cache thrash {evr:.1f} evicts/frame -- sprites "
+                                    f"FLICKER (re-staged mid-frame; the title-vdp1-slot-thrash class)")
+
+        # D13 PERF (performance parity): the reference runs at 60 fps. A gameplay
+        # scene rendering far below that is a real parity failure (the user plays a
+        # slideshow), reported as a DIVERGENCE now (was a soft NOTE). tick<55 is
+        # slow-MOTION (already D7); this is render-fps (choppy) as a first-class miss.
+        if folder in scene_speed and scene_speed[folder][1] is not None:
+            _tps, rps = scene_speed[folder]
+            if folder not in UI_SCENES and rps < 20.0:
+                D(folder, "PERF", f"render {rps:.0f} fps (reference 60) -- unplayable framerate "
+                                  f"(#243 chain draw wall; a parity failure, not just 'choppy')")
+
+        # D14 LAYER (missing background / foreground): a gameplay scene must arm its
+        # VDP2 BG plane (sky/parallax) and composite FG tiles. b1_registered==0 = no
+        # BG plane (black sky class); fg_highfill==0 = no FG-High tiles (missing
+        # foreground / grass). Both are the "half the screen is missing" class.
+        if folder == "GHZ":  # the witnesses are GHZ-FG specific
+            b1 = [s["b1_reg"] for s in ss if s.get("b1_reg") is not None]
+            fgh = [s["fg_highfill"] for s in ss if s.get("fg_highfill") is not None]
+            if b1 and max(b1) == 0:
+                D(folder, "LAYER", "VDP2 BG plane never armed (p6_w_b1_registered=0) -- "
+                                   "black sky / missing background")
+            if fgh and max(fgh) == 0:
+                D(folder, "LAYER", "FG-High layer never composited (p6_w_fg_highfill=0) -- "
+                                   "missing foreground tiles (grass/palms)")
 
         # D10 TEMPORAL: entity-count collapse or a frozen player across the window
         ns = [s["n_entities"] for s in ss]

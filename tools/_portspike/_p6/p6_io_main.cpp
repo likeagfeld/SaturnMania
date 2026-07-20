@@ -7792,6 +7792,40 @@ static void p6_ghzcut_reload(void)
 // ENGINESTATE_REGULAR + ticking). The ENGINESTATE_LOAD dispatch is also handled
 // so LogoSetup_State_NextLogos' RSDK.LoadScene() (advance to Title) re-arms.
 // =============================================================================
+// COMPREHENSIVE BACKEND-PARITY WITNESSES (2026-07-20, user mandate "fix the oracle
+// to detect every defect blind"). The Saturn runs verbatim decomp game LOGIC, so
+// the engine's WRAM state already matches the reference -- EVERY port bug lives in
+// the render/audio BACKEND (WRAM->CRAM->VDP for colour, engine->SCSP/CD-DA for
+// sound), which netmem CANNOT read (CRAM/VRAM are on the B-bus, not SYSTEM_RAM).
+// The SH-2 CAN read them, so we expose a COMPLETE fingerprint of the composited
+// CRAM here for the oracle to diff blind: a djb2 hash (temporal flash = hash
+// oscillation), a magenta/pink count (the classic wrong-colour / CRAM-collision
+// artifact -- pink flashes, ANY bank, ANY scene), and a nonzero count (blank/black
+// detector). ~1024 uncached 16-bit CRAM reads ~= 0.05 ms, negligible even in the
+// ~10 fps chain. Front-end/chain ONLY (this whole fn is P6_FRONTEND_LOGOS-gated)
+// so plain Green Hill Zone is byte-identical. Saturn CRAM = BGR555, MSB set:
+// R5=c&0x1F, G5=(c>>5)&0x1F, B5=(c>>10)&0x1F -> magenta = R & B high, G low.
+__attribute__((used)) int32 p6_w_cram_hash    = 0;
+__attribute__((used)) int32 p6_w_cram_magenta = 0;
+__attribute__((used)) int32 p6_w_cram_nonzero = 0;
+static void p6_cram_witness(void)
+{
+    volatile unsigned short *cram = (volatile unsigned short *)0x25F00000u;
+    unsigned int h = 5381u;
+    int mag = 0, nz = 0;
+    for (int i = 0; i < 1024; ++i) {
+        unsigned short c = cram[i];
+        h = ((h << 5) + h) ^ (unsigned int)c;
+        if (c & 0x7FFFu)
+            ++nz;
+        int r = c & 0x1F, g = (c >> 5) & 0x1F, b = (c >> 10) & 0x1F;
+        if (r >= 24 && b >= 24 && g <= 8)
+            ++mag;
+    }
+    p6_w_cram_hash    = (int32)h;
+    p6_w_cram_magenta = mag;
+    p6_w_cram_nonzero = nz;
+}
 static void p6_frontend_frame(void)
 {
     currentScreen = &screens[0];
@@ -9642,6 +9676,9 @@ static void p6_frontend_frame(void)
     // Game.h types, so they live in the overlay witness, not here.
     if (s_ovl.witness_fn)
         s_ovl.witness_fn(RSDK_ENTITY_AT(P6_OBJ_RING_SLOT));
+    // Backend-parity: fingerprint the composited CRAM for the oracle (blind
+    // colour/flash/blank detection across EVERY scene the chain visits).
+    p6_cram_witness();
 #if defined(P6_FRONTEND_MENU)
     // M7: latch the global VDP1 landed-blit count so the gate can assert the menu
     // emitted >=1 sprite command (the M1a black-screen RED was landed==0). This is a
