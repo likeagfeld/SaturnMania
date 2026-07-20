@@ -43,7 +43,7 @@ extern ObjectForceUnstick *ForceUnstick;
 extern ObjectSpinBooster *SpinBooster;
 extern ObjectCorkscrewPath *CorkscrewPath;
 extern int32 p6_w_corkscrew_classid;
-extern int32 p6_w_water_classid, p6_w_water_level; /* Water M1 (feature_checklists/water.md) */
+extern int32 p6_w_water_classid, p6_w_water_level, p6_w_water_shtslot, p6_w_water_aniframes; /* Water M1/M1b */
 /* ForceUnstick deferred to Batch 3 -- its StageLoad loads the 69-frame
  * Global/ItemBox.bin which overflows DATASET_STG by ~1.3KB here (MEASURED:
  * pool 153600, at_fail 152376). It shares ItemBox's anim, so it ports for free
@@ -1984,8 +1984,9 @@ static void p6_ghz_ovl_witness(const void *ringSlot)
     /* Water M1 witnesses (docs/feature_checklists/water.md): classid proves the
      * register; water_level proves Water_StageLoad ran (seeds 0x7FFFFFFF) and, once a
      * WATERLEVEL entity Creates, drops to the real GHZ water Y. Read after settle. */
-    p6_w_water_classid = (Water) ? (int32)Water->classID : -1;
-    p6_w_water_level   = (Water) ? (int32)Water->waterLevel : 0;
+    p6_w_water_classid   = (Water) ? (int32)Water->classID : -1;
+    p6_w_water_level     = (Water) ? (int32)Water->waterLevel : 0;
+    p6_w_water_aniframes = (Water) ? (int32)(int16)Water->aniFrames : -1; /* M1b: >=0 = anim+sheet resolved */
 #endif
     {   /* Batch 2: count how many of the 9 chain+badnik objects registered (classID>0),
          * and latch each one's classID for the per-object diagnostic. */

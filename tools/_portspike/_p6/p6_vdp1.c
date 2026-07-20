@@ -132,8 +132,11 @@
  * GLOBALS 0x060C8000, ~52 KB headroom post pack-relocation -- see the
  * frontend-cart-map-recarve memory). 23 = 14 + 9.
  * BADNIK-VIS FIX (2026-07-11): 23->25 for the EXPLOS/ANIMALS surfaces bound at the
- * GHZ handoff (2 more VDP1 bind slots). +32 B .bss, same front-end-safe rule. 25 = 14+11. */
-#define P6_VDP1_NSHEETS 25
+ * GHZ handoff (2 more VDP1 bind slots). +32 B .bss, same front-end-safe rule. 25 = 14+11.
+ * Water M1b: 25->26 for the WATER.SHT surface bound at the GHZ handoff (1 more VDP1 bind
+ * slot). +8 B .bss, same front-end-safe rule; the slot is inert without WATER.SHT staged
+ * (#if P6_WATER-gated). 26 = 14+12. */
+#define P6_VDP1_NSHEETS 26
 #else
 #define P6_VDP1_NSHEETS 12
 #endif

@@ -134,6 +134,12 @@ OBJ_BINS = [
     # the boss draws placeholder/nothing but Update/state still run. 1036 B, trivial
     # vs the 256 KB OBJ_CAP.
     "GHZ/DDWrecker.bin",
+    # Water M1b (2026-07-20): Water_StageLoad LoadSpriteAnimation("Global/Water.bin")
+    # (Water.c:248). 113 frames across Global/Water.gif (WATER.SHT/FRD, staged #if P6_WATER
+    # at the handoff) + Global/Display.gif (DISPLAY.SHT already staged). Packed here for the
+    # fast path so aniFrames>=0 -> Water_Draw_Water tiles the surface strip. Unconditional in
+    # the pack (like DDWrecker.bin; Water only REGISTERS under P6_WATER). ~5 KB, trivial vs OBJ_CAP.
+    "Global/Water.bin",
     # USER-REPORTED sprite-corruption batch (2026-07-16 audit, memory
     # user-symptom-to-cause-map-2026-07-16): systematic decomp-vs-pack diff of
     # every LINKED GHZ object's LoadSpriteAnimation strings found these 11 anims

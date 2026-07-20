@@ -82,7 +82,11 @@ typedef signed int int32;
 // chain-handoff (p6_io_main ghzShtFiles[11]). +2 slots = +64 B .bss; SAFE in the front-end/
 // chain flavors (animpak-on-cart -> the #228 WRAM ANIMPAK wall does not apply; ceiling is
 // GLOBALS 0x060C8000, ~28 KB above the chain _end -- the SAME reasoning as the 16->25 bump).
-#define SATURNSHEET_SLOTS     27
+// Water M1b: 27->28 for the chain-handoff WATER.SHT (a 12th GHZ-handoff sheet). Same
+// certified-safe +64B .bss reserve class as the EXPLOS/ANIMALS 25->27 bump above (chain
+// ceiling GLOBALS 0x060C8000, ~22KB _end headroom). Unconditional in the chain flavor (the
+// reserve is inert without WATER.SHT staged, which is #if P6_WATER-gated at the handoff).
+#define SATURNSHEET_SLOTS     28
 #elif defined(P6_FRONTEND_TITLE)
 // CP5b.3 (#272): the TITLE flavor adds a 13th slot for TBG.SHT (Title/BG.gif, the
 // TitleBG + Title3DSprite mountains/water/billboard sheet) -- slot 12 (slots 9/10/11

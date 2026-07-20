@@ -865,6 +865,10 @@ __attribute__((used)) int32 p6_w_corkscrew_classid = 0; // CorkscrewPath (GHZ lo
 // water_level = Water_StageLoad ran (0x7FFFFFFF seed) then the real GHZ water Y once a WATERLEVEL entity Creates.
 __attribute__((used)) int32 p6_w_water_classid = 0;
 __attribute__((used)) int32 p6_w_water_level   = 0;
+// M1b: WATER.SHT stage slot (>=0 = band-store slot claimed -> surface can bind) + Water->aniFrames
+// (>=0 = Water.bin anim loaded + Global/Water.gif sheet resolved -> the surface WILL draw when on-screen).
+__attribute__((used)) int32 p6_w_water_shtslot   = -2;
+__attribute__((used)) int32 p6_w_water_aniframes = -2;
 __attribute__((used)) int32 p6_w_b2_registered = 0; // mass-port Batch 2 (badnik break chain): count of the 9 chain+badnik objs with classID>0 (target 9)
 // Per-object classID latch (diagnostic for the b2 count): index order =
 // {BadnikHelpers,Explosion,Animals,Newtron,Crabmeat,BuzzBomber,Chopper,Motobug,Batbrain}.
@@ -8406,6 +8410,35 @@ static void p6_frontend_frame(void)
                             if (frdOk[fi] >= 0 && ghzGslot[fi] >= 0)
                                 p6_vdp1_frd_set_store(ghzGslot[fi], frdOk[fi]);
                         }
+#if defined(P6_WATER)
+                        // Water M1b (docs/feature_checklists/water.md): stage WATER.SHT (band-
+                        // store slot -> the arm_env bind loop binds a VDP1 surface, since the FRD
+                        // ATTACHES to an already-bound surface, p6_io_main.cpp:3551-3565) + WATER.FRD
+                        // (fast pixels, store-routed like the 9 GHZ FRDs above). Water_StageLoad's
+                        // LoadSpriteSheet("Global/Water.gif") in p6_scene_load_and_arm below then
+                        // resolves this slot -> Water_Draw_Water tiles the surface strip at the
+                        // water line. Self-contained (no ghzShtFiles/ghzFrdFiles array-bound edits).
+                        // Staged AFTER SaturnFrameDir_Reset (above) so the FRD is not wiped.
+                        // #if P6_WATER -> plain + non-water chain byte-identical.
+                        {
+                            RETRO_HASH_MD5(wgph);
+                            GEN_HASH_MD5("Global/Water.gif", wgph);
+                            int32 wslot = SaturnSheet_FindSlot((const uint32 *)wgph);
+                            if (wslot < 0) {
+                                int wsn = rsdk_storage_load_to_lwram("WATER.SHT",
+                                                                     (void *)P6_LW_ENTITYLIST, 0x10000);
+                                if (wsn > 0) {
+                                    wslot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)wsn);
+                                    if (wslot >= 0)
+                                        SaturnSheet_SetHash(wslot, (const uint32 *)wgph);
+                                }
+                            }
+                            int32 wfrd = p6_frd_stage_file("WATER.FRD", "Global/Water.gif");
+                            if (wfrd >= 0 && wslot >= 0)
+                                p6_vdp1_frd_set_store(wslot, wfrd);
+                            p6_w_water_shtslot = wslot; // >=0 = WATER.SHT staged (surface can bind)
+                        }
+#endif
                         static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
                         for (int32 pi = 0; pi < 8; ++pi) {
                             int32 gs = ghzGslot[promoteOrder[pi]];

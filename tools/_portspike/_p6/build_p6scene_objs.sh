@@ -149,7 +149,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # tick boots the Logos splash scene instead of GHZ (p6_logos_reload +
 # p6_frontend_frame). Mutually independent of the GHZ diag knobs; the default
 # shipping build leaves it unset -> boots GHZ unchanged.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_SPLIT:+-DP6_SPLIT} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} ${P6_TICK_CATCHUP:+-DP6_TICK_CATCHUP} ${P6_DIRECT_VDP1:+-DP6_DIRECT_VDP1} ${P6_FE_SLAVE_PRESENT:+-DP6_FE_SLAVE_PRESENT} ${P6_FRAMEDIR:+-DP6_FRAMEDIR} ${P6_GHZ_AUTORUN:+-DP6_GHZ_AUTORUN} ${P6_DDW_ARENA:+-DP6_DDW_ARENA} ${P6_DDW_KILL:+-DP6_DDW_KILL} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_SPLIT:+-DP6_SPLIT} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} ${P6_TICK_CATCHUP:+-DP6_TICK_CATCHUP} ${P6_DIRECT_VDP1:+-DP6_DIRECT_VDP1} ${P6_FE_SLAVE_PRESENT:+-DP6_FE_SLAVE_PRESENT} ${P6_FRAMEDIR:+-DP6_FRAMEDIR} ${P6_GHZ_AUTORUN:+-DP6_GHZ_AUTORUN} ${P6_DDW_ARENA:+-DP6_DDW_ARENA} ${P6_DDW_KILL:+-DP6_DDW_KILL} ${P6_WATER:+-DP6_WATER} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -735,7 +735,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_w_bind_demand -u _p6_w_bind_log16 \
     -u _Player_CheckBadnikBreak -u _Player_ProjectileHurt -u _Player_CheckBadnikTouch \
     ${P6_DDWRECKER:+-u _p6_w_ddw_classid -u _Player_CheckBossHit} \
-    ${P6_WATER:+-u _p6_w_water_classid -u _p6_w_water_level} \
+    ${P6_WATER:+-u _p6_w_water_classid -u _p6_w_water_level -u _p6_w_water_shtslot -u _p6_w_water_aniframes} \
     ${P6_DDW_ARENA:+-u _p6_w_ddw_warp_fired -u _p6_w_ddw_seen -u _p6_w_ddw_state0 -u _p6_w_ddw_health_min} \
     ${P6_DDW_KILL:+-u _p6_w_ddw_hits_injected -u _p6_w_ddw_sign_live} \
     -u _p6_ovl_badnikbreak_unseeded_raw -u _p6_ovl_badnikbreak_raw \
