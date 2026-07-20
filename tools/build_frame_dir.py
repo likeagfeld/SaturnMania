@@ -93,6 +93,7 @@ SHEETS = [
     ("GHZ/Objects.gif", "GHZOBJ.FRD"),
     ("AIZ/Objects.gif", "AIZOBJ.FRD"),
     ("GHZCutscene/Objects.gif", "GHCOBJ.FRD"),
+    ("Global/Water.gif", "WATER.FRD"),   # Water M1b (GHZ WATER_WATERLEVEL surface strip)
 ]
 
 DIR_ENTRY = 16

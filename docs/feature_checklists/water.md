@@ -214,8 +214,40 @@ must SaturnSheet_Stage an FRD sheet at all. TWO tractable paths depending on the
       holding ONLY anim-0's surface-strip rects (GHZ needs no HCZ bubbles/countdown) so the banded
       sheet fits the 55 KB margin -- the selective-rebuild pattern ([[title-vdp1-slot-thrash]] /
       the TSONIC selective-frame rebuild). Measure the reduced .SHT size < margin before staging.
-STATUS: M1 (physics) DONE+committed 69637fb. M1b PAUSED at this measured constraint -- a careful
-residency unit, NOT a quick sheet-add. Resolve the FRD-staging question first.
+STATUS: M1 (physics) DONE+committed 69637fb.
+
+### M1b BUDGET RESOLVED (MEASURED 2026-07-20 -- built the assets offline, NO game build)
+The overflow fear was a DECODED-vs-BANDED misread. Built both offline + measured:
+- **WATER.SHT = 18,274 B** (miniz-banded; the 256x512 Water.gif decodes to 131 KB but bands to
+  18 KB -- mirrors GHZOBJ 512x256 -> ~25 KB). Band store 337 KB + 18 KB = 355 KB < 384 KB
+  (~29 KB margin remaining). FITS.
+- **WATER.FRD = 89,044 B** (88 frames, 8bpp; the surface-strip rects pre-cut). Goes to the cart
+  RESIDENT store (SaturnSheet_ResAlloc, holds up to 261 KB FRDs -- p6_frd_stage_file, separate
+  from the band store). FITS.
+So M1b is TRACTABLE -- NO reduced-sheet needed.
+
+*** DO-NOT-STEP-ON-THIS TRAP (found 2026-07-20): adding Global/Water.gif to build_sheet_bands.py
+regenerates the SHARED, COMPILED tools/_portspike/_p6/p6_sheet_probes.inc (included by
+p6_io_main.cpp:5327 + SaturnSheet.cpp) -- it inserts Water as SLOT 9 and SHIFTS every later slot
+for ALL flavors incl. default (#else P6_SHEET_PROBE_COUNT 27->30). Water isn't staged in the
+default chain -> its slot-9 probe MISMATCHES at runtime -> breaks the default sheet-probe check.
+So DO NOT add Water to build_sheet_bands (band-store .SHT) unless the probe .inc is made
+flavor-conditional. REVERTED that; the FRD path (build_frame_dir.py, committed) does NOT touch the
+probe .inc and IS the primary pixel path anyway.
+
+REMAINING = FRD-based runtime staging wiring (no budget risk, no probe pollution):
+  1. build_anim_pack.py OBJ_BINS += Global/Water.bin (the anim; FRD auto-folds via 3d78704). DONE-check:
+     confirm GHZOBJ.PAK has headroom for +113 frames.
+  2. p6_io_main.cpp chain handoff (~8306): stage WATER.FRD via p6_frd_stage_file("WATER.FRD",
+     "Global/Water.gif") gated #if P6_WATER + ensure the sheet gets a SaturnSheet SLOT the FRD
+     attaches to. OPEN: does LoadSpriteSheet auto-create a slot for an FRD-only sheet (no band-store
+     SHT), or must ghzShtFiles stage a .SHT? If a SLOT is required WITHOUT the probe-polluting .SHT,
+     stage WATER.SHT from a SEPARATE builder that does NOT write the probe .inc (or make the .inc
+     flavor-conditional). Read SaturnSheet_Stage/LoadSpriteSheet slot-alloc for FRD sheets first.
+  3. witness p6_w_water_aniframes = (Water)?(int16)Water->aniFrames:-1 (+ -DP6_WATER into p6_io_main.o
+     if the stage is gated); qa_p6_water.py --live reads it.
+VERIFY: aniframes witness >=0 at settled GHZ (Water anim + sheet resolved). One 12-min chain build.
+ASSETS BUILT: cd/WATER.FRD = 89,044 B (committed via build_frame_dir.py + manifest).
 
 ## Budget / risk
 - WRAM: register-only object adds ~cart .text + ~few B pack witnesses; chain

@@ -156,6 +156,19 @@
    "pattern8_bytes": 20704,
    "frames_oob": 0,
    "raw_sheet_bytes": 262144
+  },
+  {
+   "sheet": "Global/Water.gif",
+   "file": "WATER.FRD",
+   "bytes": 89044,
+   "frames": 88,
+   "frames_4bpp": 0,
+   "frames_8bpp": 88,
+   "luts": 0,
+   "pattern4_bytes": 0,
+   "pattern8_bytes": 87624,
+   "frames_oob": 0,
+   "raw_sheet_bytes": 131072
   }
  ]
 }
