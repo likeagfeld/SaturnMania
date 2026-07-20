@@ -2279,6 +2279,25 @@ void p6_present_join_config(int sx, int sy)
     p6_present_config(sx, sy);
 }
 
+/* GENERAL slave-offload primitive (#280 / #261 scan-split). Object.cpp's own
+ * extern "C" jo_core_exec_on_slave binding did NOT fire the slave (p6_w_split_
+ * ticks==0) -- jo_core_exec_on_slave is `inline` (slave.c:112), so the Object.cpp
+ * TU (which only extern-declares it, no jo header) bound to a non-functional
+ * standalone emission rather than the real slSlaveFunc inline the present path
+ * gets via the header. Route ANY slave fork through THIS TU (which includes the
+ * jo header + proves the present-slave path works) so callers get the exact
+ * working mechanism. fn runs on the slave; p6_slave_join blocks + slCashPurge so
+ * the master sees the slave's cache-through writes. Slave-SAFE work only (VDP2/
+ * VRAM/CRAM/entity-DATA, NEVER the SGL sort-list -- master-consumed at slSynch). */
+void p6_slave_run(void (*fn)(void))
+{
+    jo_core_exec_on_slave(fn); /* fn is void(*)(void) == jo_slave_callback; pass directly (as p6_present_kick does) */
+}
+void p6_slave_join(void)
+{
+    jo_core_wait_for_slave();
+}
+
 #if defined(P6_GHZCUT_BOOT)
 /* ============================================================================
  * Task #309 Tier-B.1: the FXRuby full-screen fade as a Saturn VDP2 hardware

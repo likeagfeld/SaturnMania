@@ -451,6 +451,16 @@ void RSDK::InitObjects()
 // diagnostic (the globals live in p6_perf.c / p6_io_main.cpp; extern "C" escapes
 // the RSDK namespace to bind the global symbols).
 extern "C" volatile unsigned int p6_perf_vbl_count;
+// #261 scan-split WRAM reclaim: under P6_SPLIT the objprof arrays live in the
+// cache-through cart gap (see p6_io_main.cpp) to free 768 B .bss so plain GHZ +
+// shadow + split fits WRAM-H. Same pointer #define here -> p6_w_objupd_*[i]
+// indexes it unchanged. Non-split builds keep the extern .bss arrays (byte-identical).
+#if defined(P6_SPLIT)
+#define p6_w_objupd_vbl ((volatile int *)0x026C5000u)
+#define p6_w_objupd_n   ((volatile int *)0x026C5400u)
+#define p6_w_objupd_us  ((volatile int *)0x026C5800u)
+extern "C" unsigned short p6_perf_frt_get(void);
+#else
 extern "C" int p6_w_objupd_vbl[64];
 extern "C" int p6_w_objupd_n[64];
 // Phase 2h: FRT microsecond-grade per-Update timing (the vbl counter is too
@@ -459,10 +469,12 @@ extern "C" int p6_w_objupd_n[64];
 // (unsigned short)(t1 - t0) is the exact tick delta even across one wrap.
 extern "C" unsigned short p6_perf_frt_get(void);
 extern "C" int p6_w_objupd_us[64];
+#endif
 // Phase 2i (Task #245): per-loop ProcessObjects sub-phase FRT timing.
 extern "C" int p6_w_objsec_loop1;
 extern "C" int p6_w_objsec_loop2;
 extern "C" int p6_w_objsec_loop3;
+extern "C" int p6_w_objsec_classify; // #261 classify-only FRT ticks (subset of loop1)
 // LOCKED-60 (#243): DrawLists sub-attribution -- bubble sort vs draw() callbacks.
 extern "C" int p6_w_draw_sort;
 extern "C" int p6_w_draw_cb;
@@ -523,6 +535,94 @@ extern "C" {
 // in the pre-pass, read in the compare, same cache) -> cached cart alias; volatile so
 // the write->read roundtrip survives optimization.
 #define s_p6_shadow_inrange ((volatile unsigned char *)0x026C0000u)
+#endif
+
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SPLIT)
+// LOCKED-60 (#243/#261) DUAL-SH2 SCAN-SPLIT -- Increment 1 (slave-classify
+// CORRECTNESS proof; gated P6_SPLIT, default OFF -> Scene_Object.o byte-identical).
+// The perf lever (MEASURED, perf-chain-ghz-frontend-scan-not-sh2): ProcessObjects
+// loop1 = 6-8ms/tick classifying ~1010 scene slots' inRange in slow WRAM-L; the
+// dual-SH2 fix runs HALF that classification on the slave SH-2 concurrently. The
+// PARITY of the frame-start classification is already PROVEN safe (P6_SHADOW_COMPARE
+// divmax==0 over a full autorun traversal). This increment proves the SLAVE produces
+// bit-identical classification to the master across the CPU boundary (WRAM-L reads +
+// cache-through writes) BEFORE the loop1 rewire that actually cuts master cost --
+// it kicks the slave, joins IMMEDIATELY (no overlap yet), and compares to the
+// master shadow. p6_w_split_mismatch==0 == the slave path is correct.
+// Route the slave fork through the p6_vdp2.c wrappers (which include the jo header
+// + host the PROVEN present-slave path) -- Object.cpp's own extern jo_core_exec_on_
+// slave bound to a non-functional standalone emission of the `inline` jo fn (slave
+// never ran, p6_w_split_ticks==0). These wrappers give the exact working slSlaveFunc.
+extern "C" void p6_slave_run(void (*fn)(void));
+extern "C" void p6_slave_join(void);
+extern "C" {
+    extern int p6_w_split_mismatch;     // slave-vs-master classification mismatch (this frame)
+    extern int p6_w_split_mismatch_max; // worst over the run (the gate value)
+    extern int p6_w_split_ticks;        // slave-entry liveness
+}
+// Slave output buffer -- the VERIFIED-FREE cart gap [0x226C0500, 0x226C8000) between
+// the shadow (0x026C0000+1216) and the DORM store (0x226C8000). 1216 B ends 0x226C44C0.
+#define s_p6_split_inrange ((volatile unsigned char *)0x026C4000u)
+// The UPPER scene region the slave classifies: [P6_SPLIT_MID, TEMPENTITY_START).
+// The scene region [RESERVE, TEMPENTITY_START) is uniform NARROW stride.
+#define P6_SPLIT_MID (RESERVE_ENTITY_COUNT + (SCENEENTITY_COUNT / 2))
+// Runs on the SLAVE SH-2 (via jo_core_exec_on_slave). Classifies the upper scene
+// half inRange using the EXACT engine bounds checks (verbatim from the shadow pre-
+// pass below). Reads objectEntityList (WRAM-L, shared -- the camera is already
+// updated before ProcessObjects, so it matches the master) and writes each result
+// through the |0x20000000 uncached alias so the master sees it after the join's
+// slCashPurge. Slave-SAFE: touches only entity DATA + the cart buffer, never the
+// SGL sort-list / VDP1 (the master-consumed-at-slSynch cached global -- the gotcha).
+static void p6_split_slave_entry(void)
+{
+    volatile unsigned char *out =
+        (volatile unsigned char *)((unsigned int)s_p6_split_inrange | 0x20000000u);
+    uint8 *_sp = (uint8 *)objectEntityList
+               + (uint32)RESERVE_ENTITY_COUNT * ENTITY_WIDE_SIZE
+               + (uint32)(P6_SPLIT_MID - RESERVE_ENTITY_COUNT) * P6_POOL_NARROW_STRIDE;
+    for (int32 e = P6_SPLIT_MID; e < TEMPENTITY_START; ++e) {
+        EntityBase *se = (EntityBase *)_sp;
+        _sp += (uint32)P6_POOL_NARROW_STRIDE; // scene region: uniform narrow stride
+        uint8 ir = 0;
+        if (se->classID) {
+            switch (se->active) {
+                case ACTIVE_ALWAYS:
+                case ACTIVE_NORMAL: ir = 1; break;
+                case ACTIVE_BOUNDS:
+                    for (int32 s = 0; s < cameraCount; ++s) {
+                        int32 sx = abs(se->position.x - cameras[s].position.x);
+                        int32 sy = abs(se->position.y - cameras[s].position.y);
+                        if (sx <= se->updateRange.x + cameras[s].offset.x
+                            && sy <= se->updateRange.y + cameras[s].offset.y) { ir = 1; break; }
+                    }
+                    break;
+                case ACTIVE_XBOUNDS:
+                    for (int32 s = 0; s < cameraCount; ++s) {
+                        int32 sx = abs(se->position.x - cameras[s].position.x);
+                        if (sx <= se->updateRange.x + cameras[s].offset.x) { ir = 1; break; }
+                    }
+                    break;
+                case ACTIVE_YBOUNDS:
+                    for (int32 s = 0; s < cameraCount; ++s) {
+                        int32 sy = abs(se->position.y - cameras[s].position.y);
+                        if (sy <= se->updateRange.y + cameras[s].offset.y) { ir = 1; break; }
+                    }
+                    break;
+                case ACTIVE_RBOUNDS:
+                    for (int32 s = 0; s < cameraCount; ++s) {
+                        int32 sx = FROM_FIXED(abs(se->position.x - cameras[s].position.x));
+                        int32 sy = FROM_FIXED(abs(se->position.y - cameras[s].position.y));
+                        if (sx * sx + sy * sy <= se->updateRange.x + cameras[s].offset.x) { ir = 1; break; }
+                    }
+                    break;
+                default: ir = 0; break;
+            }
+        }
+        out[e] = ir;
+    }
+    { volatile int *t = (volatile int *)((unsigned int)&p6_w_split_ticks | 0x20000000u);
+      *t = *t + 1; }
+}
 #endif
 
 #if RETRO_PLATFORM == RETRO_SATURN
@@ -712,6 +812,27 @@ void RSDK::ProcessObjects()
         }
     }
 #endif
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SPLIT)
+    // DUAL-SH2 SCAN-SPLIT Increment 1 (needs P6_SHADOW_COMPARE for the master
+    // reference). Fork the slave to classify [P6_SPLIT_MID, TEMPENTITY_START),
+    // join IMMEDIATELY (no overlap yet -- this increment only proves the slave
+    // path is bit-correct across the CPU boundary), then compare to the master
+    // shadow. The join's slCashPurge makes the slave's cache-through writes
+    // visible. Serial with the later present-kick (joins here, well before
+    // ProcessObjectDrawLists) -> no mid-frame double-fork race. p6_w_split_
+    // mismatch_max==0 over the run == GREEN: safe to wire loop1 onto the slave
+    // (Increment 2). Camera is final (updated before ProcessObjects).
+    if (g_p6_shadow_enable) {
+        p6_slave_run(p6_split_slave_entry);
+        p6_slave_join();
+        volatile unsigned char *sp = s_p6_split_inrange;
+        int32 mm = 0;
+        for (int32 e = P6_SPLIT_MID; e < TEMPENTITY_START; ++e)
+            if (sp[e] != s_p6_shadow_inrange[e]) ++mm;
+        p6_w_split_mismatch = mm;
+        if (mm > p6_w_split_mismatch_max) p6_w_split_mismatch_max = mm;
+    }
+#endif
     sceneInfo.entitySlot = 0;
 #if RETRO_PLATFORM == RETRO_SATURN
     s_p6_inrange_n = 0; // Phase 2h: rebuild the in-range slot list this frame
@@ -734,6 +855,10 @@ void RSDK::ProcessObjects()
     // loop3 lateUpdate-scan). Diagnostic only.
     unsigned short _ps_tA = p6_perf_frt_get(), _ps_tB = _ps_tA, _ps_tC = _ps_tA, _ps_tD = _ps_tA;
     p6_w_scan_pop = 0; p6_w_scan_maxslot = 0; p6_w_scan_bounds = 0;
+#endif
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SPLIT)
+    // #261 GO/NO-GO: accumulate ONLY the switch(active) classification ticks this frame.
+    unsigned int _cls_acc = 0;
 #endif
 #if defined(P6_FRONTEND_MENU)
     // #317 OBJ TRIM (front-end only): loop1 scans all 1216 slots (~8-11ms/tick x4 ticks
@@ -858,6 +983,9 @@ void RSDK::ProcessObjects()
             { uint8 _av = (uint8)sceneInfo.entity->active;
               if (_av >= ACTIVE_BOUNDS && _av <= ACTIVE_RBOUNDS) ++p6_w_scan_bounds; }
 #endif
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SPLIT)
+            unsigned short _ct0 = p6_perf_frt_get(); // #261 classify-only bracket START
+#endif
             switch (sceneInfo.entity->active) {
                 default:
                 case ACTIVE_DISABLED: break;
@@ -940,6 +1068,9 @@ void RSDK::ProcessObjects()
                     }
                     break;
             }
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SPLIT)
+            _cls_acc += (unsigned short)(p6_perf_frt_get() - _ct0); // #261 classify-only bracket END
+#endif
 
             if (sceneInfo.entity->inRange) {
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_PERF_OBJPROF)
@@ -1116,6 +1247,9 @@ void RSDK::ProcessObjects()
     p6_w_objsec_loop1 = (int)(unsigned short)(_ps_tB - _ps_tA);
     p6_w_objsec_loop2 = (int)(unsigned short)(_ps_tC - _ps_tB);
     p6_w_objsec_loop3 = (int)(unsigned short)(_ps_tD - _ps_tC);
+#endif
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_SPLIT)
+    p6_w_objsec_classify = (int)_cls_acc; // #261 classify-only FRT ticks (subset of loop1)
 #endif
 
 #if RETRO_USE_MOD_LOADER

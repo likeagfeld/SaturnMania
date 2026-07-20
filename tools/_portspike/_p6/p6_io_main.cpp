@@ -1892,6 +1892,20 @@ __attribute__((used)) int32 p6_w_obj_topcount  = 0;  // count of that class
 __attribute__((used)) int32 p6_w_obj_classcnt  = 0;  // distinct in-range classes
 // Phase 2d per-Update timing (P6_PERF_OBJPROF; Object.cpp accumulates, indexed
 // by classID&0x3F). p6_ghz_frame resets per frame + scans for the hog.
+#if defined(P6_SPLIT)
+// #261 SCAN-SPLIT WRAM RECLAIM: the 3 objprof arrays (768 B .bss) push _end past
+// the tight plain-GHZ ANIMPAK ceiling 0x060B6C00 when P6_SHADOW+P6_SPLIT are added
+// (MEASURED: _end 0x060b6e40, +576 B -> #228 boot trap, cont_frames==0). Relocate
+// them to the VERIFIED-FREE cache-through cart gap [0x226C44C0(split end),0x226C8000
+// (DORM)] -- master-only (written+read same cache in p6_ghz_frame/Object.cpp loop1),
+// so a plain CACHED cart pointer is correct (same pattern as s_p6_shadow_inrange
+// @0x026C0000). Every p6_w_objupd_*[i] indexes the pointer unchanged. Reclaims 768 B
+// -> _end fits -> plain GHZ + shadow + split BOOTS so split_ticks can be read. Gated
+// P6_SPLIT -> shipping .bss byte-identical.
+#define p6_w_objupd_vbl ((volatile int *)0x026C5000u)
+#define p6_w_objupd_n   ((volatile int *)0x026C5400u)
+#define p6_w_objupd_us  ((volatile int *)0x026C5800u)
+#else
 __attribute__((used)) int p6_w_objupd_vbl[64];
 __attribute__((used)) int p6_w_objupd_n[64];
 // Phase 2h (Task #230): per-Update FRT-TICK accumulator. At 30 fps the whole
@@ -1899,6 +1913,7 @@ __attribute__((used)) int p6_w_objupd_n[64];
 // sub-vblank). The FRT (1.19 us/tick @ /32) is now reliable -- ProcessObjects
 // is sub-78ms -- so it resolves per-class Update cost. Reset + summed per frame.
 __attribute__((used)) int p6_w_objupd_us[64];
+#endif
 __attribute__((used)) int32 p6_w_objupd_topclass = -1; // classID with the most Update time
 __attribute__((used)) int32 p6_w_objupd_topvbl   = 0;  // that class's total Update vbl
 __attribute__((used)) int32 p6_w_objupd_topus    = 0;  // that class's total Update FRT ticks
@@ -1913,6 +1928,11 @@ __attribute__((used)) int32 p6_w_obj_refills = 0; // SaturnLayout inflates DURIN
 // loop1 - sum(p6_w_objupd_us) (Update dispatch). Measure-first: which loop owns
 // the 13.5ms picks the Lever-2 optimization (no guessing).
 __attribute__((used)) int32 p6_w_objsec_loop1 = 0; // inRange scan + Update + drawgroup (FRT ticks)
+// #261 GO/NO-GO: FRT ticks spent in ONLY the switch(active) inRange classification
+// per frame (EXCLUDES the Update dispatch + drawgroup). loop1 - classify = the Update
+// cost. If classify is a MINORITY of loop1, the scan-split (offloads classify only) is
+// the wrong lever. Gated P6_SPLIT (diagnostic). Object.cpp accumulates per-slot.
+__attribute__((used)) int32 p6_w_objsec_classify = 0;
 __attribute__((used)) int32 p6_w_objsec_loop2 = 0; // typeGroup build (FRT ticks)
 __attribute__((used)) int32 p6_w_objsec_loop3 = 0; // lateUpdate full-scan + onScreen clear (FRT ticks)
 // LOCKED-60 (#243, 2026-06-18): DrawLists (7.3ms) sub-attribution -- is the cost the
@@ -2061,6 +2081,14 @@ extern "C" { int g_p6_shadow_enable = 0;
              __attribute__((used)) int32 p6_w_scan_divergence = 0;
              __attribute__((used)) int32 p6_w_scan_divmax = 0; } // worst-frame divergence
 #endif
+// DUAL-SH2 SCAN-SPLIT (#261) Increment-1 witnesses. Defined UNCONDITIONALLY (12 B
+// .bss, harmless when P6_SPLIT is off) so Scene_Object.o's extern "C" refs always
+// link. p6_w_split_mismatch(_max) = slave-vs-master classification mismatch over the
+// upper scene half (0 == the slave path is bit-correct across the CPU boundary);
+// p6_w_split_ticks = slave-entry liveness. Written cache-through by the slave.
+extern "C" { __attribute__((used)) int p6_w_split_mismatch     = 0;
+             __attribute__((used)) int p6_w_split_mismatch_max = 0;
+             __attribute__((used)) int p6_w_split_ticks        = 0; }
 __attribute__((used)) int32 p6_w_hog_cid = -1;  // full classID of the hog
 __attribute__((used)) int32 p6_w_hog_x   = 0;   // a hog entity's world x (fixed)
 __attribute__((used)) int32 p6_w_hog_y   = 0;   // a hog entity's world y (fixed)
