@@ -340,6 +340,15 @@ extern "C" uint32 SaturnSheet_ResAlloc(uint32 bytes)
     return a;
 }
 
+// Band-store (VDP2/cart) allocator introspection for the title-Sonic TSONIC
+// overflow diagnosis (2026-07-12): the band store bump cursor + its base/end.
+// UNGATED (referenced by the P6_FRONTEND_TITLE TSONIC band diag in p6_io_main.cpp
+// regardless of P6_FRAMEDIR; moving them out of the FRAMEDIR block unbreaks the
+// no-FRAMEDIR chain link + keeps the P6_FRAMEDIR="" A/B override buildable).
+extern "C" uint32 SaturnSheet_BandCursor(void) { return s_cursor; }
+extern "C" uint32 SaturnSheet_BandBase(void)   { return SATURNSHEET_VRAM_BASE; }
+extern "C" uint32 SaturnSheet_BandEnd(void)    { return SATURNSHEET_VRAM_END; }
+
 #if defined(P6_FRAMEDIR)
 // Sprite-pipeline rework (feature checklist sec 7): the .FRD blobs are
 // GFS-loaded DIRECTLY into the cart at the (aligned) bump cursor -- the
@@ -352,14 +361,6 @@ extern "C" uint32 SaturnSheet_ResRemain(void)
     uint32 a = (s_resCursor + 3u) & ~3u;
     return (a < SATURNSHEET_RES_END) ? (SATURNSHEET_RES_END - a) : 0;
 }
-
-// Band-store (VDP2/cart) allocator introspection for the title-Sonic TSONIC
-// overflow diagnosis (2026-07-12): the band store bump cursor + its base/end.
-// Lets the TSONIC stage site witness the EXACT fill at the stage attempt so the
-// re-pack fix is sized from the measured overflow, not guessed.
-extern "C" uint32 SaturnSheet_BandCursor(void) { return s_cursor; }
-extern "C" uint32 SaturnSheet_BandBase(void)   { return SATURNSHEET_VRAM_BASE; }
-extern "C" uint32 SaturnSheet_BandEnd(void)    { return SATURNSHEET_VRAM_END; }
 
 // MEASURED live clobber (qa_p6_frd F2, 2026-07-10): the front-end arms the
 // engine `scanlines` backing at 0x22400000 == SATURNSHEET_RES_BASE and

@@ -175,6 +175,17 @@ if [ -n "${P6_FRONTEND_CHAIN:-}" ]; then
     # frame -- crosses the 4->3 vblank quantization tier (15->20+ fps cascade).
     # Default ON for the chain; A/B with P6_FE_SLAVE_PRESENT="" (explicit empty).
     export P6_FE_SLAVE_PRESENT="${P6_FE_SLAVE_PRESENT-1}"
+    # #302/#243 draw wall FIX (2026-07-19, MEASURED): the chain stages GHZ sheets
+    # BANDED, so every animated sprite's per-frame rect missed the LRU and forced a
+    # SaturnSheet_FetchRect miniz REPACK (~6.65 inflates/frame = the render wall ->
+    # catch-up multiplier -> ~40% game-speed). The pre-cut FRD (P6_FRAMEDIR) serves
+    # those rects from cart with NO inflate: MEASURED live chain-GHZ banded_fetch/
+    # frame 6.65 -> 0.00, frd_misses=0 (the .FRD directory covers every GHZ rect).
+    # The #243 dangling-else (p6_vdp1.c:1940) that let an FRD HIT still fall to the
+    # banded fetch is fixed. Default ON for the chain; A/B with P6_FRAMEDIR=""
+    # (explicit empty). Plain GHZ leaves it unset -> byte-identical (it makes sheets
+    # RESIDENT, never hits the banded path). Gate: qa_chain_draw.py / qa_p6_frd.py.
+    export P6_FRAMEDIR="${P6_FRAMEDIR-1}"
 fi
 # CP5a (Task #267): the TITLE front-end flavor IMPLIES the LOGOS flavor (it reuses
 # every shared #if defined(P6_FRONTEND_LOGOS) machinery -- frontend_frame, the VDP1
@@ -219,7 +230,8 @@ cd /work
 # wrong pool size / a stale p6_vdp1.o (jo-pool-stale-core-o-gotcha + the W12b
 # hybrid-image rule).
 rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
-      tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o
+      tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o \
+      tools/_portspike/_p6/p6_perf.o
 make P6_ENGINE_SHIPPING=1 ${P6_FRONTEND_LOGOS:+P6_FRONTEND_LOGOS=1} ${P6_FRONTEND_TITLE:+P6_FRONTEND_TITLE=1} ${P6_FRONTEND_CHAIN:+P6_FRONTEND_CHAIN=1} ${P6_FRONTEND_MENU:+P6_FRONTEND_MENU=1} ${P6_GHZCUT_BOOT:+P6_GHZCUT_BOOT=1} ${P6_FRAMEDIR:+P6_FRAMEDIR=1} ${P6_GHZ_AUTORUN:+P6_GHZ_AUTORUN=1} SYSOBJS=platform/Saturn/SaturnSGLArea.o
 
 echo "[3b/5] Ring OVERLAY (P6.7d.3): fixed-base link vs game.elf -> cd/OVLRING.BIN ..."
