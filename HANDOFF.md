@@ -4,6 +4,46 @@
 
 ---
 
+## -1. LATEST SESSION HANDOFF (2026-07-20) — Water M1b reverted, whole-arc oracle triaged
+
+> New agent: the memory index (compacted 2026-07-20, now fully loads every
+> session) is the primary state; per-topic files carry the detail. Tree is
+> COMMITTED through `e6b06ee`. The shipping chain (P6_ENGINE_SHIPPING +
+> P6_FRONTEND_CHAIN + P6_GHZCUT_BOOT + P6_FRAMEDIR + P6_GHZ_AUTORUN +
+> P6_WATER) is HEALTHY -- live-verified boot -> settled Green Hill Zone,
+> Sonic traverses x=501 -> 5214.
+
+State (all measured; memory files cited):
+- **Water M1b REVERTED** (`8882691`): the SaturnSheet_BandReset band-store
+  reclaim staged WATER.SHT but orphaned persisted VDP1 handle slot numbers
+  (Tails' draws dropped 11/s -> invisible + frozen stale quad + autorun
+  wedge at x~585), and the follow-up handle-slot remap deterministically
+  FROZE the GHZ handoff (cont=1792, 2/2 boots). Water M1 physics REMAIN in
+  (classid 56, water line Y=2076 px). Next design must solve the
+  persisted-handle contract BEFORE any store renumbering. Full analysis:
+  memory/chain-band-store-reclaim-at-ghz-handoff.md.
+- **Whole-arc oracle sweep triaged** (memory/oracle-arc-sweep-2026-07-20-
+  findings.md): all EDGE stub noise classified benign (platform-API stubs +
+  the MenuParam shim); GHZ real speed = 41.3 tick/s (69% realtime) at ~10.3
+  render fps -- the #243 chain VDP1 draw wall (33 ms vs 5 ms plain) is the
+  top perf item and the likely pink-flicker driver. REAL LEAD: the engine
+  class table (0x060D8000) holds INVALID staticVars slots at entries 51/52
+  (0x88/0x16) with an unresolved index skew vs the runtime b2 witnesses --
+  resolve the ObjectClass struct layout (rsdkv5-src Object.hpp) + the
+  oracle's halfword-swapped md5 name dict BEFORE concluding which badnik
+  class is broken.
+- **Tooling landed:** oracle transient-retry (`482e781`, rode through 3
+  boot-phase UDP failures and delivered the first complete whole-arc run --
+  needs `420` seconds arg, default 180 ends mid-AIZ; never run concurrently
+  with a SCREENSHOT poll loop); live VDP1 evicts gate tools/qa_vdp1_evicts.py
+  (`e6b06ee`); MEMORY.md compacted 73 -> 21 KB (was truncated every session).
+- **Priority queue:** (1) class-table skew resolution (gameplay correctness,
+  cheap), (2) #243 chain VDP1 draw wall (perf + flicker), (3) BreakableWall/
+  CollapsingPlatform break visuals (tiles stay drawn, fragments don't fall),
+  (4) Water M1b redesign, (5) GHZ SFX lead (unconfirmed).
+
+---
+
 ## 0. LATEST SESSION HANDOFF (2026-07-01) — GHZCutscene BLACK SKY (task #309 #2b)
 
 > New agent: read this section first, then the memory files it cites, then §1+
