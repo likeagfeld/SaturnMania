@@ -194,6 +194,29 @@ DrawSprite/FRD path every GHZ sprite uses. NOTE: INK_ADD (alpha 0xE0) may render
 calc unwired) = M3 refinement, not an M1b blocker (an opaque animated surface band still reads
 as "water surface present").
 
+### M1b BAND-STORE CONSTRAINT (MEASURED 2026-07-20 -- resolve BEFORE editing; do NOT rush)
+The ghzShtFiles handoff loop (p6_io_main.cpp:8306) stages each .SHT via SaturnSheet_Stage into
+the **384 KB cart BAND STORE** which the code comment (io_main:8300) measures at "11-sheet total
+337,489 B, 55 KB margin". Global/Water.gif is 256x512 (~131 KB banded) -> staging the FULL sheet
+OVERFLOWS the 55 KB margin -> SaturnSheet_Stage returns -1 -> Water SILENTLY UNSTAGED (graceful
+fail, no crash, but no surface). This is the [[wram-h-animpak-ceiling-boot-trap]]/residency-budget
+class -- the parity map's "delicate, do not rush" warning applies.
+OPEN QUESTION (read the code, do NOT assume): does the FRD path AVOID the full-sheet band-store
+stage? SaturnFrameDir.cpp says the FRD blob "holds every frame" pre-cut + "Replaces the runtime
+rect-cutting of SaturnSheet_FetchRect" and is staged into the cart independently (p6_w_frd_staged).
+IF an FRD-covered sheet needs only its (small) FRD blob + a SaturnSheet SLOT (not the full banded
+sheet in the store), then Water.gif's 256x512 size is IRRELEVANT and M1b fits trivially -> resolve
+by reading SaturnFrameDir_Stage + how LoadSpriteSheet routes an FRD sheet + whether ghzShtFiles
+must SaturnSheet_Stage an FRD sheet at all. TWO tractable paths depending on the answer:
+  (A) FRD-only (if FRD needs no band-store sheet): stage only WATER.FRD (small, just the surface-
+      strip rects) + a slot; skip the WATER.SHT band-store stage. Cleanest, no budget hit.
+  (B) reduced WATER.SHT (if the band store IS needed): build a CROPPED Water.gif / rect-subset .SHT
+      holding ONLY anim-0's surface-strip rects (GHZ needs no HCZ bubbles/countdown) so the banded
+      sheet fits the 55 KB margin -- the selective-rebuild pattern ([[title-vdp1-slot-thrash]] /
+      the TSONIC selective-frame rebuild). Measure the reduced .SHT size < margin before staging.
+STATUS: M1 (physics) DONE+committed 69637fb. M1b PAUSED at this measured constraint -- a careful
+residency unit, NOT a quick sheet-add. Resolve the FRD-staging question first.
+
 ## Budget / risk
 - WRAM: register-only object adds ~cart .text + ~few B pack witnesses; chain
   `_end` currently ~0x060c1xxx << 0x060C8000 (25 KB headroom) — safe. Confirm
