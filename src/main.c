@@ -1267,6 +1267,13 @@ void jo_main(void)
      * lean tick re-loads GHZ live + arms the continuous loop. The hand-port boot
      * below is compiled but never reached. Unset P6_ENGINE_SHIPPING to revert.
      * Gate: tools/_portspike/qa_p6_shipping.py. */
+    /* Dead-gameplay-SFX fix (P6.8): upload the S8@22050 SFX pack to SCSP sound
+     * RAM NOW -- jo's GFS is free before the engine mounts Data.rsdk inside
+     * p6_engine_boot_and_run (the p6_gfs second-open trap only bites once the
+     * pack is mounted). Front-end-chain only (empty in plain GHZ). */
+#if defined(P6_FRONTEND_LOGOS)
+    { extern void p6_sfx_load(void); p6_sfx_load(); }
+#endif
     p6_engine_boot_and_run();
     jo_core_add_vblank_callback(p6_perf_vblank); /* Perf Phase 1: true-60Hz tally */
     {

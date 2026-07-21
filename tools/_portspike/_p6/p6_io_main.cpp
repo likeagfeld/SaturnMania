@@ -7852,6 +7852,7 @@ static void p6_cram_witness(void)
 // by delta. p6_w_sfx_armed_frames rising while p6_w_snd_plays stays flat ==
 // "gameplay requested SFX the SCSP never played" == dead SFX. p6_w_sfx_last_id
 // carries the most-recent gameplay soundID so a spot check can name it.
+extern "C" void p6_sfx_pump(int soundID); // p6_sfx.c: key-on SCSP for an armed pack SFX
 __attribute__((used)) int32 p6_w_sfx_armed_frames = 0;  // monotonic #frames a non-bleep SFX ch was armed
 __attribute__((used)) int32 p6_w_sfx_arm_events   = 0;  // monotonic #new-soundID arm transitions
 __attribute__((used)) int32 p6_w_sfx_last_id      = -1;  // most-recent gameplay SFX soundID
@@ -7866,8 +7867,12 @@ static void p6_audio_witness(void)
         if (st == CHANNEL_SFX) {
             ++armed;
             p6_w_sfx_last_id = (int32)sid;
-            if (sid != s_sfx_prev_id[c])          // new sound landed on this slot
+            if (sid != s_sfx_prev_id[c]) {        // new sound landed on this slot
                 ++p6_w_sfx_arm_events;
+                // Dead-gameplay-SFX fix (P6.8): key-on the SCSP voice for this
+                // SFX if it's in the sound-RAM pack (p6_sfx maps soundID->sample).
+                p6_sfx_pump((int)sid);
+            }
         }
         if (st == CHANNEL_STREAM)
             ++streamed;

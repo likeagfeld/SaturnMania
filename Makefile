@@ -391,6 +391,10 @@ SRCS += tools/_portspike/_p6/p6_vdp1.c
 # P6.6b (Task #209): the SCSP playback half -- routes the engine-converted
 # S16 buffer through jo_audio_play_sound (jo.h-dependent, same rule as above).
 SRCS += tools/_portspike/_p6/p6_snd.c
+# Dead-gameplay-SFX fix (P6.8): S8@22050 pack -> SCSP sound RAM + per-frame pump.
+# Same jo-config-dependent rule as p6_snd.c (uses jo_fs_read_file). Body is
+# #if P6_FRONTEND_LOGOS -> plain GHZ compiles an empty TU (byte-identical).
+SRCS += tools/_portspike/_p6/p6_sfx.c
 # Perf Phase 1 (Task #211): jo-side FRT read + true-60Hz vblank counter (uses
 # SGL SEGA_TIM.H + jo_core_add_vblank_callback -- jo-config-dependent, same rule).
 SRCS += tools/_portspike/_p6/p6_perf.c
@@ -402,6 +406,10 @@ endif
 ifeq ($(P6_ENGINE_SHIPPING),1)
 SRCS += tools/_portspike/_p6/p6_vdp1.c
 SRCS += tools/_portspike/_p6/p6_snd.c
+# Dead-gameplay-SFX fix (P6.8): S8@22050 pack -> SCSP sound RAM + per-frame pump.
+# Same jo-config-dependent rule as p6_snd.c (uses jo_fs_read_file). Body is
+# #if P6_FRONTEND_LOGOS -> plain GHZ compiles an empty TU (byte-identical).
+SRCS += tools/_portspike/_p6/p6_sfx.c
 # Perf Phase 1 (Task #211): jo-side FRT read + true-60Hz vblank counter.
 SRCS += tools/_portspike/_p6/p6_perf.c
 endif

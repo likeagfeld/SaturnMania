@@ -2,6 +2,13 @@
 
 using namespace RSDK;
 
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_FRONTEND_LOGOS)
+// Dead-gameplay-SFX fix (P6.8): the Saturn S8@22050 SCSP pack backend (p6_sfx.c,
+// plain C). File-scope extern "C" so LoadSfxToSlot can resolve pack SFX names.
+extern "C" int  p6_sfx_lookup(const char *filename);
+extern "C" void p6_sfx_bind(int sfxSlot, int packIdx);
+#endif
+
 #if RETRO_REV0U
 #include "Legacy/AudioLegacy.cpp"
 #endif
@@ -312,6 +319,28 @@ void RSDK::LoadSfxToSlot(char *filename, uint8 slot, uint8 plays, uint8 scope)
 
     RETRO_HASH_MD5(hash);
     GEN_HASH_MD5(filename, hash);
+
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_FRONTEND_LOGOS)
+    // Dead-gameplay-SFX fix (P6.8): if this SFX name is in the S8@22050 SCSP
+    // pack (cd/GHZSFX.PCM, uploaded to sound RAM at boot by p6_sfx_load), resolve
+    // it DIRECTLY -- set scope so GetSfx/PlaySfx work, bind the slot for the
+    // per-frame SCSP pump, and SKIP the F32-in-WRAM LoadFile+AllocateStorage
+    // entirely. This ALSO sidesteps the DATASET_SFX pool exhaustion (only 3/256
+    // used to load), so every pack SFX resolves. See
+    // memory/dead-sfx-rootcause-f32-pool-exhaustion.md.
+    {
+        int p6pk = p6_sfx_lookup(filename);
+        if (p6pk >= 0) {
+            HASH_COPY_MD5(sfxList[slot].hash, hash);
+            sfxList[slot].scope              = scope;
+            sfxList[slot].maxConcurrentPlays = plays;
+            sfxList[slot].buffer             = NULL; // no F32 on Saturn (SCSP pump)
+            sfxList[slot].length             = 0;
+            p6_sfx_bind((int)slot, p6pk);
+            return;
+        }
+    }
+#endif
 
 #if RETRO_PLATFORM == RETRO_SATURN && defined(P6_FRONTEND_LOGOS)
     // Task #271 LOAD-TIME FIX (MEASURED root cause of the ~70 s FRONT-END title load):
