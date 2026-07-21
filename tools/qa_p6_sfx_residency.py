@@ -86,32 +86,40 @@ def main():
 
     loaded = [i for i in range(256) if raw[i * SFXINFO_STRIDE + SCOPE_OFF] != 0]
 
-    # arm events across the window (Nyquist-proof 60Hz monotonic accumulator)
-    def r32(a):
-        b = mem.read_saturn(a, 4)
-        return int.from_bytes(b, "big")
+    def r32(name):
+        a = sym(name)
+        return int.from_bytes(mem.read_saturn(a, 4), "big") if a else None
 
-    a0 = r32(arm_sym)
-    t0 = time.time()
-    while time.time() - t0 < WATCH:
-        time.sleep(1.0)
-    a1 = r32(arm_sym)
-    arm_delta = a1 - a0
+    # AUDIBLE proof (stronger than a fragile live-window delta that fails when the
+    # autorun bot idles between SFX): the monotonic cumulative arm-event count and
+    # the SCSP key-on count. arm_events>0 proves gameplay armed channels (F32 pool
+    # exhaustion is bypassed); keyons>0 proves the pump reached the SCSP (the
+    # audible half). keyons ~= arm proves the channel->SCSP pump fires per arm.
+    arm    = r32("p6_w_sfx_arm_events") or 0
+    keyons = r32("p6_w_sfx_keyons") or 0
+    pack   = r32("p6_w_sfx_pack_loaded") or 0
+    bound  = r32("p6_w_sfx_bound") or 0
 
     print("=" * 70)
     print("qa_p6_sfx_residency  (dead-gameplay-SFX gate; RED until the SCSP-S16 fix)")
     print("=" * 70)
     print(f"  sfxList entries loaded (scope!=0) : {len(loaded)}  (need >= {SFX_MIN})")
     print(f"      loaded slots                  : {loaded[:20]}")
-    print(f"  sfx_arm_events delta over {WATCH:.0f}s     : {arm_delta}  (need > 0)")
+    print(f"  pack uploaded / bound             : {pack} / {bound}")
+    print(f"  sfx_arm_events (cumulative)       : {arm}     (need > 0)")
+    print(f"  sfx_keyons (SCSP voices keyed)    : {keyons}  (need > 0; ~= arm)")
 
     fail = []
     if len(loaded) < SFX_MIN:
         fail.append(f"only {len(loaded)} SFX loaded (< {SFX_MIN}) -- gameplay SFX not "
                     f"resident (F32-in-WRAM pool exhaustion)")
-    if arm_delta <= 0:
-        fail.append("zero PlaySfx arming across the window -- gameplay produced no SFX "
-                    "(GetSfx returns -1 for unloaded SFX)")
+    if arm <= 0:
+        fail.append("zero PlaySfx arming -- gameplay produced no SFX (GetSfx returns -1 "
+                    "for unloaded SFX). NOTE: run this once the chain has entered "
+                    "gameplay (GHZ) where SFX fire; the front-end scenes are silent.")
+    if arm > 0 and keyons <= 0:
+        fail.append("SFX armed but ZERO SCSP key-ons -- the channel->SCSP pump is not "
+                    "reaching the hardware (audible half broken)")
     if fail:
         for f in fail:
             print(f"  RED  {f}")
