@@ -7819,23 +7819,34 @@ __attribute__((used)) int32 p6_w_cram_nonzero = 0;
 // p6_w_cram_magenta_frames (count of frames whose magenta exceeded the floor).
 __attribute__((used)) int32 p6_w_cram_magenta_max    = 0;  // monotonic peak magenta
 __attribute__((used)) int32 p6_w_cram_magenta_frames = 0;  // monotonic #frames mag>MAG_FLOOR
+// Per-256-entry-bank magenta breakdown: localizes WHERE the pink is (bank 0 =
+// NBG0 8bpp / first displayed palette; banks 8..15 = VDP1 sprite palette region;
+// a constant magenta count in a bank no layer references == a detector over-count,
+// not a visible flash). Answers "is the pink real or unused-bank noise" without a
+// savestate CRAM dump. 8 banks * 256 = 2048.
+__attribute__((used)) int32 p6_w_cram_mag_bank[8] = {0,0,0,0,0,0,0,0};
 static void p6_cram_witness(void)
 {
     volatile unsigned short *cram = (volatile unsigned short *)0x25F00000u;
     unsigned int h = 5381u;
     int mag = 0, nz = 0;
+    int bank[8] = {0,0,0,0,0,0,0,0};
     for (int i = 0; i < 2048; ++i) {
         unsigned short c = cram[i];
         h = ((h << 5) + h) ^ (unsigned int)c;
         if (c & 0x7FFFu)
             ++nz;
         int r = c & 0x1F, g = (c >> 5) & 0x1F, b = (c >> 10) & 0x1F;
-        if (r >= 24 && b >= 24 && g <= 8)
+        if (r >= 24 && b >= 24 && g <= 8) {
             ++mag;
+            ++bank[i >> 8];
+        }
     }
     p6_w_cram_hash    = (int32)h;
     p6_w_cram_magenta = mag;
     p6_w_cram_nonzero = nz;
+    for (int b = 0; b < 8; ++b)
+        p6_w_cram_mag_bank[b] = bank[b];
     if (mag > p6_w_cram_magenta_max)
         p6_w_cram_magenta_max = mag;
     if (mag > 4)                              // MAG_FLOOR = 4 (mirrors oracle D9)

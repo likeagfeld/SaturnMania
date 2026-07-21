@@ -214,6 +214,8 @@ CORE_SYMS = ["p6_w_edge_hits", "p6_w_tick_frames", "p6_w_cont_frames",
              # FULL 2048-entry CRAM (was 1024 -> blind to VDP1 sprite palette banks).
              "p6_w_cram_hash", "p6_w_cram_magenta", "p6_w_cram_nonzero",
              "p6_w_cram_magenta_max", "p6_w_cram_magenta_frames",
+             # per-256-bank magenta breakdown -> static-baseline vs real-flash split
+             "p6_w_cram_mag_bank",
              # sprite/draw pipeline (missing-sprite, flicker, layer coverage)
              "p6_w_vdp1_drops", "p6_w_vdp1_evicts", "p6_w_dl_cmds_max",
              "p6_w_b1_registered", "p6_w_fg_highfill"]
@@ -429,6 +431,14 @@ class Oracle:
         s["cram_nonzero"] = self.w("p6_w_cram_nonzero")
         s["cram_magenta_max"] = self.w("p6_w_cram_magenta_max")
         s["cram_magenta_frames"] = self.w("p6_w_cram_magenta_frames")
+        # per-256-entry-bank magenta breakdown -> distinguishes STATIC unused-bank
+        # over-count (constant across scenes) from real scene-varying displayed pink.
+        _mb = self.sym("p6_w_cram_mag_bank")
+        if _mb is not None:
+            _raw = self.rb(_mb, 32)
+            s["cram_mag_bank"] = [int.from_bytes(_raw[i * 4:i * 4 + 4], "big") for i in range(8)]
+        else:
+            s["cram_mag_bank"] = None
         # sprite/draw pipeline (missing-sprite + flicker + layer coverage):
         s["vdp1_drops"] = self.w("p6_w_vdp1_drops")    # sprites the emitter DROPPED
         s["vdp1_evicts"] = self.w("p6_w_vdp1_evicts")  # slot-cache thrash (flicker)
@@ -771,23 +781,37 @@ def main():
         # live -- the engine palette can be correct while composition is wrong. This
         # catches the pink-flash class GENERALLY (magenta in ANY bank, ANY scene) +
         # blank/black screens, no keyword enumeration.
+        # D9 RECALIBRATED (2026-07-20, per-bank measurement): the raw magenta count
+        # is ~80% STATIC UNUSED-BANK over-count -- banks 3-7 (533 entries) read
+        # byte-IDENTICAL across Title/Menu/AIZ/GHZCutscene/GHZ (proven via
+        # p6_w_cram_mag_bank; displayed palettes MUST vary between scenes, so a
+        # cross-scene constant == unused CRAM, not visible pink). Flagging the raw
+        # total false-positived every scene. A real pink FLASH is a CHANGE, so flag
+        # on WITHIN-SCENE magenta VARIANCE (max-min across this scene's window),
+        # NOT static presence. See memory/pink-cram-mostly-detector-overcount.
         mags = [s["cram_magenta"] for s in ss if s.get("cram_magenta") is not None]
         nzs = [s["cram_nonzero"] for s in ss if s.get("cram_nonzero") is not None]
-        if mags and max(mags) > 4:
-            D(folder, "PALETTE", f"MAGENTA/PINK in CRAM -- up to {max(mags)} pink entries "
-                                 f"(wrong colour / CRAM-bank collision -- the pink-flash class, "
-                                 f"any bank; count>4 rules out incidental sprite colours)")
-        # GAP-5/FN-1 Nyquist upgrade: the instantaneous 1Hz read above misses a
-        # sub-second pink FLASH. p6_w_cram_magenta_frames is a 60Hz monotonic count
-        # of frames whose magenta exceeded the floor -> a delta>0 across the window
-        # means a flash happened even if no 1Hz sample landed on it. magenta_max is
-        # the peak magnitude ever seen (also covers CRAM[1024..2047] sprite banks now).
-        mgf = [s.get("cram_magenta_frames") for s in ss if s.get("cram_magenta_frames") is not None]
-        mgx = [s.get("cram_magenta_max") for s in ss if s.get("cram_magenta_max") is not None]
-        if len(mgf) >= 2 and (max(mgf) - min(mgf)) > 0 and (not mags or max(mags) <= 4):
-            D(folder, "PALETTE", f"TRANSIENT pink FLASH -- {max(mgf) - min(mgf)} frames had magenta "
-                                 f"CRAM in this window (peak {max(mgx) if mgx else '?'} entries) that the "
-                                 f"1Hz sample missed (Nyquist; 60Hz accumulator caught it) -- pink flicker")
+        FLASH_SWING = 24    # entries; a real in-scene composition flash, not noise
+        if len(mags) >= 2 and (max(mags) - min(mags)) >= FLASH_SWING:
+            banks = ss[-1].get("cram_mag_bank")
+            D(folder, "PALETTE", f"pink FLASH -- CRAM magenta swung {min(mags)}->{max(mags)} "
+                                 f"WITHIN this scene (a real composition change, not the static "
+                                 f"unused-bank baseline){f'; per-bank {banks}' if banks else ''}")
+        elif mags and max(mags) > 4:
+            banks = ss[-1].get("cram_mag_bank")
+            # constant magenta = the static baseline. Report the SMALL scene-composed
+            # component (banks 0-2, the primary NBG/composed palette region) if it is
+            # itself large; banks 3-7 are the proven static over-count -> info only.
+            comp = sum(banks[:3]) if banks else None
+            if comp is not None and comp > 24:
+                D(folder, "PALETTE", f"magenta in the COMPOSED palette region "
+                                     f"(banks0-2={banks[:3]}, sum {comp}) -- possible wrong colour in a "
+                                     f"displayed NBG/palette (banks3-7 {banks[3:]} are the static "
+                                     f"unused-bank baseline, ignored)")
+            else:
+                print(f"  [{folder or '?':12s}] NOTE     CRAM magenta {max(mags)} is STATIC "
+                      f"(constant across the window; per-bank {banks}) -- the unused-bank baseline, "
+                      f"NOT a visible flash (was a D9 false-positive pre-recalibration)")
         if nzs and folder not in ("", "?", None, "Logos") and max(nzs) < 8:
             D(folder, "PALETTE", f"CRAM nearly empty (max {max(nzs)} nonzero of 2048) -- "
                                  f"blank/black screen (palette not composed)")
