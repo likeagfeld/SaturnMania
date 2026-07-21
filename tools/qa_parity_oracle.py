@@ -210,7 +210,7 @@ CORE_SYMS = ["p6_w_edge_hits", "p6_w_tick_frames", "p6_w_cont_frames",
              # 60Hz SH-2-side into monotonic accumulators so a 1Hz oracle read still
              # sees every arm via delta. sfx_armed rising + snd_plays flat = dead SFX.
              "p6_w_sfx_armed_frames", "p6_w_sfx_arm_events", "p6_w_sfx_last_id",
-             "p6_w_stream_frames",
+             "p6_w_stream_frames", "p6_w_sfx_keyons",
              # backend-parity render witnesses (SH-2-hashed CRAM -> netmem-visible).
              # These are what make PALETTE/pink-flash detection possible at all --
              # without them D9 is blind (the whole reason the old oracle missed the
@@ -429,6 +429,7 @@ class Oracle:
         s["sfx_arm_events"] = self.w("p6_w_sfx_arm_events")
         s["sfx_last_id"] = s32(self.w("p6_w_sfx_last_id"))
         s["stream_frames"] = self.w("p6_w_stream_frames")
+        s["sfx_keyons"] = self.w("p6_w_sfx_keyons")   # SCSP-S16 pump key-ons (audible path)
         s["channels"] = self.channels()
         s["pal_hash"] = self.w("p6_w_pal_hash")
         # backend-parity render witnesses (SH-2-hashed CRAM -> netmem-visible):
@@ -759,13 +760,22 @@ def main():
             if folder not in UI_SCENES:
                 armev = [s.get("sfx_arm_events") for s in ss if s.get("sfx_arm_events") is not None]
                 plays = [s["snd_plays"] for s in ss if s["snd_plays"] is not None]
+                # keyons = the SCSP-S16 gameplay-SFX pump (the fix that made SFX audible,
+                # e124f99). snd_plays only tracks the boot proof + MenuBleep, so a
+                # dead-SFX verdict MUST also require keyons flat -- else D8 false-flags
+                # the very build that fixed it.
+                keyons = [s.get("sfx_keyons") for s in ss if s.get("sfx_keyons") is not None]
                 arm_grew = len(armev) >= 2 and (max(armev) - min(armev)) > 0
                 plays_flat = len(plays) >= 2 and (max(plays) - min(plays)) == 0
-                if arm_grew and plays_flat:
+                keyons_flat = not keyons or (max(keyons) - min(keyons)) == 0
+                if arm_grew and plays_flat and keyons_flat:
                     D(folder, "AUDIO", f"gameplay armed {max(armev) - min(armev)} SFX events "
-                                       f"(engine channels[]) but the SCSP-audible count is FLAT at "
-                                       f"{plays[0]} (last soundID={ss[-1].get('sfx_last_id')}) -- SFX "
-                                       f"REQUESTED but NOT PLAYED (no channel->SCSP mix path = dead SFX)")
+                                       f"(engine channels[]) but BOTH the SCSP pump (keyons) and the "
+                                       f"proof count are FLAT -- SFX REQUESTED but NOT PLAYED (dead SFX)")
+                elif arm_grew and not keyons_flat:
+                    print(f"  [{folder or '?':12s}] NOTE     gameplay SFX AUDIBLE -- armed "
+                          f"{max(armev)-min(armev)} + SCSP pump keyed {max(keyons)-min(keyons)} voices "
+                          f"(the e124f99 SFX fix is live; snd_plays is a stale counter, ignored)")
                 elif len(armev) >= 3 and (max(armev) - min(armev)) == 0 and (last["n_entities"] or 0) >= 6:
                     D(folder, "AUDIO", f"NO SFX arming at all across the window (sfx_arm_events flat "
                                        f"at {armev[0]}) with {last['n_entities']} live entities -- "
