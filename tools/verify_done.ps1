@@ -3246,6 +3246,26 @@ if ($vclassRc -ne 0) {
 }
 W "  OK (no object class silently dropped out of the build)" Green
 
+# Gate V-BGM: per-zone CD-DA track map in game.cue (wrong-BGM defect, 2026-07-20).
+# The Docker toolchain has NO python, so `make` leaves game.cue DATA-ONLY and the
+# HOST must run build_cdda.py to wire the 6 per-zone BGM tracks (GreenHill=2 ..
+# Eggman=7). A stale/data-only/_arc CUE => wrong or missing music. This catches it.
+W "Gate V-BGM: per-zone CD-DA tracks wired into game.cue..." Yellow
+$vbgmOut = python (Join-Path $PSScriptRoot "qa_p6_bgm_cue.py") 2>&1
+$vbgmRc = $LASTEXITCODE
+$vbgmOut -split "`n" | ForEach-Object {
+    if ($_ -match "RED|FAIL") { W "  $_" Red }
+    elseif ($_ -match "GREEN") { W "  $_" Green }
+    else { W "  $_" DarkGray }
+}
+if ($vbgmRc -ne 0) {
+    W "FAIL: Gate V-BGM -- game.cue is not the multi-track BGM cuesheet." Red
+    W "      Run: python tools/build_cdda.py cd_audio/track02.wav .. track07.wav \" Red
+    W "               --cue-out game.cue --iso game.iso   (HOST post-build step)." Red
+    exit 1
+}
+W "  OK (game.cue wires the per-zone BGM tracks)" Green
+
 W ""
 W "=== ALL GATES PASS -- safe to claim done. ===" Green
 exit 0
