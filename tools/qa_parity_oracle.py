@@ -822,10 +822,24 @@ def main():
         # rising drop count = sprites the game wanted on screen that AREN'T. General
         # missing-sprite detector across ALL objects. evicts = slot-cache thrash =
         # sprites flickering in/out (the visible-but-blinking class).
+        # D12 RECALIBRATED (2026-07-20, per-sample measurement): p6_w_vdp1_drops is
+        # a monotonic counter. Measured at settled GHZ it JUMPS ~285 once at the
+        # scene-load/handoff and then stays CONSTANT -> the drops are a one-time load
+        # burst (sheets not yet resident during the handoff), NOT ongoing gameplay
+        # loss. The old max-min-across-the-whole-window caught that LOAD burst and
+        # mis-reported "missing sprites" during play. Measure the delta over the
+        # SETTLED tail (skip the first sample, which straddles the load) so only
+        # ONGOING drops flag; report a large constant total as a load-time NOTE.
         drp = [s["vdp1_drops"] for s in ss if s.get("vdp1_drops") is not None]
-        if len(drp) >= 2 and (max(drp) - min(drp)) > 8:
-            D(folder, "SPRITE", f"VDP1 dropped {max(drp) - min(drp)} sprite blits across the window "
-                                f"-- MISSING SPRITES (slot-pool overflow / unbound sheet / oversize)")
+        settled_drp = drp[1:] if len(drp) >= 3 else drp
+        if len(settled_drp) >= 2 and (max(settled_drp) - min(settled_drp)) > 8:
+            D(folder, "SPRITE", f"VDP1 dropped {max(settled_drp) - min(settled_drp)} sprite blits "
+                                f"DURING SETTLED play -- ongoing MISSING SPRITES (slot-pool overflow / "
+                                f"unbound sheet / oversize)")
+        elif drp and max(drp) > 8 and len(settled_drp) >= 2 and (max(settled_drp) - min(settled_drp)) == 0:
+            print(f"  [{folder or '?':12s}] NOTE     VDP1 drops constant at {max(drp)} across settled play "
+                  f"-- a ONE-TIME load/handoff burst (sheets not yet resident at the seam), NOT an "
+                  f"ongoing gameplay miss (was a D12 false-positive pre-recalibration)")
         ev = [s["vdp1_evicts"] for s in ss if s.get("vdp1_evicts") is not None]
         conts = [s["cont"] for s in ss if s.get("cont") is not None]
         if len(ev) >= 2 and len(conts) >= 2 and (conts[-1] - conts[0]) > 0:
