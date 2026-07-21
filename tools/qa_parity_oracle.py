@@ -126,7 +126,14 @@ UI_SCENES = {"", "?", None, "Logos", "Title", "Menu"}
 # (AIZ's beats transition AngelIsland->RubyPresence->HBHMischief->Eggman1). None =
 # don't assert an exact track (only require SOME track playing). This is the audio
 # REFERENCE: str_track != this = wrong BGM (the "Saturn boot chime not music" class).
-BGM_EXPECT = {"GHZ": {2}, "AIZ": {4, 5, 6, 7}, "GHZCutscene": {6, 2}}
+# Decomp-verified per-scene CD-DA track sets (from HandleStreamLoad's name->track
+# map + AIZSetup.c's cited beat sequence). The AIZ intro and the GHZCutscene
+# (Heavies dig-site) are ONE CONTINUOUS cutscene that steps through the intro
+# tracks: AngelIsland(4) -> RubyPresence(5, AIZSetup.c:188) -> HBHMischief(6,
+# :372/:724) -> BossEggman1(7, :568/:809). So GHZCutscene legitimately continues
+# one of {4,5,6,7} (measured track 5 = RubyPresence is CORRECT, NOT wrong) -- the
+# earlier {6,2} was an unverified guess that false-flagged it. GHZ = GreenHill1(2).
+BGM_EXPECT = {"GHZ": {2}, "AIZ": {4, 5, 6, 7}, "GHZCutscene": {4, 5, 6, 7}}
 
 
 def build_name_dict():
