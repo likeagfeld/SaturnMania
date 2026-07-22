@@ -2196,6 +2196,9 @@ void p6_cdda_play(int track, int loop);
 // (p6_w_cdc_status) + poke-gated re-assert (p6_dbg_cdda_reassert). Called
 // periodically at GHZ gameplay from p6_frontend_frame.
 void p6_cdda_poll_status(int track);
+// p6_sfx.c: #325 DIAGNOSTIC continuous looping test tone on SCSP slot 31 (default
+// on) -- proves by ear whether ANY direct SCSP slot reaches RA audio output.
+void p6_sfx_test_tone(void);
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
 // backend targets. sheet_bind pins the engine surface + mirrors the palette
 // to CRAM bank 1 once; blit() draws a sheet rect at an engine TOP-LEFT,
@@ -9830,6 +9833,13 @@ static void p6_frontend_frame(void)
         else if (!strcmp(currentSceneFolder, "Title"))
             p6_cdda_poll_status(3);
     }
+    // #325 DIAGNOSTIC (retired): p6_sfx_test_tone proved by WAV capture that a
+    // direct SCSP slot (31) reaches RA/Mednafen output as the LOUDEST segment of
+    // a 217 s recording -> the direct-slot path is sound; the dead-SFX bug was the
+    // KYONEX-isolation loop keying OFF concurrent voices (fixed in p6_sfx.c/
+    // p6_snd.c). The tone remains available for future probes: poke
+    // p6_dbg_test_tone=1 then it self-arms from p6_sfx_pump's gate. Not re-armed
+    // here so the normal SFX pump runs unperturbed.
 #if defined(P6_SHADOW_COMPARE)
     // DUAL-SH2 parity proof (chain path): the shadow-compare in ProcessObjects
     // (Object.cpp:825) is gated on g_p6_shadow_enable, which is armed ONLY in

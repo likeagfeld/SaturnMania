@@ -102,13 +102,14 @@ void p6_snd_play(void)
     *p6_slot_reg(slot, 0x14) = 0x0000;
     *p6_slot_reg(slot, 0x16) = (unsigned short)(7u << 13); /* DISDL=7 ctr */
 
-    /* KYONEX isolation: clear KYONB on every other slot, settle, key on. */
-    for (i = 0; i < P6_SND_NSLOTS; ++i) {
-        if (i != slot)
-            *p6_slot_reg(i, 0x00) = 0x0000;
-    }
-    for (i = 0; i < 128; ++i)
-        (void)*p6_slot_reg(0, 0x0C);
+    /* Re-trigger THIS slot ONLY. KYONEX is GLOBAL: a pulse KEY-OFFS every slot
+     * whose KYONB=0. Writing KYONB=0 to all other slots first (the old code)
+     * KEY-OFFED every concurrent voice -- truncating overlapping SFX to silence
+     * (SCSP_Manual.txt Fig 4.8, :1802-1809; same root cause fixed in p6_sfx.c).
+     * Leave other slots' KYONB intact; key the target off then on. */
+    *p6_slot_reg(slot, 0x00) = P6_SCSP_KYONEX;              /* key-off target only */
+    for (i = 0; i < 96; ++i)
+        (void)*p6_slot_reg(0, 0x0C);                        /* settle the pulse   */
     *p6_slot_reg(slot, 0x00) =
         (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | sa_hi);
 }

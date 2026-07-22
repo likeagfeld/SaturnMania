@@ -194,18 +194,64 @@ static void p6_sfx_keyon(int idx)
     p6_sfx_reg(slot, 0x14)[0] = 0x0000;
     p6_sfx_reg(slot, 0x16)[0] = (unsigned short)(7u << 13);               /* DISDL=7 */
 
-    /* KYONEX isolation: clear KYONB on every other slot, settle, key on with
-     * PCM8B set. (Clearing KYONB does NOT stop already-started slots.) */
+    /* Re-trigger THIS slot ONLY. KYONEX is GLOBAL: a pulse acts on every slot's
+     * KYONB at once -- KYONB=1 slots KEY-ON, KYONB=0 slots KEY-OFF, and a slot
+     * whose KYONB is held =1 across pulses is "Ignore"d (SCSP_Manual.txt Fig 4.8,
+     * :1802-1809). The prior "isolation" loop wrote KYONB=0 to ALL 31 other slots
+     * before the pulse, so every SFX key-on KEY-OFFED every concurrent/prior SFX
+     * -> gameplay SFX truncated to silence (root cause of the dead-SFX defect;
+     * the lone test tone survived only because nothing keyed after it). Fix: leave
+     * other slots' KYONB untouched (their sounds keep playing / are Ignore'd) and
+     * re-trigger the target by keying it OFF (KYONB=0 + pulse) then ON. PCM8B only
+     * for 8-bit entries; 16-bit (fmt=1) plays with PCM8B clear. */
+    unsigned short pcm8b = s_sfx[idx].fmt ? 0u : (unsigned short)P6_SCSP_PCM8B;
+    p6_sfx_reg(slot, 0x00)[0] = P6_SCSP_KYONEX;             /* key-off target only */
+    for (i = 0; i < 96; ++i)
+        (void)p6_sfx_reg(0, 0x0C)[0];                       /* settle the pulse   */
+    p6_sfx_reg(slot, 0x00)[0] =
+        (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | pcm8b | sa_hi);
+    ++p6_w_sfx_keyons;
+}
+
+/* DIAGNOSTIC (2026-07-22, #325): key a CONTINUOUS LOOPING tone on slot 31 from
+ * pack entry 0 (Ring), so we can tell BY EAR whether ANY direct SCSP slot reaches
+ * RetroArch's audio output. Default ON; the SFX pump is disabled while it runs so
+ * nothing keys-off the tone. If a steady drone is audible -> direct slots reach
+ * output (SFX bug is triggering); if silent -> direct-slot path is dead in this
+ * engine -> switch to the driver PCM API. p6_dbg_test_tone=0 (poke) restores SFX. */
+__attribute__((used)) int p6_dbg_test_tone = 0;
+__attribute__((used)) int p6_w_test_keyed = 0;
+void p6_sfx_test_tone(void)
+{
+    int i, slot = 31;
+    unsigned long sa;
+    unsigned short sa_hi, sa_lo;
+    if (!p6_dbg_test_tone || s_sfx_n == 0)
+        return;
+    sa    = P6_SFX_PCM_OFF + s_sfx[0].off;
+    sa_hi = (unsigned short)((sa >> 16) & 0x000F);
+    sa_lo = (unsigned short)(sa & 0xFFFF);
+    p6_sfx_reg(slot, 0x02)[0] = sa_lo;
+    p6_sfx_reg(slot, 0x04)[0] = 0;                                     /* LSA=0 */
+    p6_sfx_reg(slot, 0x06)[0] = (unsigned short)(s_sfx[0].count - 1);  /* LEA */
+    p6_sfx_reg(slot, 0x08)[0] = 0x001F;
+    p6_sfx_reg(slot, 0x0A)[0] = 0x0000;                               /* RR0: don't release */
+    p6_sfx_reg(slot, 0x0C)[0] = 0x0000;                               /* TL=0 loudest */
+    p6_sfx_reg(slot, 0x0E)[0] = 0x0000;
+    p6_sfx_reg(slot, 0x10)[0] = 0x7800;                               /* OCT -1 = 22050 */
+    p6_sfx_reg(slot, 0x12)[0] = 0x0000;
+    p6_sfx_reg(slot, 0x14)[0] = 0x0000;
+    p6_sfx_reg(slot, 0x16)[0] = (unsigned short)(7u << 13);           /* DISDL=7 */
     for (i = 0; i < P6_SFX_NUM_SLOTS; ++i)
         if (i != slot)
             p6_sfx_reg(i, 0x00)[0] = 0x0000;
     for (i = 0; i < 128; ++i)
         (void)p6_sfx_reg(0, 0x0C)[0];
-    /* PCM8B only for 8-bit entries; 16-bit (fmt=1) plays with PCM8B clear. */
-    unsigned short pcm8b = s_sfx[idx].fmt ? 0u : (unsigned short)P6_SCSP_PCM8B;
+    /* LPCTL=01 normal loop (bits[10:9]) + PCM8B + KYONEX|KYONB -> continuous. */
     p6_sfx_reg(slot, 0x00)[0] =
-        (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | pcm8b | sa_hi);
-    ++p6_w_sfx_keyons;
+        (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | (1u << 9)
+                         | P6_SCSP_PCM8B | sa_hi);
+    ++p6_w_test_keyed;
 }
 
 /* Per-frame pump: called by p6_audio_witness when a channel NEWLY enters
@@ -213,6 +259,8 @@ static void p6_sfx_keyon(int idx)
 void p6_sfx_pump(int soundID)
 {
     int pk;
+    if (p6_dbg_test_tone)          /* diagnostic tone owns the slots -- no SFX keyons */
+        return;
     if (soundID < 0 || soundID >= 256)
         return;
     pk = s_slot2pack[soundID];
