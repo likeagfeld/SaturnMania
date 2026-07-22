@@ -66,6 +66,19 @@ OCT_22050 = 0xF   # SCSP OCT=-1 -> 22050
 OCT_11025 = 0xE   # SCSP OCT=-2 -> 11025
 OCT_5512  = 0xD   # SCSP OCT=-3 -> 5512
 
+# DIAGNOSTIC (2026-07-22): the direct-slot SFX voice is MEASURED playing correctly
+# (savestate: keyed, full envelope, DISDL=7, valid data) yet SILENT, while the ONLY
+# ear-confirmed direct-slot audio (P6.6b, 175d278) used 16-bit (PCM8B=0). The 8-bit
+# path was never ear-confirmed. So emit the most-frequent SFX as 16-bit (proven
+# format) and the rest as 8-bit: if the 16-bit ones are audible @GHZ and the 8-bit
+# aren't, PCM8B/8-bit is the bug. 16-bit doubles size, so only the frequent set.
+FMT_S8  = 0
+FMT_S16 = 1
+# All 8-bit now (the real bug was byte-vs-word UPLOAD width, not sample format --
+# SCSP_Manual SS-3.1 line 1229; fixed in p6_sfx.c). All-S8 fits all 30 SFX, no drops.
+# (Per-entry fmt kept for future selective 16-bit quality if budget allows.)
+S16_NAMES = set()
+
 # Full Green Hill Act 1 gameplay SFX set (exact GetSfx() strings = hash keys).
 # Everything GHZ objects trigger: player abilities, rings, monitors+shields,
 # badnik pops, spring, spikes, signpost, tally. Priority-ordered (most iconic
@@ -153,23 +166,30 @@ def _s16_to_s8(s16):
     return b
 
 
-def encode(samples, rate):
-    """Return (s8bytes, octNibble). Three-tier by 22050 size so EVERYTHING fits:
-    short -> 22050, medium -> 11025, longest -> 5512. Trailing silence trimmed."""
+def _s16_to_be_bytes(s16):
+    return b"".join(struct.pack(">h", max(-32768, min(32767, s))) for s in s16)
+
+
+def encode(samples, rate, want_s16):
+    """Return (databytes, octNibble, fmt, sampleCount).
+    want_s16: emit 16-bit @22050 (proven-audible format, PCM8B=0) -- diagnostic.
+    else three-tier 8-bit by 22050 size (22050/11025/5512), silence-trimmed."""
     base = _trim_silence(_to_22050_s16(samples, rate))   # 22050-domain samples
+    if want_s16:
+        return _s16_to_be_bytes(base), OCT_22050, FMT_S16, len(base)
     size22 = len(base)                                    # S8 bytes @22050 == sample count
     if size22 <= TIER_22050:
-        return _s16_to_s8(base), OCT_22050
+        b = _s16_to_s8(base);              return b, OCT_22050, FMT_S8, len(b)
     if size22 <= TIER_11025:
-        return _s16_to_s8(_decimate(base, 2)), OCT_11025
-    return _s16_to_s8(_decimate(base, 4)), OCT_5512
+        b = _s16_to_s8(_decimate(base, 2)); return b, OCT_11025, FMT_S8, len(b)
+    b = _s16_to_s8(_decimate(base, 4));     return b, OCT_5512, FMT_S8, len(b)
 
 
 def main():
     if not SOUNDFX.exists():
         sys.stderr.write(f"build_sfx_pack: {SOUNDFX} not found (extract Data.rsdk first)\n")
         return 2
-    entries = []          # (name, djb2key, s8bytes, oct)
+    entries = []          # (name, djb2key, databytes, oct, fmt, sampleCount)
     skipped = []
     hdr_per_entry = 16
     for name in PRIORITY:
@@ -178,39 +198,41 @@ def main():
             skipped.append((name, "missing"))
             continue
         rate, s16 = read_wav_mono_s16(p)
-        s8, octv = encode(s16, rate)
-        prospective = sum(len(e[2]) for e in entries) + len(s8)
+        data_b, octv, fmt, scount = encode(s16, rate, name in S16_NAMES)
+        prospective = sum(len(e[2]) for e in entries) + len(data_b)
         prospective_hdr = 16 + hdr_per_entry * (len(entries) + 1)
         if prospective + prospective_hdr > BUDGET:
-            skipped.append((name, f"over budget ({len(s8)} B @oct{octv:x})"))
+            skipped.append((name, f"over budget ({len(data_b)} B)"))
             continue
-        entries.append((name, djb2(name), s8, octv))
+        entries.append((name, djb2(name), data_b, octv, fmt, scount))
 
     data = bytearray()
     offsets = []
-    for _, _, s8, _ in entries:
+    for e in entries:
         offsets.append(len(data))
-        data += s8
+        data += e[2]
     out = bytearray()
     out += b"P6SF"
-    out += struct.pack(">HH", 3, len(entries))
-    out += struct.pack(">I", 0)   # baseRate unused in v3 (per-entry oct)
+    out += struct.pack(">HH", 4, len(entries))   # v4: per-entry fmt (bit8 of flags)
     out += struct.pack(">I", 0)
-    for (name, key, s8, octv), off in zip(entries, offsets):
-        out += struct.pack(">IIII", key, off, len(s8), octv)
+    out += struct.pack(">I", 0)
+    for (name, key, data_b, octv, fmt, scount), off in zip(entries, offsets):
+        # flags: oct nibble in low byte, fmt in bit 8. sampleCount drives LEA.
+        out += struct.pack(">IIII", key, off, scount, octv | (fmt << 8))
     out += data
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_bytes(out)
 
     print("=" * 70)
-    print("build_sfx_pack v3 (Green Hill SFX -> S8 mixed-rate SCSP pack, 176KB window)")
+    print("build_sfx_pack v4 (Green Hill SFX -> mixed 8/16-bit SCSP pack, 248KB window)")
     print("=" * 70)
-    print(f"  budget (0x40000-0x6C000 free window) : {BUDGET} B ({BUDGET/1024:.0f} KB)")
-    print(f"  packed SFX                           : {len(entries)}")
+    print(f"  budget window : {BUDGET} B ({BUDGET/1024:.0f} KB)")
+    print(f"  packed SFX    : {len(entries)}")
     ratemap = {OCT_22050: "22050", OCT_11025: "11025", OCT_5512: " 5512"}
-    for (name, _, s8, octv), off in zip(entries, offsets):
-        print(f"    {name:24s} {len(s8):6d} B  @+0x{off:05x}  {ratemap[octv]}Hz")
+    for (name, _, data_b, octv, fmt, scount), off in zip(entries, offsets):
+        depth = "S16" if fmt == FMT_S16 else " S8"
+        print(f"    {name:24s} {len(data_b):6d} B  @+0x{off:05x}  {ratemap[octv]}Hz {depth}")
     if skipped:
         print("  skipped (budget/missing):")
         for name, why in skipped:

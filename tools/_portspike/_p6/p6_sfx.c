@@ -30,14 +30,21 @@
 #define P6_SFX_PCM_OFF    0x40000UL
 
 #define P6_SFX_MAX        40
-#define P6_SFX_SLOT_BASE  24        /* our voices 24-27; MenuBleep uses 28-31 */
+/* SCSP voices 28-31 -- the ONLY slots the SGL M68K sound driver (SDDRVS.DAT via
+ * slInitSound) does NOT manage, per the Coup reference (coup_audio.c:14-16,85-86
+ * SFX_SLOT_BASE=28). The prior 24-27 were STOMPED by the driver every frame:
+ * p6_sfx_keyon fired (keyon witness climbed) but the voice was zeroed before it
+ * reached the DAC -> SILENT despite key-ons (user 2026-07-22 "no SFX at all").
+ * MenuBleep (p6_snd.c) also uses 28-31, but it fires ONLY in the menu and SFX
+ * ONLY in gameplay -- never simultaneous, so they share the 4 safe slots. */
+#define P6_SFX_SLOT_BASE  28
 #define P6_SFX_NSLOTS     4
 #define P6_SCSP_KYONEX    (1u << 12)
 #define P6_SCSP_KYONB     (1u << 11)
 #define P6_SCSP_PCM8B     (1u << 4)
 #define P6_SFX_NUM_SLOTS  32
 
-typedef struct { unsigned int key, off, count, oct; } p6_sfx_ent;
+typedef struct { unsigned int key, off, count, oct, fmt; } p6_sfx_ent;
 static p6_sfx_ent s_sfx[P6_SFX_MAX];
 static int s_sfx_n  = 0;
 static int s_sfx_rr = 0;
@@ -82,31 +89,44 @@ void p6_sfx_load(void)
     if (!(d[0] == 'P' && d[1] == '6' && d[2] == 'S' && d[3] == 'F'))
         return;
 
-    /* v3 (mixed-rate): 16-byte entries [key, off, count, octNibble]. v2 was 12-byte
-     * [key, off, count] @ fixed 22050. Support both via the version word. */
+    /* v4: 16-byte entries [key, off, sampleCount, flags]; flags = octNibble(low
+     * byte) | fmt<<8 (fmt 0=S8/PCM8B, 1=S16). v3/v2 back-compat: 16-/12-byte, all
+     * S8. `count` is the SAMPLE count (LEA); byte size = count*(S16?2:1). */
     int ver = (int)p6_be16(d + 4);
     int stride = (ver >= 3) ? 16 : 12;
     int cnt = (int)p6_be16(d + 6);
     if (cnt > P6_SFX_MAX) cnt = P6_SFX_MAX;
     int dataoff = 16 + cnt * stride;
 
-    volatile unsigned char *sram =
-        (volatile unsigned char *)(P6_SFX_SRAM_BASE + P6_SFX_PCM_OFF);
+    /* SCSP sound RAM is WORD-ONLY from the SH-2: "the main CPU cannot access in
+     * units of 8 bits, so read and write in 16 bit units" (SCSP_Manual.txt
+     * SS-3.1(1) line 1229). The prior BYTE-write upload corrupted the waveform ->
+     * slots played silence (SoundStack=0). Upload in 16-bit words, exactly like
+     * the proven-audible p6_snd.c MenuBleep + Coup. Pack entry offsets + byte
+     * lengths are 2-byte aligned (build_sfx_pack.py), so word indexing is exact. */
+    volatile unsigned short *sram =
+        (volatile unsigned short *)(P6_SFX_SRAM_BASE + P6_SFX_PCM_OFF);
 
     for (i = 0; i < cnt; ++i) {
         const unsigned char *e = d + 16 + i * stride;
-        unsigned int key = p6_be32(e);
-        unsigned int off = p6_be32(e + 4);
-        unsigned int n   = p6_be32(e + 8);
-        unsigned int oct = (stride == 16) ? (p6_be32(e + 12) & 0xF) : 0xF; /* 0xF=22050 */
-        const unsigned char *src = d + dataoff + off;
-        unsigned int b;
-        for (b = 0; b < n; ++b)
-            sram[off + b] = src[b];      /* S8 sample byte -> sound RAM */
+        unsigned int key   = p6_be32(e);
+        unsigned int off   = p6_be32(e + 4);              /* byte offset (even) */
+        unsigned int n     = p6_be32(e + 8);              /* sample count */
+        unsigned int flags = (stride == 16) ? p6_be32(e + 12) : 0xF;
+        unsigned int oct   = flags & 0xF;                 /* 0xF=22050 */
+        unsigned int fmt   = (flags >> 8) & 1;            /* 1=S16 (PCM8B off) */
+        unsigned int nbytes = n * (fmt ? 2u : 1u);
+        const unsigned short *src = (const unsigned short *)(d + dataoff + off);
+        unsigned int woff = off >> 1;                     /* off is 2-byte aligned */
+        unsigned int words = (nbytes + 1u) >> 1;
+        unsigned int w;
+        for (w = 0; w < words; ++w)
+            sram[woff + w] = src[w];     /* 16-bit word writes (SS-3.1 line 1229) */
         s_sfx[s_sfx_n].key   = key;
         s_sfx[s_sfx_n].off   = off;
         s_sfx[s_sfx_n].count = n;
         s_sfx[s_sfx_n].oct   = oct;
+        s_sfx[s_sfx_n].fmt   = fmt;
         ++s_sfx_n;
     }
     p6_w_sfx_pack_loaded = s_sfx_n;
@@ -181,8 +201,10 @@ static void p6_sfx_keyon(int idx)
             p6_sfx_reg(i, 0x00)[0] = 0x0000;
     for (i = 0; i < 128; ++i)
         (void)p6_sfx_reg(0, 0x0C)[0];
+    /* PCM8B only for 8-bit entries; 16-bit (fmt=1) plays with PCM8B clear. */
+    unsigned short pcm8b = s_sfx[idx].fmt ? 0u : (unsigned short)P6_SCSP_PCM8B;
     p6_sfx_reg(slot, 0x00)[0] =
-        (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | P6_SCSP_PCM8B | sa_hi);
+        (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | pcm8b | sa_hi);
     ++p6_w_sfx_keyons;
 }
 
