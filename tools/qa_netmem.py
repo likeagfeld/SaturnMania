@@ -130,6 +130,23 @@ class RetroMem:
     def read16_saturn(self, addr: int) -> int:
         return int.from_bytes(self.read_saturn(addr, 2), "big")
 
+    def write_saturn(self, addr: int, data: bytes) -> str:
+        """Write to a Saturn PHYSICAL WRAM address via WRITE_CORE_RAM. Beetle
+        Saturn has no WRITE_CORE_MEMORY map (mirror of the read case), so poke via
+        the RAM offset; the bytes are pre-pair-swapped so a big-endian value lands
+        correctly (undo of read_saturn's swap)."""
+        off = self._phys_to_off(addr)
+        if off is None:
+            raise ValueError(f"0x{addr:08X} not in SYSTEM_RAM (WRAM-L/H); poke needs WRAM")
+        raw = bytearray(data)
+        for i in range(0, len(raw) - 1, 2):
+            raw[i], raw[i + 1] = raw[i + 1], raw[i]
+        payload = " ".join(f"{b:02x}" for b in raw)
+        return self._txn(f"WRITE_CORE_RAM {off:x} {payload}")
+
+    def write32_saturn(self, addr: int, val: int) -> str:
+        return self.write_saturn(addr, val.to_bytes(4, "big"))
+
 
 def _parse_addr(s: str) -> int:
     return int(s, 16) if s.lower().startswith("0x") else int(s, 16)
@@ -154,20 +171,28 @@ def main(argv=None) -> int:
         if a.raw is not None:
             print(mem.raw(a.raw))
         elif a.peek32 is not None:
+            # Beetle Saturn exposes SYSTEM_RAM via READ_CORE_RAM ONLY (no
+            # READ_CORE_MEMORY map -> the map path returns -1 for every addr).
+            # Use the Saturn-physical READ_CORE_RAM path (pair-swap undone) so
+            # WRAM-L/H peeks actually work; a non-SYSTEM addr raises a clear
+            # "use savestate" ValueError (VRAM/CRAM/regs).
             addr = _parse_addr(a.peek32)
-            print(f"0x{addr:08X} = 0x{mem.read32(addr, a.order):08X} "
-                  f"({mem.read32(addr, a.order)})")
+            v = mem.read32_saturn(addr)
+            print(f"0x{addr:08X} = 0x{v:08X} ({v})")
         elif a.peek16 is not None:
             addr = _parse_addr(a.peek16)
-            print(f"0x{addr:08X} = 0x{mem.read16(addr, a.order):04X}")
+            v = mem.read16_saturn(addr)
+            print(f"0x{addr:08X} = 0x{v:04X} ({v})")
         elif a.peek is not None:
             addr = _parse_addr(a.peek)
-            raw = mem.read(addr, a.len)
+            raw = mem.read_saturn(addr, a.len)
             print(f"0x{addr:08X} [{a.len}B]: {raw.hex()}")
         elif a.poke is not None:
             addr = _parse_addr(a.poke[0])
             data = bytes(int(b, 16) for b in a.poke[1:])
-            print(mem.write(addr, data))
+            # Beetle Saturn: no WRITE_CORE_MEMORY map -> poke via WRITE_CORE_RAM
+            # (Saturn-physical offset + pair-swap), mirror of the read path.
+            print(mem.write_saturn(addr, data))
         else:
             p.error("nothing to do; pass --peek32/--peek16/--peek/--poke/--raw")
     except (socket.timeout, TimeoutError):

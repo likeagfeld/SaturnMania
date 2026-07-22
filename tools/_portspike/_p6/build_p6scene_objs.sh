@@ -149,7 +149,7 @@ echo "[1/7] p6_io_main.o  (P6_SCENE_TEST body: witnesses + relocated globals + _
 # tick boots the Logos splash scene instead of GHZ (p6_logos_reload +
 # p6_frontend_frame). Mutually independent of the GHZ diag knobs; the default
 # shipping build leaves it unset -> boots GHZ unchanged.
-$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_SPLIT:+-DP6_SPLIT} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} ${P6_TICK_CATCHUP:+-DP6_TICK_CATCHUP} ${P6_DIRECT_VDP1:+-DP6_DIRECT_VDP1} ${P6_FE_SLAVE_PRESENT:+-DP6_FE_SLAVE_PRESENT} ${P6_FRAMEDIR:+-DP6_FRAMEDIR} ${P6_GHZ_AUTORUN:+-DP6_GHZ_AUTORUN} ${P6_DDW_ARENA:+-DP6_DDW_ARENA} ${P6_DDW_KILL:+-DP6_DDW_KILL} ${P6_WATER:+-DP6_WATER} $CORE_INC \
+$CC $CXXFLAGS $ENG_DEFS ${P6_XTEST:+-DP6_TRANSITION_TEST} ${P6_WARP:+-DP6_WARP_TEST} ${P6_WARP_BRIDGE:+-DP6_WARP_BRIDGE_TEST} ${P6_SHT_NORES:+-DP6_SHT_NO_RESIDENT} ${P6_GHZ2_BOOT:+-DP6_GHZ2_BOOT} ${P6_NOSCAN:+-DP6_PERF_NOSCAN} ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_SPLIT:+-DP6_SPLIT} ${P6_STREAM_PERF:+-DP6_STREAM_PERF} ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_FRONTEND_TITLE:+-DP6_FRONTEND_TITLE} ${P6_FRONTEND_MENU:+-DP6_FRONTEND_MENU} ${P6_FRONTEND_CHAIN:+-DP6_FRONTEND_CHAIN} ${P6_AIZ_TEST:+-DP6_AIZ_TEST} ${P6_GHZCUT_BOOT:+-DP6_GHZCUT_BOOT} ${P6_GHZCUT_DIRECTBOOT:+-DP6_GHZCUT_DIRECTBOOT} ${P6_GHZCUT_SEAMTEST:+-DP6_GHZCUT_SEAMTEST} ${P6_GHZ_WARP:+-DP6_GHZ_WARP} ${P6_GHZCUT_HOLD:+-DP6_GHZCUT_HOLD} ${P6_GHZCUT_NOFIX:+-DP6_GHZCUT_NOFIX} ${P6_TITLE_NODRAW:+-DP6_TITLE_NODRAW} ${P6_TICK_CATCHUP:+-DP6_TICK_CATCHUP} ${P6_DIRECT_VDP1:+-DP6_DIRECT_VDP1} ${P6_FE_SLAVE_PRESENT:+-DP6_FE_SLAVE_PRESENT} ${P6_FRAMEDIR:+-DP6_FRAMEDIR} ${P6_GHZ_AUTORUN:+-DP6_GHZ_AUTORUN} ${P6_DDW_ARENA:+-DP6_DDW_ARENA} ${P6_DDW_KILL:+-DP6_DDW_KILL} ${P6_WATER:+-DP6_WATER} $CORE_INC \
     -c -o "$P6/p6_io_main.o" "$P6/p6_io_main.cpp"
 
 echo "[2/7] p6_gfs.o      (Saturn GFS FileIO backend, UPPERCASE basename) ..."
@@ -217,6 +217,13 @@ $CC $CXXFLAGS $ENG_DEFS ${P6_FRONTEND_LOGOS:+-DP6_FRONTEND_LOGOS} ${P6_GHZ_AUTOR
     -c -o "$P6/Audio_Audio.o" "$SRC/RSDK/Audio/Audio.cpp"
 
 echo "[7f] Scene_Object.o (UNMODIFIED engine Object.cpp -- RegisterObject + ResetEntitySlot + ProcessObjects + ProcessObjectDrawLists for P6.7a; editor/serialize surface gc-drops; +P6_PERF_OBJPROF Phase-2d per-classID Update timing diagnostic) ..."
+# NOTE (2026-07-20): P6_PERF_OBJPROF ships in EVERY flavor (per-entity hot-loop
+# diagnostic: 2x frt_get + 3 WRAM writes per in-range entity per tick, ~0.67ms/tick
+# @GHZ). Stripping it is a known cheap perf+correctness win (memory perf-diagnostic-
+# in-hotloop-regression) BUT it is entangled: the P6_FRONTEND_MENU vbl sub-brackets
+# (p6_w_draw_hook_v/cb_v/tile_v, Object.cpp:1496-1498/1574/1607) USE the OBJPROF-
+# gated extern decls (:490-493), so a bare strip breaks the FRONTEND_MENU build.
+# Fold the strip into the ProcessObjects rework (gate BOTH diag sets together).
 $CC $CXXFLAGS $ENG_DEFS -DP6_PERF_OBJPROF ${P6_SHADOW:+-DP6_SHADOW_COMPARE} ${P6_SPLIT:+-DP6_SPLIT} ${P6_STREAM_PROOF:+-DP6_STREAM_PROOF} $CORE_INC \
     -c -o "$P6/Scene_Object.o" "$SRC/RSDK/Scene/Object.cpp"
 
@@ -640,6 +647,11 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_scene_tick \
     -u _p6_engine_boot_and_run \
     -u _p6_lean_boot \
+    -u _p6_w_cram_mag_nonkey \
+    -u _p6_w_v1_wait_frames -u _p6_w_v1_wait_iters -u _p6_w_v1_wait_max \
+    -u _p6_dbg_spr_off -u _p6_dbg_cram_off \
+    -u _p6_w_ghz_bgm_reach -u _p6_w_ghz_bgm_folderhit -u _p6_w_ghz_bgm_arm \
+    ${P6_GHZ_WARP:+-u _p6_w_ghzwarp_folder -u _p6_w_ghzwarp_cut -u _p6_w_ghzwarp_fired} \
     ${P6_GHZ_AUTORUN:+-u _p6_w_plr_draws -u _p6_w_btch_calls -u _p6_w_btch_hits -u _p6_w_btch_lastdy -u _p6_w_btch_lastvy -u _p6_w_arun_brg_live -u _p6_w_arun_brg_active -u _p6_w_arun_brg_firstx -u _p6_w_arun_brg_gapmiss -u _p6_w_arun_inspan} \
     ${P6_FRONTEND_MENU:+-u _p6_w_fxfade_timer -u _p6_w_fxfade_draws} \
     -u _p6_w_perf_vblanks -u _p6_w_perf_frames -u _p6_w_perf_vbl_max \

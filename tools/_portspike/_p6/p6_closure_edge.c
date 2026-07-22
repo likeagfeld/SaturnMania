@@ -351,11 +351,33 @@ void CompetitionSession_DeriveWinner(int32 playerID, int32 finishType)
     (void)playerID; (void)finishType;
     P6_EDGE(2);
 }
+// MENU NULL-DEREF FIX (2026-07-21, user-reported menu glitches): the decomp
+// CompetitionSession_GetSession (CompetitionSession.c) returns the reserved
+// SLOT_COMPETITION_SESSION entity, NEVER NULL. MenuSetup dereferences it
+// UNGUARDED -- e.g. MenuSetup:824 `if (session->inMatch)`, and 6 more sites
+// (:1392/1430/1490/1516/1624/1655). Returning NULL made every one read Saturn
+// address 0x0.. = BIOS ROM / low-mem = GARBAGE -> the Mania-Mode menu
+// nondeterministically entered the Competition setup branch (VsCharSelector
+// frame assignment etc.) that is not set up in single-player = the reported
+// mode-select glitches. Mirror the MenuParam_GetParam fix below EXACTLY: a
+// ZEROED static instance == the decomp's fresh globals->competitionSession
+// (inMatch=false in single-player -> every branch correctly skipped). P6_EDGE(3)
+// kept so the crossing stays in the histogram (now benign). Chain/menu flavors
+// only (P6_AIZ_TEST); plain GHZ keeps NULL -> byte-identical (#228 _end safe).
+#if defined(P6_AIZ_TEST)
+static EntityCompetitionSession p6_competition_session_instance; // zero-init (.bss)
+EntityCompetitionSession *CompetitionSession_GetSession(void)
+{
+    P6_EDGE(3);
+    return &p6_competition_session_instance;
+}
+#else
 EntityCompetitionSession *CompetitionSession_GetSession(void)
 {
     P6_EDGE(3);
     return NULL;
 }
+#endif
 void CompetitionSession_ResetOptions(void) { P6_EDGE(4); }
 void CutsceneRules_DrawCutsceneBounds(void *e, Vector2 *size)
 {

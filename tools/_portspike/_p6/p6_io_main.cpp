@@ -642,6 +642,14 @@ __attribute__((used)) int32 p6_w_str_slot  = -2; // PlayStream return
 __attribute__((used)) int32 p6_w_str_state = -1; // channels[slot].state after device load
 __attribute__((used)) int32 p6_w_str_path  = 0;  // djb2 over streamFilePath (engine sprintf)
 __attribute__((used)) int32 p6_w_str_track = -1; // resolved CD-DA track
+// GHZ-BGM arc-bug RED gate (2026-07-21): oracle AUDIO fires arc-wide (str_track=-1 at GHZ).
+// The GHZ GreenHill1 arm at p6_scene_load_and_arm:~7100 is guarded on listData[listPos].folder
+// =="GHZ". These prove WHERE it fails in the chain: reach = arm-site ran (any folder);
+// folderhit = listPos.folder was "GHZ" there; arm = PlayStream("GreenHill1") actually fired.
+// arm==0 live @GHZ CONFIRMS the arm never ran -> fix = arm GreenHill1 at the GHZCut->GHZ handoff.
+__attribute__((used)) int32 p6_w_ghz_bgm_reach     = 0;
+__attribute__((used)) int32 p6_w_ghz_bgm_folderhit = 0;
+__attribute__((used)) int32 p6_w_ghz_bgm_arm       = 0;
 // P6.7c (Task #210, qa_p6_stagecfg.py): engine LoadGameConfig/LoadSceneFolder
 // scene-driven class-registration witnesses. All expectations derive LIVE in
 // the gate from the original 1.03 data files.
@@ -1678,6 +1686,17 @@ __attribute__((used)) int32 p6_w_bd_drawn    = 0;  // Motobug/Newtron Draw reach
 // (2) once SignPost_CheckTouch fires. Diag-only (-DP6_WARP_TEST).
 __attribute__((used)) int32 p6_w_warp_plrx       = 0;
 __attribute__((used)) int32 p6_w_warp_signactive = -1;
+#if defined(P6_GHZ_WARP)
+// GHZCutscene->GHZ dev-warp fire diagnostics (2026-07-21): why the warp block at
+// ~:9297 didn't fire. p6_w_ghzwarp_folder = live currentSceneFolder first 4 chars
+// (BE packed) -- reveals a "GHZCuts1" truncation defeating strcmp("GHZCutscene");
+// p6_w_ghzwarp_cut = the settle counter (0 == folder never matched "GHZCutscene");
+// p6_w_ghzwarp_fired = 1 once the SetScene one-shot fired. P6_GHZ_WARP-gated ->
+// shipping/plain byte-identical (#228 safe).
+__attribute__((used)) int32 p6_w_ghzwarp_folder = 0;
+__attribute__((used)) int32 p6_w_ghzwarp_cut    = 0;
+__attribute__((used)) int32 p6_w_ghzwarp_fired  = 0;
+#endif
 // P6.8 F.2-ActClear debug (Task #234): SLOT_ACTCLEAR(=16) census. ActClear is
 // the act-clear tally object SignPost spawns via RSDK.ResetEntitySlot(SLOT_
 // ACTCLEAR) after the goalpost spin (SignPost.c:452); its ActClear.c:782
@@ -1835,7 +1854,18 @@ __attribute__((used)) int32 p6_w_perf_v1_done = 0;  // frames VDP1 done (CEF=1) 
 __attribute__((used)) int32 p6_w_perf_v1_busy = 0;  // frames VDP1 still drawing (CEF=0)
 __attribute__((used)) int32 p6_w_perf_v1_copr = 0;  // last COPR when busy (cmd-list progress)
 __attribute__((used)) int32 p6_w_perf_v1_lopr = 0;  // last LOPR when busy (cmd-list end)
+// PINK-FLASH TEAR FIX witnesses (2026-07-21): count GHZ frames where the pre-slSynch
+// bounded VDP1-draw-done spin fired (VDP1 was mid-raster -> would tear on swap), and
+// the spin iteration counts. wait_max << the 200000 cap == VDP1 always completed (no
+// hang); wait_frames>0 == the tear-window existed and was closed.
+__attribute__((used)) int32 p6_w_v1_wait_frames = 0; // GHZ frames the spin fired
+__attribute__((used)) int32 p6_w_v1_wait_iters  = 0; // last spin iteration count
+__attribute__((used)) int32 p6_w_v1_wait_max    = 0; // worst spin iteration count
 __attribute__((used)) int32 p6_w_perf_v1_edsr = 0;  // last raw EDSR (sanity)
+// PINK-FLASH witness REMOVED (2026-07-21): the BGON (0x25F80020) read was dead -- VDP2
+// registers are write-mostly on Saturn and net/savestate reads return 0 regardless of
+// the displayed state (gotcha #12); it never localized anything. The pink-flash
+// (NBG1-vs-SPR) isolation is a live-eyes bisect build, not a register witness.
 // CP5b.7 VDP1 DUTY CYCLE -- the fill-bound-vs-cadence discriminator. The title
 // frame is MEASURED 103ms (6 vbl) while master compute is only 8ms, so ~92% of
 // the frame is the jo-body/slSynch/VDP1 wait. The compute-done EDSR sample (above)
@@ -4226,7 +4256,13 @@ static void p6_ghz_frame(void)
     // Arm the scan-split parity proof only once gameplay is live (avoids the load-
     // phase hang). If cont_frames freezes at ~10, the shadow itself hangs in-gameplay;
     // if it climbs, the hang was load-phase and the divergence measure is valid.
-    if (p6_w_cont_frames > 10) g_p6_shadow_enable = 1;
+    // (2026-07-20) folder guard: the shadow-compare forks the slave over the SCENE
+    // region [P6_SPLIT_MID,TEMPENTITY_START) -- valid ONLY at the GHZ gameplay scene.
+    // WITHOUT this guard it armed at GHZCutscene too (chain live: cont_frames FROZE at
+    // 1462 = hang -- the slave-fork ran over the cutscene pool where that region is
+    // invalid). Arm the parity proof ONLY once folder=="GHZ".
+    if (p6_w_cont_frames > 10 && currentSceneFolder && !strcmp(currentSceneFolder, "GHZ"))
+        g_p6_shadow_enable = 1;
 #endif
 
     // True-fps tally: snapshot the hardware-60Hz vblank counter + the per-frame
@@ -7073,14 +7109,18 @@ static void p6_scene_load_and_arm(void)
     // reads share the CD block, so an earlier play would be displaced (the 7c-moved
     // ordering hazard, :3388). Play-once guard: a same-track reload must not restart
     // the already-looping CD-DA.
+    ++p6_w_ghz_bgm_reach;   // RED-gate (2026-07-21): times this scene-load-arm site ran with
+                            // ANY folder -- proves whether p6_scene_load_and_arm executes here in the chain
     if (!strcmp(sceneInfo.listData[sceneInfo.listPos].folder, "GHZ")) {
         static int32 s_ghzBgmArmed = 0;
+        ++p6_w_ghz_bgm_folderhit;   // times listPos.folder=="GHZ" at this arm site
         if (!s_ghzBgmArmed) {
             engine.streamsEnabled = true; // NO-CTORS TRAP (:1237): set explicitly
             // FIXME #182: GHZ2 (act 2) should play GreenHill2.ogg -- needs its own
             // CD-DA track; only GreenHill1 (track 2) is mastered today. Table-ize
             // per zone/act when more zones ship (mirror Music_SetMusicTrack).
             PlayStream("GreenHill1.ogg", 0, 0, 1, true);
+            ++p6_w_ghz_bgm_arm;     // ==0 live @GHZ CONFIRMS the arm never fired (root cause)
             s_ghzBgmArmed = 1;
         }
     }
@@ -7825,11 +7865,20 @@ __attribute__((used)) int32 p6_w_cram_magenta_frames = 0;  // monotonic #frames 
 // not a visible flash). Answers "is the pink real or unused-bank noise" without a
 // savestate CRAM dump. 8 banks * 256 = 2048.
 __attribute__((used)) int32 p6_w_cram_mag_bank[8] = {0,0,0,0,0,0,0,0};
+// PINK-CRAM real-vs-key SPLIT (2026-07-21, D9 classifier): RSDK authors palette
+// index 0 of every 256-entry block as a MAGENTA transparent KEY (Palette.hpp);
+// the Saturn keys pixel-0 transparent so those entries are INVISIBLE -- counting
+// them (as p6_w_cram_magenta does) OVER-COUNTS the pink. A magenta entry at
+// (i & 0xFF) != 0 is a REAL drawn colour (a genuine wrong-colour bug); at
+// (i & 0xFF) == 0 it is the benign transparent key. nonkey>0 == a real PALETTE
+// divergence; nonkey==0 == the whole D9 count is keys (artifact). Oracle D9 keys
+// off this. +4 bytes .bss (unconditional, mirrors the p6_w_cram_mag_* block).
+__attribute__((used)) int32 p6_w_cram_mag_nonkey = 0; // magenta at index!=0 (drawn, real)
 static void p6_cram_witness(void)
 {
     volatile unsigned short *cram = (volatile unsigned short *)0x25F00000u;
     unsigned int h = 5381u;
-    int mag = 0, nz = 0;
+    int mag = 0, nz = 0, nonkey = 0;
     int bank[8] = {0,0,0,0,0,0,0,0};
     for (int i = 0; i < 2048; ++i) {
         unsigned short c = cram[i];
@@ -7840,11 +7889,14 @@ static void p6_cram_witness(void)
         if (r >= 24 && b >= 24 && g <= 8) {
             ++mag;
             ++bank[i >> 8];
+            if ((i & 0xFF) != 0)              // not a per-block index-0 transparent key
+                ++nonkey;
         }
     }
     p6_w_cram_hash    = (int32)h;
     p6_w_cram_magenta = mag;
     p6_w_cram_nonzero = nz;
+    p6_w_cram_mag_nonkey = nonkey;
     for (int b = 0; b < 8; ++b)
         p6_w_cram_mag_bank[b] = bank[b];
     if (mag > p6_w_cram_magenta_max)
@@ -9266,6 +9318,52 @@ static void p6_frontend_frame(void)
         }
     }
 #endif
+#if defined(P6_GHZ_WARP)
+    // DEV-ONLY dual-SH2 dev vehicle (2026-07-20): the GHZCutscene plays its full beat
+    // sequence at ~4fps -> MINUTES to reach GHZ gameplay (MEASURED: cont_frames climbs
+    // 1462->4735 over 15 min without arriving -- NOT hung, just slow). Warp GHZCutscene
+    // ->GHZ once the cutscene has loaded+settled, reusing the proven P6_GHZCUT_SEAMTEST
+    // SetScene->ENGINESTATE_LOAD one-shot: the load handler's folder-keyed staging
+    // (currentSceneFolder=="GHZCutscene" branch) runs so GHZ loads with its full entity
+    // set. NOT compiled in shipping (P6_GHZ_WARP undefined -> byte-identical).
+    {
+        static int32 s_ghzwarp_fired = 0, s_ghzwarp_cut = 0;
+        // WHY-DIDN'T-IT-FIRE witness (2026-07-21): prior build compiled but the warp
+        // never fired (cont climbed, folder stayed GHZCutscene). Hypotheses: the folder
+        // tag is "GHZCuts1" (truncated, p6_io_main.cpp:6491) defeating strcmp, OR the
+        // GHZCutsceneST re-asserts the scene. Capture BOTH the live folder tag (first 4
+        // chars packed BE) each frame AND the settle counter so a live read names it.
+        if (currentSceneFolder) {
+            const char *f = currentSceneFolder;
+            p6_w_ghzwarp_folder = ((int32)(uint8)f[0] << 24) | ((int32)(uint8)(f[0] ? f[1] : 0) << 16)
+                                | ((int32)(uint8)(f[0] && f[1] ? f[2] : 0) << 8)
+                                | (int32)(uint8)(f[0] && f[1] && f[2] ? f[3] : 0);
+        }
+        p6_w_ghzwarp_cut = s_ghzwarp_cut;
+        p6_w_ghzwarp_fired = s_ghzwarp_fired;
+        if (!s_ghzwarp_fired && currentSceneFolder && !strcmp(currentSceneFolder, "GHZCutscene")) {
+            if (++s_ghzwarp_cut >= 60) { // let the cutscene load settle (~60 frames)
+                for (int32 c = 0; c < sceneInfo.categoryCount; ++c) {
+                    SceneListInfo *cat = &sceneInfo.listCategory[c];
+                    int32 hit = 0;
+                    for (int32 i = cat->sceneOffsetStart; i <= cat->sceneOffsetEnd; ++i) {
+                        if (!strcmp(sceneInfo.listData[i].folder, "GHZ")
+                            && sceneInfo.listData[i].id[0] == '1') {
+                            sceneInfo.activeCategory = c;
+                            sceneInfo.listPos        = i;
+                            hit                      = 1;
+                            break;
+                        }
+                    }
+                    if (hit)
+                        break;
+                }
+                sceneInfo.state  = ENGINESTATE_LOAD;
+                s_ghzwarp_fired  = 1;
+            }
+        }
+    }
+#endif
 #if defined(P6_AIZ_TEST)
     // M3.0b: present the AIZ FG tilemap on NBG1 each frame. Runs AFTER the
     // p6_vdp2_arm_sprites_only() above (which armed SPRON-only -> NBG1 OFF for AIZ,
@@ -9420,6 +9518,16 @@ static void p6_frontend_frame(void)
             }
             int cam_x = screens[0].position.x;
             int bg_sx = (cam_x * 0x40) >> 8;   /* ~0.25 parallax */
+            /* PINK-FLASH FIX (2026-07-21): GHZ gameplay uses 2 BG planes (sky+FG) so
+             * bank B1 is not over-subscribed (the N2/N3 char starvation = the random
+             * horizontal pink lines, ST-058-R2 3.2 selection-limit). GHZCutscene keeps
+             * its 4-plane multi-layer BG. */
+            /* BISECT (2026-07-21): FG-only (1) at GHZ gameplay to isolate sky-vs-FG as
+             * the pink-line source (2-plane already disproved). Lines persist -> FG;
+             * gone -> sky. NBG0-off (planes=1) was live-confirmed NOT the pink source
+             * (user: pink persists with sky off), so the bisect reverts to full 4-plane
+             * rendering; the pink SPR-vs-NBG1 isolation is a dedicated follow-up build. */
+            { extern int p6_ghz_bg_planes; p6_ghz_bg_planes = 4; }
             p6_vdp2_ghzcut_bg_frame(bg_sx);
         }
 #endif
@@ -9701,6 +9809,17 @@ static void p6_frontend_frame(void)
     }
 #endif
     ++p6_w_cont_frames; // E5: engine reached ENGINESTATE_REGULAR + is ticking
+#if defined(P6_SHADOW_COMPARE)
+    // DUAL-SH2 parity proof (chain path): the shadow-compare in ProcessObjects
+    // (Object.cpp:825) is gated on g_p6_shadow_enable, which is armed ONLY in
+    // p6_ghz_frame:4229 -- the CHAIN runs p6_frontend_frame (this fn), NOT
+    // p6_ghz_frame, so without this arm the shadow-compare NEVER runs and
+    // p6_w_split_mismatch_max stays 0 MEANINGLESSLY. Arm it once GHZ gameplay is
+    // live (folder=="GHZ", past the load settle) so mismatch_max reflects a REAL
+    // slave-vs-master classification comparison over the chain's GHZ1 object set.
+    if (p6_w_cont_frames > 10 && currentSceneFolder && !strcmp(currentSceneFolder, "GHZ"))
+        g_p6_shadow_enable = 1;
+#endif
 
     // CP5b.7: frame-end true-vblank tally + compute-full bracket (mirrors
     // p6_ghz_frame:3033-3085). vbl_frame = vblanks consumed INSIDE p6_frontend_frame
@@ -9734,6 +9853,28 @@ static void p6_frontend_frame(void)
             ++p6_w_perf_v1_busy;
             p6_w_perf_v1_copr = (int32)p6_perf_vdp1_copr();
             p6_w_perf_v1_lopr = (int32)p6_perf_vdp1_lopr();
+            /* PINK-FLASH TEAR FIX (2026-07-21, data-driven: v1_busy=386/6945=5.6%
+             * at GHZ): CEF=0 here means VDP1 is STILL rasterizing the sprite list at
+             * the latest point before slSynch. slSynch (SGL, JO_FRAMERATE=1, core.c:
+             * 652) swaps the framebuffer at the vblank event WITHOUT waiting for VDP1
+             * draw-done, so the mid-raster buffer is displayed -> torn horizontal
+             * garbage bands across the sky during movement (user-reported pink flash;
+             * NBG0 + NBG1-FG both ruled out by live witnesses, VDP1 overrun measured).
+             * Bounded spin for VDP1 draw-complete BEFORE the swap so the displayed
+             * buffer is always whole. GHZ-scoped (the reported scene; the title's #313
+             * direct-VDP1 path is deliberately untouched). Bound 200000 iters (~2
+             * frames of 26.8 MHz SH-2) so a genuinely hung VDP1 can never lock the
+             * game -- it falls through to the normal swap. EDSR.CEF = *0x05D00010 bit1
+             * (ST-013-R3, read-only). */
+            if (strcmp(currentSceneFolder, "GHZ") == 0) {
+                int _w = 0;
+                while (_w < 200000 &&
+                       !((*(volatile unsigned short *)0x05d00010u) & 0x0002u))
+                    ++_w;
+                p6_w_v1_wait_iters = _w;
+                if (_w > p6_w_v1_wait_max) p6_w_v1_wait_max = _w;
+                ++p6_w_v1_wait_frames;
+            }
         }
     }
 

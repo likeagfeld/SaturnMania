@@ -55,6 +55,32 @@ mcs_extract = _load("mcs_extract", "mcs_extract.py")
 qa_netmem = _load("qa_netmem", "qa_netmem.py")
 
 STRIDE = 556
+# DUAL-STRIDE POOL ADDRESSING (2026-07-21 remap-aware fix, parity-audit critic blind-spot):
+# the Saturn pool is dual-stride -- reserve/temp regions use ENTITY_WIDE_SIZE (556) but the
+# SCENE region uses P6_POOL_NARROW_STRIDE = sizeof(EntityBase) (344). The old flat
+# `pool + slot*556` walk MISALIGNED the scene region (556 overshoots each 344B scene entity)
+# -> it saw ~6 of 101 live GHZ entities -> ALL of D3 SPAWN / D4 ANIM / D5 VISIBLE were
+# unreliable ("ANIM garbage-animID" leads = misaligned reads, NOT port bugs). Mirror
+# SaturnEntityAt (Object.hpp:566-572) EXACTLY. Constants from Object.hpp:60-114 (Saturn block).
+POOL_RESERVE = 0x40      # RESERVE_ENTITY_COUNT
+POOL_SCENE   = 0x440     # SCENEENTITY_COUNT (== p6_pool_scene_phys sphys until the #263 shrink)
+POOL_TEMP    = 0x40      # TEMPENTITY_COUNT
+POOL_ENTITY_COUNT = POOL_RESERVE + POOL_SCENE + POOL_TEMP  # 1216
+POOL_WIDE    = 556       # ENTITY_WIDE_SIZE
+POOL_NARROW  = 344       # sizeof(EntityBase) (64*556 + 1088*344 + 64*556 = 445,440, Object.hpp:90)
+
+def entity_addr(base, slot, sphys=POOL_SCENE):
+    """Byte address of scene-pool slot -- mirrors SaturnEntityAt (Object.hpp:566-572).
+    Remap is IDENTITY in the current build (ps==slot; the #263 shrink table is cart-resident
+    and not netmem-readable -- identity is correct until it ships). The wide-scene UISaveSlot
+    sub-pool (P6_WIDESCENE_OFF) is menu-only and not handled here (GHZ/AIZ/cutscene have none)."""
+    ps = slot
+    if ps < POOL_RESERVE:
+        return base + ps * POOL_WIDE
+    if ps < POOL_RESERVE + sphys:
+        return base + POOL_RESERVE * POOL_WIDE + (ps - POOL_RESERVE) * POOL_NARROW
+    return (base + POOL_RESERVE * POOL_WIDE + sphys * POOL_NARROW
+            + (ps - POOL_RESERVE - sphys) * POOL_WIDE)
 OFF_CLASSDW = 52   # dword: group(lo16) | classID(hi16)
 OFF_POS_X = 0
 OFF_POS_Y = 4
@@ -131,8 +157,8 @@ def sample(rd: Reader, map_text: str, nslots: int):
         pool = POOL_BASE_FALLBACK
     ents = []
     if pool:
-        for slot in range(nslots):
-            b = pool + slot * STRIDE
+        for slot in range(min(nslots, POOL_ENTITY_COUNT)):
+            b = entity_addr(pool, slot)   # dual-stride (was flat pool+slot*556 -> misaligned scene region)
             cdw = rd.r32(b + OFF_CLASSDW)
             if cdw is None:
                 break

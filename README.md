@@ -95,14 +95,23 @@ with sound.
 
 Works: the entire opening sequence end to end, and Green Hill Act 1 with the
 decompiled Player (slopes, spindash, drop dash, rolling — it's Mania's actual
-physics code), rings, monitors, platforms, several badniks, springs, bridges,
-the signpost, dying and respawning, stage music on CD audio, sound effects.
+physics code), rings, monitors, platforms, badniks, springs, bridges,
+the signpost, dying and respawning, stage music on CD audio, sound effects. The
+badniks, bridges and Green Hill objects render through a VDP1 sprite-sheet binding
+budget that was recently overflowing and silently dropping them — a fix that lives
+or dies on a live drop-count check, not a screenshot.
 
 Doesn't, yet: the frame rate is the big one — the front end runs around 7 to 20
 fps depending on the scene, and making that not true is the current focus. Only
 Green Hill exists. A few object types are stuck behind real memory walls
 (CollapsingPlatform's entity is bigger than any pool slot; BreakableWall and
-Water don't fit the code overlay until I re-carve it). Assorted visual polish.
+Water don't fit the code overlay until I re-carve it). There's an open
+rendering regression — thin magenta flashes in the Green Hill background during
+motion, a transparent-key that stopped being treated as see-through somewhere in
+the last couple weeks — being tracked down by git bisect since it's the one class
+of bug the live-memory harness can't see (it lives in VDP1 VRAM the emulator
+doesn't expose). Some sound effects and stage music still cut out, and timed
+powerups don't expire yet. Assorted visual polish.
 
 ## Credit where it's due
 

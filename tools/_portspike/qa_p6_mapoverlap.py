@@ -110,27 +110,39 @@ def main(argv):
     # check catches the trap WITHOUT a capture. The growth headroom is demoted to an
     # ADVISORY note (the tree runs near the ceiling until the pool/re-budget frees WRAM-H;
     # it must not fail a booting build).
-    animpak = None
-    anim_hpp = os.path.join(os.path.dirname(__file__), "..", "..",
-                            "rsdkv5-src", "RSDKv5", "RSDK", "Graphics", "Animation.hpp")
-    try:
-        with open(anim_hpp, errors="ignore") as f:
-            # F-LAND-POSE: the define is now flavor-conditional (front-end arm = a CART
-            # address 0x2274xxxx, GHZ arm = the WRAM-H window). This gate guards the
-            # WRAM-H .bss clobber (#228), so pick the WRAM-H arm explicitly -- a naive
-            # first-match would grab the cart arm and compare _end against cart space
-            # (always GREEN = silently disarmed).
-            vals = re.findall(r"#define\s+P6_HW_ANIMPAK\s+(0x[0-9a-fA-F]+)", f.read())
-        for v in vals:
-            cand = int(v, 16) & 0xFFFFFFFF
-            if 0x06000000 <= cand < 0x06100000:
-                animpak = cand
-                break
-    except OSError:
-        pass
     ADVISORY_MARGIN = 0x1000  # below this, print a re-budget advisory (NOT a RED)
     with open(mp, errors="ignore") as f:
         text = f.read()
+    # FLAVOR-AWARE CEILING (2026-07-20 fix): Animation.hpp:80-91 selects P6_HW_ANIMPAK by
+    # `#if defined(P6_FRONTEND_MENU)` -- the FRONT-END/CHAIN arm puts the player anim-pack
+    # in CART (0x225E0000), so the WRAM-H ANIMPAK ceiling does NOT apply to it; its WRAM-H
+    # constraint is the resident GLOBALS window top 0x060C8000 (Animation.hpp:86). The
+    # PLAIN-GHZ arm (#else) puts the pack in WRAM-H (0x060B6C00) -> that IS the #228 line.
+    # Detect the flavor from the map (p6_frontend_frame is a front-end-only symbol) and use
+    # the right ceiling, else the gate FALSE-REDs a booting chain build (measured: chain
+    # _end 0x060C36A0 boots fine but was compared against the plain-GHZ 0x060B6C00).
+    # Front-end/chain discriminator: p6_frontend_frame inlines out of the map, so key on
+    # a front-end-only WITNESS symbol that survives (p6_w_aiz_cutscene_state = the AIZ
+    # cutscene state, defined only in the P6_FRONTEND_MENU/CHAIN flavor; absent in plain-GHZ).
+    is_frontend = ("p6_w_aiz_cutscene_state" in text) or ("g_p6_fe_ghz_cull" in text)
+    animpak = None
+    if is_frontend:
+        animpak = 0x060C8000  # GLOBALS window top; cart-pack flavor has no WRAM-H ANIMPAK
+    else:
+        anim_hpp = os.path.join(os.path.dirname(__file__), "..", "..",
+                                "rsdkv5-src", "RSDKv5", "RSDK", "Graphics", "Animation.hpp")
+        try:
+            with open(anim_hpp, errors="ignore") as f:
+                # Pick the WRAM-H arm explicitly (a naive first-match grabs the cart arm ->
+                # compares _end against cart space = always GREEN = silently disarmed).
+                vals = re.findall(r"#define\s+P6_HW_ANIMPAK\s+(0x[0-9a-fA-F]+)", f.read())
+            for v in vals:
+                cand = int(v, 16) & 0xFFFFFFFF
+                if 0x06000000 <= cand < 0x06100000:
+                    animpak = cand
+                    break
+        except OSError:
+            pass
     if "p6_scene_run" in text and animpak is not None:
         m = re.search(r"0x[0]*([0-9a-fA-F]+)\s+_end = \.", text)
         if m:

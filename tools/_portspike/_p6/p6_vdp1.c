@@ -135,8 +135,20 @@
  * GHZ handoff (2 more VDP1 bind slots). +32 B .bss, same front-end-safe rule. 25 = 14+11.
  * Water M1b: 25->26 for the WATER.SHT surface bound at the GHZ handoff (1 more VDP1 bind
  * slot). +8 B .bss, same front-end-safe rule; the slot is inert without WATER.SHT staged
- * (#if P6_WATER-gated). 26 = 14+12. */
-#define P6_VDP1_NSHEETS 26
+ * (#if P6_WATER-gated). 26 = 14+12.
+ * BADNIK-VIS FIX v2 (2026-07-21, live-measured, qa_ghz_badnik_vis.py RED->GREEN):
+ * at 26 the table was ZERO-MARGIN and re-overflowed -- the GHZ chain leg's bind
+ * demand was 27 (the 14 persisted cutscene sheets HBHOBJ/PLROBJ/GHCOBJ/RUBYOBJ +
+ * the 12 GHZ gameplay sheets + EXPLOS/ANIMALS/WATER), so GHZOBJ (GHZ/Objects.gif,
+ * engine surface 11, bound LAST by index) hit s_sheet_count>=NSHEETS and returned
+ * -1. MEASURED live: p6_w_dropbysheet[11]=3943 (all other sheets 0),
+ * p6_w_ghzobj_surf_handle=-1, bind_demand=39 > bind_count=33 -> every badnik/bridge/
+ * GHZ-object draw dropped (invisible). Raise 26->30 = 27 demand + 3 margin so
+ * GHZOBJ (and any later EXPLOS/ANIMALS spawn) binds. +4 slots .bss, front-end
+ * flavors ONLY (plain-GHZ stays 12, byte-identical); NSHEETS-only per the #228
+ * orphan-.bss rule (SATURNSHEET_SLOTS unchanged); _end < GLOBALS 0x060C8000 guarded
+ * by qa_p6_mapoverlap. 30 = 27 + 3. */
+#define P6_VDP1_NSHEETS 30
 #else
 #define P6_VDP1_NSHEETS 12
 #endif
@@ -145,6 +157,13 @@
  * __attribute__((used)) defeats LTO name-collapse so the gate can locate it
  * in game.map (entity-atlas-loader-pattern memory rule). */
 __attribute__((used)) int p6_w_vdp1_slots = 0;
+/* PINK-FLASH ISOLATION knob (2026-07-21, poke-able diagnostic, default 0 = normal).
+ * Poke to 1 via netmem to SKIP every VDP1 sprite emit (all 3 blit entries below early-
+ * return) -> no sprites draw (Sonic/badniks/HUD/rings vanish) while NBG0 sky + NBG1 FG
+ * stay. If the user still sees pink with this =1, the pink is in a VDP2 plane, NOT the
+ * VDP1 sprite layer; if it vanishes, it IS a sprite. Zero-risk (early return, no state
+ * touched); defaults 0 so shipping behaviour is identical unless deliberately poked. */
+__attribute__((used)) int p6_dbg_spr_off = 0;
 /* P6.7a diagnostic: the LAST-uploaded cache key, packed
  * (sx<<20)|(sy<<12)|(w<<6)|h -- identifies an unexpected 17th rect. */
 __attribute__((used)) int p6_w_vdp1_lastkey = 0;
@@ -589,7 +608,20 @@ static P6Vdp1Slot s_slots[P6_VDP1_NSLOTS]; /* LARGE box: P6_SPR_MAXW x P6_SPR_MA
  * relocation needed -- qa_p6_mapoverlap guards _end < 0x060C8000 post-build. */
 #define P6_BK0 26            /* idx0 TINY 16x20 (was 8; settled-GHZ demand 21 + 20%) */
 #define P6_BK1 18
-#define P6_BKW 11            /* idx2 WIDE 176x56 (menu rows + title wide-flats) */
+/* SPRITE-THRASH FIX (2026-07-21, live RED-gated on the restored harness): the WIDE
+ * bucket (idx2, 176x56 -- menu row icons/labels + title wide-flats + GHZ HUD wides)
+ * was the SOLE over-capacity bucket. MEASURED live (per-bucket fmax witnesses, single
+ * clean RA instance, full chain walk parked at GHZ): buck2_fmax=12 > cap=11 -> ONE
+ * intra-frame LRU reuse/frame = the 2.3 evicts/frame GHZ digit/ring flashing AND the
+ * menu row-art garble (same bucket, same M1b stale-CMDSIZE class). All other buckets
+ * had headroom (buck0 11/26, buck1 11/18, buck3 3/7, buck4 1/1). The #314 census
+ * "14-16 menu wide-flats" OVER-counted: the fmax (rects that MISS in one frame, some
+ * already resident) is 12 across menu+GHZ. Fix = 11 -> 13 (measured 12 + 1 margin);
+ * no other bucket trimmed. VRAM (8bpp): 26*320 + 18*5,120 + 13*9,856 + 7*25,600 +
+ * 1*39,680 = 447,488 B < JO_VDP1_USER_AREA_SIZE 466,232 -> 18,744 B margin >= the
+ * 18,240 B TitleCard glyph reserve. .bss +2 slots * 28 B = +56 B, FRONT-END FLAVORS
+ * ONLY (plain-GHZ has no buckets, byte-identical); chain _end headroom ~38 KB. */
+#define P6_BKW 13            /* idx2 WIDE 176x56 (menu rows + title wide-flats + GHZ HUD wides) */
 #define P6_BK2 7             /* idx3 160x160 (was 8; measured fmax 3, modeled worst 6) */
 #define P6_GHZCUT_TINY_B1 1  /* idx0 box = 16x20 (see the P6_BUCK table below) */
 #elif defined(P6_FRONTEND_MENU)
@@ -2297,6 +2329,7 @@ __attribute__((used)) int p6_w_plr_cut_landed = 0;
 void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
 {
     int jid;
+    if (p6_dbg_spr_off) return; /* PINK-FLASH SPR-off isolation (poke-able) */
 
     if (sheet < 0 || sheet >= s_sheet_count) {
         ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
@@ -2388,6 +2421,7 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
                           int flipX, int flipY)
 {
     int jid;
+    if (p6_dbg_spr_off) return; /* PINK-FLASH SPR-off isolation (poke-able) */
 
     if (sheet < 0 || sheet >= s_sheet_count) {
         ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */
@@ -2500,6 +2534,7 @@ void p6_vdp1_blit_rot(int sheet, int x, int y, int w, int h, int sx, int sy,
                       int pivotX, int pivotY, int sn, int cs, int flipX)
 {
     int jid;
+    if (p6_dbg_spr_off) return; /* PINK-FLASH SPR-off isolation (poke-able) */
 
     if (sheet < 0 || sheet >= s_sheet_count) {
         ++p6_w_vdp1_handle_drops; /* W18: unbound-surface silent drop */

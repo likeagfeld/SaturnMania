@@ -1395,6 +1395,19 @@ void p6_vdp2_mirror_reset(void)
  * returns to a non-BG scene). DECLARED OUTSIDE the GHZCUT-only region so the
  * AIZ-only flavor compiles too. The witness mirrors it for savestate reads. */
 int p6_vdp2_bg_owns_disp = 0;
+/* Pink-flash fix: 4 = GHZCutscene (N0+N1+N2+N3 multi-layer BG, AIZ cycle); 2 = GHZ
+ * gameplay (N0 sky + N1 FG only, no N2/N3 -> B1 not over-subscribed, no scanline
+ * starvation). Set by the p6_frontend_frame caller from currentSceneFolder. Default 4
+ * so GHZCutscene / any un-set caller keeps the full BG. */
+int p6_ghz_bg_planes = 4;
+/* PINK-FLASH ISOLATION knob (2026-07-21, poke-able diagnostic, default 0 = normal).
+ * Poke to 1 via netmem to SKIP the GHZ present's per-frame 256-entry CRAM re-write
+ * (p6_vdp2_present_ghz_camera step 3). That write runs in the compute phase (mid-
+ * active-display, NOT vblank); if a palette-cycle value transitions mid-scan it can
+ * paint a horizontal colour seam. If poking =1 removes the pink, the per-frame CRAM
+ * re-write timing is the source (fix = move it to a vblank DMA). Zero-risk: skipping a
+ * re-write of the SAME palette leaves CRAM at its last (correct) value. */
+__attribute__((used)) int p6_dbg_cram_off = 0;
 __attribute__((used)) int p6_w_bg_owns_disp = 0;
 #endif
 
@@ -1503,12 +1516,29 @@ void p6_vdp2_ghzcut_bg_frame(int sx)
         for (i = 0; i < s_ghcbg_pal_n; ++i)
             cram[P6_GHCBG_PAL_BASE * 16 + i] = s_ghcbg_pal[i];
     }
+    /* BISECT (2026-07-21): p6_ghz_bg_planes==1 = FG (N1) ONLY, sky NBG0 DISABLED, to
+     * isolate whether the "pink lines during movement" come from the sky (N0) or the FG
+     * (N1). If lines PERSIST at planes==1 (blank/back-color sky) -> FG char starvation
+     * during hardware scroll; if GONE -> the sky N0 plane. */
+    if (p6_ghz_bg_planes != 1) {
     slCharNbg0(COL_TYPE_16, CHAR_SIZE_2x2);
     slPageNbg0((void *)P6_GHCBG_CEL_BASE, 0, PNB_2WORD);
     slPlaneNbg0(PL_SIZE_2x2);
     slMapNbg0((void *)P6_GHCBG_MAP_B1, (void *)P6_GHCBG_MAP_B1,
               (void *)P6_GHCBG_MAP_B1, (void *)P6_GHCBG_MAP_B1);
     slScrPosNbg0(toFIXED(sx), toFIXED(0));
+    }
+    /* PINK-FLASH FIX (2026-07-21, ST-058-R2 doc-first + live-disproven CRAM + user pixel
+     * symptom "random horizontal lines varying width across the BG"): the 4-plane cycle
+     * over-subscribes bank B1 (0x0467EEEE = N0-PN,N0-char,N2-char,N3-char = 3 planes' char
+     * in B1). ST-058-R2 3.2: char reads are UNRESTRICTED only when the plane's PN is in T0;
+     * N0/N1 PN ARE in T0 but N2/N3 PN are in B0 T1/T2 -> N2/N3 char falls under the
+     * "selection limits" and STARVES some scanlines under VRAM contention = the pink
+     * horizontal lines on the distant-BG scanlines. GHZ GAMEPLAY needs only the sky (N0) +
+     * FG (N1); the extra distant N2/N3 layers are the GHZCutscene's multi-layer BG. When
+     * p6_ghz_bg_planes==2 (set by the GHZ-gameplay caller), drop N2/N3 -> B1 does only
+     * N0-PN(T0)+N0-char = 2 valid accesses, no starvation. GHZCutscene keeps 4 (flag=4). */
+    if (p6_ghz_bg_planes != 2) {
     slCharNbg2(COL_TYPE_16, CHAR_SIZE_2x2);
     slPageNbg2((void *)P6_GHCBG_CEL_BASE, 0, PNB_2WORD);
     slPlaneNbg2(PL_SIZE_2x2);
@@ -1521,17 +1551,31 @@ void p6_vdp2_ghzcut_bg_frame(int sx)
     slMapNbg3((void *)P6_GHCBG_MAP3_B0, (void *)P6_GHCBG_MAP3_B0,
               (void *)P6_GHCBG_MAP3_B0, (void *)P6_GHCBG_MAP3_B0);
     slScrPosNbg3(toFIXED(sx), toFIXED(0));
+    }
     /* Priorities VERBATIM from the proven p6_vdp2_aiz_bg_frame: N2=1 (farthest),
      * N3=2, N0=2 (N0 in front of N3 by fixed order at equal pri), FG N1=3. */
-    slPriorityNbg2(1);
-    slPriorityNbg3(2);
+    if (p6_ghz_bg_planes != 2) {
+        slPriorityNbg2(1);
+        slPriorityNbg3(2);
+    }
     slPriorityNbg0(2);
     slPriorityNbg1(3);
+    if (p6_ghz_bg_planes == 1) {
+        /* BISECT: FG only. N1-PN(B0 T0) + N1-char x2(A0 T0,T1); B1 unused. */
+        slScrAutoDisp(NBG1ON | SPRON);
+        slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0xEEEEEEEEu);
+    } else if (p6_ghz_bg_planes == 2) {
+        slScrAutoDisp(NBG0ON | NBG1ON | SPRON);
+        /* 2-plane cycle: N0-PN(B1 T0)+N0-char(B1 T1); N1-PN(B0 T0); N1-char x2(A0 T0,T1).
+         * All PN in T0 -> ST-058-R2 unrestricted -> no scanline starvation. */
+        slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0x04EEEEEEu);
+    } else {
     slScrAutoDisp(NBG0ON | NBG1ON | NBG2ON | NBG3ON | SPRON);
     /* Manual cycle AFTER auto-disp (the proven AIZ 4-plane pattern verbatim --
      * and now it MATCHES the map placement: N1/N2/N3 PN in B0, N0 PN + all
      * BG char in B1, exactly the AIZ bank layout). */
     slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu);
+    }
     p6_w_ghcbg_nbg0 = 1;
     /* #302 mechanism A: this full arm now OWNS the display -- the FG present
      * stops emitting its transitional 2-screen arm (see the latch above). */
@@ -2131,8 +2175,9 @@ static void p6_present_compute(int layer, int scroll_x, int scroll_y,
     *out_nblank  = s_present_nblank;
 
     /* 3) CRAM bank 0 from the GHZ active palette (per-frame: the palette may
-     *    cycle; only 256 writes, ~0 vbl -- engine RGB565 -> Saturn BGR555). */
-    for (c = 0; c < 256; ++c) {
+     *    cycle; only 256 writes, ~0 vbl -- engine RGB565 -> Saturn BGR555).
+     *    p6_dbg_cram_off (poke-able) skips this to isolate a palette-write seam. */
+    for (c = 0; !p6_dbg_cram_off && c < 256; ++c) {
         unsigned short v = pal565[c];
         unsigned short r5 = (v >> 11) & 0x1F;
         unsigned short g5 = ((v >> 5) & 0x3F) >> 1;
