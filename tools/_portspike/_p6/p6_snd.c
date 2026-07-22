@@ -36,7 +36,11 @@
 
 #define P6_SND_SRAM_BASE  0x25A00000UL
 #define P6_SND_REG_BASE   0x25B00000UL
-#define P6_SND_PCM_OFFSET 0x6C000UL
+/* MenuBleep relocated to the TOP 8 KB (0x7E000-0x80000) so the SFX pack
+ * (p6_sfx.c) gets the contiguous 0x40000-0x7E000 = 248 KB window -- enough for
+ * the FULL GHZ SFX set with no drops (user 2026-07-21). MenuBleep.wav is ~7 KB.
+ * SGL uses nothing above 0x40000 (MEASURED savestate SCSP dumps). */
+#define P6_SND_PCM_OFFSET 0x7E000UL
 
 #define P6_SCSP_KYONEX (1u << 12)
 #define P6_SCSP_KYONB  (1u << 11)

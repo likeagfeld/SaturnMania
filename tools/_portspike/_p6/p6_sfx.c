@@ -22,11 +22,14 @@
 
 #define P6_SFX_SRAM_BASE  0x25A00000UL
 #define P6_SFX_REG_BASE   0x25B00000UL
-/* Samples at +0x6D000: 4 KB above p6_snd.c's MenuBleep buffer (0x6C000), inside
- * the measured ~76 KB free window before sound-RAM end (0x80000). */
-#define P6_SFX_PCM_OFF    0x6D000UL
+/* Samples at +0x40000: the 176 KB window 0x40000-0x6C000 reads ALL-ZERO at GHZ
+ * gameplay AND AIZ (MEASURED 2026-07-21 savestate SCSP dumps). SGL's driver +
+ * scene PCM blocks stay below 0x40000 (a solid 64 KB block at 0x30000-0x40000
+ * persists -- do NOT go below 0x40000). This is 2.3x the prior conservative
+ * 0x6D000 (76 KB) window, enough for the full GHZ SFX set incl. spindash. */
+#define P6_SFX_PCM_OFF    0x40000UL
 
-#define P6_SFX_MAX        16
+#define P6_SFX_MAX        40
 #define P6_SFX_SLOT_BASE  24        /* our voices 24-27; MenuBleep uses 28-31 */
 #define P6_SFX_NSLOTS     4
 #define P6_SCSP_KYONEX    (1u << 12)
@@ -34,7 +37,7 @@
 #define P6_SCSP_PCM8B     (1u << 4)
 #define P6_SFX_NUM_SLOTS  32
 
-typedef struct { unsigned int key, off, count; } p6_sfx_ent;
+typedef struct { unsigned int key, off, count, oct; } p6_sfx_ent;
 static p6_sfx_ent s_sfx[P6_SFX_MAX];
 static int s_sfx_n  = 0;
 static int s_sfx_rr = 0;
@@ -79,18 +82,23 @@ void p6_sfx_load(void)
     if (!(d[0] == 'P' && d[1] == '6' && d[2] == 'S' && d[3] == 'F'))
         return;
 
+    /* v3 (mixed-rate): 16-byte entries [key, off, count, octNibble]. v2 was 12-byte
+     * [key, off, count] @ fixed 22050. Support both via the version word. */
+    int ver = (int)p6_be16(d + 4);
+    int stride = (ver >= 3) ? 16 : 12;
     int cnt = (int)p6_be16(d + 6);
     if (cnt > P6_SFX_MAX) cnt = P6_SFX_MAX;
-    int dataoff = 16 + cnt * 12;
+    int dataoff = 16 + cnt * stride;
 
     volatile unsigned char *sram =
         (volatile unsigned char *)(P6_SFX_SRAM_BASE + P6_SFX_PCM_OFF);
 
     for (i = 0; i < cnt; ++i) {
-        const unsigned char *e = d + 16 + i * 12;
+        const unsigned char *e = d + 16 + i * stride;
         unsigned int key = p6_be32(e);
         unsigned int off = p6_be32(e + 4);
         unsigned int n   = p6_be32(e + 8);
+        unsigned int oct = (stride == 16) ? (p6_be32(e + 12) & 0xF) : 0xF; /* 0xF=22050 */
         const unsigned char *src = d + dataoff + off;
         unsigned int b;
         for (b = 0; b < n; ++b)
@@ -98,9 +106,14 @@ void p6_sfx_load(void)
         s_sfx[s_sfx_n].key   = key;
         s_sfx[s_sfx_n].off   = off;
         s_sfx[s_sfx_n].count = n;
+        s_sfx[s_sfx_n].oct   = oct;
         ++s_sfx_n;
     }
     p6_w_sfx_pack_loaded = s_sfx_n;
+    /* Samples now live in SCSP sound RAM -- free the 240 KB WRAM read buffer
+     * (jo_fs_read_file jo_malloc'd it; leaking 240 KB at boot would starve the
+     * pre-Data.rsdk heap). */
+    jo_free(d);
 }
 
 /* Called by Audio.cpp LoadSfxToSlot on Saturn: does this SFX name live in the
@@ -155,7 +168,8 @@ static void p6_sfx_keyon(int idx)
     p6_sfx_reg(slot, 0x0A)[0] = 0x001F;                                   /* RR31 */
     p6_sfx_reg(slot, 0x0C)[0] = 0x0010;                                   /* TL   */
     p6_sfx_reg(slot, 0x0E)[0] = 0x0000;
-    p6_sfx_reg(slot, 0x10)[0] = 0x7800;   /* PITCH: OCT=-1 FNS=0 -> 22050 */
+    /* PITCH: per-entry OCT nibble (0xF=-1=22050, 0xE=-2=11025) FNS=0. */
+    p6_sfx_reg(slot, 0x10)[0] = (unsigned short)((s_sfx[idx].oct & 0xF) << 11);
     p6_sfx_reg(slot, 0x12)[0] = 0x0000;
     p6_sfx_reg(slot, 0x14)[0] = 0x0000;
     p6_sfx_reg(slot, 0x16)[0] = (unsigned short)(7u << 13);               /* DISDL=7 */
