@@ -7,6 +7,7 @@ using namespace RSDK;
 // plain C). File-scope extern "C" so LoadSfxToSlot can resolve pack SFX names.
 extern "C" int  p6_sfx_lookup(const char *filename);
 extern "C" void p6_sfx_bind(int sfxSlot, int packIdx);
+extern "C" void p6_sfx_pump(int soundID);
 #endif
 
 #if RETRO_REV0U
@@ -608,6 +609,16 @@ int32 RSDK::PlaySfx(uint16 sfx, uint32 loopPoint, uint32 priority)
     channels[slot].playIndex = sfxList[sfx].playCount++;
 
     UnlockAudioDevice();
+
+#if RETRO_PLATFORM == RETRO_SATURN && defined(P6_FRONTEND_LOGOS)
+    // Saturn: key the SCSP voice for THIS play at the faithful trigger point.
+    // Every PlaySfx call is one intended sound, so same-soundID rapid repeats
+    // (a line of rings, the spindash rev) each fire -- unlike the old post-hoc
+    // channels[] edge-detect pump (channels never retire on Saturn: no
+    // ProcessAudioMixing runs, so a re-play of the same id on the same channel
+    // was invisible). p6_sfx_pump no-ops for soundIDs not in the S8 pack.
+    p6_sfx_pump(sfx);
+#endif
 
     return slot;
 }

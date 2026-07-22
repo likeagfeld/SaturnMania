@@ -7939,9 +7939,11 @@ static void p6_audio_witness(void)
             p6_w_sfx_last_id = (int32)sid;
             if (sid != s_sfx_prev_id[c]) {        // new sound landed on this slot
                 ++p6_w_sfx_arm_events;
-                // Dead-gameplay-SFX fix (P6.8): key-on the SCSP voice for this
-                // SFX if it's in the sound-RAM pack (p6_sfx maps soundID->sample).
-                p6_sfx_pump((int)sid);
+                // NOTE: the SCSP key-on moved to the PlaySfx call site in
+                // Audio.cpp -- every PlaySfx keys one voice, so same-id rapid
+                // repeats fire (channels[] never retire on Saturn, so this
+                // edge-detect missed them). This block now only feeds the
+                // arm_events witness for the oracle; it no longer keys audio.
             }
         }
         if (st == CHANNEL_STREAM)
