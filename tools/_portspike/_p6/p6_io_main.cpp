@@ -2192,6 +2192,10 @@ __attribute__((used)) int32 p6_w_in_btnbits  = -1; // OR of down|press, controll
 // (build_p6scene_objs.sh [8/8]) + qa_p6_mapoverlap.py.
 // p6_snd.c: CD-DA start through the proven jo_audio_play_cd_track path.
 void p6_cdda_play(int track, int loop);
+// p6_snd.c: #325 CD-DA displacement diagnostic -- mirrors CD block status to WRAM
+// (p6_w_cdc_status) + poke-gated re-assert (p6_dbg_cdda_reassert). Called
+// periodically at GHZ gameplay from p6_frontend_frame.
+void p6_cdda_poll_status(int track);
 // p6_vdp1.c (C TU, jo side): slot-cached VDP1 blitter the Saturn DrawSprite
 // backend targets. sheet_bind pins the engine surface + mirrors the palette
 // to CRAM bank 1 once; blit() draws a sheet rect at an engine TOP-LEFT,
@@ -9809,6 +9813,23 @@ static void p6_frontend_frame(void)
     }
 #endif
     ++p6_w_cont_frames; // E5: engine reached ENGINESTATE_REGULAR + is ticking
+    // #325 GHZ-BGM CD-DA displacement diagnostic: poll the CD block status every
+    // 64 frames at GHZ gameplay (infrequent -> minimal CD-block command load; NOT
+    // during the load settle). Mirrors status to p6_w_cdc_status so "is CD-DA
+    // actually playing at GHZ" is measurable (arm FIRES per prior measurement; the
+    // silence is in the CD block netmem can't see). The re-assert is poke-gated
+    // (p6_dbg_cdda_reassert, default 0) so this build is behavior-identical unless
+    // enabled. track 2 = GreenHill1 (the GHZ stage BGM).
+    if (currentSceneFolder && p6_w_cont_frames > 30 && (p6_w_cont_frames & 63) == 0) {
+        // track per BGM-scene (HandleStreamLoad map): GHZ=GreenHill1(2),
+        // Title=TitleScreen(3). Each folder-gated so a stale s_cdda_current never
+        // leaks a wrong track into a scene. Title added to test the same
+        // displacement class the user reported ("title music not playing").
+        if (!strcmp(currentSceneFolder, "GHZ"))
+            p6_cdda_poll_status(2);
+        else if (!strcmp(currentSceneFolder, "Title"))
+            p6_cdda_poll_status(3);
+    }
 #if defined(P6_SHADOW_COMPARE)
     // DUAL-SH2 parity proof (chain path): the shadow-compare in ProcessObjects
     // (Object.cpp:825) is gated on g_p6_shadow_enable, which is armed ONLY in

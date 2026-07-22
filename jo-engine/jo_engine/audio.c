@@ -100,6 +100,24 @@ void		        jo_audio_stop_cd(void)
     CDC_CdSeek(&poswk);
 }
 
+/*
+    Minimal extension (mirrors jo_audio_play_cd_track above, documented per the
+    jo-engine modification rule): query the CD block's current status so callers
+    can DETECT CD-DA displacement. A data-read command on the shared CD block
+    leaves CD-DA paused/standby without auto-resume, so a one-shot CdPlay can go
+    silent mid-stream. Returns the 4-bit status code (SEGA_CDC.H CDC_STC_MSK):
+    CDC_ST_PLAY=0x03 (playing), CDC_ST_PAUSE=0x01, CDC_ST_STANDBY=0x02,
+    CDC_ST_BUSY=0x00, CDC_ST_SEEK=0x04. Returns -1 on a CDC query error.
+*/
+int                 jo_audio_get_cd_status(void)
+{
+    CdcStat         st;
+
+    if (CDC_GetCurStat(&st) < 0)
+        return -1;
+    return (int)CDC_GET_STC(&st);
+}
+
 void		        jo_audio_init(void)
 {
 #if JO_COMPILE_USING_SGL

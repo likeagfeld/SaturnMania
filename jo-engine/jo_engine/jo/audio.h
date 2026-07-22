@@ -81,6 +81,14 @@ void	jo_audio_set_volume(const unsigned char vol);
  */
 void	jo_audio_stop_cd(void);
 
+/** @brief Query the CD block status code (CDC_GetCurStat & 0x0F)
+ *  @return CDC_ST_PLAY=3 (playing), CDC_ST_PAUSE=1, CDC_ST_STANDBY=2,
+ *          CDC_ST_BUSY=0, CDC_ST_SEEK=4; -1 on a CDC query error.
+ *  Used to detect CD-DA displacement (a data-read on the shared CD block leaves
+ *  CD-DA paused without auto-resume).
+ */
+int	jo_audio_get_cd_status(void);
+
  /** @brief Checks whether a given audio channel is currently playing a sound
   *  @param channel Channel to check (0 to JO_SOUND_MAX_CHANNEL - 1)
   *  @return true if the channel is playing, false otherwise

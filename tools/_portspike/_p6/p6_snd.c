@@ -136,3 +136,46 @@ void p6_cdda_play(int track, int loop)
     s_cdda_current = track;
     jo_audio_play_cd_track(track, track, loop != 0);
 }
+
+/* ---- #325 GHZ-BGM CD-DA displacement DIAGNOSTIC + poke-gated re-assert -------
+ * MEASURED 2026-07-21 (RA netmem, chain c35d682): the GHZ GreenHill1 arm FIRES
+ * (p6_w_ghz_bgm_arm=1, p6_w_str_track=2) yet gameplay BGM is silent -- and the
+ * silence lives in the CD block, which netmem CANNOT read. This poll mirrors the
+ * CD block status into WRAM so "is CD-DA actually playing at GHZ gameplay"
+ * becomes measurable (RED-gate-first). p6_w_cdc_status == 3 (CDC_ST_PLAY) => CD-DA
+ * is live and the silence is elsewhere (SCSP EXTS route / track content); == 1/2
+ * (PAUSE/STANDBY) => a gameplay CD data-read displaced it (AIZ re-issues per beat
+ * and stays audible; GHZ arms track 2 exactly ONCE with no re-assert). The
+ * re-assert (re-issue the track when displaced) is poke-gated
+ * (p6_dbg_cdda_reassert, default 0 = shipping-identical no-op) so the SAME build
+ * measures the cause AND lets the fix be validated live before it is made
+ * default. jo_audio_get_cd_status wraps CDC_GetCurStat (jo-engine/audio.c). */
+__attribute__((used)) int p6_w_cdc_status      = -1; /* last CD status (3=PLAY,1=PAUSE,2=STANDBY) */
+__attribute__((used)) int p6_w_cdc_polls       = 0;  /* # status polls run (proves the poll fired) */
+__attribute__((used)) int p6_w_cdc_notplay     = 0;  /* # polls at GHZ with status PAUSE/STANDBY */
+__attribute__((used)) int p6_w_cdc_reasserts   = 0;  /* # CD-DA re-issues fired */
+/* SHIPPING FIX (default 1): VALIDATED live 2026-07-21 -- at GHZ gameplay the CD
+ * block read PAUSE persistently (arm fired, str=2, but CD-DA displaced by the
+ * load-settle data reads); poking this to 1 fired ONE re-assert and the CD block
+ * flipped PAUSE->PLAY and STAYED play for 75+s of autorun (notplay froze). The
+ * re-assert is self-limiting (fires ONLY on PAUSE/STANDBY, silent once PLAY), so
+ * it recovers a displaced stream without a restart-loop. Set to 0 to disable. */
+__attribute__((used)) int p6_dbg_cdda_reassert = 1;
+
+void p6_cdda_poll_status(int track)
+{
+    int st = jo_audio_get_cd_status();
+    p6_w_cdc_status = st;
+    ++p6_w_cdc_polls;
+    /* PLAY(3)=healthy; BUSY(0)/SEEK(4)=transient data-read in flight (will settle);
+     * PAUSE(1)/STANDBY(2)=CD-DA genuinely stopped -> displaced. */
+    if (st == 1 || st == 2) {
+        ++p6_w_cdc_notplay;
+        if (p6_dbg_cdda_reassert && track > 0) {
+            /* direct re-issue: bypass p6_cdda_play's same-track idempotence guard,
+             * which would otherwise suppress a re-play of the already-"current" track. */
+            jo_audio_play_cd_track(track, track, 1);
+            ++p6_w_cdc_reasserts;
+        }
+    }
+}
