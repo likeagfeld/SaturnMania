@@ -159,6 +159,23 @@ def _trim_silence(s16, thresh=64):
     return s16[lo:hi] if hi > lo else s16
 
 
+def _normalize(s16, headroom=0.97):
+    """Peak-normalize to ~full-scale. Gameplay SFX measured only 8-19% FS in a
+    same-core recording (quiet + masked by 30-48% CD-DA BGM -> user "only hears
+    BGM") because the extracted SFX WAVs aren't hot and >>8 to S8 keeps their
+    low amplitude. Amplify each so its peak reaches full-scale BEFORE the S8
+    truncation -> the sound uses the full 8-bit range and is clearly audible
+    over BGM (matches the proven-audible full-scale test tone). Amplify-only:
+    an already-hot SFX (g<=1) is left untouched, so no clipping."""
+    peak = max((abs(s) for s in s16), default=0)
+    if peak == 0:
+        return s16
+    g = (32767.0 * headroom) / peak
+    if g <= 1.0:
+        return s16
+    return [max(-32768, min(32767, int(s * g))) for s in s16]
+
+
 def _s16_to_s8(s16):
     b = bytes((s >> 8) & 0xFF for s in s16)   # signed 8-bit high byte (SCSP PCM8B)
     if len(b) & 1:
@@ -174,7 +191,7 @@ def encode(samples, rate, want_s16):
     """Return (databytes, octNibble, fmt, sampleCount).
     want_s16: emit 16-bit @22050 (proven-audible format, PCM8B=0) -- diagnostic.
     else three-tier 8-bit by 22050 size (22050/11025/5512), silence-trimmed."""
-    base = _trim_silence(_to_22050_s16(samples, rate))   # 22050-domain samples
+    base = _normalize(_trim_silence(_to_22050_s16(samples, rate)))  # 22050-domain, peak-normalized
     if want_s16:
         return _s16_to_be_bytes(base), OCT_22050, FMT_S16, len(base)
     size22 = len(base)                                    # S8 bytes @22050 == sample count

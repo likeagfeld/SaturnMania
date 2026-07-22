@@ -186,7 +186,7 @@ static void p6_sfx_keyon(int idx)
     p6_sfx_reg(slot, 0x06)[0] = (unsigned short)(s_sfx[idx].count - 1);   /* LEA  */
     p6_sfx_reg(slot, 0x08)[0] = 0x001F;                                   /* AR31 */
     p6_sfx_reg(slot, 0x0A)[0] = 0x001F;                                   /* RR31 */
-    p6_sfx_reg(slot, 0x0C)[0] = 0x0010;                                   /* TL   */
+    p6_sfx_reg(slot, 0x0C)[0] = 0x0000;   /* TL=0 full volume (SFX were too quiet at 0x10) */
     p6_sfx_reg(slot, 0x0E)[0] = 0x0000;
     /* PITCH: per-entry OCT nibble (0xF=-1=22050, 0xE=-2=11025) FNS=0. */
     p6_sfx_reg(slot, 0x10)[0] = (unsigned short)((s_sfx[idx].oct & 0xF) << 11);
