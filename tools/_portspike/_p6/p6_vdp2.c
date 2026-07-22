@@ -1377,6 +1377,31 @@ void p6_vdp2_mirror_reset(void)
     p6_vdp2_mir_valid = 0;
 }
 
+/* Pink-flash mitigation (Saturn-native, GHZ-gameplay only). The SGL
+ * slScrAutoDisp allocator cannot bank the B1-char BG1 sky plane, so on a
+ * non-deterministically mis-banked frame its cells expose RSDK's magenta
+ * palette transparent-key (CRAM 0xFC1F post-conversion) as a visible PINK flash
+ * (MEASURED: 2/21 GHZ frames, sky band). The race is inherent -- SGL re-flushes
+ * the AUTO cycle every vblank and the double mirror-replay only reduces it;
+ * fully closing it needs 60fps (slSynch beating vblank), i.e. #243. So make the
+ * transient IMPERCEPTIBLE instead of eliminating it: rewrite magenta CRAM
+ * entries to the Mania sky-blue, so a mis-banked frame flashes sky-colour
+ * (invisible against the sky) not magenta. SAFE: the magenta entries are the
+ * transparent keys + unwritten palette-block tail (oracle-confirmed unused --
+ * banks0-2 whole-block fills, banks3-7 static), so no normally-drawn pixel
+ * changes; VDP2 index-0 transparency is by code not by CRAM colour, and VDP1
+ * sprite transparency is by pixel-0 not colour -- both unaffected. GHZ-folder-
+ * gated by the caller; plain GHZ image never compiles this (P6_FRONTEND_LOGOS).
+ * Gate: the magenta-burst screenshot scan (RED 2/21 -> GREEN 0/N). */
+void p6_vdp2_ghz_demagenta(void)
+{
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    int i;
+    for (i = 0; i < 2048; ++i)
+        if (cram[i] == (Uint16)0xFC1Fu)
+            cram[i] = (Uint16)0xF180u;   /* Mania sky-blue (== GHZCut backcol) */
+}
+
 /* #302 FLICKER FIX (#314 punch-list 3, mechanism A): one-way latch -- once a
  * 4-plane BG frame (p6_vdp2_aiz_bg_frame / p6_vdp2_ghzcut_bg_frame) has armed
  * the display, the FG present's TRANSITIONAL 2-screen slScrAutoDisp + the

@@ -528,6 +528,7 @@ void p6_vdp2_blank(void);
 // the functions live in p6_vdp2.c regardless of the P6_DIRECT_VDP1 command-list path.
 extern "C" void p6_vdp2_mirror_apply(void);
 extern "C" void p6_vdp2_mirror_reset(void);
+extern "C" void p6_vdp2_ghz_demagenta(void); // pink-flash mitigation (GHZ sky mis-bank -> sky-blue not magenta)
 #if defined(P6_DIRECT_VDP1)
 // #316 F1: the direct VDP1 command list (p6_vdp1.c). begin at frame draw-phase
 // start, end after the draw lists; the vblank trampoline (p6_vdp2.c) links the
@@ -9825,6 +9826,12 @@ static void p6_frontend_frame(void)
     // silence is in the CD block netmem can't see). The re-assert is poke-gated
     // (p6_dbg_cdda_reassert, default 0) so this build is behavior-identical unless
     // enabled. track 2 = GreenHill1 (the GHZ stage BGM).
+    // Pink-flash mitigation: at GHZ, rewrite the magenta transparent-key CRAM
+    // entries to sky-blue EVERY frame (robust vs the per-frame sky pal re-assert)
+    // so a mis-banked sky plane flashes sky-colour not magenta. Cheap on-chip
+    // CRAM scan; GHZ-folder-gated. See p6_vdp2_ghz_demagenta's block comment.
+    if (currentSceneFolder && !strcmp(currentSceneFolder, "GHZ"))
+        p6_vdp2_ghz_demagenta();
     if (currentSceneFolder && p6_w_cont_frames > 30 && (p6_w_cont_frames & 63) == 0) {
         // track per BGM-scene (HandleStreamLoad map): GHZ=GreenHill1(2),
         // Title=TitleScreen(3). Each folder-gated so a stale s_cdda_current never
