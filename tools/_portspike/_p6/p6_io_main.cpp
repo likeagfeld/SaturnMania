@@ -9537,16 +9537,33 @@ static void p6_frontend_frame(void)
             // and arm the 4bpp present path. GHZ GAMEPLAY only (not GHZCutscene,
             // which keeps its own 8bpp FG). MUST run BEFORE the sky load below so
             // p6_ghz_fg_4bpp is set when the sky upload picks its bank (A1 vs B1)
-            // and the sky asset choice (AGHFS vs AGHCBG). Same GFS-idle window;
-            // scratch = cart 0x224B0000 (128KB, above the AIZ-BG windows
-            // [..0x224A3000), below the layout resident 0x22600000; AIZ inactive
-            // in GHZ). Retries next frame until GFS gives a handle. Uploaded
-            // straight to VDP2 A0 by p6_vdp2_upload_ghzfg_4bpp.
+            // and the sky asset choice (AGHFS vs AGHCBG).
+            // FRD-STORE-OVERWRITE FIX (task #326 follow-up, MEASURED root cause,
+            // 2026-07-23): the prior scratch base 0x224B0000 (128 KB -> 0x224D0000)
+            // sat INSIDE the shared cart resident FRD/sheet store (SaturnSheet_ResAlloc,
+            // RES_BASE 0x22400000). In GHZ gameplay the 9 GHZ FRDs stage from 0x22400000
+            // (SONIC1/2/3 259316+231908+167644, ITEMS 30724, then DISPLAY.FRD @0x224A85B8
+            // ..0x224B7E44); DISPLAY's life-icon FACE pattern lands @0x224B0074 and the
+            // "x" @0x224B143C -- BOTH inside [0x224B0000,0x224D0000), so this one-shot
+            // AGHFG.CHR load STOMPED them AFTER the FRD staged (the low-offset digit
+            // patterns @<0x224B0000 survived -> digits clean, face+"x" garbage: the
+            // exact on-screen symptom). This mirrors the SAME class the AIZ leg already
+            // hit + fixed (SaturnSheet_ResFloor, :7569-7582). FIX: move the scratch into
+            // the FREE TAIL of the RES store -- the 9 GHZ FRDs (+WATER) end at 0x22570CC0
+            // and the OBJ anim pack has a FIXED base 0x225A0000 (front-end cart map,
+            // memory frontend-cart-map-recarve: RES 0x22400000-0x225A0000 | OBJ pak
+            // 0x225A0000 | PLAYER pak 0x225E0000 | SaturnLayout 0x22600000+), so
+            // [0x22578000,0x225A0000) is a ~162 KB dead window ABOVE every GHZ FRD and
+            // BELOW the OBJ pak. Base 0x22578000 (8 KB margin over the 0x22570CC0 FRD
+            // end). The AGHFS sky scratch below REUSES the same window (AGHFG is uploaded
+            // to VDP2 here BEFORE the sky block runs -> no live overlap). GHZ-only
+            // (GHZCutscene keeps its own 8bpp FG; currentSceneFolder=="GHZ" gated). Same
+            // GFS-idle window; uploaded straight to VDP2 A0 by p6_vdp2_upload_ghzfg_4bpp.
             if (P6_GHZ_FG_4BPP && !p6_ghz_fg_4bpp
                 && strcmp(currentSceneFolder, "GHZ") == 0) {
-                unsigned char *fchr = (unsigned char *)0x224B0000u; // 128 KB
-                unsigned char *fbnk = (unsigned char *)0x224D0000u; // 1 KB
-                unsigned char *fcmp = (unsigned char *)0x224D1000u; // 481 B
+                unsigned char *fchr = (unsigned char *)0x22578000u; // 128 KB -> 0x22598000
+                unsigned char *fbnk = (unsigned char *)0x22598000u; // 1 KB
+                unsigned char *fcmp = (unsigned char *)0x22598400u; // 481 B
                 int nfc = rsdk_storage_load_to_lwram("AGHFG.CHR", fchr, 0x20000);
                 int nfb = rsdk_storage_load_to_lwram("AGHFG.BNK", fbnk, 0x400);
                 int nfp = rsdk_storage_load_to_lwram("AGHFG.CMP", fcmp, 0x200);
@@ -9570,10 +9587,21 @@ static void p6_frontend_frame(void)
                         : 1;
             static int32 s_ghcbg_loaded = 0;
             if (!s_ghcbg_loaded && skyGate) {
-                unsigned char *bchr = (unsigned char *)0x22480000u;
-                unsigned char *bmap = (unsigned char *)0x22490000u;
-                unsigned char *bpal = (unsigned char *)0x22494000u;
                 int useA1 = p6_ghz_fg_4bpp; // GHZ gameplay: A1 sky char (STEP 3)
+                // FRD-STORE-OVERWRITE FIX (task #326 follow-up, 2026-07-23): the sky
+                // scratch base 0x22480000 (64 KB CHR -> 0x22490000, + MAP/PAL to
+                // 0x22494200) ALSO sits inside the GHZ resident FRD store -- it lands in
+                // SONIC3.FRD's range [0x22477ED8..0x224A0DB4] and clips the ITEMS/DISPLAY
+                // FRD heads. In GHZ gameplay (useA1) REUSE the AGHFG free-tail window
+                // [0x22578000,0x225A0000) (AGHFG.CHR was already uploaded to VDP2 above
+                // this frame, so the window is free again; 64K CHR + 16K MAP + 512 PAL =
+                // 0x14200, well within the ~162 KB window, all >= FRD end 0x22570CC0 and
+                // < OBJ pak 0x225A0000). The GHZCutscene path (AGHCBG, useA1==0) KEEPS
+                // 0x22480000 -- that leg's FRDs are the small cutscene set (GHCOBJ/RUBY/
+                // ITEMS/DISPLAY, no SONIC1/2/3) which never reach it, so byte-identical.
+                unsigned char *bchr = (unsigned char *)(useA1 ? 0x22578000u : 0x22480000u);
+                unsigned char *bmap = (unsigned char *)(useA1 ? 0x22588000u : 0x22490000u);
+                unsigned char *bpal = (unsigned char *)(useA1 ? 0x2258C000u : 0x22494000u);
                 int nchr = rsdk_storage_load_to_lwram(useA1 ? "AGHFS.CHR" : "AGHCBG.CHR", bchr, 0x10000);
                 int nmap = rsdk_storage_load_to_lwram(useA1 ? "AGHFS.MAP" : "AGHCBG.MAP", bmap, 0x4000);
                 int npal = rsdk_storage_load_to_lwram(useA1 ? "AGHFS.PAL" : "AGHCBG.PAL", bpal, 0x200);
