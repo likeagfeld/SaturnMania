@@ -8707,6 +8707,42 @@ static void p6_frontend_frame(void)
                 // per-handle frdSlot. Front-end-chain only -> plain GHZ byte-identical.
                 p6_frd_attach_bound();
 #endif
+#if defined(P6_GHZCUT_BOOT)
+                // BLACKFLASH FIX (Option A, task #326 follow-up, MEASURED 2026-07-23):
+                // the 4bpp GHZ FG char upload (p6_vdp2_upload_ghzfg_4bpp: a 65536-word
+                // CPU copy of AGHFG.CHR = 128 KB into VDP2 A0 + slCashPurge) costs ~2
+                // frames of SH-2 -> if it runs on a LIVE gameplay frame (the old async
+                // site in p6_frontend_frame at the p6_ghz_fg_4bpp 0->1 flip, ~10 s into
+                // GHZ) the display goes BLACK for those 2 frames (qa_ghz_blackflash 2/23
+                // RED). Do the load+upload HERE instead -- the GHZCutscene->GHZ handoff
+                // seam, during the black transition (before the TitleCard/gameplay first
+                // renders) -- so the stall is hidden behind the already-black screen,
+                // exactly the pre-regression timing (mirrors the old 8bpp p6_vdp2_upload_
+                // cells, which ran at scene-load). GFS is IDLE here (this is AFTER
+                // p6_scene_load_and_arm returned + p6_frd_attach_bound; the same idle
+                // window GHZOBJ.PAK/DISPCARD.BIN load through). Cart-resident free-tail
+                // window [0x22578000,0x225A0000) (see the async site's FRD-STORE-OVERWRITE
+                // note). p6_folderReload guard: on a SAME-FOLDER GHZ death-respawn the FG
+                // is already armed (p6_ghz_fg_4bpp==1) + char resident in A0, so skip the
+                // re-upload (that reload seam is at :8806, this block is the forward hop).
+                // If the load MISSES here (unexpected -- proven idle), the async retry at
+                // the front-end site (still gated !p6_ghz_fg_4bpp) is the fallback.
+                if (P6_GHZ_FG_4BPP && !p6_ghz_fg_4bpp
+                    && currentSceneFolder && !strcmp(currentSceneFolder, "GHZ")) {
+                    unsigned char *fchr = (unsigned char *)0x22578000u; // 128 KB -> 0x22598000
+                    unsigned char *fbnk = (unsigned char *)0x22598000u; // 1 KB
+                    unsigned char *fcmp = (unsigned char *)0x22598400u; // 481 B
+                    int nfc = rsdk_storage_load_to_lwram("AGHFG.CHR", fchr, 0x20000);
+                    int nfb = rsdk_storage_load_to_lwram("AGHFG.BNK", fbnk, 0x400);
+                    int nfp = rsdk_storage_load_to_lwram("AGHFG.CMP", fcmp, 0x200);
+                    p6_w_ghzfg_chr = nfc;
+                    if (nfc > 0 && nfb > 0 && nfp > 0) {
+                        p6_vdp2_upload_ghzfg_4bpp((const unsigned short *)fchr, nfc / 2,
+                                                  fbnk, nfb, fcmp, nfp);
+                        p6_w_ghzfg_armed = 1;
+                    }
+                }
+#endif
                 // F-LAND-SONIC (savestate-proven, _v4_land.mcs): Sonic's Create-time
                 // SetSpriteAnimation during the load storm read its anim entry as
                 // ALL-ONES (failed A-Bus cart read under concurrent CD/GFS traffic):

@@ -1612,17 +1612,26 @@ void p6_vdp2_ghzcut_bg_frame(int sx)
         slScrAutoDisp(NBG1ON | SPRON);
         slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0xEEEEEEEEu);
     } else if (p6_ghz_bg_planes == 2) {
-        slScrAutoDisp(NBG0ON | NBG1ON | SPRON);
         if (p6_ghz_fg_4bpp) {
-            /* Task #326 STEP 3 (the pink-flash ROOT FIX): the GHZ sky N0 char now
-             * lives in bank A1 (0x25E20000), NOT B1 -- so the VRAM cycle fetches
-             * it from a STANDARD bank the SGL auto-allocator schedules natively
-             * (no intermittent B1 drop = no magenta transparent-key flash under
-             * motion). 2-plane cycle: A0 = N1-char (4bpp, 1 access); A1 = N0-char;
-             * B0 = N1-PN; B1 = N0-PN. All PN in T0 -> ST-058-R2 6.2 unrestricted;
-             * both chars in bank A -> no selection-limit starvation, no B1 race. */
-            slScrCycleSet(0x5FEEEEEEu, 0x4FEEEEEEu, 0x1FEEEEEEu, 0x0FEEEEEEu);
+            /* GHZ BLACK-BAND ROOT FIX (2026-07-23, MEASURED via controlled bisect):
+             * the visible backdrop band (screen y=64..175: mountains/hills/water)
+             * is served by tiles whose char spans banks A1+B0+B1 (live N0 map PND
+             * census: 1014 A1 / 67 B0 / 2856 B1 charnos) and by the N2/N3 planes
+             * carried from the GHZCutscene arm. THREE measured facts fix the shape
+             * of this branch: (1) publishing a 2-plane BGON 0x43 turned the band
+             * PERMANENTLY black (25/40 -> N2/N3 draw it); (2) replacing the cycle
+             * with any pattern lacking B1 char grants turned it black 40/40 (the
+             * char really is fetched from B1); (3) the ORIGINAL intermittent
+             * 1-frame drops were THIS branch's own slScrAutoDisp(N0|N1|SPR)
+             * writing BGON 0x43 IMMEDIATELY mid-frame (SCROLL.TXT:80-82) -- N2/N3
+             * momentarily off, raster sometimes latched that phase. So: keep the
+             * EMPIRICALLY-WORKING 4-plane cycle + publish untouched, and change
+             * ONLY the arm's plane set to the full set so no writer ever drops
+             * N2/N3 -- the sole divergent write is eliminated. */
+            slScrAutoDisp(NBG0ON | NBG1ON | NBG2ON | NBG3ON | SPRON);
+            slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu);
         } else {
+            slScrAutoDisp(NBG0ON | NBG1ON | SPRON);
             /* 2-plane cycle: N0-PN(B1 T0)+N0-char(B1 T1); N1-PN(B0 T0); N1-char x2(A0 T0,T1).
              * All PN in T0 -> ST-058-R2 unrestricted -> no scanline starvation. */
             slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0x04EEEEEEu);
@@ -1642,11 +1651,42 @@ void p6_vdp2_ghzcut_bg_frame(int sx)
     /* F2a (tear killer): publish the critical composition registers so the
      * per-vblank + frame-top re-assert can replay them -- a torn SGL register-
      * image transfer (BGON back to defaults mid-rebuild = the 1s black singles)
-     * can no longer survive to the displayed frame. BGON 0x004F / PRINA 0x0302 /
-     * PRINB 0x0201 = the MEASURED healthy landing values (savestate 2026-07-03);
-     * CYC = the manual pattern above verbatim. */
-    p6_vdp2_mirror_publish(0x004F, 0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu,
-                           0x0302, 0x0201);
+     * can no longer survive to the displayed frame.
+     *
+     * GHZ BLACK-BAND ROOT FIX (2026-07-23, measured): this publish used to
+     * HARDCODE the 4-plane B1-era values (BGON 0x004F + CYC ..0x123F/0x0467)
+     * for EVERY branch. At GHZ gameplay the caller (p6_io_main.cpp:9659) sets
+     * planes=2 + fg_4bpp=1 whose branch programs the A1-aware 2-plane cycle --
+     * but the mirror replay (frame-top + LAST write of the vblank callback)
+     * kept re-clobbering the registers with the stale 4-plane pattern whose N0
+     * char fetch points at bank B1, where the sky char NO LONGER LIVES (task
+     * #326 STEP 3 moved it to A1). Whichever write the raster latched decided
+     * the frame: SGL's own flush usually won (background renders), the stale
+     * mirror sometimes won (sky char fetch absent -> the BG band y=64..175
+     * renders BLACK for a frame). PROVEN by savestate elimination: dark-vs-
+     * bright states have IDENTICAL VDP2 regs+CRAM+VRAM (the transient restores
+     * before save), and the reg file reads the 4-plane values while the ==2
+     * branch is live = the mirror is the last writer. Fix: publish EXACTLY the
+     * values the taken branch programmed, so every re-assert agrees with the
+     * live config and no raster latch point can see a divergent fetch set.
+     * BGON: N0=0x01 N1=0x02 N2=0x04 N3=0x08 SPR=0x40 (ST-058-R2 p.85). */
+    if (p6_ghz_bg_planes == 1) {
+        p6_vdp2_mirror_publish(0x0042, 0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0xEEEEEEEEu,
+                               0x0302, 0x0201);
+    } else if (p6_ghz_bg_planes == 2) {
+        if (p6_ghz_fg_4bpp)
+            /* Full plane set + the UNCHANGED empirically-working 4-plane cycle --
+             * see the black-band root-fix comment in the arm branch. Publish must
+             * match the arm exactly (a divergent publish was the original race). */
+            p6_vdp2_mirror_publish(0x004F, 0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu,
+                                   0x0302, 0x0201);
+        else
+            p6_vdp2_mirror_publish(0x0043, 0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0x04EEEEEEu,
+                                   0x0302, 0x0201);
+    } else {
+        p6_vdp2_mirror_publish(0x004F, 0x55FEEEEEu, 0xFFFEEEEEu, 0x123FEEEEu, 0x0467EEEEu,
+                               0x0302, 0x0201);
+    }
 }
 
 /* #325 stage-1 (fgbg slave offload): master-side re-assert of the sky CRAM
@@ -2132,7 +2172,29 @@ void p6_vdp2_upload_ghzfg_4bpp(const unsigned short *chr_cart, int chr_words,
     volatile Uint16 *cel = (volatile Uint16 *)P6_VDP2_CEL;
     int i, b, s;
     if (chr_words > 65536) chr_words = 65536;  /* 1024 * 64 words = A0 only */
-    for (i = 0; i < chr_words; ++i) cel[i] = chr_cart[i];
+    /* BLACK-FLASH FIX (task #326 STEP 3 regression, 2026-07-23, MEASURED root
+     * cause): the old CPU word-loop copy of 128 KB (65536 iterations) into
+     * cache-through VDP2 VRAM (0x25E00000) cost >1 frame of pure SH-2 time on a
+     * live gameplay frame, so the main loop could not reach slSynch and the
+     * display went BLACK for ~2 frames (captured: whole_blk=1.00 at the exact
+     * frame p6_ghz_fg_4bpp flips 0->1). The old 8bpp path did the SAME-cost copy
+     * but inside the scene-load blank window, so it was invisible. Offload the
+     * copy to the SCU SCROLL-channel DMA (slDMAXCopy, ST-238-R1 p.183; the
+     * A-Bus READ -> B-Bus WRITE direction is the ST-210-legal SCU-DMA case) so
+     * the SH-2 keeps running the frame loop and the raster is not starved. Use
+     * slDMAXCopy NOT slDMACopy -- the latter is the CPU-DMA level-0 channel the
+     * SCSP audio driver also uses (memory sgl-audio-vs-scroll-cpu-dma-conflict);
+     * slDMAXCopy is the separate scroll controller, same channel the proven
+     * per-frame FG-map DMA uses at this file:2061. Poll slDMAStatus (ST-238-R1
+     * p.192: covers BOTH slDMACopy and slDMAXCopy) until the burst completes so
+     * p6_ghz_fg_4bpp arms ONLY after A0 holds the whole 4bpp char (never a half-
+     * uploaded present). Source is cart LWRAM cache-through alias (0x2257..., so
+     * the GFS CPU writes and the DMA read are coherent without a purge, ST-202
+     * no-snoop), dest is VDP2 A0; a straight linear block (no reformat).
+     * Sinc_Dinc_Long = source+dest increment, long transfer (matches :2062). */
+    slDMAXCopy((void *)chr_cart, (void *)cel, (Uint32)(chr_words * 2),
+               Sinc_Dinc_Long);
+    while (slDMAStatus()) { /* spin until the scroll-DMA burst finishes */ }
     if (bnk_bytes > 1024) bnk_bytes = 1024;
     for (i = 0; i < bnk_bytes; ++i) s_ghzfg_bnk[i] = bnk_cart[i];
     s_ghzfg_bnk_valid = 1;

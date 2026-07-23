@@ -9,8 +9,15 @@ band is sky-blue (high B, mid G, low-mid R). On a dropped frame the band goes ne
 black. We measure the mean luminance of the top 1/3 of the frame and count frames
 where it collapses below BLACK_LUMA while a healthy reference frame is bright.
 
+The black-flash is a level-START, SETTLE-AWAY symptom: it is present for the first
+seconds of the GHZ landing and disappears as the async sky/FG GFS loads land. So
+this gate captures DENSELY starting the INSTANT currentSceneFolder becomes "GHZ"
+(NO settle sleep) -- a burst that begins after the settle would false-GREEN and
+miss the regression entirely. It also polls the arm witnesses (p6_ghz_fg_4bpp,
+p6_w_ghzfg_armed) so a black frame can be correlated with the un-armed gap.
+
 USAGE:
-  python tools/qa_ghz_blackflash.py            # wait for GHZ, burst 45, scan
+  python tools/qa_ghz_blackflash.py            # wait for GHZ, burst from t=0, scan
   python tools/qa_ghz_blackflash.py --analyze  # re-scan existing _shots
 """
 import importlib.util, sys, time
@@ -19,7 +26,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 HERE = Path(__file__).resolve().parent
 SHOTS = ROOT / "_shots"
-NFRAMES = 45
+NFRAMES = 60          # cover the whole settle window at ~0.35s cadence (~21s)
+CADENCE = 0.35        # dense: the drop is transient under motion at the landing
 BLACK_LUMA = 30       # top-band mean luma below this = sky dropped to black
 THRESH = 1
 
@@ -82,6 +90,8 @@ def main():
             return None
 
         a_fol = sym("RSDK::currentSceneFolder")
+        a_fg4 = sym("p6_ghz_fg_4bpp")
+        a_arm = sym("p6_w_ghzfg_armed")
         rw = None
         for _ in range(150):
             try:
@@ -97,17 +107,29 @@ def main():
             except Exception:
                 return "?"
 
+        def w32(a):
+            try:
+                b = rw.read_saturn(a, 4)
+                return int.from_bytes(b, "little")
+            except Exception:
+                return -1
+
         t0 = time.time()
         while time.time() - t0 < 300 and folder() != "GHZ":
-            time.sleep(2)
+            time.sleep(1)
         if folder() != "GHZ":
             print("never reached GHZ"); return 2
-        print("at GHZ, bursting %d frames..." % NFRAMES, flush=True)
-        time.sleep(6)
+        # NO settle sleep: burst from the INSTANT GHZ is entered so the settle
+        # window (where the black-flash lives) is captured.
+        print("GHZ entered at t=0; bursting %d frames @ %.2fs (settle window)..."
+              % (NFRAMES, CADENCE), flush=True)
         t_lo = time.time()
-        for _ in range(NFRAMES):
+        for i in range(NFRAMES):
             rw.sock.sendto(b"SCREENSHOT\n", rw.addr)
-            time.sleep(1.05)
+            if a_fg4 is not None and (i % 6) == 0:
+                print("  t=%.1fs fg_4bpp=%d ghzfg_armed=%d"
+                      % (time.time() - t_lo, w32(a_fg4), w32(a_arm)), flush=True)
+            time.sleep(CADENCE)
         shots = [p for p in SHOTS.glob("*.png") if p.stat().st_mtime >= t_lo - 1]
         shots = sorted(shots, key=lambda p: p.stat().st_mtime)
         black = scan(shots); n = len(shots)
