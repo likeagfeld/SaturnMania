@@ -179,10 +179,81 @@ void p6_vdp2_blank(void)
  * -DP6_FRONTEND_LOGOS into THIS TU's compile only in the front-end build, so the
  * definition is present for the front-end caller and absent in the default. */
 #if defined(P6_FRONTEND_LOGOS)
+/* ============================================================================
+ * BOOT SPLASH (user feature, 2026-07-23): mask the multi-second engine boot/
+ * load window -- the jo_core_init light-blue back screen (JO_COLOR_RGB(96,128,
+ * 224), MEASURED fullscreen-uniform for ~12+ s in _shots/_red_boot_1221*.png)
+ * -- with a fullscreen 320x224 render of the user's splash image.
+ *
+ * Asset: cd/BOOTSPL.BIN (tools/build_boot_splash.py):
+ *   [0x000..0x1FF]  256 x u16 big-endian BGR555 (MSB set) palette; entry 0
+ *                   unused (pixel code 0 = VDP2 transparent, tool emits 1..255)
+ *   [0x200.. ]      224 rows x 320 bytes of 8bpp pixels (row-major)
+ *
+ * Render: VDP2 NBG0 BITMAP mode, 512x256 8bpp, bitmap base = VRAM bank A0
+ * (0x25E00000; 512*256 = 128 KB = exactly bank A0). ST-058-R2 bitmap NBG +
+ * gotcha #7 (standalone NBG char data must live in bank A, not B1). The image
+ * is blitted at the bitmap's top-left with a 512-byte stride; the remainder is
+ * zeroed (transparent). CRAM bank 0 entries 0..255 carry the palette (BMPNA=0).
+ * 16-bit VRAM/CRAM stores only (the VDP2 write-size rule, header contract).
+ *
+ * Timing contract (gotcha #12): the show runs right after jo_core_init in
+ * jo_main (SGL vblank register-flush ALIVE), so the slBitMapNbg0/slScrAutoDisp
+ * image reaches the hardware on the next vblanks (p6_input_settle's bounded
+ * vblank wait runs before the load masks interrupts). The masked load phase
+ * then freezes the register file with the splash displayed -- p6_load_phase_
+ * enter SKIPS its p6_vdp2_blank() while p6_bootsplash_active (p6_io_main.cpp).
+ * During the Logos leg p6_vdp2_arm_sprites_only keeps NBG0ON alongside SPRON
+ * (logos composite at VDP1 pri 7 over the splash at NBG0 pri 1). Teardown =
+ * p6_vdp2_boot_splash_off() at the top of p6_title_reload (BEFORE the title
+ * arms: the Title leg re-uses VRAM A0 for its cells + CRAM bank 0 for its
+ * palette, so no residue survives into the title).
+ * Flag-gated P6_FRONTEND_LOGOS: the default GHZ build stays byte-identical.
+ * ========================================================================== */
+int p6_bootsplash_active = 0;
+void p6_vdp2_boot_splash_show(const unsigned char *data, int bytes)
+{
+    volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+    volatile Uint16 *vram = (volatile Uint16 *)P6_VDP2_CEL; /* bank A0 */
+    /* NOTE: SGL.H does `#define pal COL_32K` -- do NOT name a local `pal`. */
+    const unsigned char *palBytes = data;
+    const unsigned char *px       = data + 0x200;
+    int i, y, x;
+    if (bytes < 0x200 + 320 * 224)
+        return; /* short/failed load -> keep the plain back-color cover */
+    /* palette -> CRAM bank 0 (256 entries, file is already BE BGR555|0x8000) */
+    for (i = 0; i < 256; ++i)
+        cram[i] = (Uint16)(((Uint16)palBytes[i * 2] << 8) | palBytes[i * 2 + 1]);
+    /* zero the full 512x256 bitmap (transparent border), 16-bit stores */
+    for (i = 0; i < (512 * 256) / 2; ++i)
+        vram[i] = 0;
+    /* blit 320x224 at top-left, stride 512 B (=256 words/row) */
+    for (y = 0; y < 224; ++y) {
+        const unsigned char *row = px + y * 320;
+        volatile Uint16 *dst    = vram + y * 256;
+        for (x = 0; x < 320; x += 2)
+            dst[x >> 1] = (Uint16)(((Uint16)row[x] << 8) | row[x + 1]);
+    }
+    slBitMapNbg0(COL_TYPE_256, BM_512x256, (void *)P6_VDP2_CEL);
+    slScrPosNbg0(toFIXED(0), toFIXED(0));
+    slPriorityNbg0(1); /* below VDP1 sprites (pri 7): logos composite on top */
+    slBack1ColSet((void *)P6_VDP2_BAK, 0x8000); /* black overscan, not blue */
+    slScrAutoDisp(NBG0ON);
+    p6_bootsplash_active = 1;
+}
+void p6_vdp2_boot_splash_off(void)
+{
+    if (!p6_bootsplash_active)
+        return;
+    p6_bootsplash_active = 0;
+    slScrAutoDisp(0); /* = p6_vdp2_blank; the destination scene's arm re-enables */
+}
 void p6_vdp2_arm_sprites_only(void)
 {
     slBack1ColSet((void *)P6_VDP2_BAK, 0x8000); /* black backdrop (model's) */
-    slScrAutoDisp(SPRON);
+    /* BOOT SPLASH: while the splash owns the boot window, keep NBG0 displayed
+     * under the UI-scene VDP1 sprites so the Logos leg does not drop it. */
+    slScrAutoDisp(p6_bootsplash_active ? (NBG0ON | SPRON) : SPRON);
 }
 #endif
 

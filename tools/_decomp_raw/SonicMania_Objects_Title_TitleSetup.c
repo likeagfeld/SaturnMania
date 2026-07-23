@@ -342,11 +342,19 @@ void TitleSetup_State_WaitForEnter(void)
         self->state     = TitleSetup_State_FadeToMenu;
         self->stateDraw = TitleSetup_Draw_FadeBlack;
     }
+#if !defined(P6_TITLE_NO_ATTRACT)
+    /* P6_TITLE_NO_ATTRACT (user feature, 2026-07-23, CHAIN flavor only): this
+     * 800-frame attract timeout (-> FadeToVideo -> SetScene) is what made the
+     * chain "press Start by itself" -- the ENGINESTATE_LOAD seam treats ANY
+     * SetScene from the Title as the advance. With the define set, the title
+     * waits indefinitely for a REAL button press (the anyPress branch above);
+     * every other flavor keeps the verbatim decomp attract behavior. */
     else if (++self->timer == 800) {
         self->timer     = 0;
         self->state     = TitleSetup_State_FadeToVideo;
         self->stateDraw = TitleSetup_Draw_FadeBlack;
     }
+#endif
 }
 
 void TitleSetup_State_FadeToMenu(void)

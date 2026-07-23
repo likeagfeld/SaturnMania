@@ -1231,7 +1231,43 @@ extern void p6_perf_vblank(void); /* Perf Phase 1: true-60Hz vblank tally (p6_pe
 
 void jo_main(void)
 {
+#if defined(P6_ENGINE_SHIPPING) && defined(P6_FRONTEND_LOGOS)
+    /* Boot back-color BLACK (user feature, 2026-07-23): the pre-splash window
+     * (jo_core_init until the BOOTSPL.BIN CD read + VRAM blit completes, ~1-2 s)
+     * used to show the light-blue back screen. The CD read cannot be instant,
+     * so make the gap invisible instead: black boot back screen -> splash.
+     * Front-end/chain flavors only; other flavors keep the historical blue
+     * (title backdrop calibration references it, main.c:305). */
+    jo_core_init(JO_COLOR_Black);
+#else
     jo_core_init(JO_COLOR_RGB(96, 128, 224));
+#endif
+
+#if defined(P6_ENGINE_SHIPPING) && defined(P6_FRONTEND_LOGOS)
+    /* BOOT SPLASH (user feature, 2026-07-23): mask the multi-second engine
+     * boot/load window (this jo_core_init light-blue back screen, MEASURED
+     * fullscreen-uniform RGB(96,128,224) for ~12+ s) with the user's splash
+     * image as EARLY as possible after the Sega splash. jo's GFS is live here
+     * (jo_core_init ran slInitSystem + CDC_CdInit + GFS_Init -- the same
+     * contract the P6IO_HOOK/p6_sfx_load calls rely on) and the Data.rsdk
+     * pack is NOT yet mounted, so the p6_gfs second-open trap cannot bite.
+     * cd/BOOTSPL.BIN (72,192 B: 512 B BE BGR555 palette + 320x224 8bpp
+     * pixels, tools/build_boot_splash.py) -> transient cart scratch
+     * 0x22480000 (the established front-end staging scratch; the chain
+     * REQUIRES the 4MB cart) -> VDP2 NBG0 bitmap in bank A0 (p6_vdp2.c
+     * p6_vdp2_boot_splash_show). Torn down at p6_title_reload (the title
+     * re-owns VRAM A0 + CRAM bank 0). ~0.5 s CD cost, replaces blue with
+     * the image for the whole load window. Front-end chain flavors only:
+     * the plain GHZ shipping build compiles none of this. */
+    {
+        /* rsdk_storage_load_to_lwram prototype comes from rsdk/storage.h (line 19) */
+        extern void p6_vdp2_boot_splash_show(const unsigned char *data, int bytes);
+        unsigned char *sbuf = (unsigned char *)0x22480000u; /* cache-through cart */
+        int n = rsdk_storage_load_to_lwram("BOOTSPL.BIN", (void *)sbuf, 0x12000);
+        if (n >= 0x200 + 320 * 224)
+            p6_vdp2_boot_splash_show(sbuf, n);
+    }
+#endif
 
 #ifdef P6IO_HOOK
     /* Engine LoadFile proof, once, on jo's live GFS (witnesses persist in BSS). */

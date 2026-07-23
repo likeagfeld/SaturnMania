@@ -472,8 +472,14 @@ if [ -n "${P6_FRONTEND_TITLE:-}" ]; then
                Title_TitleBG:Game_TitleBG \
                Title_Title3DSprite:Game_Title3DSprite; do
         src_tu="${wft%%:*}"; out_tu="${wft##*:}"
+        # P6_TITLE_NO_ATTRACT (user feature, 2026-07-23): in the CHAIN flavor the
+        # title WAITS for a real Start press -- the verbatim TitleSetup's 800-frame
+        # attract timeout (the "auto Start") is compiled out (see the #if guard in
+        # SonicMania_Objects_Title_TitleSetup.c State_WaitForEnter). Other flavors
+        # keep the decomp attract behavior verbatim.
         "$CC" -x c -std=gnu11 -m2 -Os -fno-builtin -ffunction-sections -fdata-sections \
-            $GAME_DEFS -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS -I"$GINC" -I"$NEWLIB" \
+            $GAME_DEFS -DP6_FRONTEND_TITLE -DP6_FRONTEND_LOGOS \
+            ${P6_FRONTEND_CHAIN:+-DP6_TITLE_NO_ATTRACT} -I"$GINC" -I"$NEWLIB" \
             -c -o "$P6/$out_tu.o" "/work/tools/_decomp_raw/SonicMania_Objects_$src_tu.c"
     done
 fi
@@ -652,6 +658,7 @@ echo "[8/8] p6_scene_pack.o (ld -r --gc-sections, roots: p6_scene_run + map-requ
     -u _p6_dbg_spr_off -u _p6_dbg_cram_off \
     -u _p6_w_ghz_bgm_reach -u _p6_w_ghz_bgm_folderhit -u _p6_w_ghz_bgm_arm \
     ${P6_GHZ_WARP:+-u _p6_w_ghzwarp_folder -u _p6_w_ghzwarp_cut -u _p6_w_ghzwarp_fired} \
+    ${P6_FRONTEND_LOGOS:+-u _p6_vdp2_boot_splash_show} \
     ${P6_GHZ_AUTORUN:+-u _p6_w_plr_draws -u _p6_w_btch_calls -u _p6_w_btch_hits -u _p6_w_btch_lastdy -u _p6_w_btch_lastvy -u _p6_w_arun_brg_live -u _p6_w_arun_brg_active -u _p6_w_arun_brg_firstx -u _p6_w_arun_brg_gapmiss -u _p6_w_arun_inspan} \
     ${P6_FRONTEND_MENU:+-u _p6_w_fxfade_timer -u _p6_w_fxfade_draws} \
     -u _p6_w_perf_vblanks -u _p6_w_perf_frames -u _p6_w_perf_vbl_max \

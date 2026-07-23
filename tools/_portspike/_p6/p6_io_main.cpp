@@ -557,6 +557,12 @@ extern int p6_vdp2_bg_owns_disp;
 // (p6_frontend_frame) are both behind P6_FRONTEND_LOGOS; gate the decl to match.
 #if defined(P6_FRONTEND_LOGOS)
 void p6_vdp2_arm_sprites_only(void);
+// BOOT SPLASH (2026-07-23, p6_vdp2.c): fullscreen VDP2 NBG0 bitmap covering the
+// boot/load window (cd/BOOTSPL.BIN, shown from jo_main right after jo_core_init).
+// While active: p6_load_phase_enter skips its blank (the splash IS the cover) and
+// arm_sprites_only keeps NBG0ON. Torn down at the top of p6_title_reload.
+extern "C" int  p6_bootsplash_active;
+extern "C" void p6_vdp2_boot_splash_off(void);
 #endif
 // Perf Phase 2c (Task #211): re-arm the present's static-map cache on every GHZ
 // (re)load -- the build runs once, then per-frame the present only does the
@@ -3521,7 +3527,16 @@ static void p6_load_phase_enter(void)
     // so the multi-second synchronous load shows a clean back-color instead of the
     // red/green static (NBG1 displaying half-written VRAM). Re-armed by the first
     // GHZ present after the load completes.
+#if defined(P6_FRONTEND_LOGOS)
+    // BOOT SPLASH (2026-07-23): while the boot splash owns the display the splash
+    // IS the load cover -- blanking here would swap it for the bare back-color for
+    // the whole masked load. The splash bitmap lives in VDP2 A0/CRAM-0, untouched
+    // by the masked core (first A0 writer is the Title cell upload, post-teardown).
+    if (!p6_bootsplash_active)
+        p6_vdp2_blank();
+#else
     p6_vdp2_blank();
+#endif
     for (volatile int i = 0; i < 2000000 && (P6_SMPC_SF & 1); ++i) {}
     int sr;
     __asm__ volatile("stc sr, %0" : "=r"(sr));
@@ -7322,6 +7337,11 @@ static void p6_logos_reload(void)
 // this and boots GHZ unchanged. =============================================================================
 static void p6_title_reload(void)
 {
+    // BOOT SPLASH teardown (2026-07-23): the title is ready -- drop the NBG0
+    // splash BEFORE the title arms. The Title load re-uses VRAM A0 (cell upload)
+    // + CRAM bank 0 (its palette), so nothing of the splash survives into the
+    // title's expected state. No-op when the splash never armed / already off.
+    p6_vdp2_boot_splash_off();
     int32 found = 0;
     for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
         SceneListInfo *cat = &sceneInfo.listCategory[c];
@@ -7377,8 +7397,14 @@ static void p6_title_reload(void)
 // NULL Saturn `scanlines` (there is no Saturn RenderDevice to allocate it). Behind
 // -DP6_FRONTEND_MENU; the default GHZ/Title builds never compile this.
 // =============================================================================
-static void p6_menu_reload(void)
+// SKIP-THE-MENU (2026-07-23): in the P6_AIZ_TEST chain the Title-exit seam now
+// routes straight to p6_aiz_reload, so this fn has no compiled caller there --
+// keep it (game-over/Menu re-entry future path) without -Wunused-function noise.
+__attribute__((unused)) static void p6_menu_reload(void)
 {
+    // BOOT SPLASH teardown safety (direct-boot Menu diagnostic flavor; no-op in
+    // the chain where p6_title_reload already tore it down).
+    p6_vdp2_boot_splash_off();
     int32 found = 0;
     for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
         SceneListInfo *cat = &sceneInfo.listCategory[c];
@@ -7430,6 +7456,9 @@ static void p6_menu_reload(void)
 // =============================================================================
 static void p6_aiz_reload(void)
 {
+    // BOOT SPLASH teardown safety (direct-boot AIZ diagnostic flavor; no-op in
+    // the chain where p6_title_reload already tore it down).
+    p6_vdp2_boot_splash_off();
     int32 found = 0;
     for (int32 c = 0; c < sceneInfo.categoryCount && !found; ++c) {
         SceneListInfo *cat = &sceneInfo.listCategory[c];
@@ -8253,7 +8282,40 @@ static void p6_frontend_frame(void)
             p6_vdp1HandlesInit = false;
             p6_vdp1_frontend_pal_reset();
             p6_w_chain2_fired = 1;
+#if defined(P6_AIZ_TEST)
+            // SKIP-THE-MENU (user feature, 2026-07-23): Start at the title goes
+            // DIRECTLY to the AIZ intro cutscene -- the Menu + SaveSelect legs are
+            // bypassed. TitleSetup's Start press fired SetScene("Presentation",
+            // "Menu Select") (TitleSetup_State_WaitForEnter -> ReturnToMenu); the
+            // Menu's start-game confirm would ultimately fire MenuSetup_SaveSlot_
+            // ActionCB (MenuSetup.c:1121) -> SetScene("Cutscenes","Angel Island
+            // Zone") + LoadScene. Fire that DESTINATION here instead, via the SAME
+            // p6_aiz_reload() by-name select+load+arm the (now-bypassed) Menu->AIZ
+            // dwell seam used, carrying that seam's staging verbatim so the
+            // downstream AIZ->GHZCutscene->GHZ arc runs UNCHANGED:
+            //   - VDP1 handle map + CRAM bank-1 mirror reset (done above, shared
+            //     with the old Title->Menu fire -- the #250 folder-change hazard).
+            //   - SEGMENT D / rank23 (#318): zero the TITLE-leg VDP2 latches so
+            //     the title backdrop/island/cloud code does NOT fight the AIZ FG
+            //     present (the #302 ~30% black flicker class).
+            //   - The Menu leg's ONE persistent side effect the arc consumed was
+            //     the M1b AUTH-GATE FLIP (s_ovl.menu_apic_init_fn: installs the
+            //     offline APICallback + globals->noSave=true, MenuSetup.c:414-415
+            //     InitAPI contract). Fire it at THIS seam (post-Title StageLoads,
+            //     pre-AIZ load -- the same ordering the Menu-frame fire had) so
+            //     the gameplay legs see the identical no-save globals state.
+            // The Menu dwell block above (s_chain3_fired, folder=="Menu") simply
+            // never fires now -- it is kept for any future Menu re-entry path.
+            if (s_ovl.menu_apic_init_fn)
+                s_ovl.menu_apic_init_fn();
+            p6_w_title_backdrop_done = 0;
+            p6_w_title_island_armed  = 0;
+            p6_w_title_clouds_armed  = 0;
+            p6_w_chain3_fired = 1;      // the Menu->AIZ witness rides this fire
+            p6_aiz_reload();            // select + load+arm "AIZ" (re-binds surfaces)
+#else
             p6_menu_reload();           // select + load+arm "Menu" (re-binds surfaces)
+#endif
             return;
         }
 #endif
