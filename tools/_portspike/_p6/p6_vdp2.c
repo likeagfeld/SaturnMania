@@ -1495,6 +1495,11 @@ static int    s_ghcbg_pal_n = 0;
  * locations (N2/N3 duplicate the sky behind N0). */
 #define P6_GHCBG_MAP2_B0  0x25E48000u  /* B0: NBG2 map (the AIZ BG1 slot, free here) */
 #define P6_GHCBG_MAP3_B0  0x25E4C000u  /* B0: NBG3 map (the AIZ BG3 slot, free here) */
+/* Forward decl: p6_ghz_fg_4bpp is DEFINED further down (the GHZ 4bpp arm), but
+ * the GHZCut BG upload/frame functions below use it. Without this file-scope
+ * forward declaration the TU fails to compile on a clean p6_vdp2.o rebuild
+ * (used-before-declared). Compatible with the later non-static definition. */
+extern int p6_ghz_fg_4bpp;
 void p6_vdp2_ghzcut_bg_upload(const unsigned short *chr_cart, int chr_words,
                               const unsigned short *pal_cart, int pal_words,
                               const unsigned short *map_cart, int map_words)

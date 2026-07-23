@@ -178,7 +178,25 @@
 // (the sn>0 file-load guard failed). 280 covers 271 + 9 headroom; +~960 B .bss --
 // fits the chain (GLOBALS 0x060C8000, ~28 KB) and plain-GHZ (ANIMPAK 0x060B6C00,
 // verified _end still under). Was (256).
-# define JO_FS_MAX_FILES					(280)
+//
+// STRICTLY-NECESSARY EXTENSION #2 (2026-07-23, GHZ badnik/HUD/Water bind fix):
+// the 4bpp pink-flash fix (9e692ee) added 9 new root files (AGHCBG.{CHR,MAP,PAL},
+// AGHFG.{CHR,BNK,CMP}, AGHFS.{CHR,MAP,PAL}), pushing the ISO9660 root to 283
+// entries (281 files + '.' + '..'). The ACTIVE dirtbl is jo's __jo_fs_dirtbl (the
+// shipping/chain build boots via jo HAL -> jo_fs_init -> GFS_Init; p6_gfs.c's
+// P6_GFS_MAX_DIR=22 is DEAD, p6_gfs_init() is never called). gfdr_setupDirNameTbl
+// (SBL GFS_DIR.C:438-470) reads AT MOST NDIR records in on-disc alphabetical order,
+// so with NDIR=280 the 3 tail files at ISO positions 280/281/282 (UFO7TIL.BIN,
+// WATER.FRD, WATER.SHT) got NO slot -> GFS_NameToId returns -1 (GFS_DIR.C:244-257)
+// -> WATER.SHT never binds -> its Water-object surface takes sheetID 0xFF -> the
+// gfxSurface[0xFF] deref corrupts the shared VDP1 sheet-bind table (memory rule
+// ghz-sprite-present-but-invisible-sheet-binding.md) -> GHZ badnik sprites vanish +
+// the HUD lives-face sheet renders garbage. MEASURED via tools/qa_iso_dirtbl_ceiling.py
+// (RED: 283 > 280, dropped UFO7TIL/WATER.FRD/WATER.SHT). 320 covers 283 + 37
+// headroom; +40 entries * sizeof(GfsDirName)=24 B = +960 B .bss -> _end
+// 0x060c4640 + ~960 = ~0x060c4a08, far under the chain GLOBALS ceiling 0x060c8000
+// (14,784 B headroom measured) and the plain-GHZ ANIMPAK ceiling. Was (280).
+# define JO_FS_MAX_FILES					(320)
 
 #if JO_FRAMERATE < 1
 # error "JO_FRAMERATE must be greater than zero"
