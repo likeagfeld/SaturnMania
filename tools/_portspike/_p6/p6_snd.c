@@ -121,6 +121,23 @@ void p6_snd_play(void)
  * repeat -> CDC PM 0x0F endless, ST-38-R1 p.24). CD-DA mixes through the
  * SCSP EXTS inputs -- unaffected by the P6.6b direct-slot SFX KYONB
  * clears (slots and EXTS are separate paths). */
+/* #329 (2026-07-23): s_cdda_current hoisted to file scope so the displacement
+ * poll below can check "was this track ever ARMED here" before re-asserting.
+ * -1 = nothing armed since boot. */
+static int s_cdda_current = -1;
+/* #329 RED-gate witnesses: every physical CDC_CdPlay issue is counted, so
+ * "how many times did the CD seek/restart at the Title leg" is measurable
+ * (2 per title visit on the broken build -> 1 after the fix). */
+__attribute__((used)) int p6_w_cdda_issues     = 0;  /* monotonic jo_audio_play_cd_track calls */
+__attribute__((used)) int p6_w_cdda_last_track = -1; /* track of the most recent issue */
+/* #329 jingle diag (user: "invincibility stars don't go away when the music
+ * ends"): PC loops the Invincible jingle until the Player timer expires, so
+ * "music ended early" == the CD-DA repeat flag did NOT arm. This witness
+ * records the loop flag of the most recent issue: track 9 with loop=0 -> the
+ * PlayStream loop plumbing dropped it (chase streamLoopPoint/channel->loop);
+ * loop=1 -> the CDC repeat itself failed (Beetle CD-block behavior). */
+__attribute__((used)) int p6_w_cdda_last_loop  = -1;
+
 void p6_cdda_play(int track, int loop)
 {
     /* 2026-07-17 (user: title music "starts, stops, restarts at the ring
@@ -133,12 +150,14 @@ void p6_cdda_play(int track, int loop)
      * restart (correct: zone transitions). Cleared on a data-read displacement?
      * No -- the CDC keeps the play context; a displaced play RESUMES via the
      * repeat mode (PM endless, ST-38-R1 p.24), so the guard stays valid. */
-    static int s_cdda_current = -1;
     if (track <= 0 || track > 99)
         return;
     if (track == s_cdda_current)
         return;
     s_cdda_current = track;
+    ++p6_w_cdda_issues;
+    p6_w_cdda_last_track = track;
+    p6_w_cdda_last_loop  = (loop != 0);
     jo_audio_play_cd_track(track, track, loop != 0);
 }
 
@@ -176,9 +195,27 @@ void p6_cdda_poll_status(int track)
      * PAUSE(1)/STANDBY(2)=CD-DA genuinely stopped -> displaced. */
     if (st == 1 || st == 2) {
         ++p6_w_cdc_notplay;
-        if (p6_dbg_cdda_reassert && track > 0) {
+        /* #329 FIX (user: title BGM "starts briefly, STOPS, then starts again",
+         * task #329 gap 3): re-assert ONLY a track that was actually ARMED via
+         * p6_cdda_play (track == s_cdda_current). MECHANISM on the broken build:
+         * at Title entry the CDC reads PAUSE (the Title scene-load's GFS data
+         * reads leave it paused) and s_cdda_current is still -1 (the chain plays
+         * nothing at Logos), yet this poll -- gated only on the GLOBAL
+         * p6_w_cont_frames and the folder -- re-asserted track 3 EARLY (start #1,
+         * pre-canonical). The canonical TitleSetup_State_Wait Music_PlayTrack
+         * (TitleSetup.c:137-150) then ran p6_cdda_play(3): 3 != s_cdda_current
+         * (-1: the re-assert path never updates it) -> a SECOND CDC_CdPlay ->
+         * seek-to-track-start = audible gap (STOP) then play (start #2).
+         * MEASURED live 2026-07-23 (RA netmem): p6_w_cdc_notplay=5 =
+         * p6_w_cdc_reasserts=5 in one chain session. With the arm-gate, an
+         * unarmed scene polls but never plays (PC-canonical: silence until the
+         * decomp fires PlayTrack, ONE start), while the validated #325 GHZ
+         * displacement recovery is unchanged (track 2 IS armed there). */
+        if (p6_dbg_cdda_reassert && track > 0 && track == s_cdda_current) {
             /* direct re-issue: bypass p6_cdda_play's same-track idempotence guard,
              * which would otherwise suppress a re-play of the already-"current" track. */
+            ++p6_w_cdda_issues;
+            p6_w_cdda_last_track = track;
             jo_audio_play_cd_track(track, track, 1);
             ++p6_w_cdc_reasserts;
         }

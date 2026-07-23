@@ -20,11 +20,15 @@
 # no CD-DA track to play. After this build, run ON THE HOST (mirrors build.bat:16):
 #   python tools/build_cdda.py cd_audio/track02.wav cd_audio/track03.wav \
 #       cd_audio/track04.wav cd_audio/track05.wav cd_audio/track06.wav \
-#       cd_audio/track07.wav --cue-out game.cue --iso game.iso
+#       cd_audio/track07.wav cd_audio/track08.wav cd_audio/track09.wav \
+#       cd_audio/track10.wav cd_audio/track11.wav cd_audio/track12.wav \
+#       --cue-out game.cue --iso game.iso
 # -> rewrites game.cue multi-track: TRACK 01 (game.iso) + TRACK 02 AUDIO
 #    (GreenHill1/GHZ) + 03 (title) + 04 (AngelIsland, AIZ fly-in) + 05
-#    (RubyPresence) + 06 (HBHMischief) + 07 (BossEggman1) -- 2026-07-17
-#    fly-in-audio fix; keep in sync with HandleStreamLoad's name->track map.
+#    (RubyPresence) + 06 (HBHMischief) + 07 (BossEggman1) + 08 (MainMenu) +
+#    09 (Invincible jingle, loops) + 10 (ActClear) + 11 (GameOver) + 12 (1up)
+#    -- #329 jingle wave 2026-07-23; keep in sync with HandleStreamLoad's
+#    name->track map.
 #
 # The do-not-touch COMMON SGL tree is untouched; the engine-sized SGL work area
 # (SaturnSGLArea.c) replaces stock SGLAREA.O via the make SYSOBJS override, same

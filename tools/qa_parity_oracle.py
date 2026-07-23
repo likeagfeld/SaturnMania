@@ -252,6 +252,26 @@ CORE_SYMS = ["p6_w_edge_hits", "p6_w_tick_frames", "p6_w_cont_frames",
 REG_SYMS = ["RSDK::sceneInfo", "RSDK::objectEntityList", "RSDK::currentSceneFolder",
             "RSDK::channels"]
 
+# ---- task #327: COMPOSITING dims (D17 TRANSPAR translucency + D18 DRAWORDER) ----
+# Decomp ground truth: Shield.c:97-101 blue shield inkEffect=INK_ADD alpha=0x80,
+# drawn IN FRONT of the player on frameFlags-bit2 frames (Shields.bin anim 0 ids
+# are ALL '4'/'5' = bit2 set -> always in front); ItemBox.c:75-78 draws the
+# contents card then the "Scanlines" overlay with INK_ADD at the same spot.
+# Backend truth: p6_vdp1.c emits CMDPMOD per command; an INK_ADD/INK_BLEND draw
+# must emit non-opaque (MESH bit 8 default -- VDP1 manual sec 6.32; CC=011 is
+# not guaranteed for color-bank sprites, sec 6.35). Witnesses (SH-2-side,
+# netmem-visible): p6_w_ink_cmds (cumulative translucent emits),
+# p6_w_ink_half_blits (set_ink arms), p6_w_dlring[64*4]/p6_w_dlring_n (the
+# per-frame draw-order/ink command census in PAINTER order). These syms absent
+# from game.map OR flat-zero while INK_ADD-intent entities draw == the
+# opaque-composite bug class (solid blue shield / invisible item card) -> RED.
+# NOT in CORE_SYMS: selftest must stay green for concurrent agents on the
+# pre-fix build; the dims themselves fire RED (counted divergences) instead.
+COMPOSIT_SYMS = ["p6_w_ink_cmds", "p6_w_dlring", "p6_w_dlring_n", "p6_ink_pmod"]
+INK_NONE, INK_BLEND, INK_ALPHA, INK_ADD = 0, 1, 2, 3   # RSDKv5 inkEffect enum
+OFF_DRAWGROUP, OFF_INKEFFECT = 79, 84    # Entity REV0U layout (qa_trace.py:14 cites +79/+85/+86)
+COMP_WATCH = {"Shield", "ItemBox", "Player"}
+
 # per-class aniframes witness -> class name (drives the animID-range check)
 ANIFRAMES = {
     "Ring": "p6_w_ring_aniframes", "Spring": "p6_w_spring_aniframes",
@@ -299,8 +319,45 @@ def selftest():
         print(f"qa_parity_oracle: SELFTEST RED -- {len(problems)} broken dependency(ies); "
               f"the oracle would UNDER-REPORT. Fix before trusting any GREEN.")
         return 2
+    # task #327 compositing witnesses: INFO-only here (concurrent agents' selftest
+    # must stay green on the pre-fix build); the D17/D18 dims fire RED live instead,
+    # and --compositing-check is the dedicated offline RED gate.
+    missing_comp = [n for n in COMPOSIT_SYMS
+                    if not re.search(r"0x[0-9a-fA-F]{16}\s+" + re.escape(n) + r"\s*$", MAP, re.M)]
+    if missing_comp:
+        print(f"  INFO compositing witnesses not in this build (D17/D18 will fire RED live "
+              f"on translucent-intent scenes): {missing_comp}")
     print("qa_parity_oracle: SELFTEST GREEN -- every ground-truth dependency resolves; "
           "no detector is blind.")
+    return 0
+
+
+def compositing_check():
+    """OFFLINE RED gate for task #327 (invisible item card / opaque blue shield).
+    RED (exit 1) while the build's game.map lacks the translucency/draw-order
+    backend witnesses -- which is exactly the build whose p6_dl_sprite emits
+    CMDPMOD 0x00A0 opaque-only (measured: P6_TITLE_INK defined nowhere, so the
+    p6_io_main.cpp:2571 ink mapping is dead code; ItemBox's INK_ADD Scanlines
+    overlay repaints its card, the blue shield paints a solid ball over Sonic).
+    GREEN (exit 0) once p6_w_ink_cmds + p6_w_dlring link, after which the LIVE
+    D17/D18 dims take over (RED if the counters stay flat while INK_ADD-intent
+    entities draw). Doc basis: VDP1 manual sec 6.32 MESH (translucency legal for
+    color-bank sprites) vs sec 6.35 CC=011 (needs RGB original + FB MSB=1)."""
+    print("=" * 72)
+    print("qa_parity_oracle --compositing-check  (task #327 RED gate, offline vs game.map)")
+    print("=" * 72)
+    missing = [n for n in COMPOSIT_SYMS
+               if not re.search(r"0x[0-9a-fA-F]{16}\s+" + re.escape(n) + r"\s*$", MAP, re.M)]
+    if missing:
+        print(f"  RED  backend translucency/draw-order witnesses MISSING from game.map: {missing}")
+        print("  -> this build composites INK_ADD/INK_BLEND OPAQUE (solid blue shield over "
+              "Sonic; item-box card hidden by the opaque Scanlines overlay).")
+        print("qa_parity_oracle: COMPOSITING-CHECK RED")
+        return 1
+    print("  GREEN backend witnesses link (p6_w_ink_cmds / p6_w_dlring / p6_ink_pmod).")
+    print("  -> run a live arc pass; D17 TRANSPAR / D18 DRAWORDER assert the counters/ring "
+          "against Shield/ItemBox intent.")
+    print("qa_parity_oracle: COMPOSITING-CHECK GREEN (live D17/D18 now authoritative)")
     return 0
 
 
@@ -497,7 +554,57 @@ class Oracle:
         s["pdiag_gvel"] = s32(self.w("p6_w_pdiag_gvel"))
         s["pdiag_gnd"] = self.w("p6_w_pdiag_gnd")
         s["aniframes"] = {c: self.w(sym) for c, sym in ANIFRAMES.items()}
+        # ---- task #327 compositing (D17/D18) ----
+        s["ink_half_blits"] = self.w("p6_w_ink_half_blits")
+        s["ink_cmds"] = self.w("p6_w_ink_cmds")
+        s["dlring"] = self.dlring()
+        s["comp"] = self.comp_entities(s)
         return s
+
+    def comp_entities(self, s):
+        """Per-entity drawGroup/inkEffect for the compositing watch set (Shield/
+        ItemBox/Player). Read directly at the decomp Entity offsets (+79/+84)
+        via qa_trace.entity_addr -- a handful of entities, negligible UDP load."""
+        sa = self.sym("RSDK::objectEntityList")
+        pool = self.rd.r32(sa) if sa else None
+        if pool is None or not (0x00200000 <= pool < 0x00300000):
+            return []
+        id2n = {r["classID"]: r["name"] for r in (s.get("reg") or [])}
+        out = []
+        for e in s.get("entities") or []:
+            nm = id2n.get(e["classID"])
+            if nm not in COMP_WATCH:
+                continue
+            b = qa_trace.entity_addr(pool, e["slot"])
+            out.append({"name": nm, "slot": e["slot"], "x": e["x"], "y": e["y"],
+                        "visible": e.get("visible"),
+                        "drawGroup": self.rd.r8(b + OFF_DRAWGROUP),
+                        "inkEffect": self.rd.r8(b + OFF_INKEFFECT)})
+        return out
+
+    def dlring(self):
+        """Read the p6_vdp1.c per-frame draw-order/ink command census (painter
+        order == VDP1 command order). None = witness absent (pre-#327 build)."""
+        na, ra = self.sym("p6_w_dlring_n"), self.sym("p6_w_dlring")
+        if na is None or ra is None:
+            return None
+        n = self.rd.r32(na)
+        if n is None:
+            return None
+        n = max(0, min(n, 64))
+        raw = self.rb(ra, 16 * n) if n else b""
+        out = []
+        for i in range(n):
+            w = [int.from_bytes(raw[16 * i + 4 * k:16 * i + 4 * k + 4], "big")
+                 for k in range(4)]
+            def _sx(v):
+                return v - 0x10000 if v >= 0x8000 else v
+            out.append({"seq": i, "store": (w[0] >> 24) & 0xFF,
+                        "handle": (w[0] >> 16) & 0xFF, "ink": w[0] & 1,
+                        "x": _sx((w[1] >> 16) & 0xFFFF), "y": _sx(w[1] & 0xFFFF),
+                        "w": (w[2] >> 16) & 0xFFFF, "h": w[2] & 0xFFFF,
+                        "sx": (w[3] >> 16) & 0xFFFF, "sy": w[3] & 0xFFFF})
+        return out
 
 
 def dump_classmap():
@@ -534,6 +641,8 @@ def main():
         return selftest_live()
     if "--selftest" in sys.argv:
         return selftest()
+    if "--compositing-check" in sys.argv:
+        return compositing_check()
     if "--dump-classmap" in sys.argv:
         return dump_classmap()
     baseline_path = None
@@ -1114,6 +1223,125 @@ def main():
             if fgh and max(fgh) == 0:
                 D(folder, "LAYER", "FG-High layer never composited (p6_w_fg_highfill=0) -- "
                                    "missing foreground tiles (grass/palms)")
+
+        # ---- D17 TRANSPAR + D18 DRAWORDER (task #327 compositing dims) ----
+        # Decomp intent (verbatim objects, ground truth): Shield.c:97-101 blue
+        # shield = INK_ADD alpha 0x80 drawn over the player (Shields.bin anim-0
+        # frame ids all '4'/'5' -> frameFlags bit2 -> player drawGroup, in
+        # front); ItemBox.c:75-78 draws the contents card then the INK_ADD
+        # "Scanlines" overlay AT THE SAME SPOT. If the backend composites those
+        # opaque, the shield is a solid ball occluding Sonic and the overlay
+        # hides the item card -- the two user-reported compositing bugs. The
+        # dims measure BACKEND behavior (PMOD emit witnesses + the painter-order
+        # command ring) against that intent, so entity fields being correct
+        # (they are -- verbatim decomp) can never false-GREEN the render.
+        if folder not in UI_SCENES:
+            comps_all = [c for s in ss for c in (s.get("comp") or [])]
+            shield_add = [c for c in comps_all if c["name"] == "Shield"
+                          and (c["visible"] or 0) and c["inkEffect"] == INK_ADD]
+            itembox_live = [c for c in comps_all if c["name"] == "ItemBox"
+                            and (c["visible"] or 0)]
+            intent = bool(shield_add) or bool(itembox_live)
+            inkc = [s.get("ink_cmds") for s in ss if s.get("ink_cmds") is not None]
+            inkh = [s.get("ink_half_blits") for s in ss if s.get("ink_half_blits") is not None]
+            if intent:
+                who = (f"{len(shield_add)} Shield(INK_ADD)" if shield_add else "") + \
+                      (" + " if shield_add and itembox_live else "") + \
+                      (f"{len(itembox_live)} ItemBox(INK_ADD overlay)" if itembox_live else "")
+                ink_grew = len(inkc) >= 2 and (max(inkc) - min(inkc)) > 0
+                ink_any = bool(inkc) and max(inkc) > 0
+                if not inkc:
+                    # pre-#327 build: no p6_w_ink_cmds at all. p6_w_ink_half_blits
+                    # (title-flavor set_ink arm counter) flat-0 proves the mapping
+                    # never fires (P6_TITLE_INK dead gate, p6_io_main.cpp:2571).
+                    D(folder, "TRANSPAR",
+                      f"translucent-intent draws live ({who}) but the backend has NO "
+                      f"translucency emit path (p6_w_ink_cmds absent"
+                      f"{'; p6_w_ink_half_blits=' + str(max(inkh)) if inkh else ''}) -- "
+                      f"INK_ADD composites OPAQUE: solid blue shield over Sonic / "
+                      f"item-card hidden by the opaque Scanlines overlay "
+                      f"(CMDPMOD 0x00A0 replace-only, p6_vdp1.c)")
+                elif not (ink_grew or ink_any):
+                    D(folder, "TRANSPAR",
+                      f"translucent-intent draws live ({who}) but ZERO translucent VDP1 "
+                      f"emits in the window (p6_w_ink_cmds flat at "
+                      f"{inkc[0] if inkc else '?'}) -- ink mapping not firing "
+                      f"(caller gate / set_ink path)")
+                else:
+                    print(f"  [{folder or '?':12s}] NOTE     TRANSPAR OK: {who} with "
+                          f"{(max(inkc) - min(inkc)) if len(inkc) >= 2 else max(inkc)} translucent "
+                          f"emits in the window (MESH/CC PMOD live)")
+            # D18 DRAWORDER: painter-order contracts, from the per-frame command ring.
+            rings = [s.get("dlring") for s in ss if s.get("dlring")]
+            comp_last = ss[-1].get("comp") or []
+            pl = next((c for c in comp_last if c["name"] == "Player"), None)
+            sh = next((c for c in comp_last if c["name"] == "Shield"
+                       and (c["visible"] or 0)), None)
+            # (a) drawGroup relation (Shield.c:23-26): shield group must be the
+            # player's group or player-1. Any other relation = layering drift.
+            if pl is not None and sh is not None and None not in (pl["drawGroup"], sh["drawGroup"]):
+                if sh["drawGroup"] - pl["drawGroup"] not in (-1, 0):
+                    D(folder, "DRAWORDER",
+                      f"Shield drawGroup {sh['drawGroup']} vs Player {pl['drawGroup']} -- "
+                      f"decomp allows only player or player-1 (Shield.c:23-26)")
+            # (b) occlusion-order from the ring: an OPAQUE command emitted AFTER the
+            # ItemBox contents card that overlaps it repaints the card = invisible
+            # card (currently the 20x16 Scanlines overlay). Ring absent while intent
+            # is live = the dim is blind on a bug-class scene -> loud RED, not skip.
+            if intent and not rings:
+                D(folder, "DRAWORDER",
+                  f"draw-order census unavailable (p6_w_dlring absent/empty) while "
+                  f"compositing-intent draws are live ({who}) -- occlusion order "
+                  f"UNVERIFIABLE on the scene exhibiting the invisible-item-card / "
+                  f"shield-occlusion class (pre-#327 backend)")
+            elif rings and cam is not None and cam["x"] is not None:
+                ring = rings[-1]
+                camx, camy = cam["x"], cam["y"]
+                reported = 0
+                for c in (ss[-1].get("comp") or []):
+                    if c["name"] != "ItemBox" or not (c["visible"] or 0) or c["x"] is None:
+                        continue
+                    sx0 = c["x"] - (camx - 160)   # entity screen px (RSDK screen center 160)
+                    sy0 = c["y"] - (camy - 120) if camy is not None else None
+                    near = [r for r in ring if abs(r["x"] + r["w"] // 2 - sx0) <= 40
+                            and (sy0 is None or abs(r["y"] + r["h"] // 2 - sy0) <= 48)]
+                    box = next((r for r in near if 30 <= r["w"] <= 34 and 30 <= r["h"] <= 34), None)
+                    card = next((r for r in near if 14 <= r["w"] <= 18 and 14 <= r["h"] <= 18), None)
+                    if box and not card and reported < 4:
+                        D(folder, "DRAWORDER",
+                          f"ItemBox slot{c['slot']}: box command emitted but NO contents-card "
+                          f"command in the frame census -- card never drawn")
+                        reported += 1
+                    elif box and card:
+                        if card["seq"] < box["seq"] and reported < 4:
+                            D(folder, "DRAWORDER",
+                              f"ItemBox slot{c['slot']}: contents card (seq {card['seq']}) drawn "
+                              f"BEFORE its box (seq {box['seq']}) -- card behind the box "
+                              f"(decomp ItemBox_Draw draws box then card, ItemBox.c:74-75)")
+                            reported += 1
+                        occl = [r for r in near if r["seq"] > card["seq"] and r["ink"] == 0
+                                and r["x"] < card["x"] + card["w"] and r["x"] + r["w"] > card["x"]
+                                and r["y"] < card["y"] + card["h"] and r["y"] + r["h"] > card["y"]]
+                        if occl and reported < 4:
+                            o = occl[0]
+                            D(folder, "DRAWORDER",
+                              f"ItemBox slot{c['slot']}: OPAQUE {o['w']}x{o['h']} command "
+                              f"(seq {o['seq']}, store {o['store']}) drawn AFTER the contents "
+                              f"card and overlapping it -- repaints the card (the invisible-"
+                              f"item-picture class; the Scanlines overlay must be translucent, "
+                              f"ItemBox.c:77-78)")
+                            reported += 1
+                # Shield ring entry: the ~48x48 SHIELDS draw near the player must be
+                # translucent (ink=1) -- opaque = the solid-ball occlusion.
+                if sh is not None and pl is not None and pl["x"] is not None:
+                    psx = pl["x"] - (camx - 160)
+                    shr = [r for r in ring if 40 <= r["w"] <= 52 and 40 <= r["h"] <= 52
+                           and abs(r["x"] + r["w"] // 2 - psx) <= 48]
+                    if shr and all(r["ink"] == 0 for r in shr):
+                        D(folder, "TRANSPAR",
+                          f"Shield 48x48 command(s) emitted OPAQUE (ink=0, seq "
+                          f"{[r['seq'] for r in shr]}) over the player -- solid blue ball "
+                          f"occluding Sonic (Shield.c:99-100 INK_ADD alpha 0x80)")
 
         # D10 TEMPORAL: entity-count collapse or a frozen player across the window
         ns = [s["n_entities"] for s in ss]

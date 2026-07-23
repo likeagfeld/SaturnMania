@@ -1093,10 +1093,78 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
 volatile unsigned int p6_dl_link = 0;  /* (half base)>>3 for the vblank trampoline; 0 until first end */
 static int s_dl_half = 0;              /* half being BUILT */
 static int s_dl_n    = 0;
-static int s_dl_ink  = 0;              /* sticky CL_Half (p6_vdp1_set_ink) */
+static int s_dl_ink  = 0;              /* sticky translucency (p6_vdp1_set_ink) */
 __attribute__((used)) int p6_w_dl_cmds_max = 0; /* per-frame max commands */
 __attribute__((used)) int p6_w_dl_drops    = 0; /* emits past P6_DL_MAX */
 __attribute__((used)) int p6_w_dl_frames   = 0; /* completed lists */
+
+/* Task #327 (item-card invisible / shield opaque-ball): the RSDK inkEffect
+ * INK_ADD/INK_BLEND translucency, VDP1-native. DOC TRUTH (VDP1 manual =
+ * ST-013-R3, sega_saturn_docs/VDP1_Manual.txt):
+ *   - CC bits 2:0 = 011 (half-transparency, sec 6.35 / txt:4058-4062) blends
+ *     ONLY when the framebuffer pixel's MSB is 1 (RGB code); MSB=0 -> plain
+ *     REPLACE. And for the ORIGINAL graphic, "color calculation can be
+ *     executed when the color code is color bank code, but the results are
+ *     not guaranteed" (txt:3966-3971). THIS pipeline draws 8bpp COLOR-BANK
+ *     sprites (PMOD 0x00A0) into a PALETTE-CODE framebuffer (SPCTL type 3,
+ *     MSB=0) -> CC=011 is NOT a guaranteed blend here on hardware.
+ *   - MESH bit 8 (sec 6.32 p.85 / txt:3538-3556) draws every other pixel
+ *     ((X+Y) even) for ANY part draw command, NO color-mode or framebuffer
+ *     restriction -- the Saturn-era canonical translucency for palette
+ *     sprites. The skipped pixels leave the background (the player under the
+ *     shield, the item card under the scanline overlay) visible.
+ * So the ink PMOD contribution defaults to MESH 0x0100; p6_ink_pmod is
+ * poke-able (netmem) to 0x0003 (CC half-transparency) for emulator A/B.
+ * p6_w_ink_cmds = cumulative translucent-emitted commands (the oracle's
+ * D-TRANSPAR witness: INK_ADD entities live + this flat == opaque-composite
+ * bug). Direct-list flavors only; plain GHZ (no P6_DIRECT_VDP1) is
+ * byte-identical. */
+/* A/B RESOLVED BY USER TEST 2026-07-23 (two builds, same scene):
+ *   0x0100 MESH    -> shield/card-shine/stars visibly translucent (dither).
+ *   0x0003 CC half -> shield SOLID opaque ball, item card GARBAGE static --
+ *                     Beetle mirrors the ST-013-R3 warning ("color calc on
+ *                     color-bank code: results not guaranteed"): the blend
+ *                     reads the palette-code framebuffer as RGB = junk.
+ * MESH is the doc-guaranteed AND emulator-verified translucency for this
+ * 8bpp color-bank pipeline (the Saturn-era canonical technique). Do not
+ * flip to 0x0003 again without an RGB-framebuffer redesign. */
+__attribute__((used)) int p6_ink_pmod   = 0x0100; /* MESH (verified) | 0x0003 CC (BROKEN here) */
+__attribute__((used)) int p6_w_ink_cmds = 0;      /* cumulative translucent emits */
+
+/* Task #327 DRAW-ORDER/INK RING: per-frame census of every landed sprite
+ * command in PAINTER ORDER (the decomp ProcessObjectDrawLists order == the
+ * VDP1 command order == front-to-back truth). 4 words per entry:
+ *   [0] (storeSlot&0xFF)<<24 | (bindHandle&0xFF)<<16 | inkFlag
+ *   [1] (screenX&0xFFFF)<<16 | (screenY&0xFFFF)      (RSDK top-left px)
+ *   [2] (w&0xFFFF)<<16 | (h&0xFFFF)                  (content size)
+ *   [3] (sx&0xFFFF)<<16 | (sy&0xFFFF)                (sheet rect origin)
+ * Built during the frame, PUBLISHED at p6_dl_end (snapshot copy, ~1 KB --
+ * negligible vs the frame budget; the per-frame-diagnostic rule's measured
+ * hazard was a 64 KB hash) so a 1 Hz netmem read always sees one COMPLETE
+ * frame. Feeds the oracle's D-DRAWORDER dim (e.g. an OPAQUE command drawn
+ * after the ItemBox contents card that overlaps it = the invisible-card
+ * class). Chain-only (.bss ~2.1 KB, front-end ceiling headroom per
+ * frontend-cart-map-recarve); plain GHZ byte-identical. */
+#define P6_DLRING_MAX 64
+static unsigned int s_dlring_build[P6_DLRING_MAX * 4];
+static int s_dlring_bn = 0;
+__attribute__((used)) unsigned int p6_w_dlring[P6_DLRING_MAX * 4];
+__attribute__((used)) int p6_w_dlring_n = 0;
+static void p6_dlring_rec(int sheet, int x, int y, int w, int h, int sx, int sy)
+{
+    unsigned int *e;
+    int store;
+    if (s_dlring_bn >= P6_DLRING_MAX)
+        return;
+    store = s_sheets[sheet].shtSlot; /* stable across legs (the #328 store-slot rule) */
+    e = &s_dlring_build[s_dlring_bn * 4];
+    e[0] = ((unsigned int)(store & 0xFF) << 24) | ((unsigned int)(sheet & 0xFF) << 16)
+         | (s_dl_ink ? 1u : 0u);
+    e[1] = ((unsigned int)(x & 0xFFFF) << 16) | (unsigned int)(y & 0xFFFF);
+    e[2] = ((unsigned int)(w & 0xFFFF) << 16) | (unsigned int)(h & 0xFFFF);
+    e[3] = ((unsigned int)(sx & 0xFFFF) << 16) | (unsigned int)(sy & 0xFFFF);
+    ++s_dlring_bn;
+}
 
 static volatile unsigned short *p6_dl_next(void)
 {
@@ -1107,6 +1175,14 @@ static volatile unsigned short *p6_dl_next(void)
 void p6_dl_begin(void)
 {
     s_dl_n = 0;
+    s_dlring_bn = 0; /* #327: new frame -> new draw-order census */
+    /* #327 regression defense (2026-07-23): the ink flag is per-DRAW state
+     * (set before / cleared after each translucent blit). A caller-side
+     * asymmetry once latched it across frames -> EVERY sprite drew MESH
+     * "transparent" from the FXRuby warp onward. Frame-start reset makes a
+     * stuck-across-frames latch structurally impossible; within-frame the
+     * per-draw bracket still governs. */
+    s_dl_ink = 0;
 }
 
 static void p6_dl_sprite(int jid, int x, int y, int flipX, int flipY, int palblk)
@@ -1116,7 +1192,11 @@ static void p6_dl_sprite(int jid, int x, int y, int flipX, int flipY, int palblk
     p = p6_dl_next();
     p[0]  = (unsigned short)((flipX ? 0x0010u : 0) | (flipY ? 0x0020u : 0)); /* Comm=0 + Dir */
     p[1]  = 0;                                                   /* CMDLINK (JP=next) */
-    p[2]  = (unsigned short)(0x00A0u | (s_dl_ink ? 0x0003u : 0)); /* PMOD */
+    /* #327: ink -> MESH bit 8 by default (doc-guaranteed translucency for
+     * color-bank sprites; CC=011 needs RGB original + FB MSB=1 which this
+     * palette pipeline lacks -- see the p6_ink_pmod block). */
+    p[2]  = (unsigned short)(0x00A0u | (s_dl_ink ? (unsigned int)p6_ink_pmod : 0u)); /* PMOD */
+    if (s_dl_ink) ++p6_w_ink_cmds;
     p[3]  = (unsigned short)(palblk << 8);                       /* CMDCOLR = bank */
     p[4]  = __jo_sprite_def[jid].adr;                            /* CMDSRCA */
     p[5]  = __jo_sprite_def[jid].size;                           /* CMDSIZE */
@@ -1183,7 +1263,8 @@ static void p6_dl_sprite_rot(int jid, int x, int y, int pw, int ph,
     dyb = pivotY + ph;
     p[0]  = (unsigned short)(0x0002u | (flipX ? 0x0010u : 0)); /* Comm=2 + Dir HF */
     p[1]  = 0;                                                 /* CMDLINK (JP=next) */
-    p[2]  = (unsigned short)(0x00A0u | (s_dl_ink ? 0x0003u : 0)); /* PMOD (== p6_dl_sprite) */
+    p[2]  = (unsigned short)(0x00A0u | (s_dl_ink ? (unsigned int)p6_ink_pmod : 0u)); /* PMOD (== p6_dl_sprite, #327 MESH) */
+    if (s_dl_ink) ++p6_w_ink_cmds;
     p[3]  = (unsigned short)(palblk << 8);                     /* CMDCOLR = bank */
     p[4]  = __jo_sprite_def[jid].adr;                          /* CMDSRCA */
     p[5]  = __jo_sprite_def[jid].size;                         /* CMDSIZE */
@@ -1222,8 +1303,14 @@ static void p6_dl_poly(unsigned short rgb555, int x0, int y0, int x1, int y1,
 void p6_dl_end(void)
 {
     volatile unsigned short *p = p6_dl_next();
+    int i;
     p[0] = 0x8000;                                               /* END */
     if (s_dl_n > p6_w_dl_cmds_max) p6_w_dl_cmds_max = s_dl_n;
+    /* #327: publish the completed frame's draw-order/ink census (snapshot so a
+     * 1 Hz netmem read never sees a half-built frame). */
+    for (i = 0; i < s_dlring_bn * 4; ++i)
+        p6_w_dlring[i] = s_dlring_build[i];
+    p6_w_dlring_n = s_dlring_bn;
     p6_dl_link = (unsigned int)((s_dl_half ? P6_DL_B : P6_DL_A) >> 3);
     s_dl_half ^= 1;
     ++p6_w_dl_frames;
@@ -2199,7 +2286,13 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
 #endif
 }
 
-#if defined(P6_FRONTEND_TITLE)
+#if defined(P6_FRONTEND_TITLE) || defined(P6_DIRECT_VDP1)
+/* #327: gate widened from P6_FRONTEND_TITLE-only so EVERY direct-list flavor
+ * (the shipping chain incl. GHZ gameplay) can arm ink translucency -- the
+ * ItemBox INK_ADD overlay + blue-Shield INK_ADD draws were composited OPAQUE
+ * because the caller mapping was title-gated dead code (p6_io_main.cpp:2571
+ * P6_TITLE_INK, defined nowhere). Plain GHZ (neither flag) stays
+ * byte-identical. */
 /* CP5b.4 (Task #272): VDP1 half-transparency for the TitleBG INK_BLEND (Mountain2)
  * + INK_ADD (Reflection/WaterSparkle, alpha 0x80) sprites. jo's effect bits OR into
  * cmd->pmod (sprites.c:363: pmod = 0x0080 | effect); effect 0x3 == SGL CL_Trans
@@ -2390,6 +2483,7 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
         /* #316 F1: direct command -- CMDSIZE is the restaged CONTENT, so vertex A
          * is simply the RSDK top-left minus the localcoord origin. */
         p6_dl_sprite(jid, x, y, 0, 0, palblk);
+        p6_dlring_rec(sheet, x, y, w, h, sx, sy); /* #327 draw-order census */
 #else
         jo_sprite_set_palette(palblk);
         /* Task #241 + CP5b.7: the slot is a fixed s_last_box_w x s_last_box_h box with
@@ -2491,6 +2585,7 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
          * top-left (Drawing.cpp:2796-2808) -- so vertex A is (x,y) either way.
          * No box-compensation math, no sticky jo attributes. */
         p6_dl_sprite(jid, x, y, flipX, flipY, palblk);
+        p6_dlring_rec(sheet, x, y, w, h, sx, sy); /* #327 draw-order census */
 #else
         jo_sprite_set_palette(palblk);
         if (flipX)
@@ -2565,6 +2660,7 @@ void p6_vdp1_blit_rot(int sheet, int x, int y, int w, int h, int sx, int sy,
 #endif
         p6_dl_sprite_rot(jid, x, y, s_last_box_w, s_last_box_h,
                          pivotX, pivotY, sn, cs, flipX, palblk);
+        p6_dlring_rec(sheet, x, y, w, h, sx, sy); /* #327 draw-order census */
     }
 }
 #endif /* P6_DIRECT_VDP1 */

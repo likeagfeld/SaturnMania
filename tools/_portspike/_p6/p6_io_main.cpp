@@ -2568,18 +2568,35 @@ static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
         if (hh < 0 && frame->sheetID < 16)
             ++p6_w_dropbysheet[frame->sheetID]; /* W18 unbound-surface drop histogram */
     }
-#if defined(P6_FRONTEND_TITLE) && defined(P6_TITLE_INK)
-    // CP5b.4 (Task #272): map INK_BLEND (Mountain2) + INK_ADD (Reflection/Water-
-    // Sparkle, alpha 0x80) to VDP1 CL_Trans half-transparency. The blit inherits the
-    // sticky jo attribute; clear it after so opaque sprites (logo/Sonic) are
-    // unaffected. INK_MASKED already early-returns; INK_ALPHA/SUB/TINT unused by the
-    // Title objects (opaque fallback). GHZ compiles this out (byte-identical).
-    // Behind P6_TITLE_INK while A/B-isolating whether the sticky jo half-transparency
-    // attribute leaks onto the FG (the head) -- the measured head regression.
+#if defined(P6_DIRECT_VDP1) || (defined(P6_FRONTEND_TITLE) && defined(P6_TITLE_INK))
+    // Task #327 (item-card invisible / shield opaque-ball): map the RSDK entity
+    // inkEffect INK_BLEND/INK_ADD to the VDP1 translucent emit. The prior gate
+    // (P6_FRONTEND_TITLE && P6_TITLE_INK) was DEAD CODE -- P6_TITLE_INK is
+    // defined nowhere -- so the decomp's translucent draws (ItemBox.c overlay
+    // INK_ADD glass shine, Shield.c INK_ADD blue aura) composited OPAQUE on
+    // Saturn: the shine covered the contents card and the shield covered the
+    // player. p6_vdp1_set_ink threads into the direct-list emit's PMOD (MESH
+    // bit 8 default -- doc-guaranteed translucency for 8bpp color-bank
+    // sprites, ST-013-R3; see the p6_ink_pmod block in p6_vdp1.c). Sticky
+    // set-before/clear-after so opaque draws are unaffected. Plain GHZ
+    // (no P6_DIRECT_VDP1) stays byte-identical.
     int32 p6_inkHalf = 0;
     if (sceneInfo.entity) {
         int32 ie = sceneInfo.entity->inkEffect;
-        p6_inkHalf = (ie == INK_BLEND || ie == INK_ADD) ? 1 : 0;
+        p6_inkHalf = (ie == INK_BLEND || ie == INK_ADD || ie == INK_ALPHA) ? 1 : 0;
+        // #329 "stars don't go away when invincibility ends" (user 2026-07-23):
+        // decomp InvincibleStars fades out via alpha = 8 * invincibleTimer
+        // (InvincibleStars.c:52) -- on PC an INK_ADD draw at alpha~0 adds
+        // NOTHING (invisible). This renderer ignored alpha entirely, so the
+        // expired stars kept drawing opaque forever. Honor the alpha
+        // semantics: a near-zero-alpha additive/alpha draw contributes no
+        // visible pixels -> skip it (validDraw stays set above, matching the
+        // engine's clip-accept contract). INK_ALPHA at full alpha = opaque.
+        int32 al = sceneInfo.entity->alpha;
+        if ((ie == INK_ADD || ie == INK_ALPHA) && al <= 0x20)
+            return;
+        if (ie == INK_ALPHA && al >= 0xF0)
+            p6_inkHalf = 0;
     }
     if (p6_inkHalf) p6_vdp1_set_ink(1);
 #endif
@@ -2592,7 +2609,14 @@ static void p6_draw_flipped(int32 x, int32 y, SpriteFrame *frame, int32 dir)
 #if defined(P6_FRONTEND_MENU)
       p6_w_draw_blit_v += (int)(p6_perf_vbl_count - _dvb0); }
 #endif
-#if defined(P6_FRONTEND_TITLE) && defined(P6_TITLE_INK)
+#if defined(P6_DIRECT_VDP1) || (defined(P6_FRONTEND_TITLE) && defined(P6_TITLE_INK))
+    // #327 regression fix (user 2026-07-23 "sprites turn transparent right
+    // before the fly-in and stay transparent into GHZ"): the SET block above
+    // was widened to P6_DIRECT_VDP1 but THIS clear kept the dead P6_TITLE_INK
+    // gate -> compiled out on the chain -> the first INK_ADD draw (FXRuby
+    // warp) latched s_dl_ink=1 forever (MEASURED live: p6_w_ink_half_blits
+    // frozen at 1120 while p6_w_ink_cmds climbed ~320/s at parked GHZ = every
+    // command emitted MESH). Gate now mirrors the set block exactly.
     if (p6_inkHalf) p6_vdp1_set_ink(0);
 #endif
     p6_w_draw_xy      = ((x & 0xFFFF) << 16) | (y & 0xFFFF);
@@ -2947,6 +2971,26 @@ void AudioDevice::HandleStreamLoad(ChannelInfo *channel, bool32 async)
         track = 6;
     else if (!strcmp(base, "BossEggman1.ogg"))
         track = 7;
+    // #329 (2026-07-23, gaps 5/8/9): the Music.c JINGLES. On PC these are stream
+    // swaps managed by the Music stack (Music_PlayJingle pushes, expiry/end pops
+    // back to TRACK_STAGE -> PlayStream(GreenHill1.ogg) -> this map -> CD-DA
+    // resumes). CD-DA is single-stream so the jingle REPLACES the BGM -- exactly
+    // the PC behavior for these four (they replace, never overlay). Track names
+    // decomp-cited Music.c:51-63. Loop: Invincible has loopPoint 139263 ->
+    // p6_cdda_play(loop=1) repeats until Player expiry pops the stack;
+    // ActClear/GameOver/1up are one-shots (loop=false -> CD stops at track end).
+    // CUE tracks 8-12 built by the host build_cdda post-step (build_shipping.sh
+    // header + saturn-cdda-cue-format memory).
+    else if (!strcmp(base, "MainMenu.ogg"))
+        track = 8;
+    else if (!strcmp(base, "Invincible.ogg"))
+        track = 9;
+    else if (!strcmp(base, "ActClear.ogg"))
+        track = 10;
+    else if (!strcmp(base, "GameOver.ogg"))
+        track = 11;
+    else if (!strcmp(base, "1up.ogg"))
+        track = 12;
     // FIXME P6.7+: table-ize from tools/loops.json as zones come online
     // (bgm-loops-hand-curated: every shipped BGM needs an acknowledged entry).
 
@@ -7567,6 +7611,34 @@ static void p6_aiz_reload(void)
         }
         { RETRO_HASH_MD5(sph1); GEN_HASH_MD5("Players/Sonic1.gif", sph1);
           p6_w_aiz_sonicsht_slot = SaturnSheet_FindSlot((const uint32 *)sph1); }
+        // Task #328 gap-1 (AIZ intro PHANTOM RUBY invisible): the AIZ Scene1.bin
+        // places PhantomRuby slot 25 at (11120,220) on the dig platform (census
+        // tools/qa_cutscene_census.py) and the ST beats RubyGrabbed/RubyAppear/
+        // RubyFX (AIZSetup.c:501-662) hold the camera ON it while it flashes --
+        // but the AIZ leg never staged Global/PhantomRuby.gif (RUBYOBJ.SHT was
+        // staged ONLY at the GHZCutscene legs, :7778/:8408). PhantomRuby's anim
+        // resolves (AIZANIM.PAK carries Global/PhantomRuby.bin) yet the sheet's
+        // LoadSpriteSheet FindSlot-MISSES -> returns -1 WITHOUT a surface
+        // (Sprite.cpp:983-992) -> every PhantomRuby_Draw DrawSprite
+        // (PhantomRuby.c:34-47: rubyAnimator + flashAnimator) drops -> the ruby
+        // the whole intro pivots on is invisible (user gap 1). Stage it HERE
+        // (before p6_scene_load_and_arm, same GFS-idle window as the player
+        // sheets above; idempotent FindSlot guard so the later GHZCutscene-seam
+        // stage reuses this slot instead of double-staging). 2,829 B banded.
+        {
+            RETRO_HASH_MD5(rbh);
+            GEN_HASH_MD5("Global/PhantomRuby.gif", rbh);
+            if (SaturnSheet_FindSlot((const uint32 *)rbh) < 0) {
+                int rn = rsdk_storage_load_to_lwram("RUBYOBJ.SHT", (void *)P6_LW_ENTITYLIST, 0x10000);
+                p6_w_rubyobj_sn = rn;
+                if (rn > 0) {
+                    int32 rslot = SaturnSheet_Stage((const void *)P6_LW_ENTITYLIST, (uint32)rn);
+                    p6_w_rubyobj_slot = rslot;
+                    if (rslot >= 0)
+                        SaturnSheet_SetHash(rslot, (const uint32 *)rbh);
+                }
+            }
+        }
         // #323 AIZ-leg draw/inflate hog (the #317 recipe at the Menu->AIZ seam):
         // MEASURED (chain, _pan_trace3): the AIZ leg runs 3.5-8 fps; DrawLists is
         // 18-25 ms on the fly-in and 36-46 ms at the claw beats with 680-1340
@@ -8398,84 +8470,55 @@ static void p6_frontend_frame(void)
                 {
                     unsigned char *sbuf = (unsigned char *)0x22480000u;
                     RETRO_HASH_MD5(ph);
-                    int sn = rsdk_storage_load_to_lwram("GHCOBJ.SHT", sbuf, 0x10000);
-                    p6_w_ghcobj_sn = sn;
-                    if (sn > 0) {
-                        int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
-                        p6_w_ghcobj_slot = slot;
-                        if (slot >= 0) { GEN_HASH_MD5("GHZCutscene/Objects.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
+                    // Task #328: FindSlot-guard every stage (the ruby sheet is now
+                    // staged on the AIZ leg for gap-1; a second unguarded Stage here
+                    // would band-store a DUPLICATE blob under the same hash and
+                    // re-point the witness slot). Same idiom as the GHZ-landing
+                    // seam's #321 reuse loop.
+                    GEN_HASH_MD5("GHZCutscene/Objects.gif", ph);
+                    p6_w_ghcobj_slot = SaturnSheet_FindSlot((const uint32 *)ph);
+                    if (p6_w_ghcobj_slot < 0) {
+                        int sn = rsdk_storage_load_to_lwram("GHCOBJ.SHT", sbuf, 0x10000);
+                        p6_w_ghcobj_sn = sn;
+                        if (sn > 0) {
+                            int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
+                            p6_w_ghcobj_slot = slot;
+                            if (slot >= 0) SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                        }
                     }
-                    sn = rsdk_storage_load_to_lwram("RUBYOBJ.SHT", sbuf, 0x10000);
-                    p6_w_rubyobj_sn = sn;
-                    if (sn > 0) {
-                        int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
-                        p6_w_rubyobj_slot = slot;
-                        if (slot >= 0) { GEN_HASH_MD5("Global/PhantomRuby.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
+                    GEN_HASH_MD5("Global/PhantomRuby.gif", ph);
+                    p6_w_rubyobj_slot = SaturnSheet_FindSlot((const uint32 *)ph);
+                    if (p6_w_rubyobj_slot < 0) {
+                        int sn = rsdk_storage_load_to_lwram("RUBYOBJ.SHT", sbuf, 0x10000);
+                        p6_w_rubyobj_sn = sn;
+                        if (sn > 0) {
+                            int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
+                            p6_w_rubyobj_slot = slot;
+                            if (slot >= 0) SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                        }
                     }
-                    sn = rsdk_storage_load_to_lwram("ITEMS.SHT", sbuf, 0x10000);
-                    p6_w_itemsht_sn = sn;
-                    if (sn > 0) {
-                        int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
-                        p6_w_itemsht_slot = slot;
-                        if (slot >= 0) { GEN_HASH_MD5("Global/Items.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
+                    GEN_HASH_MD5("Global/Items.gif", ph);
+                    p6_w_itemsht_slot = SaturnSheet_FindSlot((const uint32 *)ph);
+                    if (p6_w_itemsht_slot < 0) {
+                        int sn = rsdk_storage_load_to_lwram("ITEMS.SHT", sbuf, 0x10000);
+                        p6_w_itemsht_sn = sn;
+                        if (sn > 0) {
+                            int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
+                            p6_w_itemsht_slot = slot;
+                            if (slot >= 0) SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                        }
                     }
-                    sn = rsdk_storage_load_to_lwram("DISPLAY.SHT", sbuf, 0x10000);
-                    p6_w_dispsht_sn = sn;
-                    if (sn > 0) {
-                        int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
-                        p6_w_dispsht_slot = slot;
-                        if (slot >= 0) { GEN_HASH_MD5("Global/Display.gif", ph); SaturnSheet_SetHash(slot, (const uint32 *)ph); }
+                    GEN_HASH_MD5("Global/Display.gif", ph);
+                    p6_w_dispsht_slot = SaturnSheet_FindSlot((const uint32 *)ph);
+                    if (p6_w_dispsht_slot < 0) {
+                        int sn = rsdk_storage_load_to_lwram("DISPLAY.SHT", sbuf, 0x10000);
+                        p6_w_dispsht_sn = sn;
+                        if (sn > 0) {
+                            int32 slot = SaturnSheet_Stage((const void *)sbuf, (uint32)sn);
+                            p6_w_dispsht_slot = slot;
+                            if (slot >= 0) SaturnSheet_SetHash(slot, (const uint32 *)ph);
+                        }
                     }
-#if defined(P6_FRONTEND_MENU)
-                    // #324 GHZCutscene DrawLists hog (RED-gated, qa_drawcost_gate G3/G4):
-                    // the sheets staged above stay BANDED through the whole cutscene --
-                    // MEASURED (live chain forensic _drawprof_F1.jsonl 2026-07-09): 22.4
-                    // FetchRect inflates/frame (claw + ruby + HUD + rings), draw cb
-                    // bracket 124k FRT ticks (148 ms), 2.3 fps. The p6_scene_run promote
-                    // block (p6_io_main.cpp:~4580) is BOOT-ONLY -- these slots are staged
-                    // at THIS live seam and had no promotion site (resmask read 0x7F00 =
-                    // only the boot+AIZ-seam promotes). Mirror the GHZ-landing seam
-                    // pattern (:7436): reclaim the AIZ-leg residents (aizobj + player
-                    // sheets, never drawn in the cutscene) then promote the cutscene
-                    // working set. Budget: PLR(~64K) + HBH(512x432=221K) + GHC(512x512=
-                    // 262K) + RUBY(256x128=32K) + ITEMS(256x128=32K) + DISPLAY(256x256=
-                    // 64K) = ~675 KB < the 1.625 MB store. MakeResident is bounds-checked
-                    // (overflow -> stays banded, no corruption). Scratch is wired since
-                    // the boot block. Front-end only -> plain GHZ byte-identical.
-                    {
-                        SaturnSheet_ResReset();
-#if defined(P6_FRAMEDIR)
-                        // Stage-1 FRD (checklist sec 7, AIZ->GHZCut seam): the
-                        // ResReset just killed the AIZ leg's FRD blobs' cart
-                        // backing -- reset the registry + detach every sheet
-                        // attachment (a stale frdSlot would serve wrong
-                        // pixels, the #250 stale-binding class), then stage
-                        // the cutscene leg's FRDs. PLR/HBH atlases have no
-                        // FRD -> resident as before. MEASURED budget:
-                        // 286,720 resident + 129,584 FRD = 416,304 B fits.
-                        SaturnFrameDir_Reset();
-                        p6_vdp1_frd_detach_all();
-                        if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
-                        if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
-                        int32 frdGhc  = p6_frd_stage_file("GHCOBJ.FRD",  "GHZCutscene/Objects.gif");
-                        int32 frdRuby = p6_frd_stage_file("RUBYOBJ.FRD", "Global/PhantomRuby.gif");
-                        int32 frdItem = p6_frd_stage_file("ITEMS.FRD",   "Global/Items.gif");
-                        int32 frdDisp = p6_frd_stage_file("DISPLAY.FRD", "Global/Display.gif");
-                        if (p6_w_ghcobj_slot  >= 0 && frdGhc  < 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
-                        if (p6_w_rubyobj_slot >= 0 && frdRuby < 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
-                        if (p6_w_itemsht_slot >= 0 && frdItem < 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
-                        if (p6_w_dispsht_slot >= 0 && frdDisp < 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
-                        p6_frd_attach_bound(); // handles persisting across this seam
-#else
-                        if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
-                        if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
-                        if (p6_w_ghcobj_slot  >= 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
-                        if (p6_w_rubyobj_slot >= 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
-                        if (p6_w_itemsht_slot >= 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
-                        if (p6_w_dispsht_slot >= 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
-#endif
-                    }
-#endif
                 }
                 // #302 mechanism-A latch: the AIZ BG frame owned the display; hand it
                 // back to the present across this folder change (the AIZ planes would
@@ -8485,6 +8528,67 @@ static void p6_frontend_frame(void)
                 p6_vdp2_mirror_reset(); // F2a: stop replaying the old scene's registers across the seam
 
                 p6_scene_load_and_arm(); // load+arm the GHZCutscene scene the AIZ SetScene selected
+#if defined(P6_FRONTEND_MENU)
+                // #324 GHZCutscene DrawLists hog promote + Stage-1 FRD -- RELOCATED
+                // to AFTER p6_scene_load_and_arm (task #328 gap-2a ROOT CAUSE,
+                // code-proven): the load_and_arm staging block's p6_cut_promote
+                // arm (p6_io_main.cpp ~:5355) runs AFTER the engine scene load
+                // (":5338 MEASURED builds 15-17: this site runs AFTER the scene
+                // load"), sees currentSceneFolder=="GHZCutscene" (+ the persisted
+                // p6_w_hbh_slot latch, the #326 "presence gate DEFEATED" note) and
+                // fires its own SaturnSheet_ResReset() -- WITHOUT the FrameDir
+                // triple-reset the FRAMEDIR contract requires (the GHZ-landing
+                // seam's own comment: "Registry reset first: the ResReset killed
+                // the ... blobs"). With this block BEFORE the load (the old
+                // order), that inner ResReset wiped the 4 just-staged FRD blobs'
+                // cart backing while every sheet kept its frdSlot attachment ->
+                // the FRD directories read reclaimed/overwritten store bytes for
+                // the WHOLE cutscene -> wrong-pixel/garbage patterns and dropped
+                // draws (the user-reported "VDP1 sprites disappear mid-cutscene",
+                // the post-b5abf86 FRD-enable vanish class in memory
+                // pink-and-vanish-are-frd-regression). Running the reclaim +
+                // FRD-stage + promote HERE -- after the last ResReset of the load
+                // -- leaves the registry, the blobs and the residents consistent
+                // for the whole cutscene. GFS is IDLE post-arm (the sky AGHCBG
+                // loads use this same window, :7831). Same budget as before:
+                // 286,720 resident + 129,584 FRD = 416,304 B fits the store.
+                {
+                    SaturnSheet_ResReset();
+#if defined(P6_FRAMEDIR)
+                    SaturnFrameDir_Reset();
+                    p6_vdp1_frd_detach_all();
+                    p6_vdp1_frd_clear_store(); // #328: drop stale store->FRD routes too
+                    if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
+                    if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
+                    {
+                        int32 frdGhc  = p6_frd_stage_file("GHCOBJ.FRD",  "GHZCutscene/Objects.gif");
+                        int32 frdRuby = p6_frd_stage_file("RUBYOBJ.FRD", "Global/PhantomRuby.gif");
+                        int32 frdItem = p6_frd_stage_file("ITEMS.FRD",   "Global/Items.gif");
+                        int32 frdDisp = p6_frd_stage_file("DISPLAY.FRD", "Global/Display.gif");
+                        // #328: route by STORE slot as well (dup-handle safe, the
+                        // GHZ-landing s_frdByStore idiom) -- the cutscene surfaces
+                        // re-bound by the arm can carry duplicate handles whose
+                        // per-handle frdSlot stays -1.
+                        if (frdGhc  >= 0 && p6_w_ghcobj_slot  >= 0) p6_vdp1_frd_set_store(p6_w_ghcobj_slot,  frdGhc);
+                        if (frdRuby >= 0 && p6_w_rubyobj_slot >= 0) p6_vdp1_frd_set_store(p6_w_rubyobj_slot, frdRuby);
+                        if (frdItem >= 0 && p6_w_itemsht_slot >= 0) p6_vdp1_frd_set_store(p6_w_itemsht_slot, frdItem);
+                        if (frdDisp >= 0 && p6_w_dispsht_slot >= 0) p6_vdp1_frd_set_store(p6_w_dispsht_slot, frdDisp);
+                        if (p6_w_ghcobj_slot  >= 0 && frdGhc  < 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
+                        if (p6_w_rubyobj_slot >= 0 && frdRuby < 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
+                        if (p6_w_itemsht_slot >= 0 && frdItem < 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
+                        if (p6_w_dispsht_slot >= 0 && frdDisp < 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
+                    }
+                    p6_frd_attach_bound(); // handles bound by the arm above
+#else
+                    if (p6_w_plrsht_slot  >= 0) SaturnSheet_MakeResident(p6_w_plrsht_slot);
+                    if (p6_w_hbh_slot     >= 0) SaturnSheet_MakeResident(p6_w_hbh_slot);
+                    if (p6_w_ghcobj_slot  >= 0) SaturnSheet_MakeResident(p6_w_ghcobj_slot);
+                    if (p6_w_rubyobj_slot >= 0) SaturnSheet_MakeResident(p6_w_rubyobj_slot);
+                    if (p6_w_itemsht_slot >= 0) SaturnSheet_MakeResident(p6_w_itemsht_slot);
+                    if (p6_w_dispsht_slot >= 0) SaturnSheet_MakeResident(p6_w_dispsht_slot);
+#endif
+                }
+#endif
                 return;
             }
         }

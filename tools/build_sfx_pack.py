@@ -59,12 +59,27 @@ BUDGET = 244 * 1024
 # THREE-TIER rate by the sound's S8@22050 size, so EVERYTHING fits with no drops
 # (user directive 2026-07-21 "compress until everything fits, no dropping assets").
 # Short/frequent stay crisp @22050; medium -> 11025; the longest -> 5512.
-TIER_22050 = 15 * 1024   # <= this @22050 -> keep 22050 (OCT -1)
+TIER_22050 = 14 * 1024   # <= this @22050 -> keep 22050 (OCT -1)
+                         # 15->14 KB (#329 gap 6): +StarPost.wav left 8.2 KB free but
+                         # Stage/Fireball.wav needs 15,028 @22050 -> demote ONLY it to
+                         # 11025 (Ring 14,152 = the next-largest stays crisp) so ALL
+                         # 31 SFX fit the 244 KB window, zero drops.
 TIER_11025 = 28 * 1024   # <= this @22050 -> 11025 (OCT -2); above -> 5512 (OCT -3)
 
 OCT_22050 = 0xF   # SCSP OCT=-1 -> 22050
 OCT_11025 = 0xE   # SCSP OCT=-2 -> 11025
 OCT_5512  = 0xD   # SCSP OCT=-3 -> 5512
+
+# v6 (#329 user 2026-07-23 "louder AND same quality"): rate floors/ceilings.
+# MIN_11025: player-facing SFX the user flagged as low-QUALITY must never fall
+# to the muffled 5512 tier (LoseRings was 5512 = the audible quality gap).
+# FORCE_5512: rarely-heard long sounds demoted to fund the budget.
+MIN_11025  = {"Global/LoseRings.wav", "Global/Charge.wav", "Global/Release.wav"}
+# CAP_11025: crisp-eligible sounds capped at 11025 to fund the MIN_11025 quality
+# floor within the fixed 244 KB window (Destroy/Skidding are broadband pops --
+# minimal audible loss at 11025; the signature Ring/Jump/StarPost stay 22050).
+CAP_11025  = {"Global/Destroy.wav", "Global/Skidding.wav"}
+FORCE_5512 = {"Global/Tired.wav", "Global/OuttaHere.wav", "Stage/Bumper.wav"}
 
 # DIAGNOSTIC (2026-07-22): the direct-slot SFX voice is MEASURED playing correctly
 # (savestate: keyed, full envelope, DISDL=7, valid data) yet SILENT, while the ONLY
@@ -111,6 +126,9 @@ PRIORITY = [
     "Global/Tired.wav",      # Tails flight tired
     "Global/OuttaHere.wav",  # get-out-of-here
     "Global/ScoreTotal.wav", # tally total
+    "Global/StarPost.wav",   # #329 gap 6: star-post checkpoint ding (StarPost.c:156
+                             # GetSfx + :340 PlaySfx) -- was ABSENT from this list ->
+                             # LoadSfx never resolved it -> save-post silent
     "Stage/Explosion.wav",   # badnik explosion
     "Stage/Bumper.wav",      # bumper/spikes bounce
     "Stage/Fireball.wav",    # BuzzBomber projectile
@@ -142,11 +160,48 @@ def _to_22050_s16(samples, rate):
     return [samples[int(i * ratio)] for i in range(n)]
 
 
+def _lowpass_fir(x, cutoff_frac, taps=63):
+    """Windowed-sinc (Hamming) FIR lowpass; cutoff_frac = fc/fs in (0, 0.5).
+    #329 gap-2 (MEASURED 2026-07-23, tools/_a3_sfx_measure.py): the old
+    box-average decimator has near-zero stopband rejection, so the 11025/5512
+    tiers folded 48-111% of the signal's band energy back as inharmonic
+    aliasing -- THE audible 'distortion' on Charge/Release/LoseRings. A 63-tap
+    windowed sinc gives > 50 dB stopband; output length == input length."""
+    import math
+    half = taps // 2
+    h = []
+    for i in range(taps):
+        m = i - half
+        if m == 0:
+            v = 2.0 * cutoff_frac
+        else:
+            v = math.sin(2.0 * math.pi * cutoff_frac * m) / (math.pi * m)
+        v *= 0.54 - 0.46 * math.cos(2.0 * math.pi * i / (taps - 1))
+        h.append(v)
+    g = sum(h)
+    h = [v / g for v in h]                       # unity DC gain
+    n = len(x)
+    out = [0] * n
+    for i in range(n):
+        acc = 0.0
+        base = i - half
+        for k in range(taps):
+            j = base + k
+            if 0 <= j < n:
+                acc += h[k] * x[j]
+        out[i] = int(acc)
+    return out
+
+
 def _decimate(s16, factor):
+    """Anti-aliased decimation: FIR lowpass at 0.45 * target Nyquist margin
+    (cutoff = 0.45/factor of the source rate), then take every factor-th
+    sample. Replaces the box-average (see _lowpass_fir docstring for the
+    measured aliasing it caused)."""
     if factor <= 1:
         return s16
-    return [sum(s16[i:i + factor]) // factor
-            for i in range(0, len(s16) - factor + 1, factor)]
+    filt = _lowpass_fir(s16, 0.45 / factor)
+    return [filt[i * factor] for i in range(len(filt) // factor)]
 
 
 def _trim_silence(s16, thresh=64):
@@ -159,21 +214,27 @@ def _trim_silence(s16, thresh=64):
     return s16[lo:hi] if hi > lo else s16
 
 
-def _normalize(s16, headroom=0.97):
-    """Peak-normalize to ~full-scale. Gameplay SFX measured only 8-19% FS in a
-    same-core recording (quiet + masked by 30-48% CD-DA BGM -> user "only hears
-    BGM") because the extracted SFX WAVs aren't hot and >>8 to S8 keeps their
-    low amplitude. Amplify each so its peak reaches full-scale BEFORE the S8
-    truncation -> the sound uses the full 8-bit range and is clearly audible
-    over BGM (matches the proven-audible full-scale test tone). Amplify-only:
-    an already-hot SFX (g<=1) is left untouched, so no clipping."""
-    peak = max((abs(s) for s in s16), default=0)
-    if peak == 0:
+def _normalize(s16, target_rms=18000.0):
+    """RMS loudness-equalize + tanh soft limit (v5, #329 user 2026-07-23 "ring
+    loss / spindash super low vs jump -- ALL SFX same sound level").
+    MEASURED (this tool, post-peak-normalize v4): every SFX peaked at 97%FS yet
+    RMS spanned Jump -3.3 dBFS vs Release -18.0 dBFS (14.7 dB perceived gap) --
+    peak-equal is NOT loudness-equal. Also the 8-bit truncation of a -18 dB
+    signal keeps ~5.5 effective bits = audible grit (part of the 'distortion').
+    v5: gain every SFX to a COMMON RMS target (-8 dBFS = 13000), through a tanh
+    soft limiter so hot transients compress smoothly instead of hard-clipping.
+    Quieter-than-target SFX gain up (full 8-bit range, quantization floor
+    drops); hotter ones (Jump) trim slightly down -> uniform level."""
+    import math
+    n = len(s16)
+    if n == 0:
         return s16
-    g = (32767.0 * headroom) / peak
-    if g <= 1.0:
+    rms = math.sqrt(sum(s * s for s in s16) / n)
+    if rms < 1.0:
         return s16
-    return [max(-32768, min(32767, int(s * g))) for s in s16]
+    g = target_rms / rms
+    lim = 32000.0
+    return [int(lim * math.tanh((s * g) / lim)) for s in s16]
 
 
 def _s16_to_s8(s16):
@@ -187,17 +248,20 @@ def _s16_to_be_bytes(s16):
     return b"".join(struct.pack(">h", max(-32768, min(32767, s))) for s in s16)
 
 
-def encode(samples, rate, want_s16):
+def encode(samples, rate, want_s16, name=""):
     """Return (databytes, octNibble, fmt, sampleCount).
     want_s16: emit 16-bit @22050 (proven-audible format, PCM8B=0) -- diagnostic.
-    else three-tier 8-bit by 22050 size (22050/11025/5512), silence-trimmed."""
-    base = _normalize(_trim_silence(_to_22050_s16(samples, rate)))  # 22050-domain, peak-normalized
+    else three-tier 8-bit by 22050 size (22050/11025/5512), silence-trimmed,
+    with the v6 MIN_11025 / FORCE_5512 per-name overrides."""
+    base = _normalize(_trim_silence(_to_22050_s16(samples, rate)))  # 22050-domain, RMS-equalized
     if want_s16:
         return _s16_to_be_bytes(base), OCT_22050, FMT_S16, len(base)
     size22 = len(base)                                    # S8 bytes @22050 == sample count
-    if size22 <= TIER_22050:
+    if name in FORCE_5512:
+        b = _s16_to_s8(_decimate(base, 4)); return b, OCT_5512, FMT_S8, len(b)
+    if size22 <= TIER_22050 and name not in CAP_11025:
         b = _s16_to_s8(base);              return b, OCT_22050, FMT_S8, len(b)
-    if size22 <= TIER_11025:
+    if size22 <= TIER_11025 or name in MIN_11025 or name in CAP_11025:
         b = _s16_to_s8(_decimate(base, 2)); return b, OCT_11025, FMT_S8, len(b)
     b = _s16_to_s8(_decimate(base, 4));     return b, OCT_5512, FMT_S8, len(b)
 
@@ -215,7 +279,7 @@ def main():
             skipped.append((name, "missing"))
             continue
         rate, s16 = read_wav_mono_s16(p)
-        data_b, octv, fmt, scount = encode(s16, rate, name in S16_NAMES)
+        data_b, octv, fmt, scount = encode(s16, rate, name in S16_NAMES, name)
         prospective = sum(len(e[2]) for e in entries) + len(data_b)
         prospective_hdr = 16 + hdr_per_entry * (len(entries) + 1)
         if prospective + prospective_hdr > BUDGET:

@@ -49,6 +49,15 @@ static p6_sfx_ent s_sfx[P6_SFX_MAX];
 static int s_sfx_n  = 0;
 static int s_sfx_rr = 0;
 static signed char s_slot2pack[256];   /* engine sfxList slot -> pack idx (-1) */
+/* #329 gap-2 fix: which pack entry each SCSP voice 28-31 is currently keyed
+ * with (-1 = free/other). Lets a same-sound re-trigger REUSE its voice (the PC
+ * PlaySfx contract: Audio.cpp re-arms the channel already playing that sfx --
+ * it never stacks copies), and lets p6_sfx_setpitch find the voice a decomp
+ * SetChannelAttributes call targets. On the broken build the round-robin keyed
+ * a NEW voice per PlaySfx, so the spindash rev (Player.c:4151 re-fires
+ * Global/Charge.wav per press) stacked up to 4 overlapping FULL-SCALE copies
+ * -> summed past full scale in the SCSP mixer = the audible distortion. */
+static signed char s_slotOwner[P6_SFX_NSLOTS] = { -1, -1, -1, -1 };
 
 /* qa_p6_sfx_residency companions + oracle witnesses. */
 __attribute__((used)) int p6_w_sfx_pack_loaded = 0; /* # entries uploaded */
@@ -177,9 +186,24 @@ static void p6_sfx_keyon(int idx)
     unsigned long sa = P6_SFX_PCM_OFF + s_sfx[idx].off;
     unsigned short sa_hi = (unsigned short)((sa >> 16) & 0x000F);
     unsigned short sa_lo = (unsigned short)(sa & 0xFFFF);
-    int slot = P6_SFX_SLOT_BASE + s_sfx_rr;
-    int i;
-    s_sfx_rr = (s_sfx_rr + 1) & 3;
+    int slot, i;
+    /* Same-sound re-trigger REUSES its voice (PC PlaySfx parity, see
+     * s_slotOwner above): scan the 4 voices for one already owned by this
+     * pack entry; only a genuinely new sound takes the next round-robin
+     * voice. Kills the 4x-overlap full-scale summing on rapid re-fires
+     * (spindash Charge, ring-loss + Hurt pairs). */
+    slot = -1;
+    for (i = 0; i < P6_SFX_NSLOTS; ++i) {
+        if (s_slotOwner[i] == (signed char)idx) {
+            slot = P6_SFX_SLOT_BASE + i;
+            break;
+        }
+    }
+    if (slot < 0) {
+        slot = P6_SFX_SLOT_BASE + s_sfx_rr;
+        s_slotOwner[s_sfx_rr] = (signed char)idx;
+        s_sfx_rr = (s_sfx_rr + 1) & 3;
+    }
 
     p6_sfx_reg(slot, 0x02)[0] = sa_lo;
     p6_sfx_reg(slot, 0x04)[0] = 0;                                        /* LSA  */
@@ -252,6 +276,54 @@ void p6_sfx_test_tone(void)
         (unsigned short)(P6_SCSP_KYONEX | P6_SCSP_KYONB | (1u << 9)
                          | P6_SCSP_PCM8B | sa_hi);
     ++p6_w_test_keyed;
+}
+
+/* #329 gap-2: apply the decomp's per-channel playback-speed to the SCSP voice.
+ * The decomp spindash rev is a PITCH RISE: Player.c:4151-4152 re-fires
+ * Global/Charge.wav then RSDK.SetChannelAttributes(channel, 1.0, 0.0,
+ * chargeSpeeds[n]) with chargeSpeeds = 2^(n/12), n=0..12 (Player.c:4135-4136,
+ * 1.0 -> 2.0 in semitones). On the broken build the SCSP PITCH stayed at the
+ * base rate (p6_sfx_keyon writes FNS=0 always) so the rev was FLAT.
+ *
+ * SCSP PITCH register (slot +0x10): OCT[14:11] two's-complement octave,
+ * FNS[9:0]; playback rate = base * 2^OCT * (1024 + FNS)/1024 (SCSP_Manual.txt
+ * :1386 register layout; :3256-3311 "Relation of OCT and FNS", Fig 4.51).
+ * `speed_fx16` is the engine channel speed in 16.16 (Audio.cpp:638
+ * channels[].speed = speed * TO_FIXED(1)). Normalize the multiplier into
+ * [1.0, 2.0) -> octave adjust + FNS = (frac * 1024): a semitone step of the
+ * chargeSpeeds table maps to FNS steps of ~61-64, well inside the 10-bit
+ * resolution. Called from the Saturn seam in SetChannelAttributes (parked
+ * diff, docs/feature_checklists/a3_audio.md) right after PlaySfx keyed the
+ * voice at base pitch -- the decomp call order guarantees the voice exists. */
+void p6_sfx_setpitch(int soundID, int speed_fx16)
+{
+    int pk, i, slot = -1, adj = 0, oct;
+    unsigned int s;
+    if (soundID < 0 || soundID >= 256 || speed_fx16 <= 0)
+        return;
+    pk = s_slot2pack[soundID];
+    if (pk < 0)
+        return;
+    for (i = 0; i < P6_SFX_NSLOTS; ++i) {
+        if (s_slotOwner[i] == (signed char)pk) {
+            slot = P6_SFX_SLOT_BASE + i;
+            break;
+        }
+    }
+    if (slot < 0)
+        return;                    /* voice already retaken by another sound */
+    s = (unsigned int)speed_fx16;  /* 16.16 multiplier */
+    while (s >= 0x20000u) { s >>= 1; ++adj; }
+    while (s <  0x10000u) { s <<= 1; --adj; }
+    /* base OCT nibble is two's-complement 4-bit (0xF=-1 -> 22050 etc.) */
+    oct = (int)(s_sfx[pk].oct & 0xF);
+    if (oct >= 8)
+        oct -= 16;
+    oct += adj;
+    if (oct < -8) oct = -8;
+    if (oct >  7) oct =  7;
+    p6_sfx_reg(slot, 0x10)[0] = (unsigned short)
+        ((((unsigned int)oct & 0xFu) << 11) | (((s - 0x10000u) >> 6) & 0x3FFu));
 }
 
 /* Per-frame pump: called by p6_audio_witness when a channel NEWLY enters

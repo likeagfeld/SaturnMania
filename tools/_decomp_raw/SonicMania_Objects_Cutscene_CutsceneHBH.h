@@ -21,7 +21,13 @@ typedef enum {
 struct ObjectCutsceneHBH {
     RSDK_OBJECT
     uint16 aniFrames;
+#if defined(P6_GHZCUT_BOOT)
+    // Saturn: the bank0 0x80-0xFF save/restore this backs is NO-OP'd
+    // (Store/RestorePalette in the .c) -- shrink the dead 512 B.
+    color paletteColors[1];
+#else
     color paletteColors[128];
+#endif
 };
 
 // Entity Class
@@ -38,7 +44,21 @@ struct EntityCutsceneHBH {
     int32 timer;
     int32 angleOffset;
     int32 colorSet;
+#if defined(P6_GHZCUT_BOOT)
+    // Saturn ENTITY-SIZE FIX (#328, measured 2026-07-23): with colors[128]
+    // (512 B) sizeof(EntityCutsceneHBH) = ~712 > P6_MAX_ENTITY_SIZE (592), so
+    // the Saturn RegisterObject size guard (Object.cpp RETRO_SATURN arm)
+    // SILENTLY REFUSED the class -> CutsceneHBH absent from the live class
+    // table (probe: GHZCutsceneST entry 37, Decoration 38, no CutsceneHBH) ->
+    // the five Heavies never existed in the chain cutscene. The array's ONLY
+    // consumer (SetupPalettes -> SetPaletteEntry, .c:195) is NO-OP'd on
+    // Saturn (5 resident CRAM blocks from HBHPAL.BIN replace the SW palette
+    // swap, task #311), so the snapshot is dead weight: shrink to [1]. The
+    // colorSet memcpys copy sizeof(self->colors) = 4 B -- safe.
+    color colors[1];
+#else
     color colors[128];
+#endif
     bool32 useCustomPalettes;
     bool32 noGlobalTimer;
     uint16 aniFrames;
