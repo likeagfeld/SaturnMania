@@ -69,6 +69,7 @@ def saturn_bgr555(rgb):
 
 
 def main():
+    global CHARNO_BASE
     ap = argparse.ArgumentParser()
     ap.add_argument("--stage", default=STAGE_DEFAULT)
     ap.add_argument("--scene", default="Scene1.bin")
@@ -77,8 +78,18 @@ def main():
     # GFS_NameToId could not resolve it (MEASURED: p6_w_ghcbg_loaded=0). "AGHCBG"
     # sorts just before the proven-loadable AIZBG.* range.
     ap.add_argument("--out", default="cd/AGHCBG")
+    # Task #326 STEP 3: the GHZ-GAMEPLAY sky variant relocates its char from VRAM
+    # bank B1 (0x25E60000, charno-base 0x3000) into the freed bank A1 (0x25E20000,
+    # charno-base 0x1000) so SGL's auto-allocator schedules it natively (a B1 char
+    # is dropped intermittently under motion = the pink flash, memory
+    # ghz-pink-flash-root-cause-4bpp-fg-relocate). A1 is free only when the FG is
+    # 4bpp (STEP 2). GHZCutscene (8bpp FG, A1 occupied) keeps the B1 default.
+    #   --charno-base 0x1000 --out cd/AGHFS   (A1 variant for GHZ gameplay)
+    ap.add_argument("--charno-base", type=lambda s: int(s, 0), default=CHARNO_BASE,
+                    help="char VRAM offset in 0x20-B units (0x3000=B1 default, 0x1000=A1)")
     ap.add_argument("--census", action="store_true")
     args = ap.parse_args()
+    CHARNO_BASE = args.charno_base
 
     gif = os.path.join(args.stage, "16x16Tiles.gif")
     tiles = load_tiles(gif)

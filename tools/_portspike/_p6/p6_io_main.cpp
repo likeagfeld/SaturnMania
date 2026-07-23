@@ -6601,6 +6601,23 @@ extern "C" void p6_vdp2_ghzcut_bg_upload(const unsigned short *chr_cart, int chr
                                          const unsigned short *pal_cart, int pal_words,
                                          const unsigned short *map_cart, int map_words);
 extern "C" void p6_vdp2_ghzcut_bg_frame(int sx);
+// Task #326 STEP 2: GHZ FG 8bpp->4bpp. Upload AGHFG.CHR (128KB, A0 only) + latch
+// the per-tile bank table (AGHFG.BNK) + bank composition (AGHFG.CMP). Arming
+// p6_ghz_fg_4bpp switches p6_pnd_for/present_config/present_compute to 4bpp for
+// the GHZ FG present ONLY (Title/AIZ/GHZCut unchanged).
+extern "C" void p6_vdp2_upload_ghzfg_4bpp(const unsigned short *chr_cart, int chr_words,
+                                          const unsigned char *bnk_cart, int bnk_bytes,
+                                          const unsigned char *cmp_cart, int cmp_bytes);
+extern "C" int  p6_ghz_fg_4bpp;
+// STEP 2 knob: 1 = GHZ FG is 4bpp (skip the 8bpp upload; load AGHFG.* one-shot).
+// Compiled in for the GHZCut/chain flavor (the only one that reaches GHZ gameplay).
+#if defined(P6_GHZCUT_BOOT)
+#define P6_GHZ_FG_4BPP 1
+#else
+#define P6_GHZ_FG_4BPP 0
+#endif
+__attribute__((used)) int32 p6_w_ghzfg_chr   = -1; // AGHFG.CHR bytes loaded (131072 expected)
+__attribute__((used)) int32 p6_w_ghzfg_armed = 0;  // 1 after p6_vdp2_upload_ghzfg_4bpp
 // #325 stage-1: master-side sky CRAM[64..127] re-assert, called after the slave
 // FG-present join (the slave's CRAM bank0 write runs AFTER bg_frame's re-assert
 // under the offload -- this restores the proven sync frame-end CRAM order).
@@ -6721,7 +6738,12 @@ static void p6_scene_load_and_arm(void)
     // CP4: skip for a non-GHZ UI scene -- the Logos placeholder tileset is a
     // 1731 B no-content GIF, and the UI scene draws via UIPicture VDP1 sprites,
     // not NBG1 cells. (The GHZ same-folder reload skip is unchanged.)
-    if (!p6_folderReload && p6_isGHZ)
+    // Task #326 STEP 2: GHZ uses the 4bpp FG char (AGHFG.CHR, uploaded one-shot
+    // in the front-end frame below, GFS idle) instead of this 8bpp tilesetPixels
+    // upload -- the 8bpp upload fills A0+A1 (256KB); the 4bpp fills A0 only so A1
+    // stays free for the relocated sky BG char (STEP 3). Skip the 8bpp GHZ upload
+    // entirely. (Title/AIZ/GHZCut still use the 8bpp path.)
+    if (!p6_folderReload && p6_isGHZ && !P6_GHZ_FG_4BPP)
         p6_vdp2_upload_cells((const unsigned char *)tilesetPixels);
 #if defined(P6_FRONTEND_TITLE)
     // CP5b.3 (Task #272): the TITLE scene's 16x16Tiles (the green island + cloud
@@ -9511,14 +9533,50 @@ static void p6_frontend_frame(void)
             // front-end frame a handle is free (HBHOBJ.SHT loads the same way in
             // p6_ghz_arm_env). Retries next frame until it succeeds. Scratch =
             // the AIZ-BG LWRAM window (AIZ inactive during GHZCut).
+            // Task #326 STEP 2: one-shot load of the 4bpp GHZ FG char (AGHFG.*)
+            // and arm the 4bpp present path. GHZ GAMEPLAY only (not GHZCutscene,
+            // which keeps its own 8bpp FG). MUST run BEFORE the sky load below so
+            // p6_ghz_fg_4bpp is set when the sky upload picks its bank (A1 vs B1)
+            // and the sky asset choice (AGHFS vs AGHCBG). Same GFS-idle window;
+            // scratch = cart 0x224B0000 (128KB, above the AIZ-BG windows
+            // [..0x224A3000), below the layout resident 0x22600000; AIZ inactive
+            // in GHZ). Retries next frame until GFS gives a handle. Uploaded
+            // straight to VDP2 A0 by p6_vdp2_upload_ghzfg_4bpp.
+            if (P6_GHZ_FG_4BPP && !p6_ghz_fg_4bpp
+                && strcmp(currentSceneFolder, "GHZ") == 0) {
+                unsigned char *fchr = (unsigned char *)0x224B0000u; // 128 KB
+                unsigned char *fbnk = (unsigned char *)0x224D0000u; // 1 KB
+                unsigned char *fcmp = (unsigned char *)0x224D1000u; // 481 B
+                int nfc = rsdk_storage_load_to_lwram("AGHFG.CHR", fchr, 0x20000);
+                int nfb = rsdk_storage_load_to_lwram("AGHFG.BNK", fbnk, 0x400);
+                int nfp = rsdk_storage_load_to_lwram("AGHFG.CMP", fcmp, 0x200);
+                p6_w_ghzfg_chr = nfc;
+                if (nfc > 0 && nfb > 0 && nfp > 0) {
+                    p6_vdp2_upload_ghzfg_4bpp((const unsigned short *)fchr, nfc / 2,
+                                              fbnk, nfb, fcmp, nfp);
+                    p6_w_ghzfg_armed = 1;
+                }
+            }
+            // Sky "BG Outside" (NBG0). Task #326 STEP 3: GHZ gameplay (4bpp FG ->
+            // A1 free) loads the A1-relocated sky variant AGHFS.* (charno-base
+            // 0x1000) so p6_vdp2_ghzcut_bg_upload puts its char in bank A1 -- out
+            // of B1 where SGL's auto-allocator drops it under motion (= the pink
+            // flash). GHZCutscene (8bpp FG, A1 occupied) keeps AGHCBG.* (B1).
+            // For the GHZ folder, WAIT until the 4bpp FG is armed (A1 freed) before
+            // loading the sky, so it always picks the A1 variant -- never a stray
+            // B1 load if the FG load lagged a frame. GHZCutscene (no 4bpp) loads now.
+            int skyGate = (strcmp(currentSceneFolder, "GHZ") == 0)
+                        ? (P6_GHZ_FG_4BPP ? p6_ghz_fg_4bpp : 1)
+                        : 1;
             static int32 s_ghcbg_loaded = 0;
-            if (!s_ghcbg_loaded) {
+            if (!s_ghcbg_loaded && skyGate) {
                 unsigned char *bchr = (unsigned char *)0x22480000u;
                 unsigned char *bmap = (unsigned char *)0x22490000u;
                 unsigned char *bpal = (unsigned char *)0x22494000u;
-                int nchr = rsdk_storage_load_to_lwram("AGHCBG.CHR", bchr, 0x10000);
-                int nmap = rsdk_storage_load_to_lwram("AGHCBG.MAP", bmap, 0x4000);
-                int npal = rsdk_storage_load_to_lwram("AGHCBG.PAL", bpal, 0x200);
+                int useA1 = p6_ghz_fg_4bpp; // GHZ gameplay: A1 sky char (STEP 3)
+                int nchr = rsdk_storage_load_to_lwram(useA1 ? "AGHFS.CHR" : "AGHCBG.CHR", bchr, 0x10000);
+                int nmap = rsdk_storage_load_to_lwram(useA1 ? "AGHFS.MAP" : "AGHCBG.MAP", bmap, 0x4000);
+                int npal = rsdk_storage_load_to_lwram(useA1 ? "AGHFS.PAL" : "AGHCBG.PAL", bpal, 0x200);
                 if (nchr > 0 && nmap > 0 && npal > 0) {
                     p6_vdp2_ghzcut_bg_upload((const unsigned short *)bchr, nchr / 2,
                                              (const unsigned short *)bpal, npal / 2,
@@ -9528,16 +9586,14 @@ static void p6_frontend_frame(void)
             }
             int cam_x = screens[0].position.x;
             int bg_sx = (cam_x * 0x40) >> 8;   /* ~0.25 parallax */
-            /* PINK-FLASH FIX (2026-07-21): GHZ gameplay uses 2 BG planes (sky+FG) so
-             * bank B1 is not over-subscribed (the N2/N3 char starvation = the random
-             * horizontal pink lines, ST-058-R2 3.2 selection-limit). GHZCutscene keeps
-             * its 4-plane multi-layer BG. */
-            /* BISECT (2026-07-21): FG-only (1) at GHZ gameplay to isolate sky-vs-FG as
-             * the pink-line source (2-plane already disproved). Lines persist -> FG;
-             * gone -> sky. NBG0-off (planes=1) was live-confirmed NOT the pink source
-             * (user: pink persists with sky off), so the bisect reverts to full 4-plane
-             * rendering; the pink SPR-vs-NBG1 isolation is a dedicated follow-up build. */
-            { extern int p6_ghz_bg_planes; p6_ghz_bg_planes = 4; }
+            /* Task #326 STEP 3: GHZ gameplay = 2-plane (sky N0 + FG N1). With the
+             * sky char relocated to bank A1 (p6_ghz_fg_4bpp), the 2-plane cycle
+             * fetches both chars from bank A -> the SGL auto-allocator schedules
+             * them natively, no B1 drop, no pink flash at any framerate. The old
+             * planes=4 (B1 char, over-subscribed) is what flashed. GHZCutscene
+             * keeps its 4-plane multi-layer BG (still B1, 8bpp FG). */
+            { extern int p6_ghz_bg_planes;
+              p6_ghz_bg_planes = p6_ghz_fg_4bpp ? 2 : 4; }
             p6_vdp2_ghzcut_bg_frame(bg_sx);
         }
 #endif

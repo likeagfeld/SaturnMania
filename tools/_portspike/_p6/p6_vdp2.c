@@ -1452,6 +1452,15 @@ __attribute__((used)) int p6_w_bg_owns_disp = 0;
 #define P6_GHCBG_CHR_B1   0x25E60000u  /* B1: 4-bpp compact char (AIZ BG idle during GHZCut) */
 #define P6_GHCBG_MAP_B1   0x25E70000u  /* B1: NBG0 PND map window                            */
 #define P6_GHCBG_CEL_BASE 0x25E00000u  /* slPageNbg0 char base; charno 0x3000 reaches into B1 */
+/* Task #326 STEP 3: GHZ-GAMEPLAY sky char RELOCATED out of bank B1 into the freed
+ * bank A1 (0x25E20000). B1 is the non-standard bank SGL's slScrAutoDisp drops
+ * intermittently under motion (gotcha #7/#12) -> the pink flash. A1 is a standard
+ * NBG char bank the allocator schedules natively -> no drop, race-free at any fps.
+ * A1 is free ONLY when the FG is 4bpp (STEP 2 fills A0 only). The AGHFS.MAP asset
+ * bakes charno-base 0x1000 = (0x25E20000-0x25E00000)/0x20 so slPageNbg0's
+ * 0x25E00000 base + charno resolves into A1. The PND map DATA stays in B1
+ * (0x25E70000) -- map location is independent of char location (ST-058-R2). */
+#define P6_GHCBG_CHR_A1   0x25E20000u  /* A1: GHZ-gameplay sky char (STEP 3 relocate) */
 /* CRAM banks 4-7 (CRAM[64..127]). Third relocation, both prior slots MEASURED
  * occupied: PAL_BASE=32 stomped the Gunner HBHPAL block (Heavies claim
  * CRAM[512..1791] -- colno=(2+cid)*256 and their pixels index up to 255);
@@ -1490,7 +1499,11 @@ void p6_vdp2_ghzcut_bg_upload(const unsigned short *chr_cart, int chr_words,
                               const unsigned short *pal_cart, int pal_words,
                               const unsigned short *map_cart, int map_words)
 {
-    volatile Uint16 *chr  = (volatile Uint16 *)P6_GHCBG_CHR_B1;
+    /* Task #326 STEP 3: GHZ gameplay (p6_ghz_fg_4bpp=1) uploads the sky char to
+     * the freed bank A1; GHZCutscene (8bpp FG, A1 occupied) keeps B1. The AGHFS.MAP
+     * (A1) / AGHCBG.MAP (B1) charno bake matches the target automatically. */
+    volatile Uint16 *chr  = (volatile Uint16 *)(p6_ghz_fg_4bpp ? P6_GHCBG_CHR_A1
+                                                               : P6_GHCBG_CHR_B1);
     volatile Uint16 *map  = (volatile Uint16 *)P6_GHCBG_MAP_B1;
     volatile Uint16 *map2 = (volatile Uint16 *)P6_GHCBG_MAP2_B0;
     volatile Uint16 *map3 = (volatile Uint16 *)P6_GHCBG_MAP3_B0;
@@ -1547,6 +1560,10 @@ void p6_vdp2_ghzcut_bg_frame(int sx)
      * during hardware scroll; if GONE -> the sky N0 plane. */
     if (p6_ghz_bg_planes != 1) {
     slCharNbg0(COL_TYPE_16, CHAR_SIZE_2x2);
+    /* slPageNbg0 char base is always A0 (0x25E00000); the AGHFS.MAP (GHZ gameplay,
+     * charno-base 0x1000 -> A1) or AGHCBG.MAP (GHZCut, 0x3000 -> B1) picks the
+     * bank via the baked charno. Task #326 STEP 3: for GHZ gameplay the char now
+     * lives in bank A1 (uploaded there by p6_vdp2_ghzcut_bg_upload). */
     slPageNbg0((void *)P6_GHCBG_CEL_BASE, 0, PNB_2WORD);
     slPlaneNbg0(PL_SIZE_2x2);
     slMapNbg0((void *)P6_GHCBG_MAP_B1, (void *)P6_GHCBG_MAP_B1,
@@ -1591,9 +1608,20 @@ void p6_vdp2_ghzcut_bg_frame(int sx)
         slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0xEEEEEEEEu);
     } else if (p6_ghz_bg_planes == 2) {
         slScrAutoDisp(NBG0ON | NBG1ON | SPRON);
-        /* 2-plane cycle: N0-PN(B1 T0)+N0-char(B1 T1); N1-PN(B0 T0); N1-char x2(A0 T0,T1).
-         * All PN in T0 -> ST-058-R2 unrestricted -> no scanline starvation. */
-        slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0x04EEEEEEu);
+        if (p6_ghz_fg_4bpp) {
+            /* Task #326 STEP 3 (the pink-flash ROOT FIX): the GHZ sky N0 char now
+             * lives in bank A1 (0x25E20000), NOT B1 -- so the VRAM cycle fetches
+             * it from a STANDARD bank the SGL auto-allocator schedules natively
+             * (no intermittent B1 drop = no magenta transparent-key flash under
+             * motion). 2-plane cycle: A0 = N1-char (4bpp, 1 access); A1 = N0-char;
+             * B0 = N1-PN; B1 = N0-PN. All PN in T0 -> ST-058-R2 6.2 unrestricted;
+             * both chars in bank A -> no selection-limit starvation, no B1 race. */
+            slScrCycleSet(0x5FEEEEEEu, 0x4FEEEEEEu, 0x1FEEEEEEu, 0x0FEEEEEEu);
+        } else {
+            /* 2-plane cycle: N0-PN(B1 T0)+N0-char(B1 T1); N1-PN(B0 T0); N1-char x2(A0 T0,T1).
+             * All PN in T0 -> ST-058-R2 unrestricted -> no scanline starvation. */
+            slScrCycleSet(0x55FEEEEEu, 0xFFFEEEEEu, 0x1FEEEEEEu, 0x04EEEEEEu);
+        }
     } else {
     slScrAutoDisp(NBG0ON | NBG1ON | NBG2ON | NBG3ON | SPRON);
     /* Manual cycle AFTER auto-disp (the proven AIZ 4-plane pattern verbatim --
@@ -2055,10 +2083,92 @@ static unsigned short p6_fg_gettile(int x, int y, int *hf)
     return e;
 }
 
+/* ============================================================================
+ * Task #326 STEP 2: GHZ FOREGROUND 8bpp -> 4bpp. Halving the FG char (256KB
+ * -> 128KB) fills VRAM bank A0 only and FREES bank A1, into which STEP 3
+ * relocates the GHZ sky BG char (out of B1, killing the pink-flash at source).
+ *
+ * GHZ-ONLY: p6_ghz_fg_4bpp is armed by the GHZ load path (p6_io_main). Title/
+ * AIZ/GHZCutscene leave it 0, so p6_vdp2_upload_cells (8bpp), p6_pnd_for
+ * (charno*8, bank 0), and p6_present_config (COL_TYPE_256) are byte-unchanged
+ * for those flavors -- the shared p6_vdp2.o behaves identically off the GHZ path.
+ *
+ * The 4bpp char (AGHFG.CHR, 1024 tiles x 128 B, raw tile order) is uploaded to
+ * A0 by p6_vdp2_upload_ghzfg_4bpp. Per-tile CRAM bank index (AGHFG.BNK) drives
+ * the PND palette field (P6_GHZFG_PAL_BASE + bank). The 30 CRAM banks live at
+ * CRAM[512..991] (P6_GHZFG_PAL_BASE=32 in 16-entry units), rebuilt from the LIVE
+ * cycled stage palette each present via AGHFG.CMP so the GHZ water RotatePalette
+ * (GHZSetup.c:21-24,101-102, indices 181-184/197-200) animates identically to
+ * the 8bpp path. This mirrors the proven AIZ 4bpp model (p6_vdp2_aiz_bg_upload).
+ * MUST equal tools/build_ghz_fg_4bpp.py PAL_BASE=32. ST-058-R2 p.73 (charno unit
+ * 0x20 B: a 4bpp 16x16 tile = 4 cells x 32 B = 128 B = 4 charno units, so
+ * charno = tile*4, was tile*8 for 8bpp); ST-238-R1 slCharNbg1 COL_TYPE_16. */
+#define P6_GHZFG_PAL_BASE   32          /* CRAM[512..], 16-entry bank units */
+#define P6_GHZFG_NBANK_MAX  32
+__attribute__((used)) int p6_ghz_fg_4bpp = 0;   /* armed by the GHZ load path */
+/* Own copies in .bss (NOT pointers into the transient LWRAM load window): the
+ * FG present-compute runs on the SLAVE SH-2 and reads these every frame; a copy
+ * in WRAM keeps them valid after the load scratch is reused and coherent for the
+ * slave (written once by the master upload, before any slave present is forked). */
+static unsigned char s_ghzfg_bnk[1024];         /* AGHFG.BNK: per-tile bank 0..N-1 */
+static int   s_ghzfg_nbank = 0;                 /* AGHFG.CMP: bank count (N) */
+static int   s_ghzfg_bnk_valid = 0;             /* 1 after the BNK copy */
+static unsigned char s_ghzfg_cmp[P6_GHZFG_NBANK_MAX][16]; /* bank composition: source pal idx/slot */
+
+/* Upload the 4bpp GHZ FG char (128 KB) to VRAM bank A0. Two 4-bit pixels per
+ * byte (hi nibble = LEFT pixel, matches build_ghz_fg_4bpp.encode_tile_4bpp);
+ * 16-bit stores (VDP2 VRAM is 16/32-bit only). Also latch the per-tile bank
+ * table + bank composition for the PND palette field and the per-frame CRAM
+ * rebuild. chr_words = 65536 (128 KB / 2); bnk = 1024 bytes; cmp = [N][N*16]. */
+void p6_vdp2_upload_ghzfg_4bpp(const unsigned short *chr_cart, int chr_words,
+                               const unsigned char *bnk_cart, int bnk_bytes,
+                               const unsigned char *cmp_cart, int cmp_bytes)
+{
+    volatile Uint16 *cel = (volatile Uint16 *)P6_VDP2_CEL;
+    int i, b, s;
+    if (chr_words > 65536) chr_words = 65536;  /* 1024 * 64 words = A0 only */
+    for (i = 0; i < chr_words; ++i) cel[i] = chr_cart[i];
+    if (bnk_bytes > 1024) bnk_bytes = 1024;
+    for (i = 0; i < bnk_bytes; ++i) s_ghzfg_bnk[i] = bnk_cart[i];
+    s_ghzfg_bnk_valid = 1;
+    s_ghzfg_nbank = cmp_cart[0];
+    if (s_ghzfg_nbank > P6_GHZFG_NBANK_MAX) s_ghzfg_nbank = P6_GHZFG_NBANK_MAX;
+    for (b = 0; b < s_ghzfg_nbank; ++b)
+        for (s = 0; s < 16; ++s)
+            s_ghzfg_cmp[b][s] = cmp_cart[1 + b * 16 + s];
+    (void)cmp_bytes;
+    p6_ghz_fg_4bpp = 1;
+    /* Force the next present to rebuild the PND map with 4bpp charno (charno*4 +
+     * palette bank), regardless of camera motion -- any pre-arm map built with
+     * 8bpp charno*8 is now wrong for the 4bpp char in A0. */
+    p6_vdp2_present_dirty = 1;
+    /* Coherency (ST-202: no bus snooping): the FG present-compute runs on the
+     * SLAVE SH-2 and reads these two flags + the s_ghzfg_* tables directly from
+     * WRAM. Mirror the two flags AND flush this function's cache so the slave
+     * (which purges its own cache at fork-join) reads the armed state, the copied
+     * BNK/CMP tables, and the uploaded char consistently -- not a stale master-
+     * cache 0. slCashPurge writes back the master's dirty lines to WRAM. */
+    *(volatile int *)((unsigned int)&p6_ghz_fg_4bpp        | 0x20000000u) = 1;
+    *(volatile int *)((unsigned int)&p6_vdp2_present_dirty | 0x20000000u) = 1;
+    slCashPurge();
+}
+
 /* PND word for a layout tile e (0xFFFF = empty -> blank char). Same packing as
- * the present map build (p6_vdp2.c: fy bit11->31, fx bit10->30, charno=tile*8). */
+ * the present map build (fy bit11->31, fx bit10->30). 8bpp (default, Title/AIZ):
+ * charno = tile*8, palette bank 0. GHZ 4bpp: charno = tile*4, palette bank =
+ * P6_GHZFG_PAL_BASE + AGHFG.BNK[tile] in PND high-word bits 22-16 (ST-058-R2:
+ * 2-word PND palette field). Empty -> blank char (tile 0, its own bank). */
 static unsigned long p6_pnd_for(unsigned short e, int blank)
 {
+    if (p6_ghz_fg_4bpp) {
+        unsigned short t = (e == 0xFFFF) ? (unsigned short)blank : (unsigned short)(e & 0x3FF);
+        unsigned long palbank = (unsigned long)(P6_GHZFG_PAL_BASE
+                              + (s_ghzfg_bnk_valid ? s_ghzfg_bnk[t] : 0)) & 0x7F;
+        unsigned long fl = (e == 0xFFFF) ? 0u
+                         : (((unsigned long)(e & 0x800) << 20)
+                          | ((unsigned long)(e & 0x400) << 20));
+        return fl | (palbank << 16) | ((unsigned long)t * 4u);
+    }
     if (e == 0xFFFF)
         return (unsigned long)blank * 8u;
     return ((unsigned long)(e & 0x800) << 20)
@@ -2199,10 +2309,27 @@ static void p6_present_compute(int layer, int scroll_x, int scroll_y,
     *out_pndhash = s_present_pndhash;
     *out_nblank  = s_present_nblank;
 
-    /* 3) CRAM bank 0 from the GHZ active palette (per-frame: the palette may
-     *    cycle; only 256 writes, ~0 vbl -- engine RGB565 -> Saturn BGR555).
+    /* 3) CRAM from the GHZ active palette (per-frame: the palette may cycle).
+     *    8bpp (Title/AIZ): 256 entries into bank 0. GHZ 4bpp (#326): rebuild the
+     *    30 custom 16-color banks at CRAM[512..991] from the LIVE cycled palette
+     *    via the loaded AGHFG.CMP composition -- CRAM[512 + b*16 + s] =
+     *    saturn565(pal565[CMP[b][s]]); slot 0 of every bank stays transparent
+     *    (source idx 0). This keeps the GHZ water RotatePalette live (GHZSetup.c
+     *    :21-24,101-102). CRAM[256..511] (VDP1 sprite bank1) is NOT touched.
      *    p6_dbg_cram_off (poke-able) skips this to isolate a palette-write seam. */
-    for (c = 0; !p6_dbg_cram_off && c < 256; ++c) {
+    if (!p6_dbg_cram_off && p6_ghz_fg_4bpp) {
+        int b, s;
+        for (b = 0; b < s_ghzfg_nbank; ++b) {
+            volatile Uint16 *bank = cram + (P6_GHZFG_PAL_BASE + b) * 16;
+            for (s = 0; s < 16; ++s) {
+                unsigned short v = pal565[s_ghzfg_cmp[b][s]];
+                unsigned short r5 = (v >> 11) & 0x1F;
+                unsigned short g5 = ((v >> 5) & 0x3F) >> 1;
+                unsigned short b5 = v & 0x1F;
+                bank[s] = (Uint16)(0x8000 | (b5 << 10) | (g5 << 5) | r5);
+            }
+        }
+    } else for (c = 0; !p6_dbg_cram_off && c < 256; ++c) {
         unsigned short v = pal565[c];
         unsigned short r5 = (v >> 11) & 0x1F;
         unsigned short g5 = ((v >> 5) & 0x3F) >> 1;
@@ -2225,8 +2352,10 @@ static void p6_present_compute(int layer, int scroll_x, int scroll_y,
 static void p6_present_config(int scroll_x, int scroll_y)
 {
     /* 5) NBG1 config + camera-anchored scroll + display (same SGL sequence
-     *    as the proven Title present part 4). */
-    slCharNbg1(COL_TYPE_256, CHAR_SIZE_2x2);
+     *    as the proven Title present part 4). GHZ 4bpp (#326): COL_TYPE_16 (the
+     *    char is 4bpp/128KB in A0, per-tile palette bank in the PND); Title/AIZ
+     *    keep COL_TYPE_256 (8bpp). ST-238-R1 slCharNbg1. */
+    slCharNbg1(p6_ghz_fg_4bpp ? COL_TYPE_16 : COL_TYPE_256, CHAR_SIZE_2x2);
     slPageNbg1((void *)P6_VDP2_CEL, 0, PNB_2WORD);
     slPlaneNbg1(PL_SIZE_2x2);
     slMapNbg1((void *)P6_VDP2_MAP, (void *)P6_VDP2_MAP,

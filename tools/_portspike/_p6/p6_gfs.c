@@ -56,7 +56,14 @@ extern int p6_w_io_nopen_hw; // high-water of p6_w_io_nopen
 
 // ---- GFS state (BSS) --------------------------------------------------------
 #define P6_GFS_OPEN_MAX  2                 // max simultaneously-open GFS handles (nested .bin+GIF opens need 2)
-#define P6_GFS_MAX_DIR   16                // root-dir entries the dirtbl can hold (disc has ~7)
+// Task #326: bumped 16->22. AGHFG.* (4bpp GHZ FG char) + AGHFS.* (A1-relocated
+// GHZ sky char) are GFS-name-loaded at root indices ~5-10, pushing the AIZBG.*
+// GFS-loaded block to indices 13-21 (AIZBG.SI2 at 21). The dirtbl must cover
+// >=22 entries so GFS_NameToId resolves every GFS-loaded asset (AGHFG/AGHFS/AGHCBG
+// + AIZBG). +6 entries over the old 16 = ~200 B .bss (GfsDirName ~= CdcFile +
+// 12-char fname). WRAM-H margin OK (the #251 64KB GFS windows are in the cart,
+// not .bss; _end 0x060c4640 < ceiling 0x060c8000 measured after the bump).
+#define P6_GFS_MAX_DIR   22                // root-dir entries the dirtbl can hold
 #define P6_GFS_SECTOR    2048              // CD-ROM Mode 1 user-data bytes per sector
 // #251 load-time: 32 sectors = 64 KB read-ahead window (was 2 = 4 KB). MEASURED
 // root cause -- the emulated CD charges ~135 ms of access latency PER GFS_Fread
