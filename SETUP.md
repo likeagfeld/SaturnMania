@@ -34,7 +34,11 @@ Only the three hand-authored Saturn ISO volume-descriptor text files
 - **Windows 11** with **PowerShell 7+** (`pwsh`).
 - **Docker Desktop** — the Saturn cross-compile runs in a small Debian image
   that wraps the bundled `sh-none-elf` GCC 8.2.0 toolchain (see `Dockerfile`).
-- **Python 3.10+** on `PATH` (asset extraction + converters).
+- **Python 3.10+** on `PATH` (asset extraction + converters), with
+  **numpy** and **Pillow** installed (`pip install numpy pillow`) -- most
+  `tools/build_*.py` converters import both.
+- **ffmpeg** on `PATH` -- required by `ogv_to_cpk.py` (Cinepak intro) and
+  `build_cdda.py` (CD-DA track prep).
 - **Mednafen 1.32.1** (for running/QA; install via WinGet:
   `winget install MednafenTeam.Mednafen`) plus your own Saturn BIOS placed where
   Mednafen expects it (`.mednafen/firmware/` — `sega_101.bin` /
@@ -61,6 +65,15 @@ Only the three hand-authored Saturn ISO volume-descriptor text files
    ```
    mednafen game.cue
    ```
+
+**Pre-build requirement (code builds):** whenever a header under the decomp
+include tree's sources changes (or on a fresh clone before the first Docker
+build), regenerate the include tree first:
+```
+python tools/_portspike/_p67d_sizing/build_include_tree.py
+```
+The Docker make consumes the generated tree; building against a stale one
+produces confusing mismatches between edited headers and compiled output.
 
 ---
 
@@ -93,13 +106,13 @@ that hasn't been verified.
 | `HUD.SP2/.MET`, `TITLCARD.SP2/.MET`, entity atlases (`RING`, `ITEMBOX`, `SPRING`, `SIGNPOST`, `SPIKES`, `MOTOBUG`, `BUZZ`, `CHOPPER`, `CRABMEAT`, `BATBRAIN`, `NEWTRON`, `PLATFORM`, `SPIKELOG`, `BRIDGE`) | `build_entity_atlas.py` |
 | `*SFX.PCM` | `convert_audio.py` |
 | `GHZ*SURF.BIN` (collision/heightmap) | `build_collision.py`, `build_heightmap.py` |
-| `GHZ*FG.CEL/.PAL/.PAT/.TMP` (foreground cells) | `convert_vdp2.py`, `convert_vdp2_cells8.py`, `convert_vdp2_tilemap.py` |
+| `GHZ*FG.CEL/.PAL/.PAT/.TMP` (FG streaming tilemap cells) | `convert_stream.py` (Scene1 `--layers 3,4`; Scene2 `--layers 4,5` -- layer indices are per-scene) |
 | `GHZ*SKY.DAT/.PAL`, `CLOUDS.DAT/.PAL` | `build_clouds_bg.py` |
 | `TITLE.DAT/.PAL`, `TITLE3D.DAT/.PAL/.ATL`, `ISLAND.DAT/.PAL` | `build_title3d_atlas.py`, `build_island_bg.py`, `build_title_island_bg.py`, `extract_title_island.py` |
 | `TSONIC.ATL` | `build_titlesonic_atlas.py` |
 | `ELECTRA.ATL` | `build_electricity_atlas.py` |
 | `LOGOS.ATL`, `MLOGO.SPR` | `build_logos_atlas.py` |
-| `INTRO.CPK/.BIN` (Cinepak intro) | `convert_stream.py` |
+| `INTRO.CPK/.BIN` (Cinepak intro) | `ogv_to_cpk.py` (requires `ffmpeg`; re-encode is ffmpeg-version-dependent, so output is functional but not byte-stable) |
 | `GHZSCN1.BIN`, `GHZ1SPWN.BIN` | copied / `extract_ghz_spawn.py` (done by `build.bat`) |
 
 ---
