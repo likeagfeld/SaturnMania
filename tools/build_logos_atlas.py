@@ -146,7 +146,7 @@ def main():
     sheet = load_sheet(args.sprite_dir, sheets[0])
     print(f"[+] Sheet {sheets[0]!r}: {sheet.shape[1]}x{sheet.shape[0]} RGBA")
 
-    sid, sx, sy, w, h, px, py, dur = chosen["frames"][0]
+    sid, sx, sy, w, h, px, py, dur, *_uc = chosen["frames"][0]
     print(f"[+] Frame: src=({sx},{sy},{w},{h}) pivot=({px},{py}) dur={dur}")
 
     crop = sheet[sy:sy + h, sx:sx + w]

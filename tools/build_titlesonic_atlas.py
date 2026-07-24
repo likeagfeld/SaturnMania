@@ -207,7 +207,7 @@ def main():
     # ---- Pass 1: collect opaque RGB pixels across ALL anims' frames
     opaque_rgb = []
     for a in selected_anims:
-        for (sid, sx, sy, w, h, px, py, dur) in a["frames"]:
+        for (sid, sx, sy, w, h, px, py, dur, *_uc) in a["frames"]:
             crop = sheet[sy:sy+h, sx:sx+w]
             mask = crop[..., 3] > 0
             opaque_rgb.append(crop[mask][..., :3])
@@ -233,7 +233,7 @@ def main():
         anim_loop_index = a.get("loop", 0) if a.get("loop") is not None else 0
         anim_total_dur = 0
 
-        for fidx, (sid, sx, sy, w, h, px, py, dur) in enumerate(a["frames"]):
+        for fidx, (sid, sx, sy, w, h, px, py, dur, *_uc) in enumerate(a["frames"]):
             crop = sheet[sy:sy+h, sx:sx+w]
             rgb  = crop[..., :3].astype(np.float32)
             d2 = np.sum((rgb[..., None, :] - pal_rgb_f[None, None, 1:, :])**2, axis=3)

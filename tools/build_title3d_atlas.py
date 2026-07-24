@@ -159,7 +159,7 @@ def main():
     # ---- Pass 1: collect opaque RGB pixels across ALL anims' frames
     opaque_rgb = []
     for a in anims:
-        for (sid, sx, sy, w, h, px, py, dur) in a["frames"]:
+        for (sid, sx, sy, w, h, px, py, dur, *_uc) in a["frames"]:
             if w == 0 or h == 0:
                 continue
             crop = sheet[sy:sy+h, sx:sx+w]
@@ -189,7 +189,7 @@ def main():
         anim_loop_index = a.get("loop", 0) if a.get("loop") is not None else 0
         anim_total_dur = 0
 
-        for fidx, (sid, sx, sy, w, h, px, py, dur) in enumerate(a["frames"]):
+        for fidx, (sid, sx, sy, w, h, px, py, dur, *_uc) in enumerate(a["frames"]):
             if w == 0 or h == 0:
                 # Degenerate placeholder frame — emit zero-sized record.
                 all_frame_records.append((0, 0, px, py, dur, len(pool)))

@@ -173,7 +173,7 @@ def main():
             print(f"    [!] keyframe index {kfi} >= frame count {len(arc['frames'])}, skip")
             continue
         f = arc["frames"][kfi]
-        sheet_id, sx, sy, w, h, px, py, dur = f
+        sheet_id, sx, sy, w, h, px, py, dur, *_uc = f
         if w == 0 or h == 0:
             print(f"    [!] keyframe {kfi} degenerate w={w} h={h}, skip")
             continue
@@ -185,7 +185,7 @@ def main():
 
     # Pass 1: collect opaque RGB pixels across culled frames for palette build.
     opaque_rgb = []
-    for kfi, (sheet_id, sx, sy, w, h, px, py, dur) in selected:
+    for kfi, (sheet_id, sx, sy, w, h, px, py, dur, *_uc) in selected:
         crop = sheet_imgs[sheet_id][sy:sy+h, sx:sx+w]
         mask = crop[..., 3] > 0
         opaque_rgb.append(crop[mask][..., :3])
@@ -204,7 +204,7 @@ def main():
     frame_records = []
     total_dur = 0
 
-    for fi_local, (kfi, (sheet_id, sx, sy, w, h, px, py, dur)) in enumerate(selected):
+    for fi_local, (kfi, (sheet_id, sx, sy, w, h, px, py, dur, *_uc)) in enumerate(selected):
         crop = sheet_imgs[sheet_id][sy:sy+h, sx:sx+w]
         rgb  = crop[..., :3].astype(np.float32)
         d2 = np.sum((rgb[..., None, :] - pal_rgb_f[None, None, 1:, :])**2, axis=3)
