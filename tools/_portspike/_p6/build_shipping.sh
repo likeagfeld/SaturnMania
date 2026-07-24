@@ -239,7 +239,12 @@ cd /work
 # -- rm the flavor-sensitive intermediates so a knob switch can never reuse the
 # wrong pool size / a stale p6_vdp1.o (jo-pool-stale-core-o-gotcha + the W12b
 # hybrid-image rule).
-rm -f src/main.o jo-engine/jo_engine/core.o game.elf game.map \
+# #243 step-2 (2026-07-23): + src/rsdk/storage.o -- it is flavor-sensitive too
+# (storage.c:777 P6_FRONTEND_LOGOS block references p6_w_gfs_bytes, defined only
+# in the front-end p6_gfs.c). MEASURED: a chain build followed by a plain build
+# reused the chain-flavored storage.o -> plain link "undefined reference to
+# p6_w_gfs_bytes" (the exact hybrid-image class this rm exists to prevent).
+rm -f src/main.o src/rsdk/storage.o jo-engine/jo_engine/core.o game.elf game.map \
       tools/_portspike/_p6/p6_vdp1.o tools/_portspike/_p6/p6_snd.o \
       tools/_portspike/_p6/p6_sfx.o \
       tools/_portspike/_p6/p6_perf.o

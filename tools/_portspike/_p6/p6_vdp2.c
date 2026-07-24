@@ -1496,15 +1496,27 @@ int p6_vdp2_bg_owns_disp = 0;
  * starvation). Set by the p6_frontend_frame caller from currentSceneFolder. Default 4
  * so GHZCutscene / any un-set caller keeps the full BG. */
 int p6_ghz_bg_planes = 4;
+__attribute__((used)) int p6_w_bg_owns_disp = 0;
+#endif
+
 /* PINK-FLASH ISOLATION knob (2026-07-21, poke-able diagnostic, default 0 = normal).
  * Poke to 1 via netmem to SKIP the GHZ present's per-frame 256-entry CRAM re-write
  * (p6_vdp2_present_ghz_camera step 3). That write runs in the compute phase (mid-
  * active-display, NOT vblank); if a palette-cycle value transitions mid-scan it can
  * paint a horizontal colour seam. If poking =1 removes the pink, the per-frame CRAM
  * re-write timing is the source (fix = move it to a vblank DMA). Zero-risk: skipping a
- * re-write of the SAME palette leaves CRAM at its last (correct) value. */
+ * re-write of the SAME palette leaves CRAM at its last (correct) value.
+ * #243 step-2 build fix (2026-07-23): MOVED out of the (P6_GHZCUT_BOOT||P6_AIZ_TEST)
+ * block above -- p6_present_compute's 4bpp-CRAM branch reads it in EVERY flavor, so
+ * the plain (no-flag) shipping build hit "p6_dbg_cram_off undeclared" (MEASURED,
+ * build_shipping.sh exit 1 at 97de23d -- pre-existing; chain flavors masked it, and
+ * the plain flavor had not been rebuilt since). Plain gets the constant-0 macro (the
+ * P6_BLIT_PALBLOCK pattern, p6_vdp1.c): ZERO plain .bss delta + GCC dead-codes the
+ * whole 4bpp branch there; the poke-able int exists only where the knob is usable. */
+#if defined(P6_GHZCUT_BOOT) || defined(P6_AIZ_TEST)
 __attribute__((used)) int p6_dbg_cram_off = 0;
-__attribute__((used)) int p6_w_bg_owns_disp = 0;
+#else
+#define p6_dbg_cram_off 0
 #endif
 
 #if defined(P6_GHZCUT_BOOT)
