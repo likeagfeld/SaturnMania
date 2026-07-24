@@ -4,6 +4,81 @@
 
 ---
 
+## -2. LATEST SESSION HANDOFF (2026-07-24) — R11 second seat online: pipeline turn-key, #243 closed, S3 landed, card-clobber fixed
+
+> New agent: this session ran on R11's machine (macOS, Apple Silicon — R11 now
+> has collaborator WRITE). Tree is COMMITTED + PUSHED through `1ce3b80`
+> (11 commits, f8ae52f..1ce3b80). Full narratives: docs/r11_assessment_2026-07-23.md
+> (architecture assessment) + docs/r11_pipeline_validation_2026-07-23.md
+> (converter invocation table — the SETUP.md consolidation map).
+>
+> **MEMORY RULE REQUEST (for this repo's agents):** there are now TWO dev seats.
+> The local `memory/` directory is invisible to the other seat — this session
+> had to reverse-engineer the #243 task-ledger meaning, the unattended
+> title-advance poke (never found — please commit it), and several binding
+> rules from doc citations. Going forward, persist any load-bearing memory
+> (task-ledger entries, poke addresses/values, binding rules, witness
+> conventions) into TRACKED files — docs/ or a committed memory index — not
+> only the local memory/ store. R11's seat commits its session state into
+> HANDOFF.md entries like this one.
+
+State (all measured; commit messages carry the full evidence):
+- **Asset pipeline is near-turn-key on a clean clone** (`d541c31`..`bcbc9ae`):
+  +299 maniafilelist paths (extraction 1352 -> 1651/1677), build_frame_dir.py
+  D:\ path fixed, build_collision.py NumPy>=2 fixed, convert_stream.py
+  per-scene --layers guard + atomic writes (GHZ Scene2 FG is layers 4,5 NOT
+  3,4), legacy .ATL 9-field parser fixed, Dockerfile pinned linux/amd64,
+  toolchain exec bits restored, SETUP.md corrected (Cinepak = ogv_to_cpk.py).
+  229/284 cd/ files regenerate byte-identical to the shipped disc. NOT
+  regenerable: GHZ[12]SURF.BIN (shipped copies predate the repo; tool output
+  differs; qa gates call it the retired OLD heightmap — confirm still loaded?),
+  M*.SPR/ELECTR[12].SHT legacy, GHZ[12]BOX/BUGS/SIGN/SPRG placement bins.
+- **EDSR texture-write gate** (`97de23d`): restage/evict VRAM writes were
+  racing the active raster (CEF=0 at 74% of vblanks) — bounded per-vblank
+  memoized gate; user-verified garble reduction. Witnesses p6_w_texw_waits/
+  timeout.
+- **#243 closed** (`07aeb7d`): remaining event-driven band inflates were
+  EXPLOS/ANIMALS (no FRDs) + TitleCard glyph cold-stage. Now: 11 FRDs staged,
+  DISPLAY resident. Live-verified: frd_active=11, resfill=1,675,276 exact,
+  d(sht_fetches)=0 during play. Plain flavor was BROKEN (didn't compile)
+  since the 4bpp work — fixed in `1413a42`.
+- **S3 landed** (`4b989fc`): plain pool now content-sized (eager prealloc +
+  direct content restage; R11's saturn-tools VDP1 encoding). boxpx
+  77,824 -> 7,504 live-verified; plain _end -3,584 B (ANIMPAK breach healed).
+  **KEY FINDING: the chain was ALREADY content-sized — the 33 ms chain wall
+  (#243's fps symptom) is NOT box overdraw.** Candidates: restage CPU writes
+  stalling the rasteriser, B-bus contention. Fingerprint: p6_w_texw_timeout
+  == waits (~100% timeout) on chain vs 0/0 on plain. This is now the top
+  open perf question.
+- **Title-card garble root-caused + fixed** (`1ce3b80`): 07aeb7d's store
+  growth put EXPLOS/ANIMALS tails + the resident DISPLAY copy inside the
+  AGHFG/AGHFS scratch window; the post-arm AGHFG load stomped them (proven
+  576/576 vs AGHFG.CHR on two mednafen savestates). Scratch loads now run at
+  the handoff seam pre-rebuild. LESSON (cost one failed iteration): the
+  GHZCutscene->GHZ handoff fires while currentSceneFolder still reads
+  "GHZCutscene" — never gate seam code on folder=="GHZ". New provenance
+  witness p6_w_ghzfg_site (1=seam/clean, 2=post-arm/stomps, 3=async/stomps).
+- **Flagged, unfixed:** (a) glyph cache + fill sprites live inside the
+  catch-all bucket's reserved jo box — any future >176-wide GHZ draw stomps
+  them; (b) frame-side AGHFS sky path is DEAD on the live chain
+  (s_ghcbg_loaded set by the cutscene leg) — may be masking the intended A1
+  sky relocation; (c) plain-flavor ungated .bss growth (see 1413a42 body);
+  (d) T4: AIZ fly-in runs Sonic/Tails banded (the #323 budget was invalidated
+  by later TSONIC/ELECTR staging — needs an M1b-safe title->AIZ store
+  reclaim).
+- **R11-seat tooling (macOS):** RetroArch + Beetle Saturn bench live
+  (retroarch-metal cask; qa_netmem/qa_trace/qa_parity_oracle run unmodified;
+  qa_ra_boot.ps1 is Windows-only — launch command in the assessment doc).
+  Mednafen savestates hash per-build (~/.mednafen/mcs/game.<hash>.mc0).
+  Witness addresses move every rebuild — always re-resolve from game.map.
+- **Queued next:** (1) unified RA tool — UDP live reads + UDP SAVE_STATE +
+  parse the RA state container (wraps the mednafen-format blob) so one run
+  answers WRAM and VRAM questions (likeagfeld endorsed by text 2026-07-24);
+  (2) glyph-slot-hash WRAM witness so VRAM corruption is oracle-visible;
+  (3) chain-wall root cause; (4) commit the title-advance poke address.
+
+---
+
 ## -1. LATEST SESSION HANDOFF (2026-07-20) — Water M1b reverted, whole-arc oracle triaged
 
 > New agent: the memory index (compacted 2026-07-20, now fully loads every
