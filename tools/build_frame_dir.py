@@ -66,10 +66,10 @@ import sys
 
 from PIL import Image
 
-MAIN = r"D:\sonicmaniasaturn"
-SPRITES = os.path.join(MAIN, "extracted", "Data", "Sprites")
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.normpath(os.path.join(HERE, ".."))
+MAIN = ROOT
+SPRITES = os.path.join(MAIN, "extracted", "Data", "Sprites")
 CD = os.path.join(ROOT, "cd")
 MANIFEST = os.path.join(HERE, "frame_dir_manifest.json")
 
