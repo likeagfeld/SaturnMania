@@ -737,6 +737,74 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
  * eviction victim when the cache is full and a new rect misses. */
 static int s_useclock = 0;
 
+/* =============================================================================
+ * VDP1 TEXTURE-WRITE SAFETY GATE (VDP1/VDP2 timing audit, 2026-07-23).
+ *
+ * LESSON SOURCE (r11's Saturn libs, read for this audit): saturn-vdp1
+ * (libs/saturn-vdp1/saturn/saturn_vdp1_saturn.c:296-310) spins on EDSR.CEF=1
+ * before ANY display-period VDP1 VRAM write -- "writes to slot N race VDP1's
+ * read of slot N" (the PROGRAM2.txt transfer-over boundary, historically
+ * visible from ~20+ commands). ST-013-R3: EDSR (0x05D00010, read-only) bit1
+ * CEF=1 == VDP1 reached the END command == idle until the next PTMR=2
+ * auto-draw retrigger, which only happens at a framebuffer change (vblank
+ * boundary) -- so CEF=1 once proves the WHOLE remaining vblank period safe.
+ *
+ * WHAT IS ALREADY SAFE HERE (no gate needed): the direct COMMAND lists are
+ * double-buffered (P6_DL_A/P6_DL_B below) -- p6_dl_end publishes a half only
+ * AFTER its END is in place, and the half being BUILT is never the half the
+ * vblank trampoline (p6_vdp2.c p6_fg_vblank) hands VDP1; the build always
+ * starts after slSynch, i.e. after the swap retargeted VDP1 at the other
+ * half. What was NOT safe: the TEXTURE side. An LRU evict re-DMA
+ * (p6_pool_for -> jo_sprite_replace, measured 6.10 evicts/frame at settled
+ * GHZ) or a content restage (p6_title_restage_content's direct pack, up to
+ * ~17/frame at chain hot beats) overwrites a jo_id's VRAM DURING active
+ * display while the DISPLAYED command list -- still being rasterised:
+ * EDSR.CEF=0 at 74% of vblanks, p6_w_perf_v1_busyvbl -- can reference that
+ * same jo_id: VDP1 fetches half-old-half-new texels. This is the GPU-side
+ * read race that remained open after the #311/#312 source-buffer hardening
+ * (slDMAWait covers the s_stage SOURCE only) and the M1b capacity fixes
+ * (intra-frame reuse only): the GL1 glyph-cache note (below, "non-
+ * deterministic magenta garble") measured exactly this class.
+ *
+ * MECHANISM: bounded CEF spin, MEMOISED per vblank period on the true-60Hz
+ * p6_perf_vbl_count (p6_perf.c ISR) so the spin runs at most once per vblank
+ * period, never per restage -- an unmemoised spin would serialise the CPU
+ * behind the #243 chain draw wall (33 ms command list vs 5 ms plain,
+ * HANDOFF 2026-07-20). BOUNDED fall-through: at that wall CEF can
+ * legitimately hold 0 for the whole frame; after the bound we write anyway
+ * (exactly the pre-gate behaviour) but COUNT it (p6_w_texw_timeout) instead
+ * of tearing silently. Bound 20000 spins ~= 1/10 of the proven 200000 ~=
+ * 2-frame swap-wait calibration (p6_io_main.cpp:10191) ~= ~3 ms cap. #243's
+ * content-sized draws shrink the wall and turn this into the rarely-spinning
+ * guard the lobby lib measured ("typically VDP1 finishes well before game
+ * logic does") -- p6_w_texw_timeout trending to 0 is a free #243 witness.
+ * ========================================================================== */
+extern volatile unsigned int p6_perf_vbl_count;  /* p6_perf.c, true 60 Hz vblank tally */
+__attribute__((used)) int p6_w_texw_waits   = 0; /* gate entries with CEF=0 (spin ran) */
+__attribute__((used)) int p6_w_texw_timeout = 0; /* spins that hit the bound, CEF still 0 */
+static unsigned int s_texw_safe_vbl = 0;         /* (vbl_count+1) of the period proven idle; 0=never */
+static void p6_vdp1_texwrite_gate(void)
+{
+    int spins = 0;
+    if (s_texw_safe_vbl == p6_perf_vbl_count + 1u)
+        return;                       /* VDP1 already proven idle this vblank period */
+    if (!((*(volatile unsigned short *)0x05d00010u) & 0x0002u)) { /* EDSR.CEF (ST-013-R3) */
+        ++p6_w_texw_waits;
+        while (spins < 20000 &&
+               !((*(volatile unsigned short *)0x05d00010u) & 0x0002u))
+            ++spins;
+        if (spins >= 20000) {
+            ++p6_w_texw_timeout;      /* draw-wall case: write anyway (pre-gate
+                                       * behaviour), do NOT memoise -- a later
+                                       * write this period retries the gate. */
+            return;
+        }
+    }
+    /* Memoise against the CURRENT count (re-read: the spin may have crossed a
+     * vblank, in which case CEF=1 belongs to the new period -- still correct). */
+    s_texw_safe_vbl = p6_perf_vbl_count + 1u;
+}
+
 /* CP4c BLUE-SCREEN FIX: in the FRONT-END flavor the 192x96 box makes these two
  * buffers 18,432 B each (36 KB total) -- relocate them to a VERIFIED-FREE cart
  * window so .bss (and thus _end vs ANIMPAK) is unchanged. 0x226E0000 is past the
@@ -822,6 +890,11 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
      * dst rows are long-aligned: CGadr*8 is 8-byte aligned (jo TEXDEF) and pw is
      * mult-8. SH-2 is big-endian so a u32 load/store preserves the 4-pixel byte
      * order. TITLE/chain flavor only -- plain GHZ (p6_pool_for) byte-identical. */
+    /* Timing audit 2026-07-23: the "no shared staging buffer" claim above closed
+     * the SOURCE hazard only. This pack overwrites texels the DISPLAYED command
+     * list may still be rasterising (this slot's jo_id, drawn last frame) --
+     * gate on EDSR.CEF before touching VDP1 VRAM (see p6_vdp1_texwrite_gate). */
+    p6_vdp1_texwrite_gate();
     {
         unsigned int dstA = (unsigned int)JO_VDP1_VRAM
                           + (unsigned int)JO_MULT_BY_8(__jo_sprite_def[jo_id].adr);
@@ -1994,6 +2067,15 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
             ++p6_w_vdp1_drops;
             return -1;
         }
+        /* Timing audit 2026-07-23: the evict re-DMA overwrites a jo_id's VDP1
+         * VRAM that the DISPLAYED (previous frame's) command list may still be
+         * rasterising -- the GPU-side read race the slDMAWait above does NOT
+         * cover (it only protects the s_stage source). Wait for EDSR.CEF=1
+         * (bounded, memoised per vblank period) before starting the replace
+         * DMA, mirroring saturn_vdp1_saturn.c:296-310. The COLD-fill branch
+         * above needs no gate: jo_sprite_add writes fresh, never-referenced
+         * VRAM. */
+        p6_vdp1_texwrite_gate();
         jo_sprite_replace(&img, slots[victim].jo_id);
         ++p6_w_vdp1_evicts;
     }
