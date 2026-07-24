@@ -6649,6 +6649,19 @@ static void p6_layout_mount_for_scene(void)
 // (SaturnLayout_Mount) -- valid for a same-zone reload (GHZ1->GHZ1). A cross-
 // scene transition with a different layout (GHZ1->GHZ2) additionally needs the
 // new band store staged + re-mounted; that is F.2.
+// Task #326 STEP 2 knob: 1 = GHZ FG is 4bpp (skip the 8bpp upload; load AGHFG.*
+// one-shot). #243 step-2 build fix (2026-07-23): HOISTED out of the
+// P6_GHZCUT_BOOT declaration block below -- the guard at the p6_scene_load_and_arm
+// 8bpp-upload site (`!P6_GHZ_FG_4BPP`) compiles in EVERY flavor, so the plain
+// (no-flag) shipping build hit "P6_GHZ_FG_4BPP was not declared" (MEASURED,
+// build_shipping.sh exit 1 at 97de23d -- pre-existing, chain flavors masked it).
+// Value semantics unchanged: 1 only when P6_GHZCUT_BOOT (chain), 0 in plain =
+// plain GHZ keeps its 8bpp upload path, byte-behaviour identical.
+#if defined(P6_GHZCUT_BOOT)
+#define P6_GHZ_FG_4BPP 1
+#else
+#define P6_GHZ_FG_4BPP 0
+#endif
 #if defined(P6_GHZCUT_BOOT)
 // Task #309 #2b: the FG present backdrop color (defined in p6_vdp2.c). The
 // GHZCut load path (below) drives it to the Mania sky-blue for the cutscene and
@@ -6668,13 +6681,6 @@ extern "C" void p6_vdp2_upload_ghzfg_4bpp(const unsigned short *chr_cart, int ch
                                           const unsigned char *bnk_cart, int bnk_bytes,
                                           const unsigned char *cmp_cart, int cmp_bytes);
 extern "C" int  p6_ghz_fg_4bpp;
-// STEP 2 knob: 1 = GHZ FG is 4bpp (skip the 8bpp upload; load AGHFG.* one-shot).
-// Compiled in for the GHZCut/chain flavor (the only one that reaches GHZ gameplay).
-#if defined(P6_GHZCUT_BOOT)
-#define P6_GHZ_FG_4BPP 1
-#else
-#define P6_GHZ_FG_4BPP 0
-#endif
 __attribute__((used)) int32 p6_w_ghzfg_chr   = -1; // AGHFG.CHR bytes loaded (131072 expected)
 __attribute__((used)) int32 p6_w_ghzfg_armed = 0;  // 1 after p6_vdp2_upload_ghzfg_4bpp
 // #325 stage-1: master-side sky CRAM[64..127] re-assert, called after the slave
@@ -8766,13 +8772,28 @@ static void p6_frontend_frame(void)
                         SaturnFrameDir_Reset();
                         p6_vdp1_frd_detach_all();
                         p6_vdp1_frd_clear_store(); // #328: drop stale store->FRD map
-                        static const char *ghzFrdFiles[9] = {
+                        // #243 step-2 (2026-07-23, live-measured on 97de23d): EXPLOS +
+                        // ANIMALS were staged BANDED above (ghzShtFiles 9/10) but had NO
+                        // FRD and were NOT in promoteOrder -> at settled GHZ the RES
+                        // store held floor 0x1000 + 9 FRD blobs = 1,425,644 B EXACTLY
+                        // (p6_w_sht_resfill, live) with resmask=0 -> every Explosion/
+                        // Animals draw whose rect missed the bucket LRU ran the banded
+                        // miniz inflate (SaturnSheet.cpp FetchRect) DURING gameplay --
+                        // badnik pops + freed critters = the residual event-driven
+                        // d(p6_w_sht_fetches) after the #243 dangling-else fix. Pre-cut
+                        // FRDs (build_frame_dir.py, same tool/pattern as the 9): EXPLOS
+                        // 171,476 + ANIMALS 12,620 B -> RES fill 1,609,740 of 1,703,936;
+                        // the water flavor's WATER.FRD (+89,044, staged BELOW) still
+                        // fits at 1,698,784 (5,152 B slack). Stage failure falls back to
+                        // the promoteOrder MakeResident (extended below), bounds-checked.
+                        static const char *ghzFrdFiles[11] = {
                             "SONIC1.FRD", "SONIC2.FRD", "SONIC3.FRD",
                             "ITEMS.FRD",  "DISPLAY.FRD", "SHIELDS.FRD",
-                            "TAILS1.FRD", "GLOBJ.FRD",  "GHZOBJ.FRD"
+                            "TAILS1.FRD", "GLOBJ.FRD",  "GHZOBJ.FRD",
+                            "EXPLOS.FRD", "ANIMALS.FRD"
                         };
-                        int32 frdOk[9];
-                        for (int32 fi = 0; fi < 9; ++fi) {
+                        int32 frdOk[11];
+                        for (int32 fi = 0; fi < 11; ++fi) {
                             frdOk[fi] = p6_frd_stage_file(ghzFrdFiles[fi],
                                                           ghzShtPaths[fi]);
                             // DRAW-WALL FIX (task #328): route the FRD dispatch by
@@ -8827,8 +8848,14 @@ static void p6_frontend_frame(void)
                         // (Water M1b handle-slot remap REVERTED here -- see the BandReset
                         // NOTE above: the remap deterministically froze the GHZ handoff.)
 #endif
-                        static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
-                        for (int32 pi = 0; pi < 8; ++pi) {
+                        // #243 step-2: 8 -> 10 -- EXPLOS(9)/ANIMALS(10) join the
+                        // FRD-failure fallback (they previously had NO fallback at all:
+                        // not in this list AND no FRD = permanently banded). Last in
+                        // priority (event-driven draws, not every-frame); MakeResident
+                        // stays bounds-checked so a full store degrades to banded, never
+                        // corrupts (the M1b lesson: no store renumbering, append-only).
+                        static const int32 promoteOrder[10] = { 0,1,2,6,4,7,8,3,9,10 };
+                        for (int32 pi = 0; pi < 10; ++pi) {
                             int32 gs = ghzGslot[promoteOrder[pi]];
                             if (gs >= 0 && frdOk[promoteOrder[pi]] < 0)
                                 SaturnSheet_MakeResident(gs);
@@ -8846,10 +8873,30 @@ static void p6_frontend_frame(void)
                         // (:7683) seams both re-attach persisted handles; this
                         // seam was missing the same call. Front-end-chain only
                         // (inside P6_FRONTEND_MENU) -> plain GHZ byte-identical.
+                        // #243 step-2: DISPLAY residency ON TOP of its FRD. The TitleCard
+                        // glyph cache (p6_vdp1.c p6_tcglyph_slot) fetches its ~15 zone-card
+                        // glyph rects through s_fetchFn DIRECTLY -- it never consults the
+                        // FRD dispatch -- and its "from the RESIDENT DISPLAY.SHT (memcpy
+                        // fetch, no inflate)" contract went stale when this seam's FRD
+                        // staging replaced the resident promote (frdOk[4] >= 0 suppressed
+                        // MakeResident, live resmask=0): every glyph cold-stage at the GHZ
+                        // landing card ran a banded inflate exactly on the landing hot
+                        // beat. DISPLAY raw is 65,536 B: fits the no-water flavor
+                        // (1,609,740 -> 1,675,276 of 1,703,936); in the water flavor the
+                        // bounds check fails it back to banded-with-FRD = today's behavior
+                        // (documented degradation, no corruption). FetchRect's resident
+                        // fast path also absorbs any DISPLAY FRD-miss rect (non-.bin
+                        // rects, the C1 class). Cart-only writes -- no VDP1 VRAM site, so
+                        // the 97de23d texwrite gate contract is untouched.
+                        if (ghzGslot[4] >= 0)
+                            SaturnSheet_MakeResident(ghzGslot[4]);
                         p6_frd_attach_bound();
 #else
-                        static const int32 promoteOrder[8] = { 0,1,2,6,4,7,8,3 };
-                        for (int32 pi = 0; pi < 8; ++pi) {
+                        // #243 step-2: mirrored 8 -> 10 (see the P6_FRAMEDIR branch);
+                        // budget on this no-FRD A/B path: 1.34 MB promote + EXPLOS
+                        // 262,144 + ANIMALS 32,768 = 1.64 MB < 1,703,936 (fits).
+                        static const int32 promoteOrder[10] = { 0,1,2,6,4,7,8,3,9,10 };
+                        for (int32 pi = 0; pi < 10; ++pi) {
                             int32 gs = ghzGslot[promoteOrder[pi]];
                             if (gs >= 0)
                                 SaturnSheet_MakeResident(gs);

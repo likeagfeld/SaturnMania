@@ -169,6 +169,32 @@
    "pattern8_bytes": 87624,
    "frames_oob": 0,
    "raw_sheet_bytes": 131072
+  },
+  {
+   "sheet": "Global/Explosions.gif",
+   "file": "EXPLOS.FRD",
+   "bytes": 171476,
+   "frames": 97,
+   "frames_4bpp": 0,
+   "frames_8bpp": 97,
+   "luts": 0,
+   "pattern4_bytes": 0,
+   "pattern8_bytes": 169912,
+   "frames_oob": 0,
+   "raw_sheet_bytes": 262144
+  },
+  {
+   "sheet": "Global/Animals.gif",
+   "file": "ANIMALS.FRD",
+   "bytes": 12620,
+   "frames": 36,
+   "frames_4bpp": 0,
+   "frames_8bpp": 36,
+   "luts": 0,
+   "pattern4_bytes": 0,
+   "pattern8_bytes": 12032,
+   "frames_oob": 0,
+   "raw_sheet_bytes": 32768
   }
  ]
 }

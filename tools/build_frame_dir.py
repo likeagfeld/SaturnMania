@@ -94,6 +94,17 @@ SHEETS = [
     ("AIZ/Objects.gif", "AIZOBJ.FRD"),
     ("GHZCutscene/Objects.gif", "GHCOBJ.FRD"),
     ("Global/Water.gif", "WATER.FRD"),   # Water M1b (GHZ WATER_WATERLEVEL surface strip)
+    # #243 step-2 (2026-07-23): EXPLOS/ANIMALS were the two GHZ-landing sheets staged
+    # BANDED with no FRD and no MakeResident (live 97de23d GHZ: resmask=0, resfill =
+    # 0x1000 floor + the 9 FRD blobs EXACTLY) -> every Explosion/Animals draw whose
+    # rect missed the VDP1 bucket LRU re-inflated sheet bands mid-gameplay (badnik
+    # pops, freed critters). Pre-cut them like the other GHZ sheets; blob sizes
+    # (measured est == exact for all-8bpp): EXPLOS 171,476 + ANIMALS 12,620 B fit the
+    # GHZ-seam RES budget 1,425,644 -> 1,609,740 of 1,703,936 (water flavor: WATER.FRD
+    # +89,044 = 1,698,784, 5,152 B slack -- the NEXT FRD added here breaks the water
+    # flavor's stage; p6_w_frd_active + p6_w_water_frdrc witness it).
+    ("Global/Explosions.gif", "EXPLOS.FRD"),
+    ("Global/Animals.gif", "ANIMALS.FRD"),
 ]
 
 DIR_ENTRY = 16
