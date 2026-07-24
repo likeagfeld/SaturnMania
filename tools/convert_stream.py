@@ -18,10 +18,16 @@ Outputs (big-endian):
 Usage:
     python convert_stream.py extracted/Data/Stages/GHZ --scene Scene1.bin \
       --layers 3,4 --bank 1 --out ../cd/GHZFG
+
+NOTE: --layers indices are PER SCENE (position in that scene's layer table).
+GHZ Scene1.bin has FG Low/High at 3,4 but Scene2.bin has six layers with
+FG Low/High at 4,5. The tool refuses mismatched layer shapes (the telltale
+of selecting a BG layer) and prints the scene's layer table to pick from.
 """
 import argparse
 import os
 import struct
+import sys
 
 import numpy as np
 
@@ -84,6 +90,19 @@ def main():
     ref = layers[lis[0]]["layout"]
     ys, xs = ref.shape
 
+    # Layer indices are per scene (GHZ Scene1: FG at 3,4; Scene2: FG at 4,5).
+    # Selecting a BG layer by mistake shows up as a layout-shape mismatch;
+    # refuse it up front instead of writing garbage streaming data.
+    shapes = {li: layers[li]["layout"].shape for li in lis}
+    if len(set(shapes.values())) != 1:
+        print(f"ERROR: --layers {args.layers} selects layers with different "
+              f"layout shapes {shapes} in {args.scene}; layer indices are "
+              f"per-scene. Layer table:", file=sys.stderr)
+        for i, L in enumerate(layers):
+            print(f"  {i}: {L.get('name', '?'):<16} {L['layout'].shape}",
+                  file=sys.stderr)
+        sys.exit(2)
+
     blank = bytes(64)
     cells = {blank: 0}                       # cell bytes -> index
     cell_list = [blank]
@@ -117,14 +136,16 @@ def main():
     assert len(cell_list) <= 4096, f"{len(cell_list)} cells > CN_12BIT 4096"
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    with open(args.out + ".CEL", "wb") as f:
+    # Write via temp file + rename so a failure part-way never leaves a
+    # corrupt CEL/PAT/TMP/PAL on disk (a crashed run used to clobber them).
+    with open(args.out + ".CEL.tmpwrite", "wb") as f:
         for c in cell_list:
             f.write(c)
-    with open(args.out + ".PAT", "wb") as f:
+    with open(args.out + ".PAT.tmpwrite", "wb") as f:
         f.write(struct.pack(">H", len(pat_list)))
         for q in pat_list:
             f.write(struct.pack(">4H", *q))
-    with open(args.out + ".TMP", "wb") as f:
+    with open(args.out + ".TMP.tmpwrite", "wb") as f:
         f.write(struct.pack(">HH", xs, ys))
         f.write(tmap.tobytes())
     # jo_create_palette_from off-by-one: jo allocates user palettes at
@@ -134,8 +155,10 @@ def main():
     # PAL[V-1] -- the palette appears shifted DOWN by 1. Compensate by writing
     # the PAL pre-shifted UP by 1 (old[0]/transparent placeholder is dropped).
     pal555 = [to_rgb555(pal_rgb[i + 1]) if i < 255 else 0 for i in range(256)]
-    with open(args.out + ".PAL", "wb") as f:
+    with open(args.out + ".PAL.tmpwrite", "wb") as f:
         f.write(struct.pack(">256H", *pal555))
+    for ext in (".CEL", ".PAT", ".TMP", ".PAL"):
+        os.replace(args.out + ext + ".tmpwrite", args.out + ext)
 
     print(f"{args.out}: {len(cell_list)} cells ({len(cell_list)*64} B), "
           f"{len(pat_list)} tile patterns, map {xs}x{ys} ({xs*ys*2} B)")
@@ -145,8 +168,8 @@ def main():
     pal_q = pal_rgb
     # reconstruct tiles for a 40x14 test region via the streaming data
     ok = True
-    for ty in range(48, 60):
-        for tx in range(0, 40):
+    for ty in range(min(48, ys - 1), min(60, ys)):
+        for tx in range(0, min(40, xs)):
             pid = int(tmap[ty, tx])
             quad = pat_list[pid]
             # rebuild the 16x16 tile from its 4 cells
