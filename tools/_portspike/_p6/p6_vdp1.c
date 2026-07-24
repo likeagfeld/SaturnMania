@@ -195,10 +195,11 @@ __attribute__((used)) int p6_w_headfetch_ret      = -9;
  * so a BOUND sprite rect never drops -> the player no longer blinks. */
 __attribute__((used)) int p6_w_vdp1_drops = 0;
 /* Task #241: LRU evictions. A cache MISS on a full cache reuses the
- * least-recently-used slot's VRAM in place via jo_sprite_replace (sprites.c:143)
- * instead of dropping the blit. >0 proves the eviction path is live; the working
- * set per frame (~20 distinct rects) is far below P6_VDP1_NSLOTS, so LRU keeps
- * the hot frames resident and only cold rects churn. */
+ * least-recently-used slot's VRAM in place (S3: via the direct content
+ * restage; historically jo_sprite_replace, sprites.c:143) instead of dropping
+ * the blit. >0 proves the eviction path is live; the working set per frame
+ * (~20 distinct rects) is far below P6_VDP1_NSLOTS, so LRU keeps the hot
+ * frames resident and only cold rects churn. */
 __attribute__((used)) int p6_w_vdp1_evicts = 0;
 /* W14: jo_sprite_add_8bits_image failures (the silent no-drop exit). */
 __attribute__((used)) int p6_w_vdp1_joaddfail = 0;
@@ -285,12 +286,15 @@ __attribute__((used)) int p6_w_vdp1_lastdrop_h   = -2;
 /* STEP B (#246/#243): per-frame VDP1 workload, to localise the VDP1-draw
  * bottleneck (A2 showed VDP1 74% BUSY at compute-done). VDP1 rasterises every
  * pixel of a sprite's bbox (transparent texels are READ then skipped), so the
- * cost ~ total drawn pixel area. EVERY sprite is staged into a FIXED 64x64 box
- * (p6_vdp1.c:241 img.width/height = P6_SPR_MAXW/H) -> a 16x16 ring rasterises
- * 4096 px (16x overdraw). These accumulate in the blit arms + reset each frame
- * (p6_vdp1_perf_reset from p6_ghz_frame) so the capture holds the last frame's
- * totals. boxpx = the VDP1 fill workload AS DRAWN; contentpx = the ideal if
- * sprites were drawn at content size -> contentpx/boxpx = the overdraw waste. */
+ * cost ~ total drawn pixel area. S3 RED (massport plan): every sprite drew a
+ * FIXED 64x64 box -> a 16x16 ring rasterised 4096 px (16x overdraw), 77,824
+ * box-px vs ~8,333 content-px at settled GHZ. S3 GREEN (this session): the
+ * pool content-restages, so the drawn CMDSIZE is mult-8-w x even-h content --
+ * boxpx now sums that REAL rasterised area and should read ~contentpx + pad
+ * (<= ~12,000 at settled GHZ, the plan's target). These accumulate in the blit
+ * arms + reset each frame (p6_vdp1_perf_reset from p6_ghz_frame) so the
+ * capture holds the last frame's totals. boxpx = the VDP1 fill workload AS
+ * DRAWN; contentpx = the w*h ideal -> contentpx/boxpx = residual pad waste. */
 __attribute__((used)) int p6_w_vdp1_cmds      = 0; /* landed sprite cmds this frame */
 __attribute__((used)) int p6_w_vdp1_boxpx     = 0; /* sum of 64x64 per cmd (as drawn) */
 __attribute__((used)) int p6_w_vdp1_contentpx = 0; /* sum of w*h per cmd (ideal) */
@@ -727,11 +731,12 @@ static P6Bucket s_buckets[P6_NB];
 static int s_buckets_prealloc = 0;
 /* Defined below the s_stage/s_fetch cart-buffer declarations (they DMA through s_stage):
  *   p6_title_alloc_box     -- reserve one box-sized jo sprite (permanent slot VRAM).
- *   p6_title_restage_content -- DMA content packed at content-width stride + set the
- *                              slot's __jo_sprite_def CMDSIZE to content (the fill fix). */
+ *   p6_title_restage_content -- pack content at content-width stride + set the
+ *                              slot's __jo_sprite_def CMDSIZE to content (the fill
+ *                              fix). S3: takes ph (rows to emit; title passes h). */
 static int p6_title_alloc_box(int bw, int bh);
 static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
-                                    int srcStride, int w, int h);
+                                    int srcStride, int w, int h, int ph);
 #endif
 /* Task #241: monotonic LRU clock; the slot with the smallest lastUse is the
  * eviction victim when the cache is full and a new rect misses. */
@@ -835,8 +840,16 @@ static unsigned char *const s_fetch = (unsigned char *)0x226EA000u; /* 39,680 B 
 static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 18,432 B */
 static unsigned char *const s_fetch = (unsigned char *)0x226E4800u; /* 18,432 B */
 #else
-static unsigned char s_stage[P6_SPR_MAXW * P6_SPR_MAXH]; /* padded upload copy */
-static unsigned char s_fetch[P6_SPR_MAXW * P6_SPR_MAXH]; /* banded-miss fetch */
+/* S3 content-sized draws (this session): s_stage is GONE in the plain flavor.
+ * The old pool staged every rect into a 64x64 box copy here, then jo_sprite_add/
+ * jo_sprite_replace DMA'd the box; the pool now packs content DIRECTLY into the
+ * slot's reserved VDP1 VRAM (p6_title_restage_content, the #324 mechanism), so
+ * the only remaining zero-source is the one-time prealloc, which uses s_fetch.
+ * .bss -4,096 B (plain _end DOWN -- the 1413a42 plain ANIMPAK breach shrinks).
+ * +4 tail bytes on s_fetch: the restage shift-merge may read up to 3 bytes past
+ * the final row of a full-box banded rect (title flavors pad via their larger
+ * cart windows; plain pads explicitly). */
+static unsigned char s_fetch[P6_SPR_MAXW * P6_SPR_MAXH + 4]; /* banded-miss fetch */
 #endif
 
 #if defined(P6_FRONTEND_TITLE)
@@ -852,15 +865,28 @@ static int p6_title_alloc_box(int bw, int bh)
     img.width = bw; img.height = bh; img.data = s_stage;
     return jo_sprite_add_8bits_image(&img);
 }
+#endif /* P6_FRONTEND_TITLE (alloc_box; the restage below is ALL-FLAVOR since S3) */
 
 /* Restage a slot's jo sprite to draw at CONTENT size: pack the content rows at content-
- * width (mult-8) STRIDE into s_stage, DMA into the slot's reserved VRAM, and set the
- * slot's __jo_sprite_def {width=Hsize, height=Vsize, size=HVsize} to the content TEXDEF.
+ * width (mult-8) STRIDE into the slot's reserved VRAM, and set the slot's
+ * __jo_sprite_def {width=Hsize, height=Vsize, size=HVsize} to the content TEXDEF.
  * The slot's adr (CGadr, VRAM base) is unchanged -- the box reservation (boxw*boxh) holds
  * the smaller content (content fits its bucket). VDP1 then rasterises ONLY content rows/
- * cols (the 39% box padding is gone). Returns the mult-8 padded width (the drawn width). */
+ * cols (the 39% box padding is gone). Returns the mult-8 padded width (the drawn width).
+ *
+ * S3 (this session): hoisted out of the P6_FRONTEND_TITLE gate -- the plain-GHZ
+ * pool (p6_pool_for) now restages content the same way (the whole-game plan's
+ * S3 lever). New arg `ph` = the ROWS TO EMIT (>= h; rows [h, ph) are zeroed
+ * pad): the SGL center-place path (jo_sprite_draw3D, plain flavor) computes the
+ * quad top as center - Vsize/2, which lands a HALF-PIXEL off for odd content
+ * heights (a 1 px shear vs the even-64 box it replaces); padding h up to EVEN
+ * keeps the center math exact for one extra transparent row (~pw px raster).
+ * Every pre-S3 caller passes ph == h -> byte-identical behavior for the
+ * title/menu/chain bucket flavors. Encoding check vs the reference
+ * (saturn-tools saturn_vdp1.c:330-339 saturn_vdp1_encode_sprite):
+ * size = (width/8)<<8 | height == JO_MULT_BY_32(pw & 0x1f8) | ph for mult-8 pw. */
 static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
-                                    int srcStride, int w, int h)
+                                    int srcStride, int w, int h, int ph)
 {
     int pw = (w + 7) & ~7;          /* content width padded to the VDP1 mult-8 unit */
     int x, y;
@@ -934,18 +960,100 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
             for (; x < pw; x += 4)           /* mult-8 right pad transparent */
                 dst[x >> 2] = 0;
         }
+        for (y = h; y < ph; ++y) {           /* S3: even-height pad rows (plain) */
+            volatile unsigned int *dst =
+                (volatile unsigned int *)(dstA + (unsigned int)(y * pw));
+            for (x = 0; x < pw; x += 4)
+                dst[x >> 2] = 0;
+        }
     }
     __jo_sprite_def[jo_id].width  = (unsigned short)pw;
-    __jo_sprite_def[jo_id].height = (unsigned short)h;
+    __jo_sprite_def[jo_id].height = (unsigned short)ph;
     /* HVsize TEXDEF (== jo __internal_jo_sprite_add:212 / SGL ST-238-R1 TEXDEF macro):
      * the hardware CMDSIZE VDP1 rasterises. pw is mult-8 so (pw & 0x1f8) == pw (pw<=504). */
-    __jo_sprite_def[jo_id].size   = (unsigned short)(JO_MULT_BY_32(pw & 0x1f8) | (h & 0xff));
+    __jo_sprite_def[jo_id].size   = (unsigned short)(JO_MULT_BY_32(pw & 0x1f8) | (ph & 0xff));
 #if defined(P6_FRONTEND_MENU)
     p6_w_rst_cyc += (int)(unsigned short)(p6_perf_frt_get() - _rt0);
 #endif
     return pw;
 }
 
+#if !defined(P6_FRONTEND_TITLE)
+/* =============================================================================
+ * S3 -- PLAIN-POOL EAGER PREALLOC (content-sized VDP1 draws, step 3 of 3;
+ * steps 1-2 = 97de23d texwrite gate + 07aeb7d FRD residency).
+ *
+ * MEASURED RED (WHOLE_GAME_MASSPORT_PLAN.md S3, qa fill-px witnesses on the
+ * plain P6_ENGINE_SHIPPING build): every sprite drew its FIXED 64x64 slot box
+ * -- p6_w_vdp1_boxpx 77,824 vs p6_w_vdp1_contentpx ~8,333 per settled-GHZ
+ * frame = 9.3x overdraw; VDP1 ~74% busy at compute-done (the A2 measurement);
+ * fps banked 48.92, target >=58. VDP1 rasterises every texel of a command's
+ * CMDSIZE bbox (transparent texels are READ then skipped, ST-013-R3), so the
+ * fill cost == the drawn CMDSIZE area, NOT the slot's VRAM footprint.
+ *
+ * WHY prealloc: jo's VDP1 allocator (__jo_get_next_sprite_address,
+ * sprites.c:74) is APPEND-ONLY and derives the NEXT sprite's VRAM address
+ * from the PREVIOUS sprite's live __jo_sprite_def dims. Content-restaging
+ * SHRINKS a slot's TEXDEF, so any jo_sprite_add after the first restage would
+ * overlap the shrunk slot's box tail. Reserving all P6_VDP1_NSLOTS boxes up
+ * front (contiguous, one-time, at first bind) retires the allocator for good
+ * -- the exact #277 eager-prealloc rationale, now applied to the plain pool.
+ * INVARIANT (documented, #189-adjacent): no jo_sprite_add may run after this
+ * prealloc in pool flavors. Runtime-verified for the plain/P6SCENE builds:
+ * the hand-port TUs' jo_sprite_add sites (src/mania, src/rsdk atlases) never
+ * execute under P6_ENGINE_SHIPPING (p6_engine_boot_and_run path), and the
+ * front-end fill/glyph allocators are P6_FRONTEND_* / P6_GHZCUT-gated out.
+ *
+ * DESIGN DECISION vs the S3 spec's 16/32/48/64 bucket pools: the FRD census
+ * (all 15 cd/*.FRD directories, 1,637 frames) shows 96% of GHZ-working-set
+ * frames fit 64x64 and the settled-GHZ per-frame demand is ~20 distinct rects
+ * (< 40 slots, task #241 note) -- and since raster cost is CMDSIZE (content),
+ * NOT box size, size-bucketing the boxes buys ZERO fill-px beyond the content
+ * restage; it only re-carves VRAM (not scarce here) at the price of the M1b
+ * capacity-tuning risk the chain paid three re-carves for. So: KEEP the
+ * uniform 40 x 64x64 slot geometry + rect-keyed LRU, and draw content-sized.
+ * Residual overdraw = the hardware mult-8 width pad + odd-height pad row only.
+ * OVERSIZE EXCEPTION (unchanged, pre-existing): frames >64 in either dim
+ * (EXPLOS 54x65 big-explosion class, GHZOBJ 64x144, DISPLAY wide labels
+ * 108-119 px, SHIELDS 68-90 px wides) drop today (p6_w_vdp1_drops) and keep
+ * dropping -- fixing them needs bigger boxes or multi-part splits, a separate
+ * increment.
+ *
+ * VDP1 VRAM MAP (plain, after this change -- unchanged footprint): jo user
+ * area base -> 40 slots x 4,096 B = 163,840 B reserved contiguously at first
+ * bind; no other plain texture users; JO_VDP1_USER_AREA_SIZE 466,232 B ->
+ * 302,392 B margin. (Chain flavors keep their own bucket tables; this block
+ * compiles ONLY where p6_slot_for routes to p6_pool_for, i.e. plain + Logos.)
+ * ========================================================================== */
+static int s_pool_prealloc = 0;
+static int p6_pool_prealloc(void)
+{
+    jo_img_8bits img;
+    int i, n = P6_SPR_MAXW * P6_SPR_MAXH;
+    if (s_pool_prealloc) return 1;
+    /* One zeroed source serves every add (identical bytes -> the async
+     * jo_dma_copy overlap across consecutive adds is content-harmless); a
+     * bind-time slDMAWait closes even that window before s_fetch's first
+     * banded reuse. */
+    for (i = 0; i < n; ++i) s_fetch[i] = 0;
+    img.width  = P6_SPR_MAXW;
+    img.height = P6_SPR_MAXH;
+    img.data   = s_fetch;
+    for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
+        s_slots[i].jo_id = jo_sprite_add_8bits_image(&img);
+        if (s_slots[i].jo_id < 0)
+            ++p6_w_vdp1_joaddfail; /* W14 class; slot stays -1 -> pool drops it */
+        s_slots[i].sheet   = -1;
+        s_slots[i].sx = s_slots[i].sy = s_slots[i].w = s_slots[i].h = -1;
+        s_slots[i].lastUse = 0;
+    }
+    slDMAWait();
+    s_pool_prealloc = 1;
+    return 1;
+}
+#endif /* !P6_FRONTEND_TITLE (plain/Logos pool prealloc) */
+
+#if defined(P6_FRONTEND_TITLE)
 /* =============================================================================
  * TASK 2 (this session): RSDK::FillScreen on Saturn -- the title INTRO fade/flash.
  *
@@ -1715,16 +1823,15 @@ static int p6_title_ensure_prealloc(void); /* fwd: eager bucket VRAM reservation
         p6_title_ensure_prealloc();               \
     } while (0)
 #else
+/* S3 (this session): the plain/Logos first-bind init EAGER-RESERVES every pool
+ * slot's box VRAM (p6_pool_prealloc -- the #277 rationale, see its block) in
+ * place of the old lazy jo_id=-1 reset; prealloc also resets the slot keys.
+ * p6_w_vdp1_slots stays the distinct-staged-rect population counter (D5). */
 #define P6_VDP1_FIRST_BIND_INIT(pal) do {        \
-        int i;                                    \
         p6_pal_mirror(pal);                       \
         p6_w_vdp1_slots = 0;                      \
         s_useclock = 0;                           \
-        for (i = 0; i < P6_VDP1_NSLOTS; ++i) {    \
-            s_slots[i].jo_id   = -1;              \
-            s_slots[i].sheet   = -1;              \
-            s_slots[i].lastUse = 0;               \
-        }                                         \
+        p6_pool_prealloc();                       \
     } while (0)
 #endif
 
@@ -1879,21 +1986,23 @@ void p6_vdp1_frontend_pal_reset(void)
 }
 #endif
 
-/* Find (or upload) the VDP1 residency slot for a (sheet, rect).
+/* Find (or restage) the VDP1 residency slot for a (sheet, rect).
  *
  * Task #241 (was the "characters blink in and out" bug -- MEASURED: a saturated
- * 40-slot fill-once cache dropped 1,333 bound rects/run): the cache is now LRU,
- * not fill-once. A HIT touches the slot's LRU stamp. A MISS stages the rect into
- * a FIXED P6_SPR_MAXW x P6_SPR_MAXH (64x64) box (content top-left, transparent
- * pad) and either (a) cold-fills a new jo sprite while the cache is below
- * capacity, or (b) EVICTS the least-recently-used slot and overwrites its VDP1
- * VRAM in place via jo_sprite_replace (sprites.c:143 -- which requires identical
- * dimensions, hence the fixed 64x64 slot). A BOUND rect therefore ALWAYS gets a
- * slot; p6_w_vdp1_drops now only fires on an oversize frame (>64x64) or a banded-
- * fetch failure. The per-frame working set (~20 distinct rects) is far below
- * P6_VDP1_NSLOTS, so the player's hot frames stay resident and only cold rects
- * churn through the victim slot. jo_sprite_add still runs at most NSLOTS times
- * total (cold-fill only), so the #189 sprite-table overflow class cannot recur. */
+ * 40-slot fill-once cache dropped 1,333 bound rects/run): the cache is LRU,
+ * not fill-once. A HIT touches the slot's LRU stamp. A MISS picks a victim --
+ * cold sequential fill while below capacity, else the least-recently-used slot
+ * -- and CONTENT-restages it (S3, this session): the rect is packed at its
+ * mult-8 stride directly into the slot's pre-reserved P6_SPR_MAXW x
+ * P6_SPR_MAXH VRAM box and the slot's TEXDEF shrinks to content, so VDP1
+ * rasterises w(pad8) x h(pad-even) instead of the 64x64 box (the massport-plan
+ * S3 RED 77,824 box-px/frame). jo_sprite_replace + the box stage copy are
+ * GONE from this path; jo_sprite_add runs exactly NSLOTS times, at prealloc
+ * (#189 overflow class structurally closed). A BOUND rect always gets a slot;
+ * p6_w_vdp1_drops still only fires on an oversize frame (>64x64, the
+ * documented pre-existing exception class) or a banded-fetch failure. The
+ * per-frame working set (~20 distinct rects) is far below P6_VDP1_NSLOTS, so
+ * the player's hot frames stay resident and only cold rects churn. */
 /* CP5b.7: the slot lookup/stage/upload, PARAMETERIZED by the pool + its box size
  * so the same proven LRU logic serves BOTH the large (248x160) and the small
  * (64x64) title pools. Returns the slot INDEX into `slots` (or -1). Each pool is
@@ -1913,10 +2022,9 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
 #if defined(P6_FRONTEND_MENU)
     unsigned int _dvdma0;
 #endif
-    int i, x, y, victim;
+    int i, victim;
     const unsigned char *srcPx;
     int srcStride;
-    jo_img_8bits img;
 
 #if defined(P6_FRONTEND_LOGOS)
     p6_w_vdp1_lastwh = (w << 16) | (h & 0xFFFF);
@@ -2000,58 +2108,20 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
     } /* close the FRD-dispatch block */
 #endif
 
-    /* Stage into the FIXED boxw x boxh box: content top-left, the rest transparent
-     * (palette index 0 -- VDP1 sprite transparent-pixel processing skips it).
-     * jo_sprite_replace re-DMAs exactly boxw*boxh bytes, so the staged box
-     * dimensions MUST equal the pre-allocated slot's (boxw x boxh -- guaranteed:
-     * same pool = same box). s_stage is 248x160 = big enough for either box. */
-    /* #312(e) same-class hardening as p6_title_restage_content: jo_sprite_add/
-     * jo_sprite_replace below DMA from s_stage via jo_dma_copy == slDMACopy,
-     * which is ASYNC (ST-238-R1: "terminates soon after DMA is initiated") --
-     * a PRIOR miss's transfer may still be reading s_stage when this pack
-     * overwrites it -> that slot's VRAM tears (the GHZCUT bucket edition was
-     * MEASURED, qa_g11_vram build 25; this pool path shares the exact pattern:
-     * sprites.c:172-174). Wait out any in-flight transfer before repacking. */
-    slDMAWait();
-    for (y = 0; y < boxh; ++y) {
-        unsigned char *dst = s_stage + y * boxw;
-        if (y < h) {
-            const unsigned char *src = srcPx + y * srcStride;
-            for (x = 0; x < w; ++x) dst[x] = src[x];
-            for (; x < boxw; ++x) dst[x] = 0;
-        }
-        else {
-            for (x = 0; x < boxw; ++x) dst[x] = 0;
-        }
-    }
-#if defined(P6_GHZCUT_BOOT)
-    /* #311 mech-4 bisect stage-side: hash the SAME 16x16 content region out of
-     * the staged box (rows at boxw stride). Match vs p6_w_draw_fetch_h = the
-     * stage copy is clean -> the tear is the jo DMA/slot layer. */
-    if (sx == 258 && sy == 492 && w == 16 && h == 16 && !s_sheets[sheet].px) {
-        unsigned int hh = 5381; int ky, kx;
-        for (ky = 0; ky < 16; ++ky)
-            for (kx = 0; kx < 16; ++kx)
-                hh = ((hh << 5) + hh) ^ s_stage[ky * boxw + kx];
-        p6_w_draw_stage_h = (int)hh;
-    }
-#endif
-    img.width  = boxw;
-    img.height = boxh;
-    img.data   = s_stage;
-
+    /* S3 (this session): CONTENT restage replaces the box stage + jo DMA round
+     * trip. Every slot's boxw x boxh VRAM was reserved by p6_pool_prealloc at
+     * first bind, so a miss just picks the victim (cold sequential fill, then
+     * LRU) and packs the content DIRECTLY into that reserved VRAM at the
+     * mult-8 stride, shrinking the slot's TEXDEF to content --
+     * p6_title_restage_content CEF-gates internally (the 97de23d texwrite
+     * contract; the old separate gate + slDMAWait + jo_sprite_replace are
+     * subsumed). VDP1 then rasterises pw x ph instead of 64x64: the S3
+     * RED->GREEN lever (77,824 -> ~content box-px/frame). ph pads odd heights
+     * EVEN so the SGL center-place blit stays pixel-exact (restage's S3 note). */
     if (*coldn < n_max) {
-        /* Cold-fill: allocate a fresh fixed-size jo sprite. */
-        int id = jo_sprite_add_8bits_image(&img);
-        if (id < 0) {
-            ++p6_w_vdp1_joaddfail; /* W14: the silent no-drop exit */
-#if defined(P6_FRONTEND_LOGOS)
-            p6_w_vdp1_dropreason = 3;
-#endif
-            return -1;
-        }
-        victim = (*coldn)++;
-        slots[victim].jo_id = id;
+        victim = (*coldn)++;   /* cold: next pre-reserved slot; D5's distinct-
+                                * rect population count (p6_w_vdp1_slots) keeps
+                                * its pre-S3 meaning. */
     }
     else {
         /* Cache full: evict the least-recently-used slot, reuse its VRAM. */
@@ -2063,22 +2133,22 @@ static int p6_pool_for(P6Vdp1Slot *slots, int n_max, int *coldn,
                 victim = i;
             }
         }
-        if (slots[victim].jo_id < 0) { /* defensive: never cold-filled */
+        if (slots[victim].jo_id < 0) { /* defensive: prealloc add failed */
             ++p6_w_vdp1_drops;
             return -1;
         }
-        /* Timing audit 2026-07-23: the evict re-DMA overwrites a jo_id's VDP1
-         * VRAM that the DISPLAYED (previous frame's) command list may still be
-         * rasterising -- the GPU-side read race the slDMAWait above does NOT
-         * cover (it only protects the s_stage source). Wait for EDSR.CEF=1
-         * (bounded, memoised per vblank period) before starting the replace
-         * DMA, mirroring saturn_vdp1_saturn.c:296-310. The COLD-fill branch
-         * above needs no gate: jo_sprite_add writes fresh, never-referenced
-         * VRAM. */
-        p6_vdp1_texwrite_gate();
-        jo_sprite_replace(&img, slots[victim].jo_id);
         ++p6_w_vdp1_evicts;
     }
+    if (slots[victim].jo_id < 0) { /* cold slot whose prealloc add failed (W14
+                                    * counted at prealloc; the silent-drop exit) */
+        ++p6_w_vdp1_drops;
+#if defined(P6_FRONTEND_LOGOS)
+        p6_w_vdp1_dropreason = 3;
+#endif
+        return -1;
+    }
+    p6_title_restage_content(slots[victim].jo_id, srcPx, srcStride, w, h,
+                             h + (h & 1) /* even-h pad row: SGL center place */);
 #if defined(P6_FRONTEND_MENU)
     p6_w_draw_dma_v += (int)(p6_perf_vbl_count - _dvdma0); /* #317: MISS fetch+stage+DMA cost */
 #endif
@@ -2248,7 +2318,9 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
     if (b->slots[victim].jo_id < 0) { ++p6_w_vdp1_drops; P6_DR(5); return -1; } /* prealloc failed */
     if (b->slots[victim].sheet >= 0) ++p6_w_vdp1_evicts;             /* reuse of a live slot */
 
-    pw = p6_title_restage_content(b->slots[victim].jo_id, srcPx, srcStride, w, h);
+    pw = p6_title_restage_content(b->slots[victim].jo_id, srcPx, srcStride, w, h,
+                                  h /* ph == h: bucket flavors draw exact-h (direct
+                                     * list places top-left; no center-half-pixel) */);
 #if defined(P6_GHZCUT_BOOT) && !defined(P6_PERF_NOSCAN)
     /* #311 mech-4 v3 stage-side pair: djb2 of the content-packed box the restage
      * just wrote (pw*h bytes, mult-8 pad zeros included). #324: the restage now
@@ -2362,8 +2434,14 @@ static int p6_slot_for(int sheet, int sx, int sy, int w, int h)
     s = p6_pool_for(s_slots, P6_VDP1_NSLOTS, &p6_w_vdp1_slots,
                     P6_SPR_MAXW, P6_SPR_MAXH, sheet, sx, sy, w, h);
     if (s < 0) return -1;
-    s_last_box_w = P6_SPR_MAXW;
-    s_last_box_h = P6_SPR_MAXH;
+    /* S3 (this session): the drawn CMDSIZE is now the restaged CONTENT --
+     * mult-8 padded width x even-padded height -- not the 64x64 box. The blit
+     * center math below is already parameterized on s_last_box_w/h, and the
+     * boxpx witness sums the REAL rasterised area (the M7 RED->GREEN signal:
+     * 77,824 -> ~content px/frame at settled GHZ). MUST match the restage's
+     * pw/ph exactly (hit path relies on the slot's last restage TEXDEF). */
+    s_last_box_w = (w + 7) & ~7;
+    s_last_box_h = h + (h & 1);
     return s_slots[s].jo_id;
 #endif
 }
@@ -2498,9 +2576,10 @@ __attribute__((used)) int p6_w_plr_cut_landed = 0;
 /* Draw a sheet rect with its TOP-LEFT at engine screen px (x,y) -- the
  * coordinate DrawSpriteFlipped receives (Drawing.cpp:2785: pos + pivot).
  * jo_sprite_draw3D positions the sprite CENTER in screen-centered coords;
- * the slot is a fixed P6_SPR_MAXW x P6_SPR_MAXH box with content in the
- * top-left corner, so centering on the box (offset 32) keeps the content at
- * engine [x, x+w) x [y, y+h). */
+ * the slot's drawn box is s_last_box_w/h (S3: the restaged CONTENT --
+ * mult-8 w, even h -- in pool flavors; the routed bucket content in title
+ * flavors), content at the box top-left, so centering on the box keeps the
+ * content at engine [x, x+w) x [y, y+h). */
 void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
 {
     int jid;
@@ -2587,12 +2666,14 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
  * (sprites.h:292-312). The caller passes the RSDK world TOP-LEFT already
  * flip-adjusted (Drawing.cpp:2796-2808: x - width - pivotX for FLIP_X).
  *
- * Task #241: the slot is now a FIXED 64x64 box (content top-left). VDP1 HF
- * mirrors the WHOLE box around its center, moving content from columns [0,w)
- * to [64-w,64); VF mirrors rows [0,h) to [64-h,64). To keep the (flipped)
- * content top-left at engine (x,y), the box origin compensates by (64-w) in X
- * when flipped (and (64-h) in Y) -- which reduces to the symmetric center
- * formula below (32 == P6_SPR_MAXW/2 == P6_SPR_MAXH/2). */
+ * Task #241 + S3: the slot's drawn box is s_last_box_w/h (since S3 the
+ * restaged CONTENT box: mult-8 w, even h; content top-left). VDP1 HF mirrors
+ * the WHOLE box around its center, moving content from columns [0,w) to
+ * [boxw-w,boxw); VF mirrors rows [0,h) to [boxh-h,boxh). To keep the
+ * (flipped) content top-left at engine (x,y), the box origin compensates by
+ * (boxw-w) in X when flipped (and (boxh-h) in Y) -- which reduces to the
+ * symmetric center formula below; exact because boxw is mult-8 (even) and
+ * boxh is even-padded (the restage's ph). */
 void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
                           int flipX, int flipY)
 {
