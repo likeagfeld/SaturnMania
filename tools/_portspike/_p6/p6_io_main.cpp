@@ -6683,6 +6683,10 @@ extern "C" void p6_vdp2_upload_ghzfg_4bpp(const unsigned short *chr_cart, int ch
 extern "C" int  p6_ghz_fg_4bpp;
 __attribute__((used)) int32 p6_w_ghzfg_chr   = -1; // AGHFG.CHR bytes loaded (131072 expected)
 __attribute__((used)) int32 p6_w_ghzfg_armed = 0;  // 1 after p6_vdp2_upload_ghzfg_4bpp
+// CARD-GARBLE iteration 2: WHICH site armed the FG (1 = handoff seam PRE-rebuild
+// [clean], 2 = post-arm fallback [stomps the store tail], 3 = async frame retry
+// [stomps]). 0 = never armed. The next capture proves the path took the clean site.
+__attribute__((used)) int32 p6_w_ghzfg_site  = 0;
 // #325 stage-1: master-side sky CRAM[64..127] re-assert, called after the slave
 // FG-present join (the slave's CRAM bank0 write runs AFTER bg_frame's re-assert
 // under the offload -- this restores the proven sync frame-end CRAM order).
@@ -8085,6 +8089,15 @@ static void p6_audio_witness(void)
     if (streamed > 0)
         ++p6_w_stream_frames;
 }
+// CARD-GARBLE FIX (2026-07-24): hoisted from the frame-side sky block below so the
+// GHZ handoff seam (which now loads AGHFS BEFORE the FRD-store rebuild -- see the
+// seam block) can mark the sky done and keep the frame-side loader off the
+// no-longer-dead 0x22578000 window. Gated as its two users (the seam block and the
+// frame-side sky both live under P6_GHZCUT_BOOT) -> plain/every other flavor
+// byte-identical.
+#if defined(P6_GHZCUT_BOOT)
+static int32 s_ghcbg_loaded = 0;
+#endif
 static void p6_frontend_frame(void)
 {
     currentScreen = &screens[0];
@@ -8728,6 +8741,83 @@ static void p6_frontend_frame(void)
                     // >=0 = staged -> Explosion_StageLoad resolves the surface -> renders.
                     p6_w_explos_slot  = ghzGslot[9];
                     p6_w_animals_slot = ghzGslot[10];
+#if defined(P6_GHZCUT_BOOT)
+                    // CARD-GARBLE FIX (2026-07-24, root-caused by inspection): the
+                    // AGHFG/AGHFS scratch window [0x22578000,0x225A0000) was carved
+                    // 2026-07-23 as "a ~162 KB dead window ABOVE every GHZ FRD"
+                    // against the then-current store top ~0x22570CC0. #243 step 2
+                    // (07aeb7d) then grew the REBUILT store past the window base:
+                    // +EXPLOS.FRD 171,476 +ANIMALS.FRD 12,620 -> FRD fill 1,609,740
+                    // (top 0x2258900C) + the unconditional resident DISPLAY 65,536
+                    // -> 1,675,276 (top ~0x22599010). So EXPLOS' tail (~53 KB), ALL
+                    // of ANIMALS.FRD and ~all of the resident DISPLAY copy now sit
+                    // INSIDE the window -- and the old post-arm AGHFG load (128 KB
+                    // @0x22578000) plus the first-landing-frame AGHFS sky load
+                    // (64K CHR + 16K MAP @0x22578000/0x22588000) STOMPED them. The
+                    // TitleCard glyph cache (p6_vdp1.c p6_tcglyph_slot) fetches its
+                    // letter rects from DISPLAY through FetchRect's RESIDENT fast
+                    // path (#243 step 2 made DISPLAY resident exactly for it), so it
+                    // cold-staged AGHFG tile bytes as letter textures = the garbled
+                    // "GREEN HILL ZONE" card (the same stomp class as the life-icon
+                    // FACE hit documented at the async site; explosion/animal FRD
+                    // tails were silently at risk too). FIX: run BOTH scratch loads
+                    // HERE -- BEFORE the ResReset/FRD-restage block below -- where
+                    // the window holds only doomed pre-reset store bytes; AFTER the
+                    // rebuild the window is NOT dead and nothing may scribble it.
+                    // Same GFS-idle stretch (between the .SHT loop above and the FRD
+                    // loop below); p6_vdp2_upload_ghzfg_4bpp has no arm dependency
+                    // (the original async site ran it mid-gameplay) and sets
+                    // p6_ghz_fg_4bpp=1 (p6_vdp2.c:2290), so the sky load resolves
+                    // the A1 variant exactly as the frame-side block would.
+                    // s_ghcbg_loaded (hoisted to file scope) gates the frame-side
+                    // sky block off. The async AGHFG retry + the frame-side GHZ sky
+                    // branch remain as documented DEGRADED fallbacks for a seam-load
+                    // miss (they still clobber the store tail; the alternative is an
+                    // unarmed FG / missing sky).
+                    // GATE FIX (2026-07-24 iteration 2, PROVEN on the first-fix build's
+                    // capture -- staged 'Z' == AGHFG.CHR clobber prediction 576/576
+                    // AGAIN): the first fix copied the fallback's currentSceneFolder==
+                    // "GHZ" test, but THIS one-shot handoff fires while the folder is
+                    // STILL "GHZCutscene" (the handoff's own note: "re-strcpy'd only
+                    // inside the load below", p6_scene_load_and_arm) -> the seam loads
+                    // never ran, p6_ghz_fg_4bpp stayed 0, and the post-arm fallback
+                    // (folder=="GHZ" by then) stomped the rebuilt store exactly as
+                    // before. NO folder test here: being inside the GHZCutscene->GHZ
+                    // one-shot IS the discriminator. p6_w_ghzfg_site witnesses which
+                    // path armed the FG (1=this seam / 2=post-arm fallback / 3=async).
+                    if (P6_GHZ_FG_4BPP && !p6_ghz_fg_4bpp) {
+                        unsigned char *fchr = (unsigned char *)0x22578000u; // 128 KB -> 0x22598000
+                        unsigned char *fbnk = (unsigned char *)0x22598000u; // 1 KB
+                        unsigned char *fcmp = (unsigned char *)0x22598400u; // 481 B
+                        int nfc = rsdk_storage_load_to_lwram("AGHFG.CHR", fchr, 0x20000);
+                        int nfb = rsdk_storage_load_to_lwram("AGHFG.BNK", fbnk, 0x400);
+                        int nfp = rsdk_storage_load_to_lwram("AGHFG.CMP", fcmp, 0x200);
+                        p6_w_ghzfg_chr = nfc;
+                        if (nfc > 0 && nfb > 0 && nfp > 0) {
+                            p6_vdp2_upload_ghzfg_4bpp((const unsigned short *)fchr, nfc / 2,
+                                                      fbnk, nfb, fcmp, nfp);
+                            p6_w_ghzfg_armed = 1;
+                            p6_w_ghzfg_site  = 1; /* armed at the seam, PRE-rebuild (clean) */
+                        }
+                    }
+                    if (P6_GHZ_FG_4BPP && p6_ghz_fg_4bpp && !s_ghcbg_loaded) {
+                        // A1 sky variant (AGHFS.*) through the SAME pre-reset window;
+                        // mirrors the frame-side useA1 branch except the load runs
+                        // while the window is still dead (pre-rebuild).
+                        unsigned char *bchr = (unsigned char *)0x22578000u; // 64 KB
+                        unsigned char *bmap = (unsigned char *)0x22588000u; // 16 KB
+                        unsigned char *bpal = (unsigned char *)0x2258C000u; // 512 B
+                        int nchr = rsdk_storage_load_to_lwram("AGHFS.CHR", bchr, 0x10000);
+                        int nmap = rsdk_storage_load_to_lwram("AGHFS.MAP", bmap, 0x4000);
+                        int npal = rsdk_storage_load_to_lwram("AGHFS.PAL", bpal, 0x200);
+                        if (nchr > 0 && nmap > 0 && npal > 0) {
+                            p6_vdp2_ghzcut_bg_upload((const unsigned short *)bchr, nchr / 2,
+                                                     (const unsigned short *)bpal, npal / 2,
+                                                     (const unsigned short *)bmap, nmap / 2);
+                            s_ghcbg_loaded = 1;
+                        }
+                    }
+#endif
 #if defined(P6_FRONTEND_MENU) || defined(P6_FRONTEND_CHAIN)
                     // C1 signpost-campaign r3 (2026-07-10, MEASURED): the live
                     // boot->signpost path is the P6_FRONTEND_CHAIN flavor, NOT
@@ -8927,19 +9017,17 @@ static void p6_frontend_frame(void)
                 // frames of SH-2 -> if it runs on a LIVE gameplay frame (the old async
                 // site in p6_frontend_frame at the p6_ghz_fg_4bpp 0->1 flip, ~10 s into
                 // GHZ) the display goes BLACK for those 2 frames (qa_ghz_blackflash 2/23
-                // RED). Do the load+upload HERE instead -- the GHZCutscene->GHZ handoff
-                // seam, during the black transition (before the TitleCard/gameplay first
-                // renders) -- so the stall is hidden behind the already-black screen,
-                // exactly the pre-regression timing (mirrors the old 8bpp p6_vdp2_upload_
-                // cells, which ran at scene-load). GFS is IDLE here (this is AFTER
-                // p6_scene_load_and_arm returned + p6_frd_attach_bound; the same idle
-                // window GHZOBJ.PAK/DISPCARD.BIN load through). Cart-resident free-tail
-                // window [0x22578000,0x225A0000) (see the async site's FRD-STORE-OVERWRITE
-                // note). p6_folderReload guard: on a SAME-FOLDER GHZ death-respawn the FG
-                // is already armed (p6_ghz_fg_4bpp==1) + char resident in A0, so skip the
-                // re-upload (that reload seam is at :8806, this block is the forward hop).
-                // If the load MISSES here (unexpected -- proven idle), the async retry at
-                // the front-end site (still gated !p6_ghz_fg_4bpp) is the fallback.
+                // RED). Load+upload during the black transition seam (before the
+                // TitleCard/gameplay first renders) so the stall is hidden.
+                // CARD-GARBLE FIX (2026-07-24): this site is now the DEGRADED FALLBACK
+                // only -- the PRIMARY load moved above the ResReset/FRD-restage block
+                // (see the CARD-GARBLE comment there): after the #243 step-2 store
+                // growth, [0x22578000,0x225A0000) holds the EXPLOS/ANIMALS FRD tails +
+                // the resident DISPLAY copy, and a load HERE (post-rebuild) STOMPS them
+                // (PROVEN byte-exact: the staged 'Z' glyph texels == AGHFG.CHR at the
+                // predicted offsets, savestate 2026-07-24, 576/576). Normally dead
+                // (p6_ghz_fg_4bpp==1 by now); fires only on a seam-load miss, where a
+                // stomped store tail is accepted over an unarmed FG.
                 if (P6_GHZ_FG_4BPP && !p6_ghz_fg_4bpp
                     && currentSceneFolder && !strcmp(currentSceneFolder, "GHZ")) {
                     unsigned char *fchr = (unsigned char *)0x22578000u; // 128 KB -> 0x22598000
@@ -8953,6 +9041,7 @@ static void p6_frontend_frame(void)
                         p6_vdp2_upload_ghzfg_4bpp((const unsigned short *)fchr, nfc / 2,
                                                   fbnk, nfb, fcmp, nfp);
                         p6_w_ghzfg_armed = 1;
+                        p6_w_ghzfg_site  = 2; /* DEGRADED fallback fired (store tail stomped) */
                     }
                 }
 #endif
@@ -9804,7 +9893,12 @@ static void p6_frontend_frame(void)
             // 0x225A0000 | PLAYER pak 0x225E0000 | SaturnLayout 0x22600000+), so
             // [0x22578000,0x225A0000) is a ~162 KB dead window ABOVE every GHZ FRD and
             // BELOW the OBJ pak. Base 0x22578000 (8 KB margin over the 0x22570CC0 FRD
-            // end). The AGHFS sky scratch below REUSES the same window (AGHFG is uploaded
+            // end). CARD-GARBLE FIX (2026-07-24): that "dead window" claim is STALE
+            // since #243 step 2 -- the rebuilt store (11 FRDs 1,609,740 + resident
+            // DISPLAY -> 1,675,276) now extends THROUGH it, so this retry (and the
+            // frame-side useA1 sky) are degraded fallbacks that stomp the store tail;
+            // the primary loads run at the seam BEFORE the rebuild (see the
+            // CARD-GARBLE block there). The AGHFS sky scratch below REUSES the same window (AGHFG is uploaded
             // to VDP2 here BEFORE the sky block runs -> no live overlap). GHZ-only
             // (GHZCutscene keeps its own 8bpp FG; currentSceneFolder=="GHZ" gated). Same
             // GFS-idle window; uploaded straight to VDP2 A0 by p6_vdp2_upload_ghzfg_4bpp.
@@ -9821,6 +9915,7 @@ static void p6_frontend_frame(void)
                     p6_vdp2_upload_ghzfg_4bpp((const unsigned short *)fchr, nfc / 2,
                                               fbnk, nfb, fcmp, nfp);
                     p6_w_ghzfg_armed = 1;
+                    p6_w_ghzfg_site  = 3; /* async DEGRADED retry (store tail stomped) */
                 }
             }
             // Sky "BG Outside" (NBG0). Task #326 STEP 3: GHZ gameplay (4bpp FG ->
@@ -9834,7 +9929,15 @@ static void p6_frontend_frame(void)
             int skyGate = (strcmp(currentSceneFolder, "GHZ") == 0)
                         ? (P6_GHZ_FG_4BPP ? p6_ghz_fg_4bpp : 1)
                         : 1;
-            static int32 s_ghcbg_loaded = 0;
+            // CARD-GARBLE FIX (2026-07-24): s_ghcbg_loaded hoisted to file scope --
+            // the GHZ-seam block now loads+uploads the A1 sky BEFORE the FRD-store
+            // rebuild (where the 0x22578000 scratch window is still dead) and sets
+            // the flag, so this frame-side block normally never fires for GHZ. It
+            // remains the DEGRADED fallback for a seam-load miss: its useA1 scratch
+            // then clobbers the FRD-store tail + resident DISPLAY (the proven
+            // glyph-garble stomp) -- accepted over a missing sky, mirrors the async
+            // AGHFG retry contract. The GHZCutscene path (useA1==0 @0x22480000) is
+            // unaffected either way.
             if (!s_ghcbg_loaded && skyGate) {
                 int useA1 = p6_ghz_fg_4bpp; // GHZ gameplay: A1 sky char (STEP 3)
                 // FRD-STORE-OVERWRITE FIX (task #326 follow-up, 2026-07-23): the sky
