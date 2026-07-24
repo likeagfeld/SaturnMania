@@ -1,64 +1,86 @@
 #!/usr/bin/env python3
-"""build_boot_splash.py -- build cd/BOOTSPL.BIN, the boot-window splash bitmap.
+"""build_boot_splash.py v2 -- build cd/BOOTSPL.BIN, the ANIMATED boot/loading
+splash (user feature 2026-07-24: replace the static AI-warning image with a
+light looping animation from "Sonic Mania Saturn Loading Screen - Animated
+1.mp4" -- Sonic running in a spinning wheel + LOADING... text).
 
-User feature (2026-07-23): the engine boot/load window between the Sega splash
-and the title shows jo_core_init's solid light-blue back screen (MEASURED
-fullscreen-uniform RGB(96,128,224) for ~12+ s, _shots/_red_boot_1221*.png).
-The Saturn side (p6_vdp2.c p6_vdp2_boot_splash_show, called from jo_main right
-after jo_core_init) masks it with this fullscreen image on a VDP2 NBG0 8bpp
-512x256 bitmap in VRAM bank A0.
+MEASURED design inputs (this tool's authoring session, 145 frames @24fps,
+scaled 320x224):
+  - dominant loop period = 6 frames (mean inter-frame diff 12.2, the minimum
+    across periods 2..29) -> ONE 6-frame cycle captures the wheel+run loop.
+  - consecutive-frame strong-change bbox over one loop = x[6..301] y[25..156]
+    -> region 296x132 (39,072 B @8bpp). The glow shimmer outside it is
+    dropped (static from the background frame).
+  - playback: the Saturn side advances one region frame per animation tick
+    (ticks come from the front-end frame loop and the masked-load GFS window
+    refills -- the load phase runs with interrupts MASKED, so no vblank ISR;
+    see p6_vdp2.c p6_bootsplash_anim_tick).
 
-Input : tools/refs/boot_splash/boot_splash_src.png (1024x1024 RGBA)
-Output: cd/BOOTSPL.BIN, 72,192 bytes, big-endian, single file (ISO-root-count
-        friendly; name <= 12 chars per the SGL GFS limit):
+Output cd/BOOTSPL.BIN (BSP2):
+  0x000  'BSP2' magic
+  0x004  u16 BE: rx, ry, rw, rh, nframes, reserved   (region + frame count)
+  0x010  512 B : 256 x u16 BE Saturn BGR555 palette (entry 0 = 0x8000 unused;
+                 pixel code 0 is the VDP2 transparent code, indices are 1..255)
+  0x210  71,680 B : background frame, 224 rows x 320 cols 8bpp
+  then   nframes x (rw*rh) B : region frames (row-major), same palette
+Total with 6 frames of 296x132: 306,624 B (~2 s at 1x CD, one contiguous read;
+first paint uses only header+palette+bg = fast).
 
-  offset 0x000, 512 B : 256 x u16 BIG-ENDIAN Saturn BGR555 palette entries,
-                        each 0x8000 | b5<<10 | g5<<5 | r5 (MSB set = opaque
-                        CRAM color). Entry 0 is 0x8000 (unused -- see below).
-  offset 0x200, 71680 B: 224 rows x 320 cols of 8bpp pixel indices, row-major.
-
-VDP2 pixel code 0 is TRANSPARENT on a paletted bitmap NBG (ST-058-R2
-transparent-code-0), so the quantizer emits at most 255 colors and every pixel
-index is shifted UP by 1 (indices 1..255); index 0 never appears in the pixel
-data. The engine writes the palette words to CRAM bank 0 verbatim (they are
-already BE BGR555) and the pixel rows into the 512-byte-stride bitmap.
-
-Scaling: plain LANCZOS resize 1024x1024 -> 320x224 (fullscreen; the source is
-square so the fit stretches ~1.43x horizontally in pixel space -- on the 4:3
-output raster this is the intended fullscreen fill per the user request).
-"""
+The legacy loader path (palette-first, no magic) is superseded; p6_vdp2.c
+falls back to a static show if the magic is absent."""
 import os
 import struct
 import sys
 
 from PIL import Image
 
-SRC = os.path.join("tools", "refs", "boot_splash", "boot_splash_src.png")
+FRAMES_DIR = os.path.join("_loadanim")   # ffmpeg-extracted 320x224 frames
 OUT = os.path.join("cd", "BOOTSPL.BIN")
 W, H = 320, 224
+RX, RY, RW, RH = 6, 24, 296, 132         # ry 25 -> 24 (even, covers bbox)
+LOOP_BASE, NFRAMES = 48, 6               # measured settled 6-frame cycle
 
 
 def main():
-    src = sys.argv[1] if len(sys.argv) > 1 else SRC
+    frames_dir = sys.argv[1] if len(sys.argv) > 1 else FRAMES_DIR
     out = sys.argv[2] if len(sys.argv) > 2 else OUT
-    im = Image.open(src).convert("RGB").resize((W, H), Image.LANCZOS)
-    # 255 colors max: pixel index 0 is the VDP2 transparent code, keep it unused.
-    q = im.quantize(colors=255, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG)
+    names = sorted(f for f in os.listdir(frames_dir) if f.endswith(".png"))
+    bg = Image.open(os.path.join(frames_dir, names[LOOP_BASE])).convert("RGB")
+    assert bg.size == (W, H), bg.size
+    crops = [
+        Image.open(os.path.join(frames_dir, names[LOOP_BASE + i]))
+        .convert("RGB").crop((RX, RY, RX + RW, RY + RH))
+        for i in range(NFRAMES)
+    ]
+    # GLOBAL palette: quantize one mosaic (bg + all crops) so every frame
+    # shares the single CRAM bank-0 palette.
+    mosaic = Image.new("RGB", (W, H + NFRAMES * RH))
+    mosaic.paste(bg, (0, 0))
+    for i, c in enumerate(crops):
+        mosaic.paste(c, (0, H + i * RH))
+    q = mosaic.quantize(colors=255, method=Image.MEDIANCUT, dither=Image.FLOYDSTEINBERG)
     pal = q.getpalette()[: 255 * 3]
-    px = bytes(p + 1 for p in q.tobytes())  # shift 0..254 -> 1..255
-    assert len(px) == W * H and min(px) >= 1
+    qb = q.tobytes()
+    bg_px = bytes(p + 1 for p in qb[: W * H])
+    frame_px = []
+    for i in range(NFRAMES):
+        rows = bytearray()
+        for y in range(RH):
+            off = (H + i * RH + y) * W
+            rows += bytes(p + 1 for p in qb[off: off + RW])
+        assert len(rows) == RW * RH
+        frame_px.append(bytes(rows))
 
-    words = [0x8000]  # entry 0: unused (transparent code), opaque black filler
+    words = [0x8000]
     for i in range(255):
-        r, g, b = pal[i * 3 : i * 3 + 3]
+        r, g, b = pal[i * 3: i * 3 + 3]
         words.append(0x8000 | ((b >> 3) << 10) | ((g >> 3) << 5) | (r >> 3))
-    blob = struct.pack(">256H", *words) + px
-    assert len(blob) == 0x200 + W * H  # 72,192
-
+    blob = b"BSP2" + struct.pack(">6H", RX, RY, RW, RH, NFRAMES, 0)
+    blob += struct.pack(">256H", *words) + bg_px + b"".join(frame_px)
     with open(out, "wb") as f:
         f.write(blob)
-    ncol = len(set(px))
-    print("wrote %s: %d bytes, %d colors used (indices 1..255)" % (out, len(blob), ncol))
+    print("wrote %s: %d bytes (bg %d + %d frames x %d region %dx%d @(%d,%d))"
+          % (out, len(blob), W * H, NFRAMES, RW * RH, RW, RH, RX, RY))
 
 
 if __name__ == "__main__":

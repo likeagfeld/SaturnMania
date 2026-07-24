@@ -1263,7 +1263,12 @@ void jo_main(void)
         /* rsdk_storage_load_to_lwram prototype comes from rsdk/storage.h (line 19) */
         extern void p6_vdp2_boot_splash_show(const unsigned char *data, int bytes);
         unsigned char *sbuf = (unsigned char *)0x22480000u; /* cache-through cart */
-        int n = rsdk_storage_load_to_lwram("BOOTSPL.BIN", (void *)sbuf, 0x12000);
+        /* v2 (2026-07-24): BOOTSPL.BIN is the ANIMATED BSP2 (306,640 B -- bg +
+         * 6-frame Sonic-wheel LOADING loop, build_boot_splash.py v2). Cap
+         * raised 0x12000 -> 0x50000; this cart scratch is a BOOT transient
+         * inside the RES-store range consumed before any sheet stages, and
+         * the show call re-stashes the frames into VDP2 VRAM immediately. */
+        int n = rsdk_storage_load_to_lwram("BOOTSPL.BIN", (void *)sbuf, 0x50000);
         if (n >= 0x200 + 320 * 224)
             p6_vdp2_boot_splash_show(sbuf, n);
     }

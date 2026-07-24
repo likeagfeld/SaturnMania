@@ -3565,6 +3565,16 @@ static void p6_obj_spawn_ring(void)
 // SR is restored on every exit path and SGL recovers on the next vblank.
 #define P6_SMPC_SF (*(volatile unsigned char *)0x20100063u)
 static int p6_saved_sr = 0;
+#if defined(P6_FRONTEND_LOGOS)
+// ANIMATED BOOT SPLASH (p6_vdp2.c, C linkage): file-scope extern "C" -- a
+// linkage spec inside a function body is ill-formed C++ (the first attempt),
+// and a plain in-function extern mangles (the earlier undefined-reference).
+extern "C" {
+void p6_bootsplash_load_fork(void);
+void p6_bootsplash_load_join(void);
+void p6_bootsplash_anim_tick(void);
+}
+#endif
 static void p6_load_phase_enter(void)
 {
     // Boot/load cover: blank VDP2 scroll+sprite display BEFORE masking interrupts
@@ -3587,9 +3597,22 @@ static void p6_load_phase_enter(void)
     p6_saved_sr = sr;
     sr = (sr & ~0xF0) | 0xF0; // SR.I3-I0 = 15: all maskable interrupts off
     __asm__ volatile("ldc %0, sr" : : "r"(sr));
+#if defined(P6_FRONTEND_LOGOS)
+    // ANIMATED BOOT SPLASH (2026-07-24): fork the LOADING-wheel slave loop for
+    // THIS masked window only -- the masked load never calls slSynch, so the
+    // slave is genuinely free here (a splash-LIFETIME slave loop deadlocked
+    // slSynch's slave handshake: live-measured cont_frames frozen at 1 with
+    // vblanks advancing). Declared extern "C" at file scope above. No-op
+    // unless the splash is active.
+    p6_bootsplash_load_fork();
+#endif
 }
 static void p6_load_phase_exit(void)
 {
+#if defined(P6_FRONTEND_LOGOS)
+    // JOIN the splash slave loop BEFORE interrupts/slSynch resume (see enter).
+    p6_bootsplash_load_join();
+#endif
     __asm__ volatile("ldc %0, sr" : : "r"(p6_saved_sr));
 }
 
@@ -8103,6 +8126,17 @@ static void p6_frontend_frame(void)
     currentScreen = &screens[0];
     for (int32 g = 0; g < DRAWGROUP_COUNT; ++g)
         engine.drawGroupVisible[g] = true;
+#if defined(P6_FRONTEND_LOGOS)
+    // ANIMATED BOOT SPLASH frame tick (ISR-alive phases; the masked loads use
+    // the slave fork in p6_load_phase_enter instead). Declared extern "C" at
+    // file scope by p6_load_phase_enter. /4 at the UI frame rate approximates
+    // the 24 fps source cadence.
+    {
+        static int s_bsp_div = 0;
+        if ((++s_bsp_div & 3) == 0)
+            p6_bootsplash_anim_tick();
+    }
+#endif
 #if defined(P6_DIRECT_VDP1)
     // F1-R1 (MEASURED, landing leg ~70/30 sprite flap, montage _f1_montage.png +
     // _f1_land2.mcs forensics): in legs where SGL's slave sprite pipeline is ALIVE

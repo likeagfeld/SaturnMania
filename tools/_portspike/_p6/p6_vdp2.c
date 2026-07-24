@@ -211,6 +211,134 @@ void p6_vdp2_blank(void)
  * Flag-gated P6_FRONTEND_LOGOS: the default GHZ build stays byte-identical.
  * ========================================================================== */
 int p6_bootsplash_active = 0;
+/* ANIMATED SPLASH v2 (user feature 2026-07-24, cd/BOOTSPL.BIN 'BSP2' --
+ * tools/build_boot_splash.py v2): background frame + N region frames of the
+ * Sonic-in-wheel LOADING loop (measured 6-frame cycle, region 296x132).
+ * Frames are STASHED IN VDP2 VRAM banks A1/B0 (6 x 39,072 = 234 KB; the
+ * splash phase owns all of VRAM until the title's cell upload, which runs
+ * after p6_vdp2_boot_splash_off). The tick below copies the next frame's
+ * pixels into the DISPLAYED A0 bitmap at the region offset -- pixel-data
+ * writes only, legal while the masked load freezes the SGL register file
+ * (same contract as the masked core's own VRAM cell uploads). NO CD access
+ * after load -- the whole point is masking the title's CD seeks.
+ * DRIVE: the SLAVE SH-2 (user 2026-07-24 "move to slave but dont cut frames").
+ * The master's load phase masks ALL its interrupts (no vblank ISR) and blocks
+ * inside GFS_Fread, but the SLAVE is idle from boot until the first gameplay
+ * present-kick -- p6_bsp_slave_entry loops on it for the whole splash
+ * lifetime: copy next frame -> ~41 ms delay-spin (26.8 MHz calibrated; the
+ * measured 6-frame cycle at its 24 fps source cadence) -> repeat until the
+ * master clears p6_bootsplash_active (read cache-through; SH-2 caches are
+ * write-through so WRAM is always current). Teardown JOINS the slave before
+ * the title arm, so the gameplay present-kick finds it free. Slave-safe per
+ * the p6_slave_run contract: VDP2 VRAM writes only, never the SGL sort-list.
+ * (The logos-leg SGL slave sprite pipeline is #313-dead, so nothing else
+ * dispatches slave work inside the splash window.)
+ * p6_bootsplash_anim_tick stays as a poke-able manual fallback. */
+static const unsigned char *s_bsp_frames_src = 0; /* cart source (pre-stash) */
+static int s_bsp_rx, s_bsp_ry, s_bsp_rw, s_bsp_rh, s_bsp_n = 0, s_bsp_cur = 0;
+#define P6_BSP_STASH 0x25E20000u /* VRAM bank A1 (through B0) */
+static void p6_bsp_blit_frame(int idx, int rx, int ry, int rw, int rh)
+{
+    const volatile Uint16 *src =
+        (const volatile Uint16 *)(P6_BSP_STASH + (unsigned)idx * (unsigned)(rw * rh));
+    volatile Uint16 *dst = (volatile Uint16 *)P6_VDP2_CEL;
+    int y, x, w2 = rw >> 1;
+    for (y = 0; y < rh; ++y) {
+        volatile Uint16 *d       = dst + (ry + y) * 256 + (rx >> 1);
+        const volatile Uint16 *s = src + y * w2;
+        for (x = 0; x < w2; ++x)
+            d[x] = s[x];
+    }
+}
+void p6_bootsplash_anim_tick(void) /* manual fallback (poke/testing) */
+{
+    if (!p6_bootsplash_active || s_bsp_n <= 0)
+        return;
+    s_bsp_cur = (s_bsp_cur + 1) % s_bsp_n;
+    p6_bsp_blit_frame(s_bsp_cur, s_bsp_rx, s_bsp_ry, s_bsp_rw, s_bsp_rh);
+}
+/* SLAVE loop -- MASKED-LOAD WINDOWS ONLY (redesign 2026-07-24, live-measured
+ * deadlock: a splash-lifetime slave loop starved SGL's slSynch slave
+ * handshake -> master froze at cont_frames=1 with vblanks advancing. The
+ * present-kick precedent works because its slave fn RETURNS within the
+ * frame). So: p6_load_phase_enter FORKS this loop (the masked load never
+ * calls slSynch -- the master sits in CPU-polled GFS reads) and
+ * p6_load_phase_exit JOINS it before interrupts/slSynch resume. ISR-alive
+ * frame phases advance the wheel from p6_frontend_frame instead.
+ * ~41 ms delay-spin between frames (26.8 MHz / ~4 cycles per volatile
+ * iteration ~= 275,000); the spin re-checks the go flag so the join at
+ * load-exit completes within one frame period. All cross-CPU state through
+ * the |0x20000000 cache-through alias (slave-flag publish rule). */
+static int s_bsp_go = 0; /* slave run window flag (cache-through published) */
+/* Palette snapshot (2026-07-24 "artifact residual bleedthrough" fix,
+ * screenshot-diagnosed): the LOGO scenes overwrite CRAM bank 0 with their own
+ * palettes, so the intermediate masked loads (which re-display the still-armed
+ * splash bitmap as the load cover) rendered the loading art through the LOGO
+ * palette = garbled colors. Keep the splash's 256 CRAM words and re-assert
+ * them whenever a load window opens. 512 B, front-end-only .bss. */
+static Uint16 s_bsp_pal[256];
+static void p6_bsp_slave_entry(void)
+{
+    volatile int *go = (volatile int *)((unsigned int)&s_bsp_go | 0x20000000u);
+    int rx = *(volatile int *)((unsigned int)&s_bsp_rx | 0x20000000u);
+    int ry = *(volatile int *)((unsigned int)&s_bsp_ry | 0x20000000u);
+    int rw = *(volatile int *)((unsigned int)&s_bsp_rw | 0x20000000u);
+    int rh = *(volatile int *)((unsigned int)&s_bsp_rh | 0x20000000u);
+    int n  = *(volatile int *)((unsigned int)&s_bsp_n  | 0x20000000u);
+    volatile int *cw = (volatile int *)((unsigned int)&s_bsp_cur | 0x20000000u);
+    int cur = *cw;
+    volatile int d;
+    if (n <= 0)
+        return;
+    while (*go) {
+        cur = (cur + 1) % n;
+        p6_bsp_blit_frame(cur, rx, ry, rw, rh);
+        for (d = 0; d < 275000 && *go; ++d) {}
+    }
+    *cw = cur; /* hand the phase back so the frame-tick continues seamlessly */
+}
+/* Called by p6_load_phase_enter AFTER masking / p6_load_phase_exit BEFORE
+ * restoring SR (p6_io_main.cpp). No-ops unless the splash owns the display. */
+void p6_bootsplash_load_fork(void)
+{
+    extern void p6_slave_run(void (*fn)(void));
+    if (!p6_bootsplash_active)
+        return;
+    /* re-assert the splash palette (the logo scene that just ran re-owned
+     * CRAM bank 0) and SHOW the splash layer for this load window only --
+     * the logos display drops NBG0 (arm_sprites_only), so the loading screen
+     * appears exactly while loading. Register writes are immediate. */
+    {
+        volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
+        int i;
+        for (i = 0; i < 256; ++i)
+            cram[i] = s_bsp_pal[i];
+    }
+    slScrAutoDisp(NBG0ON);
+    if (s_bsp_n <= 0)
+        return;
+    *(volatile int *)((unsigned int)&s_bsp_rx | 0x20000000u) = s_bsp_rx;
+    *(volatile int *)((unsigned int)&s_bsp_ry | 0x20000000u) = s_bsp_ry;
+    *(volatile int *)((unsigned int)&s_bsp_rw | 0x20000000u) = s_bsp_rw;
+    *(volatile int *)((unsigned int)&s_bsp_rh | 0x20000000u) = s_bsp_rh;
+    *(volatile int *)((unsigned int)&s_bsp_n  | 0x20000000u) = s_bsp_n;
+    *(volatile int *)((unsigned int)&s_bsp_cur | 0x20000000u) = s_bsp_cur;
+    s_bsp_go = 1;
+    *(volatile int *)((unsigned int)&s_bsp_go | 0x20000000u) = 1;
+    p6_slave_run(p6_bsp_slave_entry);
+}
+void p6_bootsplash_load_join(void)
+{
+    extern void p6_slave_join(void);
+    if (p6_bootsplash_active)
+        slScrAutoDisp(SPRON); /* hide the load cover; the scene arm follows */
+    if (!s_bsp_go)
+        return;
+    s_bsp_go = 0;
+    *(volatile int *)((unsigned int)&s_bsp_go | 0x20000000u) = 0;
+    p6_slave_join();
+    s_bsp_cur = *(volatile int *)((unsigned int)&s_bsp_cur | 0x20000000u);
+}
 void p6_vdp2_boot_splash_show(const unsigned char *data, int bytes)
 {
     volatile Uint16 *cram = (volatile Uint16 *)P6_VDP2_CRAM;
@@ -219,11 +347,31 @@ void p6_vdp2_boot_splash_show(const unsigned char *data, int bytes)
     const unsigned char *palBytes = data;
     const unsigned char *px       = data + 0x200;
     int i, y, x;
+    /* BSP2: strip the 16 B header, note the region/frames, keep the legacy
+     * palette+bg layout for the rest of this function. */
+    if (bytes >= 16 && data[0] == 'B' && data[1] == 'S' && data[2] == 'P' && data[3] == '2') {
+        s_bsp_rx = (data[4] << 8) | data[5];
+        s_bsp_ry = (data[6] << 8) | data[7];
+        s_bsp_rw = (data[8] << 8) | data[9];
+        s_bsp_rh = (data[10] << 8) | data[11];
+        s_bsp_n  = (data[12] << 8) | data[13];
+        if (bytes < 16 + 0x200 + 320 * 224 + s_bsp_n * s_bsp_rw * s_bsp_rh)
+            s_bsp_n = 0; /* truncated -> static fallback */
+        s_bsp_frames_src = data + 16 + 0x200 + 320 * 224;
+        palBytes = data + 16;
+        px       = data + 16 + 0x200;
+        bytes   -= 16;
+    }
     if (bytes < 0x200 + 320 * 224)
         return; /* short/failed load -> keep the plain back-color cover */
-    /* palette -> CRAM bank 0 (256 entries, file is already BE BGR555|0x8000) */
-    for (i = 0; i < 256; ++i)
-        cram[i] = (Uint16)(((Uint16)palBytes[i * 2] << 8) | palBytes[i * 2 + 1]);
+    /* palette -> CRAM bank 0 (256 entries, file is already BE BGR555|0x8000);
+     * ALSO snapshot to s_bsp_pal for the per-load re-assert (logo scenes
+     * re-own CRAM bank 0 between loads -- see s_bsp_pal note). */
+    for (i = 0; i < 256; ++i) {
+        Uint16 w = (Uint16)(((Uint16)palBytes[i * 2] << 8) | palBytes[i * 2 + 1]);
+        s_bsp_pal[i] = w;
+        cram[i] = w;
+    }
     /* zero the full 512x256 bitmap (transparent border), 16-bit stores */
     for (i = 0; i < (512 * 256) / 2; ++i)
         vram[i] = 0;
@@ -234,26 +382,46 @@ void p6_vdp2_boot_splash_show(const unsigned char *data, int bytes)
         for (x = 0; x < 320; x += 2)
             dst[x >> 1] = (Uint16)(((Uint16)row[x] << 8) | row[x + 1]);
     }
+    /* BSP2: stash the loop frames in VRAM A1/B0 (16-bit stores; even rw from
+     * the tool). Done AFTER the bg blit so first paint is not delayed. */
+    if (s_bsp_n > 0 && s_bsp_frames_src) {
+        volatile Uint16 *stash = (volatile Uint16 *)P6_BSP_STASH;
+        const unsigned char *fp = s_bsp_frames_src;
+        int nby = s_bsp_n * s_bsp_rw * s_bsp_rh;
+        for (i = 0; i < nby; i += 2)
+            stash[i >> 1] = (Uint16)(((Uint16)fp[i] << 8) | fp[i + 1]);
+        s_bsp_cur = 0;
+    }
     slBitMapNbg0(COL_TYPE_256, BM_512x256, (void *)P6_VDP2_CEL);
     slScrPosNbg0(toFIXED(0), toFIXED(0));
     slPriorityNbg0(1); /* below VDP1 sprites (pri 7): logos composite on top */
     slBack1ColSet((void *)P6_VDP2_BAK, 0x8000); /* black overscan, not blue */
     slScrAutoDisp(NBG0ON);
     p6_bootsplash_active = 1;
+    /* animation driving: masked loads fork the slave loop (load_fork/join
+     * above); ISR-alive phases call p6_bootsplash_anim_tick from the frame. */
 }
 void p6_vdp2_boot_splash_off(void)
 {
     if (!p6_bootsplash_active)
         return;
     p6_bootsplash_active = 0;
+    /* safety: if a load window is somehow still open, stop+join the slave
+     * loop before the title re-owns VRAM (normally load_join already ran). */
+    p6_bootsplash_load_join();
+    s_bsp_n = 0;
     slScrAutoDisp(0); /* = p6_vdp2_blank; the destination scene's arm re-enables */
 }
 void p6_vdp2_arm_sprites_only(void)
 {
     slBack1ColSet((void *)P6_VDP2_BAK, 0x8000); /* black backdrop (model's) */
-    /* BOOT SPLASH: while the splash owns the boot window, keep NBG0 displayed
-     * under the UI-scene VDP1 sprites so the Logos leg does not drop it. */
-    slScrAutoDisp(p6_bootsplash_active ? (NBG0ON | SPRON) : SPRON);
+    /* BOOT SPLASH v2 (user 2026-07-24 "loading screen bleeding through /
+     * playing behind the logos"): the splash is a LOAD COVER, not a logo
+     * backdrop -- display SPRITES ONLY here (logos on black). Each masked
+     * load re-arms NBG0 itself (p6_bootsplash_load_fork; slScrAutoDisp
+     * writes the registers immediately per SCROLL.TXT:80-82, so it works
+     * inside the interrupt-masked window) and drops it again at load_join. */
+    slScrAutoDisp(SPRON);
 }
 #endif
 
