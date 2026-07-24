@@ -151,7 +151,11 @@ def build_surface(stage_dir, scene_name, layer_idxs, out_path):
                 flip_h  = bool(entry & 0x400)
                 flip_v  = bool(entry & 0x800)
                 cx = (TILE_SIZE - 1 - cx_world) if flip_h else cx_world
-                h  = fh[tile_id, cx]
+                # int() so the surf_y arithmetic below runs in Python ints.
+                # NumPy 2 (NEP 50) keeps `pyint + int8` in int8 and raises
+                # OverflowError at 960; NumPy 1 value-promoted to a wider
+                # int, which plain Python ints reproduce exactly.
+                h  = int(fh[tile_id, cx])
                 local_y = (TILE_SIZE - 1 - h) if flip_v else h
                 surf_y[x] = ty * TILE_SIZE + local_y
                 surf_a[x] = fa[tile_id]
