@@ -10,14 +10,16 @@
  * P6.5b3 shape: the Saturn RSDK::DrawSprite backend (p6_io_main.cpp, a
  * mechanical mirror of engine Drawing.cpp:2670-2686 + the FX_NONE arm :2785)
  * calls p6_vdp1_blit(topleftX, topleftY, w, h, sprX, sprY) per draw. Each
- * DISTINCT sheet rect is uploaded to VDP1 exactly once through jo's PROVEN
- * 8bpp path (jo_sprite_add_8bits_image -> __internal_jo_sprite_add(data, w,
- * h, COL_256), sprites.c:237-247) and cached by (sx,sy,w,h); subsequent
- * blits of the same rect only emit the draw command. A per-tick
- * jo_sprite_add would grow __jo_sprite_id without bound -- the #189
- * sprite-table overflow class (jo has NO release-build bounds check).
- * p6_w_vdp1_slots witnesses the cache population (qa_p6_draw.py D5 expects
- * EXACTLY the 16 distinct Ring anim-0 rects after the animator has cycled).
+ * DISTINCT sheet rect is staged to VDP1 once and cached by (sx,sy,w,h);
+ * subsequent blits of the same rect only emit the draw command. DE-JO STEP A
+ * (this session): the sprite TABLE + VRAM allocator are P6-OWNED (p6_texdef[]
+ * + the bounds-checked cursor, see the step-A block below) -- historically
+ * this went through jo's 8bpp path (jo_sprite_add_8bits_image ->
+ * __internal_jo_sprite_add, sprites.c:237-247), whose unbounded append-only
+ * allocator was the #189 sprite-table overflow class (NO release-build bounds
+ * check). p6_w_vdp1_slots witnesses the cache population (qa_p6_draw.py D5
+ * expects EXACTLY the 16 distinct Ring anim-0 rects after the animator has
+ * cycled).
  *
  * Palette: COL_256 sprites read CRAM through jo's palette index. The engine's
  * stage palette already sits in CRAM bank 0 (NBG1's bank, written by
@@ -729,10 +731,10 @@ static int p6_bucket_for(int w, int h)
 typedef struct { P6Vdp1Slot *slots; int n; int bw, bh; } P6Bucket;
 static P6Bucket s_buckets[P6_NB];
 static int s_buckets_prealloc = 0;
-/* Defined below the s_stage/s_fetch cart-buffer declarations (they DMA through s_stage):
- *   p6_title_alloc_box     -- reserve one box-sized jo sprite (permanent slot VRAM).
+/* Defined below (step A: both are P6-allocator-backed, no staging buffer):
+ *   p6_title_alloc_box     -- reserve one box-sized texture (permanent slot VRAM).
  *   p6_title_restage_content -- pack content at content-width stride + set the
- *                              slot's __jo_sprite_def CMDSIZE to content (the fill
+ *                              slot's p6_texdef CMDSIZE to content (the fill
  *                              fix). S3: takes ph (rows to emit; title passes h). */
 static int p6_title_alloc_box(int bw, int bh);
 static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
@@ -810,6 +812,255 @@ static void p6_vdp1_texwrite_gate(void)
     s_texw_safe_vbl = p6_perf_vbl_count + 1u;
 }
 
+/* =============================================================================
+ * DE-JO STEP A (this session) -- P6-OWNED TEXTURE TABLE + VDP1 VRAM ALLOCATOR.
+ *
+ * Replaces jo's sprite machinery for every P6 texture: the jo_sprite_add /
+ * jo_sprite_add_8bits_image / jo_sprite_replace call sites (census at 5cd34e4:
+ * p6_vdp1.c:866, :1043, :1122, :1196, :1646) and the direct __jo_sprite_def[]
+ * reads/writes (:926, :970-974, :1382-1383, :1450-1451, :1687, :2333,
+ * :2613-2620, :2715-2722) are gone from this TU. Model: R11's saturn-tools
+ * VRAM bump allocator (saturn-tools/saturn/lib/vdp1/saturn_vdp1.c:237-339 --
+ * cursor + per-color-mode byte sizing + content-sized TEXDEF encoding), with
+ * jo's exact byte math so the pool/bucket LAYOUT IS UNCHANGED this step:
+ * per-sprite bytes = (((w*h*4) >> cmode) + 0x1f) & 0x7ffe0 (jo sprites.c:71-75
+ * __jo_get_next_sprite_address, 0x20-aligned; cmode COL_32K=1/COL_256=2,
+ * SL_DEF.H:373-377), base = JO_VDP1_TEXTURE_DEF_BASE_ADDRESS = 0x10000
+ * (sprites.c:198), adr = offset/8, size = JO_MULT_BY_32(w & 0x1f8) | h
+ * (sprites.c:209-212 __internal_jo_sprite_add).
+ *
+ * WHY (the retired traps):
+ *  - jo's allocator has NO release-build bounds check (#189 class: the JO_DEBUG
+ *    JO_MAX_SPRITE guard at sprites.c:189-195 compiles out) and no VRAM-end
+ *    check AT ALL -- overflow silently stomps whatever follows. Every P6 alloc
+ *    now bounds-checks id AND cursor (p6_w_tex_allocfail counts refusals).
+ *  - jo's allocator is APPEND-ONLY off the PREVIOUS sprite's LIVE TEXDEF
+ *    (sprites.c:199-205), so the content-restage shrink (S3) made any later
+ *    add land INSIDE an earlier slot's reserved box: the 1ce3b80 flagged
+ *    hazard -- the TitleCard glyph cache + FillScreen sprites derived their
+ *    addresses from the catch-all bucket's restage-SHRUNKEN TEXDEF and sat
+ *    inside its 39,680 B box; any future >176-wide GHZ draw restaging the
+ *    catch-all would stomp them. Fixed structurally below: glyphs get their
+ *    OWN compile-time-reserved region DISJOINT from every pool box (layout
+ *    constants + _Static_assert + the boot-time cursor==region-base check).
+ *
+ * CAPACITY TRUTH: the real user-area limit is JO_VDP1_USER_AREA_END_ADDR -
+ * JO_VDP1_VRAM = 0x7FEF8 (sega_saturn.h:123), i.e. 458,488 B above the
+ * 0x10000 base -- NOT the JO_VDP1_USER_AREA_SIZE 0x71D38 = 466,232 B constant
+ * the earlier VRAM-map comments used (0x10000 + 0x71D38 = 0x81D38 overruns the
+ * 512 KB VDP1 VRAM; jo's SIZE constant is bogus as a capacity figure). Under
+ * the honest limit the chain pool (447,488 B) leaves 11,000 B -- which is why
+ * the DIRECT-list flavors drop the FillScreen sprites' VRAM entirely (they
+ * draw Comm=4 flat polygons, p6_dl_poly; the 3 16x16 COL_32K sprites were
+ * dead 1,536 B) so the glyph region gets all 11,000 B >= the enumerated GHZ
+ * TitleCard worst 10,496 B (p6_wave1_reg.c TC_ZONE/TC_NAME/TC_ACTNUM tables:
+ * 4 zone letters 32x18-pw = 2,304 + "GREEN HILL" distinct G,R,E,N,H,L 16x32
+ * + I 8x32 = 3,328 + act deco 64x64 = 4,096 + act-1 digit 16x48 = 768).
+ *
+ * BOOT HANDOFF (step A scope): boot remains jo's -- jo_core_init still passes
+ * __jo_sprite_def to slInitSystem (core.c:192) and owns it until step E. The
+ * P6 table takes over AFTER boot, at the first P6 texture alloc (first bind /
+ * first glyph); jo's own allocator never runs again (zero jo_sprite_add calls
+ * remain in this TU, and the hand-port TUs' add sites never execute under
+ * P6_ENGINE_SHIPPING -- the S3 invariant, now total). p6_tex_alloc_box latches
+ * jo_get_last_sprite_id() == -1 as the handoff proof (p6_w_tex_layoutbad).
+ *
+ * SGL-TABLE COHERENCE (why the jo shadow-writes below exist): SGL's
+ * slDispSprite does NOT read jo's table by name -- it reads the TEXTURE table
+ * POINTER registered at slInitSystem, which core.c:192 sets to
+ * (TEXTURE *)__jo_sprite_def itself; the draw resolves attr->texno against
+ * that registered pointer. jo's own attribute builder additionally reads
+ * __jo_sprite_pic[texno].color_mode (sprites.c:341-358) to pick the PMOD CCM
+ * bits + colno. The plain flavor's ONLY draw path is jo_sprite_draw3D ->
+ * slDispSprite (p6_vdp1_blit* below), so for every P6 texture id BOTH jo
+ * entries must stay coherent until step E swaps slInitSystem to the P6 table.
+ * Resolution: P6 ids ARE indices into __jo_sprite_def (bounded <=
+ * JO_MAX_SPRITE, asserted), p6_texdef[] is the AUTHORITY (every P6-internal
+ * read below uses it), and p6_tex_shadow() mirrors each alloc/restage into
+ * __jo_sprite_def/__jo_sprite_pic -- a write-only shadow, never read back.
+ *
+ * EDSR contract (97de23d): every VRAM write this block performs (the prealloc
+ * box zero-fill, the fill-sprite stage) goes through p6_vdp1_texwrite_gate().
+ *
+ * WITNESSES (step-A oracle): p6_w_tex_hiwater = max bytes of the user area
+ * ever occupied ([base, top) high-water; plain expects exactly 163,840 = 40 x
+ * 4,096; chain expects 447,488 + staged glyph bytes = 457,984 at the settled
+ * GHZ card, ceiling 458,488). p6_w_tex_allocfail = bounds-refused allocs
+ * (MUST stay 0). p6_w_tex_layoutbad = 0, or the runtime pool-cursor top when
+ * it disagrees with the compile-time region base (macro-vs-P6_BUCK drift), or
+ * -1 when jo's allocator ran before the handoff (foreign jo_sprite_add).
+ * ========================================================================== */
+typedef struct {
+    unsigned short width;   /* Hsize:  drawn width px (mult-8) */
+    unsigned short height;  /* Vsize:  drawn height px */
+    unsigned short adr;     /* CGadr:  VRAM byte offset / 8 */
+    unsigned short size;    /* HVsize: CMDSIZE the hardware rasterises */
+    unsigned short cmode;   /* SGL color mode (COL_32K=1 / COL_256=2): byte
+                             * sizing + the jo draw3D CCM pick (shadow) */
+} P6TexDef;
+
+#if defined(P6_DIRECT_VDP1)
+#define P6_TCGLYPH_SLOTS 24 /* hoisted from the GL1 glyph cache (was :1589) so
+                             * the id/region accounting below can count it */
+#define P6_TEX_NGLYPH    P6_TCGLYPH_SLOTS
+#else
+#define P6_TEX_NGLYPH    0
+#endif
+#if defined(P6_FRONTEND_TITLE) && !defined(P6_DIRECT_VDP1)
+#define P6_TEX_NFILL     3  /* black/white/colour FillScreen sprites -- ONLY
+                             * where they are actually drawn (jo_sprite_draw3D
+                             * path); DIRECT flavors draw p6_dl_poly flats and
+                             * never reference a fill texture (see above) */
+#else
+#define P6_TEX_NFILL     0
+#endif
+#if defined(P6_FRONTEND_TITLE)
+#if defined(P6_GHZCUT_TINY_B1)
+#define P6_TEX_NPOOL     (P6_BK0 + P6_BK1 + P6_BKW + P6_BK2 + P6_VDP1_NSLOTS)
+/* box dims MUST mirror P6_BUCK (:680-682); the boot-time cursor check below
+ * catches any drift between this macro and the runtime table. */
+#define P6_TEX_POOL_BYTES (P6_BK0*(16*20) + P6_BK1*(64*80) + P6_BKW*(176*56) \
+                         + P6_BK2*(160*160) + P6_VDP1_NSLOTS*(P6_SPR_MAXW*P6_SPR_MAXH))
+#else
+#define P6_TEX_NPOOL     (P6_BK0 + P6_BK1 + P6_BK2 + P6_VDP1_NSLOTS)
+#define P6_TEX_POOL_BYTES (P6_BK0*(64*80) + P6_BK1*(192*64) + P6_BK2*(160*160) \
+                         + P6_VDP1_NSLOTS*(P6_SPR_MAXW*P6_SPR_MAXH))
+#endif
+#else
+#define P6_TEX_NPOOL     P6_VDP1_NSLOTS
+#define P6_TEX_POOL_BYTES (P6_VDP1_NSLOTS * (P6_SPR_MAXW * P6_SPR_MAXH))
+#endif
+#define P6_TEXDEF_MAX    (P6_TEX_NPOOL + P6_TEX_NFILL + P6_TEX_NGLYPH)
+
+/* VRAM region layout (byte offsets from JO_VDP1_VRAM), pool-first so every
+ * pool/bucket box lands at the EXACT address jo's allocator produced pre-A:
+ *   [P6_TEX_BASE_OFF, +POOL_BYTES)  pool + bucket boxes (cursor, prealloc order)
+ *   [P6_TEX_FILL_OFF, +NFILL*512)   FillScreen 16x16 COL_32K slots (fixed)
+ *   [P6_TEX_GLYPH_OFF, LIMIT)       TitleCard glyph region (content-sized bump)
+ * Disjointness is by construction (each base = previous region's end) --
+ * asserted against the honest VRAM limit, and the runtime prealloc cursor is
+ * checked against P6_TEX_FILL_OFF at boot (p6_w_tex_layoutbad). */
+#define P6_TEX_BASE_OFF   ((unsigned int)JO_VDP1_TEXTURE_DEF_BASE_ADDRESS)
+#define P6_TEX_LIMIT_OFF  ((unsigned int)(JO_VDP1_USER_AREA_END_ADDR - JO_VDP1_VRAM))
+#define P6_TEX_FILL_OFF   (P6_TEX_BASE_OFF + (unsigned int)P6_TEX_POOL_BYTES)
+#define P6_TEX_GLYPH_OFF  (P6_TEX_FILL_OFF + (unsigned int)(P6_TEX_NFILL * 512))
+#define P6_TEX_ALIGN32(b) (((unsigned int)(b) + 0x1fu) & 0x7ffe0u) /* sprites.c:71-75 */
+_Static_assert((P6_TEX_POOL_BYTES & 0x1f) == 0,
+               "pool boxes must be 0x20-multiples so cursor sum == macro sum");
+_Static_assert(P6_TEX_GLYPH_OFF <= P6_TEX_LIMIT_OFF,
+               "pool + fill regions overrun the VDP1 user area");
+#if defined(P6_DIRECT_VDP1)
+_Static_assert(P6_TEX_LIMIT_OFF - P6_TEX_GLYPH_OFF >= 10496,
+               "glyph region below the enumerated GHZ TitleCard demand");
+#endif
+_Static_assert(P6_TEXDEF_MAX <= JO_MAX_SPRITE,
+               "P6 tex ids shadow into __jo_sprite_def until step E");
+
+static P6TexDef     p6_texdef[P6_TEXDEF_MAX];
+static int          s_texdef_n     = 0; /* next free P6 texture id */
+static unsigned int s_tex_cursor   = 0; /* pool bump cursor (byte off); 0 = pre-handoff */
+#if defined(P6_DIRECT_VDP1)
+static unsigned int s_tex_glyphcur = 0; /* glyph region bump cursor; 0 = untouched */
+#endif
+__attribute__((used)) int p6_w_tex_hiwater   = 0; /* max user-area bytes occupied */
+__attribute__((used)) int p6_w_tex_allocfail = 0; /* bounds-refused allocs (stay 0) */
+__attribute__((used)) int p6_w_tex_layoutbad = 0; /* 0 ok / cursor-top mismatch / -1 foreign jo add */
+
+/* Mirror a P6 texdef into jo's tables -- the step-A SGL shadow (see the
+ * coherence note above). Write-only; dies at step E with the slInitSystem swap. */
+static void p6_tex_shadow(const int id)
+{
+    __jo_sprite_def[id].width  = p6_texdef[id].width;
+    __jo_sprite_def[id].height = p6_texdef[id].height;
+    __jo_sprite_def[id].adr    = p6_texdef[id].adr;
+    __jo_sprite_def[id].size   = p6_texdef[id].size;
+    __jo_sprite_pic[id].index      = (unsigned short)id;
+    __jo_sprite_pic[id].color_mode = p6_texdef[id].cmode;
+    __jo_sprite_pic[id].data       = (void *)(JO_VDP1_VRAM + JO_MULT_BY_8(p6_texdef[id].adr));
+}
+
+/* Register texture id at an explicit VRAM offset. Box/content dims; the
+ * CMDSIZE encoding == jo sprites.c:212 == the R11 reference encoder
+ * (saturn_vdp1.c:330-339: size = (width/8)<<8 | height). */
+static int p6_tex_place(const unsigned int off, const unsigned int bytes,
+                        const int pw, const int ph, const int cmode)
+{
+    int id = s_texdef_n;
+    if (id >= P6_TEXDEF_MAX || off + bytes > P6_TEX_LIMIT_OFF) {
+        ++p6_w_tex_allocfail;
+        return -1;
+    }
+    p6_texdef[id].width  = (unsigned short)pw;
+    p6_texdef[id].height = (unsigned short)ph;
+    p6_texdef[id].adr    = (unsigned short)JO_DIV_BY_8(off);
+    p6_texdef[id].size   = (unsigned short)(JO_MULT_BY_32(pw & 0x1f8) | (ph & 0xff));
+    p6_texdef[id].cmode  = (unsigned short)cmode;
+    p6_tex_shadow(id);
+    ++s_texdef_n;
+    if ((int)(off + bytes - P6_TEX_BASE_OFF) > p6_w_tex_hiwater)
+        p6_w_tex_hiwater = (int)(off + bytes - P6_TEX_BASE_OFF);
+    return id;
+}
+
+/* Zero a reserved VRAM range (transparent box; index 0 skips). Synchronous
+ * long-word stores, EDSR-gated (97de23d): the one-time prealloc runs while
+ * display may be live. Doc-legal CPU access (ST-013-R3 "byte access (VRAM)"). */
+static void p6_tex_zero(const unsigned int off, const unsigned int bytes)
+{
+    volatile unsigned int *dst = (volatile unsigned int *)(JO_VDP1_VRAM + off);
+    unsigned int i, n = bytes >> 2;
+    p6_vdp1_texwrite_gate();
+    for (i = 0; i < n; ++i)
+        dst[i] = 0;
+}
+
+/* Pool/bucket box reservation (8bpp): bump the pool cursor. Bounded by the
+ * FILL region base -- a pool overrun can never reach the glyph/fill regions
+ * (the 1ce3b80 stomp class, structurally closed). */
+static int p6_tex_alloc_box(const int bw, const int bh)
+{
+    unsigned int bytes = P6_TEX_ALIGN32(bw * bh); /* COL_256: 1 B/px */
+    int id;
+    if (s_tex_cursor == 0) {
+        /* BOOT HANDOFF POINT: first P6 alloc. jo's allocator must never have
+         * run (see the header note); latch the violation instead of stomping. */
+        if (jo_get_last_sprite_id() != -1)
+            p6_w_tex_layoutbad = -1;
+        s_tex_cursor = P6_TEX_BASE_OFF;
+    }
+    if (s_tex_cursor + bytes > P6_TEX_FILL_OFF) {
+        ++p6_w_tex_allocfail;
+        return -1;
+    }
+    id = p6_tex_place(s_tex_cursor, bytes, bw, bh, COL_256);
+    if (id >= 0) {
+        p6_tex_zero(s_tex_cursor, bytes);
+        s_tex_cursor += bytes;
+    }
+    return id;
+}
+
+#if defined(P6_DIRECT_VDP1)
+/* TitleCard glyph reservation (content-sized, 8bpp) in the DEDICATED glyph
+ * region -- never inside a pool box (the 1ce3b80 fix). No zero-fill needed:
+ * the caller content-restages every byte of pw*h before the first draw. */
+static int p6_tex_alloc_glyph(const int pw, const int h)
+{
+    unsigned int bytes = P6_TEX_ALIGN32(pw * h);
+    int id;
+    if (s_tex_glyphcur == 0)
+        s_tex_glyphcur = P6_TEX_GLYPH_OFF;
+    if (s_tex_glyphcur + bytes > P6_TEX_LIMIT_OFF) {
+        ++p6_w_tex_allocfail;
+        return -1;
+    }
+    id = p6_tex_place(s_tex_glyphcur, bytes, pw, h, COL_256);
+    if (id >= 0)
+        s_tex_glyphcur += bytes;
+    return id;
+}
+#endif /* P6_DIRECT_VDP1 (glyph region) */
+
 /* CP4c BLUE-SCREEN FIX: in the FRONT-END flavor the 192x96 box makes these two
  * buffers 18,432 B each (36 KB total) -- relocate them to a VERIFIED-FREE cart
  * window so .bss (and thus _end vs ANIMPAK) is unchanged. 0x226E0000 is past the
@@ -834,17 +1085,21 @@ static void p6_vdp1_texwrite_gate(void)
  * windows (0x22700000) and the resident-store END (also 0x22700000) -- disjoint.
  * Cache-through alias (written by SH-2, DMA'd into VDP1 VRAM by jo; same producer/
  * consumer property as the GHZ staging copies -> no coherency purge). */
-static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 39,680 B */
+/* STEP A: s_stage (was 0x226E0000) is GONE in the title/Logos flavors too --
+ * its last two writers (the alloc-box zero source, census :864-866, and the
+ * glyph stage copy, census :1624-1630) now write VRAM directly through the
+ * P6 allocator/restage. The 0x226E0000 cart window stays RESERVED-unused this
+ * step (no re-carve; s_fetch keeps its proven address). */
 static unsigned char *const s_fetch = (unsigned char *)0x226EA000u; /* 39,680 B */
 #elif defined(P6_FRONTEND_LOGOS)
-static unsigned char *const s_stage = (unsigned char *)0x226E0000u; /* 18,432 B */
 static unsigned char *const s_fetch = (unsigned char *)0x226E4800u; /* 18,432 B */
 #else
-/* S3 content-sized draws (this session): s_stage is GONE in the plain flavor.
- * The old pool staged every rect into a 64x64 box copy here, then jo_sprite_add/
- * jo_sprite_replace DMA'd the box; the pool now packs content DIRECTLY into the
- * slot's reserved VDP1 VRAM (p6_title_restage_content, the #324 mechanism), so
- * the only remaining zero-source is the one-time prealloc, which uses s_fetch.
+/* S3 content-sized draws: s_stage is GONE in the plain flavor. The old pool
+ * staged every rect into a 64x64 box copy here, then jo_sprite_add/
+ * jo_sprite_replace DMA'd the box; the pool packs content DIRECTLY into the
+ * slot's reserved VDP1 VRAM (p6_title_restage_content, the #324 mechanism).
+ * STEP A: the prealloc no longer zero-DMAs from s_fetch either (p6_tex_zero
+ * writes VRAM directly), so s_fetch is banded-miss fetch ONLY.
  * .bss -4,096 B (plain _end DOWN -- the 1413a42 plain ANIMPAK breach shrinks).
  * +4 tail bytes on s_fetch: the restage shift-merge may read up to 3 bytes past
  * the final row of a full-box banded rect (title flavors pad via their larger
@@ -853,23 +1108,23 @@ static unsigned char s_fetch[P6_SPR_MAXW * P6_SPR_MAXH + 4]; /* banded-miss fetc
 #endif
 
 #if defined(P6_FRONTEND_TITLE)
-/* CP5b.7 content-size (#277): allocate one box-sized jo sprite from a zeroed staging
- * buffer; returns the jo id (the slot's PERMANENT VRAM reservation) or -1. Called only
- * by p6_title_ensure_prealloc -- after prealloc the buckets never jo_sprite_add again,
- * so the append-only allocator (sprites.c:74) runs a fixed 22 times total. */
+/* CP5b.7 content-size (#277): reserve one box-sized texture (the slot's PERMANENT
+ * VRAM reservation); returns the P6 tex id or -1. Called only by
+ * p6_title_ensure_prealloc. STEP A: was jo_sprite_add_8bits_image off a zeroed
+ * s_stage copy (census :866); now the P6 cursor reserves the box and zeroes the
+ * VRAM directly (p6_tex_zero, EDSR-gated) -- no staging copy, no DMA, and jo's
+ * append-only allocator never runs. Same addresses: the cursor walks the exact
+ * byte math jo walked (see the step-A block). */
 static int p6_title_alloc_box(int bw, int bh)
 {
-    jo_img_8bits img;
-    int n = bw * bh, i;
-    for (i = 0; i < n; ++i) s_stage[i] = 0;   /* transparent box */
-    img.width = bw; img.height = bh; img.data = s_stage;
-    return jo_sprite_add_8bits_image(&img);
+    return p6_tex_alloc_box(bw, bh);
 }
 #endif /* P6_FRONTEND_TITLE (alloc_box; the restage below is ALL-FLAVOR since S3) */
 
-/* Restage a slot's jo sprite to draw at CONTENT size: pack the content rows at content-
+/* Restage a slot's sprite to draw at CONTENT size: pack the content rows at content-
  * width (mult-8) STRIDE into the slot's reserved VRAM, and set the slot's
- * __jo_sprite_def {width=Hsize, height=Vsize, size=HVsize} to the content TEXDEF.
+ * p6_texdef {width=Hsize, height=Vsize, size=HVsize} to the content TEXDEF
+ * (step A; p6_tex_shadow mirrors it into the SGL-registered jo table).
  * The slot's adr (CGadr, VRAM base) is unchanged -- the box reservation (boxw*boxh) holds
  * the smaller content (content fits its bucket). VDP1 then rasterises ONLY content rows/
  * cols (the 39% box padding is gone). Returns the mult-8 padded width (the drawn width).
@@ -922,8 +1177,11 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
      * gate on EDSR.CEF before touching VDP1 VRAM (see p6_vdp1_texwrite_gate). */
     p6_vdp1_texwrite_gate();
     {
+        /* STEP A: the slot's reserved base comes from the P6-owned table
+         * (census :926 read __jo_sprite_def[jo_id].adr). adr never changes
+         * post-alloc, so the P6 entry is the authority. */
         unsigned int dstA = (unsigned int)JO_VDP1_VRAM
-                          + (unsigned int)JO_MULT_BY_8(__jo_sprite_def[jo_id].adr);
+                          + (unsigned int)JO_MULT_BY_8(p6_texdef[jo_id].adr);
         for (y = 0; y < h; ++y) {
             volatile unsigned int *dst =
                 (volatile unsigned int *)(dstA + (unsigned int)(y * pw));
@@ -967,11 +1225,15 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
                 dst[x >> 2] = 0;
         }
     }
-    __jo_sprite_def[jo_id].width  = (unsigned short)pw;
-    __jo_sprite_def[jo_id].height = (unsigned short)ph;
+    p6_texdef[jo_id].width  = (unsigned short)pw;
+    p6_texdef[jo_id].height = (unsigned short)ph;
     /* HVsize TEXDEF (== jo __internal_jo_sprite_add:212 / SGL ST-238-R1 TEXDEF macro):
-     * the hardware CMDSIZE VDP1 rasterises. pw is mult-8 so (pw & 0x1f8) == pw (pw<=504). */
-    __jo_sprite_def[jo_id].size   = (unsigned short)(JO_MULT_BY_32(pw & 0x1f8) | (ph & 0xff));
+     * the hardware CMDSIZE VDP1 rasterises. pw is mult-8 so (pw & 0x1f8) == pw (pw<=504).
+     * STEP A: was the direct __jo_sprite_def CMDSIZE mutation (census :970-974);
+     * the P6 table is the authority now, and p6_tex_shadow keeps the SGL-registered
+     * jo table coherent for the plain flavor's slDispSprite path (step-A block). */
+    p6_texdef[jo_id].size   = (unsigned short)(JO_MULT_BY_32(pw & 0x1f8) | (ph & 0xff));
+    p6_tex_shadow(jo_id);
 #if defined(P6_FRONTEND_MENU)
     p6_w_rst_cyc += (int)(unsigned short)(p6_perf_frt_get() - _rt0);
 #endif
@@ -992,17 +1254,19 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
  * fill cost == the drawn CMDSIZE area, NOT the slot's VRAM footprint.
  *
  * WHY prealloc: jo's VDP1 allocator (__jo_get_next_sprite_address,
- * sprites.c:74) is APPEND-ONLY and derives the NEXT sprite's VRAM address
- * from the PREVIOUS sprite's live __jo_sprite_def dims. Content-restaging
- * SHRINKS a slot's TEXDEF, so any jo_sprite_add after the first restage would
- * overlap the shrunk slot's box tail. Reserving all P6_VDP1_NSLOTS boxes up
- * front (contiguous, one-time, at first bind) retires the allocator for good
- * -- the exact #277 eager-prealloc rationale, now applied to the plain pool.
- * INVARIANT (documented, #189-adjacent): no jo_sprite_add may run after this
- * prealloc in pool flavors. Runtime-verified for the plain/P6SCENE builds:
- * the hand-port TUs' jo_sprite_add sites (src/mania, src/rsdk atlases) never
- * execute under P6_ENGINE_SHIPPING (p6_engine_boot_and_run path), and the
- * front-end fill/glyph allocators are P6_FRONTEND_* / P6_GHZCUT-gated out.
+ * sprites.c:74) was APPEND-ONLY and derived the NEXT sprite's VRAM address
+ * from the PREVIOUS sprite's live TEXDEF dims. Content-restaging SHRINKS a
+ * slot's TEXDEF, so any add after the first restage would overlap the shrunk
+ * slot's box tail. Reserving all P6_VDP1_NSLOTS boxes up front (contiguous,
+ * one-time, at first bind) retires that hazard -- the exact #277 rationale.
+ * STEP A (this session): the allocator itself changed OWNER -- the boxes now
+ * come from the P6 cursor (p6_tex_alloc_box, step-A block above), which walks
+ * jo's exact byte math (same addresses) but bounds-checks every reservation
+ * and never derives from a live TEXDEF, so the shrink-overlap class is closed
+ * at the allocator, not just by prealloc discipline. The old INVARIANT ("no
+ * jo_sprite_add after prealloc", #189-adjacent) is now TOTAL: zero
+ * jo_sprite_add calls remain in this TU; the hand-port TUs' add sites never
+ * execute under P6_ENGINE_SHIPPING (p6_engine_boot_and_run path).
  *
  * DESIGN DECISION vs the S3 spec's 16/32/48/64 bucket pools: the FRD census
  * (all 15 cd/*.FRD directories, 1,637 frames) shows 96% of GHZ-working-set
@@ -1019,35 +1283,36 @@ static int p6_title_restage_content(int jo_id, const unsigned char *srcPx,
  * dropping -- fixing them needs bigger boxes or multi-part splits, a separate
  * increment.
  *
- * VDP1 VRAM MAP (plain, after this change -- unchanged footprint): jo user
- * area base -> 40 slots x 4,096 B = 163,840 B reserved contiguously at first
- * bind; no other plain texture users; JO_VDP1_USER_AREA_SIZE 466,232 B ->
- * 302,392 B margin. (Chain flavors keep their own bucket tables; this block
- * compiles ONLY where p6_slot_for routes to p6_pool_for, i.e. plain + Logos.)
+ * VDP1 VRAM MAP (plain, after this change -- unchanged footprint): user area
+ * base 0x10000 -> 40 slots x 4,096 B = 163,840 B reserved contiguously at
+ * first bind; no other plain texture users; honest capacity 458,488 B
+ * (JO_VDP1_USER_AREA_END_ADDR - base, step-A block) -> 294,648 B margin.
+ * (Chain flavors keep their own bucket tables; this block compiles ONLY where
+ * p6_slot_for routes to p6_pool_for, i.e. plain + Logos.)
  * ========================================================================== */
 static int s_pool_prealloc = 0;
 static int p6_pool_prealloc(void)
 {
-    jo_img_8bits img;
-    int i, n = P6_SPR_MAXW * P6_SPR_MAXH;
+    int i;
     if (s_pool_prealloc) return 1;
-    /* One zeroed source serves every add (identical bytes -> the async
-     * jo_dma_copy overlap across consecutive adds is content-harmless); a
-     * bind-time slDMAWait closes even that window before s_fetch's first
-     * banded reuse. */
-    for (i = 0; i < n; ++i) s_fetch[i] = 0;
-    img.width  = P6_SPR_MAXW;
-    img.height = P6_SPR_MAXH;
-    img.data   = s_fetch;
+    /* STEP A: was 40 x jo_sprite_add_8bits_image off a zeroed s_fetch (census
+     * :1043) + slDMAWait; now the P6 cursor reserves each box and zeroes its
+     * VRAM directly (p6_tex_alloc_box -> p6_tex_zero, EDSR-gated) -- same
+     * addresses, no DMA, no staging source, s_fetch untouched (banded-fetch
+     * only from here on). */
     for (i = 0; i < P6_VDP1_NSLOTS; ++i) {
-        s_slots[i].jo_id = jo_sprite_add_8bits_image(&img);
+        s_slots[i].jo_id = p6_tex_alloc_box(P6_SPR_MAXW, P6_SPR_MAXH);
         if (s_slots[i].jo_id < 0)
             ++p6_w_vdp1_joaddfail; /* W14 class; slot stays -1 -> pool drops it */
         s_slots[i].sheet   = -1;
         s_slots[i].sx = s_slots[i].sy = s_slots[i].w = s_slots[i].h = -1;
         s_slots[i].lastUse = 0;
     }
-    slDMAWait();
+    /* Boot-time layout proof (step A): the runtime cursor top must equal the
+     * compile-time reserved-region base -- pool and glyph/fill regions are
+     * disjoint or this witness fires. */
+    if (s_tex_cursor != P6_TEX_FILL_OFF)
+        p6_w_tex_layoutbad = (int)s_tex_cursor;
     s_pool_prealloc = 1;
     return 1;
 }
@@ -1093,14 +1358,21 @@ static int p6_pool_prealloc(void)
  *    (black -> fade -> reveal, with a white flash before the logo).
  *
  * FRONT-END-ONLY (the whole helper is #if defined(P6_FRONTEND_TITLE)); the GHZ
- * flavor's FillScreen stays the p6_stubs.cpp no-op (it has no intro). The two
- * 16x16 sprites cost 2*512 B of VDP1 VRAM, allocated lazily on first fade frame.
- * ========================================================================== */
+ * flavor's FillScreen stays the p6_stubs.cpp no-op (it has no intro). The
+ * 16x16 sprites cost 512 B each of VDP1 VRAM, allocated lazily on first fade
+ * frame FROM THE FIXED FILL REGION (step A -- was jo_sprite_add, census :1122,
+ * which chained them off the catch-all bucket's restage-shrunken TEXDEF: the
+ * 1ce3b80 flagged stomp hazard, now structurally impossible). DIRECT-list
+ * flavors compile the sprite machinery OUT entirely: the fill draws a Comm=4
+ * flat polygon (p6_dl_poly) that references no texture, so the 1,536 B were
+ * dead VRAM -- refunded to the glyph region (step-A capacity note). */
+#if !defined(P6_DIRECT_VDP1)
 static int            s_fillSprBlack = -2; /* -2 = not yet attempted */
 static int            s_fillSprWhite = -2;
 static int            s_fillSprColor = -2; /* M1b: the menu backdrop solid-colour sprite */
 static unsigned short s_fillColorKey = 0;  /* last RGB555 the colour sprite was filled with */
-static unsigned short s_fillPx[16 * 16];
+static int            s_filln        = 0;  /* fill-region slots handed out (<= P6_TEX_NFILL) */
+#endif
 /* M1b backdrop diag: count fill draws by class + latch the colour sprite's id/key, so a
  * savestate can localise why the menu backdrop is black (colour-branch reached? sprite
  * alloc ok? what colour?). FRONT-END only (the whole helper is P6_FRONTEND_TITLE). */
@@ -1110,17 +1382,40 @@ __attribute__((used)) int p6_w_fill_drawn   = 0; /* calls that reached jo_sprite
 __attribute__((used)) int p6_w_fill_colorid = -3;/* s_fillSprColor (>=0 == colour sprite alloc'd) */
 __attribute__((used)) int p6_w_fill_colorkey = 0;/* last colour RGB555 (e.g. gold) */
 
+#if !defined(P6_DIRECT_VDP1)
+/* STEP A: solid-colour (re)stage -- synchronous u16 stores straight into the
+ * slot's fixed fill-region VRAM, EDSR-gated (97de23d: a menu-backdrop re-tint
+ * can land mid-display). Replaces the s_fillPx stage + jo_sprite_add /
+ * jo_sprite_replace DMA (census :1122/:1196). MSB(0x8000) already set by the
+ * caller -> opaque texels. */
+static int p6_fill_stage(int id, unsigned short rgb555)
+{
+    volatile unsigned short *dst = (volatile unsigned short *)
+        (JO_VDP1_VRAM + JO_MULT_BY_8(p6_texdef[id].adr));
+    int i;
+    p6_vdp1_texwrite_gate();
+    for (i = 0; i < 16 * 16; ++i)
+        dst[i] = rgb555;
+    return id;
+}
+
 static int p6_fill_make(unsigned short rgb555)
 {
-    jo_img img;
-    int i;
-    for (i = 0; i < 16 * 16; ++i)
-        s_fillPx[i] = rgb555; /* MSB(0x8000) already set by the caller -> opaque */
-    img.width  = 16;
-    img.height = 16;
-    img.data   = s_fillPx;
-    return jo_sprite_add(&img); /* COL_32K RGB direct-colour sprite */
+    int id;
+    if (s_filln >= P6_TEX_NFILL) {
+        ++p6_w_tex_allocfail;
+        return -1;
+    }
+    /* COL_32K 16x16 = 512 B; fixed slot in the reserved fill region (never
+     * inside a pool box -- the 1ce3b80 fix). */
+    id = p6_tex_place(P6_TEX_FILL_OFF + (unsigned int)s_filln * 512u, 512u,
+                      16, 16, COL_32K);
+    if (id < 0)
+        return -1;
+    ++s_filln;
+    return p6_fill_stage(id, rgb555);
 }
+#endif /* !P6_DIRECT_VDP1 (fill sprites exist only where they are drawn) */
 
 /* M1b: RGB888 (the decomp color, 0xRRGGBB) -> RGB555 with the MSB visible bit. */
 static unsigned short p6_rgb888_to_555(unsigned int c)
@@ -1138,7 +1433,10 @@ static void p6_dl_poly(unsigned short rgb555, int x0, int y0, int x1, int y1,
 #endif
 __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int aG, int aB)
 {
-    int sum, avg, spr;
+    int sum, avg;
+#if !defined(P6_DIRECT_VDP1)
+    int spr;
+#endif
     unsigned int rb = (color >> 16) & 0xFF, gb = (color >> 8) & 0xFF, bb = color & 0xFF;
     int isBlack = (rb == 0 && gb == 0 && bb == 0);
     int isWhite = (rb >= 0xE0 && gb >= 0xE0 && bb >= 0xE0); /* Flash 0xF0F0F0 / near-white */
@@ -1164,14 +1462,38 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
                  * invisible; sum<3 (avg==0) reproduces that exactly and leaves
                  * every real fade ramp (sum >= 3) untouched. */
 
+    avg = sum / 3;
+#if defined(P6_DIRECT_VDP1)
+    /* #316 F1: the fill is a Comm=4 flat polygon in the direct list (exact,
+     * no scale-20 hack). Painter order replaces the Z logic below: the menu
+     * backdrop (drawGroup 0) emits FIRST = behind; the black/white fades
+     * (last drawGroup) emit LAST = on top -- the decomp's own draw order.
+     * STEP A: the poly references NO texture, so the DIRECT flavors no longer
+     * allocate the fill sprites at all (census :1122/:1196 sites removed;
+     * VRAM refunded to the glyph region). The witnesses keep their meaning;
+     * colorid latches the -4 sentinel = "DIRECT, no sprite backing". */
+    {
+        unsigned short c = isBlack ? 0x8000
+                         : (isWhite ? 0xFFFF : p6_rgb888_to_555(color));
+        if (!isBlack && !isWhite) {
+            ++p6_w_fill_color;
+            p6_w_fill_colorid  = -4;
+            p6_w_fill_colorkey = (int)c;
+        }
+        p6_dl_poly(c, -160, -120, 159, -120, 159, 103, -160, 103, (avg < 170));
+        ++p6_w_fill_drawn;
+        return;
+    }
+#else
     /* COLOUR SELECT (3 cases):
      *  - black (TitleSetup/MenuSetup FadeBlack 0x000000) -> the lazy black sprite.
      *  - near-white (TitleSetup Flash 0xF0F0F0) -> the lazy white sprite.
      *  - ANY OTHER colour (M1b: UIBackground_DrawNormal's FillScreen(bgColor) -- the
      *    Mania main-menu GOLD 0xF0C800, etc.) -> a single re-tintable colour sprite,
-     *    re-filled in place via jo_sprite_replace only when the colour changes (the menu
-     *    backdrop colour is constant per menu, so this re-fills ~once). This makes the
-     *    UIBackground backdrop render its real colour instead of being thresholded black. */
+     *    re-filled in place (p6_fill_stage, step A -- was jo_sprite_replace) only when
+     *    the colour changes (the menu backdrop colour is constant per menu, so this
+     *    re-fills ~once). This makes the UIBackground backdrop render its real colour
+     *    instead of being thresholded black. */
     if (isBlack) {
         if (s_fillSprBlack == -2)
             s_fillSprBlack = p6_fill_make((unsigned short)(0x8000 | 0x0000));
@@ -1190,10 +1512,7 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
             s_fillColorKey = key;
         }
         else if (key != s_fillColorKey && s_fillSprColor >= 0) {
-            jo_img img; int i;                    /* re-tint in place (no new alloc) */
-            for (i = 0; i < 16 * 16; ++i) s_fillPx[i] = key;
-            img.width = 16; img.height = 16; img.data = s_fillPx;
-            jo_sprite_replace(&img, s_fillSprColor);
+            p6_fill_stage(s_fillSprColor, key);   /* re-tint in place (no new alloc) */
             s_fillColorKey = key;
         }
         spr = s_fillSprColor;
@@ -1201,22 +1520,7 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
         p6_w_fill_colorkey = (int)key;
     }
     if (spr < 0)
-        return; /* alloc failed (VRAM full) -> skip rather than draw garbage */
-
-    avg = sum / 3;
-#if defined(P6_DIRECT_VDP1)
-    /* #316 F1: the fill is a Comm=4 flat polygon in the direct list (exact,
-     * no scale-20 hack). Painter order replaces the Z logic below: the menu
-     * backdrop (drawGroup 0) emits FIRST = behind; the black/white fades
-     * (last drawGroup) emit LAST = on top -- the decomp's own draw order. */
-    {
-        unsigned short c = isBlack ? 0x8000
-                         : (isWhite ? 0xFFFF : p6_rgb888_to_555(color));
-        p6_dl_poly(c, -160, -120, 159, -120, 159, 103, -160, 103, (avg < 170));
-        ++p6_w_fill_drawn;
-        return;
-    }
-#endif
+        return; /* alloc failed (region full) -> skip rather than draw garbage */
     /* 16x16 sprite * uniform 20.0 = 320x320 -> covers the 320x240 frame, centred.
      * Z-DEPTH: the black/white intro fades (TitleSetup/MenuSetup Draw, the LAST
      * drawGroup) must composite ON TOP of the content -> Z=450 (the content Z), where
@@ -1232,6 +1536,7 @@ __attribute__((used)) void p6_fillscreen_saturn(unsigned int color, int aR, int 
     jo_sprite_disable_half_transparency();
     jo_sprite_restore_sprite_scale();
     ++p6_w_fill_drawn;
+#endif /* !P6_DIRECT_VDP1 (jo sprite fill path) */
 }
 #endif
 
@@ -1379,8 +1684,8 @@ static void p6_dl_sprite(int jid, int x, int y, int flipX, int flipY, int palblk
     p[2]  = (unsigned short)(0x00A0u | (s_dl_ink ? (unsigned int)p6_ink_pmod : 0u)); /* PMOD */
     if (s_dl_ink) ++p6_w_ink_cmds;
     p[3]  = (unsigned short)(palblk << 8);                       /* CMDCOLR = bank */
-    p[4]  = __jo_sprite_def[jid].adr;                            /* CMDSRCA */
-    p[5]  = __jo_sprite_def[jid].size;                           /* CMDSIZE */
+    p[4]  = p6_texdef[jid].adr;                                  /* CMDSRCA (step A: P6 table) */
+    p[5]  = p6_texdef[jid].size;                                 /* CMDSIZE (step A: P6 table) */
     p[6]  = (unsigned short)(short)(x - 160);                    /* XA */
     p[7]  = (unsigned short)(short)(y - 120);                    /* YA */
     p[8] = p[9] = p[10] = p[11] = p[12] = p[13] = p[14] = 0;
@@ -1447,8 +1752,8 @@ static void p6_dl_sprite_rot(int jid, int x, int y, int pw, int ph,
     p[2]  = (unsigned short)(0x00A0u | (s_dl_ink ? (unsigned int)p6_ink_pmod : 0u)); /* PMOD (== p6_dl_sprite, #327 MESH) */
     if (s_dl_ink) ++p6_w_ink_cmds;
     p[3]  = (unsigned short)(palblk << 8);                     /* CMDCOLR = bank */
-    p[4]  = __jo_sprite_def[jid].adr;                          /* CMDSRCA */
-    p[5]  = __jo_sprite_def[jid].size;                         /* CMDSIZE */
+    p[4]  = p6_texdef[jid].adr;                                /* CMDSRCA (step A: P6 table) */
+    p[5]  = p6_texdef[jid].size;                               /* CMDSIZE (step A: P6 table) */
     /* Vertices A..D (sec 7.6 order: UL, UR, LR, LL), localcoord origin (160,120). */
     p[6]  = (unsigned short)(short)(x - 160 + ((dxl * cs - dyt * sn) >> 9)); /* XA */
     p[7]  = (unsigned short)(short)(y - 120 + ((dxl * sn + dyt * cs) >> 9)); /* YA */
@@ -1584,25 +1889,31 @@ void p6_dl_rect(int x, int y, int w, int h, int r8, int g8, int b8)
  * (keyed by sx,sy) and NEVER evicts -> after frame 1 every glyph is resident, no
  * per-frame DMA, no tear. Staged CONTENT-EXACT (w x h, not a 64x64 box) from the
  * RESIDENT DISPLAY.SHT (memcpy fetch, no inflate) so pixel-0 transparency handles
- * the letter background. GHZCUT-only; the cache is tiny (24 * 4KB VRAM worst-case,
- * content-exact is far less). */
-#define P6_TCGLYPH_SLOTS 24
+ * the letter background.
+ * STEP A: the glyphs live in the DEDICATED compile-time glyph region
+ * (p6_tex_alloc_glyph) -- 1ce3b80 flagged that jo's append-only chain had
+ * placed them INSIDE the catch-all bucket's restage-shrunken box (any future
+ * >176-wide GHZ draw would stomp them); that class is structurally closed
+ * (region disjointness asserted in the step-A block). Enumerated GHZ demand
+ * 10,496 B of the 11,000 B region (13 distinct glyphs; the region bound is
+ * runtime-checked, overflow counts p6_w_tex_allocfail + drops the glyph
+ * VISIBLY instead of stomping silently). P6_TCGLYPH_SLOTS is defined in the
+ * step-A block (id accounting). */
 static struct { int sx, sy, jo_id; } s_tcglyph[P6_TCGLYPH_SLOTS];
 static int s_tcglyph_n = 0;
 
 static int p6_tcglyph_slot(int sheet, int sx, int sy, int w, int h)
 {
-    int i, x, y;
+    int i;
     const unsigned char *srcPx;
     int srcStride;
     int pw; /* VDP1 8bpp sprite WIDTH must be a multiple of 8 (jo sprites.c:296 +
              * CMDSIZE = width&0x1f8, sprites.c:212). A non-mult-8 glyph (ZONE=26/28,
-             * 'I'=6, 'V'=20 ...) DMAs its true-width rows but the VDP1 reads a
-             * width&~7 stride -> the rows shift -> diagonal garbage. Pad the staged
-             * width UP to the next mult-8, filling the pad columns with index 0
-             * (VDP1-transparent) so the DMA stride == the CMDSIZE stride. */
-    jo_img_8bits img;
-    /* cache hit: this glyph rect was already staged -> reuse (no DMA). */
+             * 'I'=6, 'V'=20 ...) staged at its true width would make the VDP1 read
+             * a width&~7 stride -> the rows shift -> diagonal garbage. The restage
+             * pads the width UP to the next mult-8 with index 0 (VDP1-transparent)
+             * so the packed stride == the CMDSIZE stride. */
+    /* cache hit: this glyph rect was already staged -> reuse (no re-pack). */
     for (i = 0; i < s_tcglyph_n; ++i)
         if (s_tcglyph[i].sx == sx && s_tcglyph[i].sy == sy)
             return s_tcglyph[i].jo_id;
@@ -1621,40 +1932,34 @@ static int p6_tcglyph_slot(int sheet, int sx, int sy, int w, int h)
         srcPx     = s_fetch;
         srcStride = w;
     }
-    /* stage into a PADDED-WIDTH (mult-8) box, content left, index-0 pad right. */
-    for (y = 0; y < h; ++y) {
-        unsigned char *dst = s_stage + y * pw;
-        const unsigned char *src = srcPx + y * srcStride;
-        for (x = 0; x < w; ++x)  dst[x] = src[x];
-        for (; x < pw; ++x)      dst[x] = 0;   /* transparent pad */
-    }
-    slDMAWait(); /* let any prior transfer finish before this add's DMA. */
-    /* diag: hash the FIRST staged glyph's content -> proves the fetch is real
-     * (non-zero, varied) vs all-0/all-255 garbage. + count how many of the pw*h
-     * staged bytes are index 255 (white). */
-    if (s_tcglyph_n == 0) {
-        extern int p6_w_tcg_stagehash; extern int p6_w_tcg_white;
-        unsigned int hh = 5381; int k, nwhite = 0, tot = pw * h;
-        for (k = 0; k < tot; ++k) { hh = ((hh << 5) + hh) ^ s_stage[k]; if (s_stage[k] == 255) ++nwhite; }
-        p6_w_tcg_stagehash = (int)hh;
-        p6_w_tcg_white = (nwhite << 16) | (tot & 0xFFFF);
-    }
-    img.width  = pw;
-    img.height = h;
-    img.data   = s_stage;
     {
-        int id = jo_sprite_add_8bits_image(&img);
+        /* STEP A: reserve content-sized VRAM in the dedicated glyph region and
+         * content-pack STRAIGHT into it (p6_title_restage_content: CEF-gated
+         * synchronous pack, mult-8 pad columns zeroed). Replaces the s_stage
+         * byte-pack + async jo_sprite_add DMA (census :1646) + BOTH slDMAWaits
+         * -- the measured #311/#312 shared-staging-buffer tear class leaves
+         * WITH the buffer (no s_stage, no in-flight DMA to wait out). One-time
+         * per distinct glyph (cache hits never re-pack). NOTE (chain/MENU):
+         * the ~13 one-time glyph packs now tick the p6_w_rst_calls/rst_cyc
+         * restage witnesses -- a one-shot +13, not a per-frame cost. */
+        int id = p6_tex_alloc_glyph(pw, h);
         if (id < 0) { ++p6_w_vdp1_joaddfail; return -1; }
-        /* jo_sprite_add's jo_dma_copy (= slDMACopy) is ASYNC ("terminates soon
-         * after DMA is initiated", ST-238-R1). Multiple glyphs stage into the ONE
-         * s_stage on the SAME frame, so WITHOUT a wait the next glyph overwrites
-         * s_stage while THIS add's DMA is still reading it -> the sprite VRAM gets
-         * the WRONG (later) glyph's bytes (MEASURED: the glyph VRAM read back
-         * all-0xFF = a later all-white-ish stage, not the staged letter). Wait for
-         * THIS add's transfer to finish before returning (so the caller's next
-         * glyph re-stage is safe). Only paid on the one-time cold stage (cache hits
-         * skip this whole path). Mirrors the pool's slDMAWait (p6_vdp1.c:1396). */
-        slDMAWait();
+        p6_title_restage_content(id, srcPx, srcStride, w, h, h);
+        /* diag: hash the FIRST staged glyph's content -> proves the fetch is
+         * real (non-zero, varied) vs all-0/all-255 garbage, + count index-255
+         * (white) bytes. STEP A: hashes the packed VRAM (was the s_stage copy;
+         * identical pw*h bytes incl. pad zeros -- byte reads on VDP1 VRAM are
+         * doc-legal, VDP1 manual), so p6_w_tcg_stagehash keeps its expected
+         * clean-'Z' value 0x267C4BE4. */
+        if (s_tcglyph_n == 0) {
+            extern int p6_w_tcg_stagehash; extern int p6_w_tcg_white;
+            const volatile unsigned char *vr = (const volatile unsigned char *)
+                (JO_VDP1_VRAM + JO_MULT_BY_8(p6_texdef[id].adr));
+            unsigned int hh = 5381; int k, nwhite = 0, tot = pw * h;
+            for (k = 0; k < tot; ++k) { hh = ((hh << 5) + hh) ^ vr[k]; if (vr[k] == 255) ++nwhite; }
+            p6_w_tcg_stagehash = (int)hh;
+            p6_w_tcg_white = (nwhite << 16) | (tot & 0xFFFF);
+        }
         s_tcglyph[s_tcglyph_n].sx    = sx;
         s_tcglyph[s_tcglyph_n].sy    = sy;
         s_tcglyph[s_tcglyph_n].jo_id = id;
@@ -1665,7 +1970,7 @@ static int p6_tcglyph_slot(int sheet, int sx, int sy, int w, int h)
 /* GL1 glyph diagnostics (read live to root-cause the glyph render). */
 __attribute__((used)) int p6_w_tcg_n       = 0;  /* distinct glyphs staged */
 __attribute__((used)) int p6_w_tcg_lastjid = -1; /* jo id of the last glyph drawn */
-__attribute__((used)) int p6_w_tcg_lastsz  = 0;  /* __jo_sprite_def[jid].size (CMDSIZE) */
+__attribute__((used)) int p6_w_tcg_lastsz  = 0;  /* p6_texdef[jid].size (CMDSIZE; step A) */
 __attribute__((used)) int p6_w_tcg_lastwh  = 0;  /* (w<<16)|h requested */
 __attribute__((used)) int p6_w_tcg_stagehash = 0;/* djb2 of the FIRST glyph's stage bytes */
 __attribute__((used)) int p6_w_tcg_white     = 0;/* (whiteCount<<16)|totalPx of the FIRST glyph */
@@ -1684,7 +1989,7 @@ void p6_dl_glyph(int sheet, int x, int y, int w, int h, int sx, int sy, int palb
         return;
     p6_w_tcg_n       = s_tcglyph_n;
     p6_w_tcg_lastjid = jid;
-    p6_w_tcg_lastsz  = (int)__jo_sprite_def[jid].size;
+    p6_w_tcg_lastsz  = (int)p6_texdef[jid].size; /* step A: P6 table */
     p6_w_tcg_lastwh  = (w << 16) | (h & 0xFFFF);
     ++p6_w_vdp1_landed;
     ++p6_w_vdp1_cmds;
@@ -1997,8 +2302,9 @@ void p6_vdp1_frontend_pal_reset(void)
  * P6_SPR_MAXH VRAM box and the slot's TEXDEF shrinks to content, so VDP1
  * rasterises w(pad8) x h(pad-even) instead of the 64x64 box (the massport-plan
  * S3 RED 77,824 box-px/frame). jo_sprite_replace + the box stage copy are
- * GONE from this path; jo_sprite_add runs exactly NSLOTS times, at prealloc
- * (#189 overflow class structurally closed). A BOUND rect always gets a slot;
+ * GONE from this path; the NSLOTS boxes are reserved once at prealloc (step A:
+ * by the bounds-checked P6 allocator -- #189 overflow class structurally
+ * closed at the allocator itself). A BOUND rect always gets a slot;
  * p6_w_vdp1_drops still only fires on an oversize frame (>64x64, the
  * documented pre-existing exception class) or a banded-fetch failure. The
  * per-frame working set (~20 distinct rects) is far below P6_VDP1_NSLOTS, so
@@ -2330,7 +2636,7 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
      * hot-loop diagnostic -> NOSCAN-stripped from shipping (P6_NOSCAN= to re-arm). */
     if (s_sheets[sheet].shtSlot == 11 && !s_sheets[sheet].px) {
         const volatile unsigned char *vr = (const volatile unsigned char *)
-            (JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[b->slots[victim].jo_id].adr));
+            (JO_VDP1_VRAM + JO_MULT_BY_8(p6_texdef[b->slots[victim].jo_id].adr));
         unsigned int hh = 5381; int k, n = pw * h;
         for (k = 0; k < n; ++k) hh = ((hh << 5) + hh) ^ vr[k];
         p6_w_g11_stage[(p6_w_g11_n - 1) & 3] = (int)hh;
@@ -2362,8 +2668,9 @@ static int p6_title_pool_for(P6Bucket *b, int sheet, int sx, int sy, int w, int 
 /* Reserve every bucket slot's VRAM (box footprint) exactly once, before any draw.
  * Returns 1 on success. Builds s_buckets[] (binding each P6Bucket to its slot array +
  * box dims) and content-stages NOTHING yet (the slots start empty: sheet=-1). After
- * this runs, jo_sprite_add is never called again for the buckets (see the eager-
- * prealloc rationale above), so per-(re)stage __jo_sprite_def mutation is safe. */
+ * this runs, no further box is ever reserved (step A: the P6 cursor allocator --
+ * see p6_tex_alloc_box; jo's allocator never runs), so per-(re)stage p6_texdef
+ * mutation is safe. */
 static int p6_title_ensure_prealloc(void)
 {
     int bi, si, id;
@@ -2396,6 +2703,11 @@ static int p6_title_ensure_prealloc(void)
     /* p6_w_vdp1_slots tracks bucket-3 occupancy in the witnesses; the slots are now all
      * reserved, so mark it full (the LRU victim path -- not cold-fill -- serves it). */
     s_buck0n = P6_BK0; s_buck1n = P6_BK1; s_buck2n = P6_BK2; p6_w_vdp1_slots = P6_VDP1_NSLOTS;
+    /* Boot-time layout proof (step A): runtime cursor top == compile-time
+     * reserved-region base, or the P6_TEX_POOL_BYTES macro drifted from the
+     * P6_BUCK table -- the glyph/fill disjointness guarantee depends on it. */
+    if (s_tex_cursor != P6_TEX_FILL_OFF)
+        p6_w_tex_layoutbad = (int)s_tex_cursor;
     s_buckets_prealloc = 1;
     return 1;
 }
@@ -2604,20 +2916,20 @@ void p6_vdp1_blit(int sheet, int x, int y, int w, int h, int sx, int sy)
 
 #if defined(P6_FRONTEND_TITLE)
     /* task #326 HEAD-VRAM forensic: for the head rect (496,636,110,120), read the
-     * ACTUAL staged VDP1 VRAM the head command will reference (__jo_sprite_def[jid]
-     * .adr, size) and count non-transparent (index != 0) bytes. headvram_nz == 0 ->
-     * the head's staged sprite is BLANK (the invisible head despite a valid, in-front,
-     * correctly-placed command). Byte reads on VDP1 VRAM are doc-legal (VDP1 manual). */
+     * ACTUAL staged VDP1 VRAM the head command will reference (p6_texdef[jid]
+     * .adr, size; step A) and count non-transparent (index != 0) bytes. headvram_nz
+     * == 0 -> the head's staged sprite is BLANK (the invisible head despite a valid,
+     * in-front, correctly-placed command). Byte reads on VDP1 VRAM are doc-legal. */
     if (h >= 100 && w >= 100 && sy >= 400) {
         const volatile unsigned char *vr = (const volatile unsigned char *)
-            (JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[jid].adr));
-        unsigned short cs = __jo_sprite_def[jid].size; /* (w/8)<<8 | h */
+            (JO_VDP1_VRAM + JO_MULT_BY_8(p6_texdef[jid].adr));
+        unsigned short cs = p6_texdef[jid].size; /* (w/8)<<8 | h (step A: P6 table) */
         int vw = ((cs >> 8) & 0x3F) * 8, vh = cs & 0xFF;
         int k, n = vw * vh, nz = 0;
         for (k = 0; k < n; ++k) if (vr[k] != 0) ++nz;
         p6_w_headvram_nz   = nz;
         p6_w_headvram_wh   = (vw << 16) | (vh & 0xFFFF);
-        p6_w_headvram_adr  = __jo_sprite_def[jid].adr;
+        p6_w_headvram_adr  = p6_texdef[jid].adr;
         p6_w_headvram_jid  = jid;
     }
 #endif
@@ -2712,14 +3024,14 @@ void p6_vdp1_blit_flipped(int sheet, int x, int y, int w, int h, int sx, int sy,
      * VDP1 VRAM non-transparent bytes. nz==0 -> the head's staged content is BLANK. */
     if (h >= 100 && w >= 100 && sy >= 400) {
         const volatile unsigned char *vr = (const volatile unsigned char *)
-            (JO_VDP1_VRAM + JO_MULT_BY_8(__jo_sprite_def[jid].adr));
-        unsigned short cs = __jo_sprite_def[jid].size;
+            (JO_VDP1_VRAM + JO_MULT_BY_8(p6_texdef[jid].adr));
+        unsigned short cs = p6_texdef[jid].size; /* step A: P6 table */
         int vw = ((cs >> 8) & 0x3F) * 8, vh = cs & 0xFF;
         int k, n = vw * vh, nz = 0;
         for (k = 0; k < n; ++k) if (vr[k] != 0) ++nz;
         p6_w_headvram_nz  = nz;
         p6_w_headvram_wh  = (vw << 16) | (vh & 0xFFFF);
-        p6_w_headvram_adr = __jo_sprite_def[jid].adr;
+        p6_w_headvram_adr = p6_texdef[jid].adr;
         p6_w_headvram_jid = jid;
     }
 #endif
